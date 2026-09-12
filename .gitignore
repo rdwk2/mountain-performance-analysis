@@ -1,0 +1,58 @@
+# ─────────────────────────────────────────────────────────────
+# DONNÉES PERSONNELLES — ne doivent jamais entrer dans le repo
+# (elles vivent dans le dossier pointé par MPA_DATA_DIR)
+# ─────────────────────────────────────────────────────────────
+data/
+*.fit
+*.gpx
+*.tcx
+# exception : les fixtures synthétiques des tests sont commitées
+!tests/fixtures/**/*.gpx
+!tests/fixtures/**/*.fit
+
+# secrets
+.env
+.env.*
+!.env.example
+*.token
+.garminconnect/
+credentials*
+secrets*
+
+# sorties et exports
+outputs/
+exports/
+*.parquet
+*.duckdb
+
+# ─────────────────────────────────────────────────────────────
+# Python
+# ─────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+.python-version
+
+# outils
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.hypothesis/
+
+# notebooks
+.ipynb_checkpoints/
+
+# ─────────────────────────────────────────────────────────────
+# Éditeurs et OS
+# ─────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
+.DS_Store

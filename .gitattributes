@@ -1,0 +1,17 @@
+# Le dépôt impose LF, partout, y compris dans la copie de travail.
+# Python, git, VS Code et PowerShell s'en accommodent très bien sous Windows.
+* text=auto eol=lf
+
+# Sauf les scripts Windows, qui veulent du CRLF
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Binaires : ne jamais convertir quoi que ce soit
+*.png     binary
+*.jpg     binary
+*.pdf     binary
+*.fit     binary
+*.parquet binary
+*.xlsx    binary
+*.zip     binary
