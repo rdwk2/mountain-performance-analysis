@@ -44,6 +44,11 @@ select = [
     "RUF", # règles propres à ruff
     "PT",  # flake8-pytest-style
 ]
+# RUF001-003 restent actives : elles attrapent les homoglyphes (un « а » cyrillique
+# dans un identifiant, une espace insécable dans une chaîne), vrai risque dans du
+# code. On n'exempte que la typographie française et mathématique voulue dans les
+# docstrings et commentaires.
+allowed-confusables = ["×", "−", "’", "…", "–"]
 
 [tool.mypy]
 # Strict sur src/ (exigence du projet). tests/ passe aussi : pytest et hypothesis

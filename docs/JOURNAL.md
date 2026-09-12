@@ -16,6 +16,24 @@ Backtest (à partir de M4) : métrique avant → après.
 
 ---
 
+### 2026-09-13 · Ménage post-M0
+Sans logique métier. Ruff : `allowed-confusables = × − ’ … –` avec un commentaire
+qui dit pourquoi RUF001-003 restent actives (homoglyphes) ; le `×` du docstring
+de `units` et le `−` d'un commentaire de `test_units`, retirés au M0 pour faire
+passer le lint, sont remis. Contre-épreuve : une espace insécable dans une chaîne
+est toujours refusée. `CLAUDE.md` règle 8 : convention de titre de PR
+`M<n> — <nom du jalon>`. `BACKLOG.md` : cinq lignes ajoutées (README « Méthode »,
+signature SSH, hook `PreToolUse` sur le dossier de données, worktree M6a/M6b,
+skill de la boucle effet → backtest), protection de `main` cochée.
+Vérifié : `.claude/settings.local.json` n'est pas suivi par git, rien à ignorer.
+Environnement : le certificat intercepté se contourne avec `UV_SYSTEM_CERTS=1`
+(drapeau `--system-certs`), désormais posée au niveau utilisateur — Claude
+Desktop doit être relancé complètement pour la voir. Après déplacement du dossier
+du projet, les lanceurs du `.venv` (`mypy.exe`) gardaient l'ancien chemin :
+`uv sync --locked --reinstall` les régénère.
+Conclusion : `just check` vert (32 tests) à chaque commit. Rangé dans
+`pyproject.toml`, `CLAUDE.md`, `BACKLOG.md`, branche `chore/menage-post-m0`.
+
 ### 2026-09-12 · M0 — Fondations
 Socle technique posé, sans logique métier : `pyproject.toml` en src-layout géré
 par uv (Python 3.12+, aucune dépendance de calcul), ruff + mypy strict, `justfile`
