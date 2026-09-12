@@ -28,7 +28,22 @@ Chaque effet ajouté au modèle est validé contre des temps de passage réels.
 
 ## Installation
 
-*(à compléter au jalon M0)*
+Prérequis : [`uv`](https://docs.astral.sh/uv/) et `git`. Python 3.12 est installé
+par uv si besoin.
+
+```bash
+git clone git@github.com:rdwk2/mountain-performance-analysis.git
+cd mountain-performance-analysis
+uv tool install rust-just   # installe la commande `just`
+uv sync                     # crée .venv et installe les dépendances de dev
+cp .env.example .env        # puis renseigne MPA_DATA_DIR dans .env
+just check                  # lint + types + tests : doit être vert
+```
+
+`MPA_DATA_DIR` pointe vers le dossier de données, **hors du dépôt** (voir la
+section Données). `just` charge `.env` automatiquement ; sous Windows, écris le
+chemin avec des barres obliques (`C:/Users/...`). Les tests n'en ont pas besoin :
+ils ne touchent jamais aux données réelles.
 
 ## Utilisation
 
@@ -54,7 +69,11 @@ Les tests utilisent uniquement les fixtures synthétiques de `tests/fixtures/`.
 ## Développement
 
 ```bash
-just check   # lint + types + tests
+just check   # lint + types + tests — LA commande
+just lint    # ruff check + ruff format --check
+just types   # mypy strict
+just test    # pytest
+just fmt     # formatage et corrections automatiques
 ```
 
 Voir [`CLAUDE.md`](CLAUDE.md) pour les conventions.

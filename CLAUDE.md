@@ -140,8 +140,14 @@ $MPA_DATA_DIR/
   `docs/decisions/0002-unites.md`, qui explique pourquoi (min/km diverge en montée
   raide et casse les produits du modèle).
 - Unités **explicites dans les noms** : `distance_m`, `speed_ms`, `duration_s`,
-  `elevation_m`, `vam_mh`, `grade` (fraction, pas pourcentage). Une variable
-  d'unité ambiguë est un bug en attente.
+  `elevation_m`, `vertical_speed_ms`, `grade` (fraction, pas pourcentage). Une
+  variable d'unité ambiguë est un bug en attente.
+- `vertical_speed_ms` est **signée** ; une seule grandeur pour la montée et la
+  descente. « VAM » est une étiquette d'affichage, pas un nom de variable.
+- `grade = Δaltitude / distance horizontale`, `speed_ms` est la vitesse
+  horizontale ; cette convention doit être **identique** à la construction de la
+  courbe (M6b) et à son application au GPX (M2/M3) — un mélange des deux crée un
+  biais systématique qui croît avec la pente.
 - Les conversions se font **aux frontières** (lecture de fichier, affichage),
   jamais au milieu d'un calcul.
 - Les paramètres du modèle sont **déclaratifs** (un schéma, pas des constantes

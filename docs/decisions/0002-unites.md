@@ -53,11 +53,20 @@ c'était de mélanger, pas de choisir l'un ou l'autre.
 **Règles pratiques :**
 
 - toute variable porte son unité dans son nom : `speed_ms`, `distance_m`,
-  `duration_s`, `elevation_m`, `grade` (fraction, pas pourcentage), `vam_mh`
+  `duration_s`, `elevation_m`, `grade` (fraction, pas pourcentage),
+  `vertical_speed_ms`
+- `grade = Δaltitude / distance horizontale` et `speed_ms` est la vitesse
+  **horizontale** (celle que donne un GPX, distance 2D). La vitesse verticale en
+  découle : `vertical_speed_ms = speed_ms × grade`
+- `vertical_speed_ms` est **signée** : positive en montée, négative en descente.
+  Il n'y a donc pas de variable séparée pour la descente. « VAM » (Velocità
+  Ascensionale Media) est une **étiquette d'affichage** pour le cas positif,
+  jamais un nom de variable
 - les fichiers de courbe en km/h sont convertis **à la lecture**, une fois
 - une couche de formatage sépare le calcul de l'affichage :
   - `format_pace(speed_ms)` → `"5:42 /km"`
-  - `format_vam(speed_ms, grade)` → `"620 m/h"`
+  - `format_vam(vertical_speed_ms)` → `"620 m/h"` — la vitesse verticale étant
+    déjà verticale, le formateur n'a pas besoin de la pente
 - l'affichage choisit selon le régime : **VAM en montée soutenue** (min/km n'a
   aucun sens sur un mur), **min/km sur le plat et le roulant**
 - ces fonctions de conversion sont écrites et testées dès le M0 : elles servent

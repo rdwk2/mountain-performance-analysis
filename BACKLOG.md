@@ -32,6 +32,7 @@ Format : `- [ ] (jalon visé) idée — pourquoi`
 - [ ] Détecter et signaler les activités aberrantes (GPS perdu, pause oubliée, tapis)
 - [ ] Températures : croiser météo de l'activité et capteur de la montre, voir lequel prédit le mieux
 - [ ] Import de traces autres que Garmin (GPX/FIT génériques) pour ne pas être enfermé
+- [ ] (M6b) Vérifier empiriquement si le `sumDistance` de Garmin est une distance 2D ou 3D : recalculer la distance depuis le flux de positions et comparer. Toute la convention de pente en dépend (cf. docs/decisions/0002-unites.md) — un écart passerait inaperçu et biaiserait le modèle d'autant plus que la pente est forte.
 
 ## Outil et interface
 
@@ -39,6 +40,8 @@ Format : `- [ ] (jalon visé) idée — pourquoi`
 - [ ] (M9) Export d'une table de marche imprimable (l'ancien projet produisait une fiche PDF utile en course)
 - [ ] Points de ravitaillement / waypoints du GPX affichés dans le tableau de passages
 - [ ] Plan hydrique et nutrition dérivé du temps par segment et de la température
+- [ ] (M3/M5) Choisir le format d'affichage selon le régime : VAM en montée soutenue, min/km sur le plat et le roulant — le seuil de pente est un paramètre du modèle, pas une constante du formateur
+- [ ] (M3) `format_duration(duration_s)` → `"1:23:45"` pour les tableaux de temps de passage
 
 ## Long terme — hors périmètre actuel
 
@@ -47,3 +50,10 @@ Format : `- [ ] (jalon visé) idée — pourquoi`
 - [ ] Corrélations données santé (HRV, sommeil, stress) × charge d'entraînement
 - [ ] Déploiement en ligne : question ouverte de l'import et de la conservation des données d'autres utilisateurs
 - [ ] Planification d'entraînement à partir du modèle
+
+## Outillage et dépôt
+
+- [ ] Commiter un `.vscode/settings.json` minimal (`"files.eol": "\n"`) et ajuster le `.gitignore`, qui exclut aujourd'hui tout `.vscode/` — évite de recréer des fichiers CRLF à la main
+- [ ] Activer la protection de la branche `main` : exiger une pull request, puis ajouter l'exigence de CI verte une fois que le workflow a tourné au moins une fois
+- [ ] Garde CI qui échoue si un fichier de données (`.gpx`, `.fit`, `.json` d'activité, `.csv`) apparaît hors de `tests/fixtures/` — la règle 1 vérifiée mécaniquement, pas par vigilance
+- [ ] (M2/M6b) Aides `raw_dir()`, `interim_dir()`, `processed_dir()`, `routes_dir()`, `reference_dir()` dérivées de `config.data_dir()` quand un premier lecteur en aura besoin
