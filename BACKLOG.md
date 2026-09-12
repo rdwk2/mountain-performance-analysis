@@ -47,3 +47,8 @@ Format : `- [ ] (jalon visé) idée — pourquoi`
 - [ ] Corrélations données santé (HRV, sommeil, stress) × charge d'entraînement
 - [ ] Déploiement en ligne : question ouverte de l'import et de la conservation des données d'autres utilisateurs
 - [ ] Planification d'entraînement à partir du modèle
+
+## Outillage et dépôt
+
+- [ ] Commiter un `.vscode/settings.json` minimal (`"files.eol": "\n"`) et ajuster le `.gitignore`, qui exclut aujourd'hui tout `.vscode/` — évite de recréer des fichiers CRLF à la main
+- [ ] Activer la protection de la branche `main` : exiger une pull request, puis ajouter l'exigence de CI verte une fois que le workflow a tourné au moins une fois
