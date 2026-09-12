@@ -1,0 +1,29 @@
+# CI : `just check` sur une machine vierge, sans accès aux données personnelles.
+# Elle ne peut être verte que si le code ne dépend d'aucun fichier privé.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v10
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Installer les dépendances (verrouillées)
+        run: uv sync --locked
+
+      - name: Installer just
+        run: |
+          uv tool install rust-just
+          echo "$(uv tool dir --bin)" >> "$GITHUB_PATH"
+
+      - name: just check
+        run: just check
