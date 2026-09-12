@@ -29,7 +29,7 @@ speeds = st.floats(min_value=0.0, max_value=10.0, allow_nan=False, allow_infinit
 pace_speeds = st.floats(
     min_value=0.5, max_value=10.0, allow_nan=False, allow_infinity=False
 )
-# Pentes : -60 % à +60 %.
+# Pentes : −60 % à +60 %.
 grades = st.floats(min_value=-0.6, max_value=0.6, allow_nan=False, allow_infinity=False)
 
 PACE_RE = re.compile(r"^\d+:[0-5]\d /km$")

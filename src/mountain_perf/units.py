@@ -8,7 +8,7 @@ Conventions :
 
 - ``grade`` est une fraction (``0.10`` pour 10 %), égale à Δaltitude / distance
   horizontale ; ``speed_ms`` est la vitesse horizontale.
-- ``vertical_speed_ms = speed_ms * grade`` est **signée** : positive en montée,
+- ``vertical_speed_ms = speed_ms × grade`` est **signée** : positive en montée,
   négative en descente. « VAM » n'est qu'une étiquette d'affichage du cas positif.
 
 Règle de robustesse : **le calcul est strict, l'affichage ne plante jamais.**
