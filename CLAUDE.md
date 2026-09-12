@@ -50,6 +50,9 @@ Python. Usage personnel d'abord, projet portfolio ensuite. Le repo sera rendu pu
    request. La PR est le moment de revue : c'est là que le diff se relit, avec la
    CI verte à côté. Messages de commit préfixés : `feat:` `fix:` `docs:` `test:`
    `refactor:` `build:` `ci:`.
+   Titre de PR : `M<n> — <nom du jalon>` (ex. `M1 — Contrats de données`). Avec
+   « Squash and merge », ce titre devient le message du commit sur `main` : la
+   liste des PR est donc la table des matières du projet.
 
 ---
 
