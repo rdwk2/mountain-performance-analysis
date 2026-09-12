@@ -25,3 +25,30 @@ dev = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 88
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle — erreurs
+    "W",   # pycodestyle — avertissements
+    "F",   # pyflakes
+    "I",   # isort
+    "N",   # pep8-naming
+    "UP",  # pyupgrade
+    "B",   # flake8-bugbear
+    "SIM", # flake8-simplify
+    "RUF", # règles propres à ruff
+    "PT",  # flake8-pytest-style
+]
+
+[tool.mypy]
+# Strict sur src/ (exigence du projet). tests/ passe aussi : pytest et hypothesis
+# sont typés, le coût est nul et ça attrape les coquilles de fixtures.
+files = ["src", "tests"]
+python_version = "3.12"
+strict = true
+warn_unreachable = true
