@@ -321,8 +321,8 @@ class RouteProfile:
 
     Non promis
     ----------
-    - le pas n'est **pas** exactement constant : le dernier intervalle est plus
-      court, la longueur du tracé n'étant pas un multiple du pas ;
+    - le pas n'est **pas** exactement constant sur le dernier intervalle — la
+      longueur du tracé n'est pas un multiple du pas ;
     - l'altitude est lissée : elle ne correspond pas point par point au fichier, et
       le D+ total d'ici diffère de celui du fichier, parfois de plusieurs centaines
       de mètres (``docs/PIEGES_DATA.md``) ;
