@@ -25,3 +25,7 @@ test:
 fmt:
     uv run ruff check --fix .
     uv run ruff format .
+
+# Régénère docs/DICTIONNAIRE_DONNEES.md depuis les docstrings des schémas
+dictionary:
+    uv run python scripts/data_dictionary.py
