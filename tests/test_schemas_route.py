@@ -4,6 +4,7 @@ Un test par invariant dur (chacun attend ``ContractError``), les propriétés du
 profil sous Hypothesis, et des exemples sur la fixture « sucette ».
 """
 
+import functools
 import math
 from dataclasses import FrozenInstanceError, fields, replace
 from itertools import pairwise
@@ -334,7 +335,9 @@ def test_profile_stored_fields_are_exactly_the_contract() -> None:
 )
 def test_derived_quantities_are_properties_not_fields(derived: str) -> None:
     assert derived not in {f.name for f in fields(RouteProfile)}
-    assert isinstance(getattr(RouteProfile, derived), property)
+    assert isinstance(
+        getattr(RouteProfile, derived), (property, functools.cached_property)
+    )
 
 
 def test_quality_flags_default_to_empty() -> None:

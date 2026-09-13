@@ -12,6 +12,7 @@ sources (``from __future__ import annotations``), jamais depuis les objets de
 """
 
 import dataclasses
+import functools
 import inspect
 from collections.abc import Mapping
 from enum import Enum
@@ -140,12 +141,13 @@ def _render_dataclass(cls: type) -> list[str]:
     properties = [
         (name, member)
         for name, member in vars(cls).items()
-        if isinstance(member, property)
+        if isinstance(member, (property, functools.cached_property))
     ]
     if properties:
         lines += ["", "| Propriété calculée | Type | Sens |", "|---|---|---|"]
         for name, prop in properties:
-            annotations = prop.fget.__annotations__ if prop.fget else {}
+            getter = prop.fget if isinstance(prop, property) else prop.func
+            annotations = getter.__annotations__ if getter else {}
             annotation = str(annotations.get("return", ""))
             summary = inspect.cleandoc(prop.__doc__ or "").split("\n\n")[0]
             summary = " ".join(summary.split()).replace("``", "`")
