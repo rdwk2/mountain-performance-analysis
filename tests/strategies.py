@@ -20,6 +20,8 @@ from mountain_perf.schemas import (
     ELEVATION_RANGE_M,
     LATITUDE_RANGE_DEG,
     LONGITUDE_RANGE_DEG,
+    ParameterSet,
+    ParameterSpec,
     QualityFlag,
     SourceRef,
     Sport,
@@ -143,3 +145,42 @@ def source_refs() -> st.SearchStrategy[SourceRef]:
         content_hash=sha256_hex(),
         retrieved_at=aware_datetimes(),
     )
+
+
+# ---------------------------------------------------------------------------
+# Paramètres
+# ---------------------------------------------------------------------------
+
+
+def parameter_names() -> st.SearchStrategy[str]:
+    return st.from_regex(r"[a-z][a-z0-9_]{0,15}", fullmatch=True)
+
+
+@st.composite
+def parameter_specs(
+    draw: st.DrawFn, name: st.SearchStrategy[str] | None = None
+) -> ParameterSpec:
+    """Specs inventées : bornes finies ordonnées, défaut entre les deux."""
+    bound_a = draw(finite_floats(-1e6, 1e6))
+    bound_b = draw(finite_floats(-1e6, 1e6))
+    minimum, maximum = min(bound_a, bound_b), max(bound_a, bound_b)
+    return ParameterSpec(
+        name=draw(name if name is not None else parameter_names()),
+        unit=draw(st.one_of(st.none(), st.sampled_from(["m", "s", "m/s", "K"]))),
+        default=draw(finite_floats(minimum, maximum)),
+        minimum=minimum,
+        maximum=maximum,
+        description=draw(non_empty_texts()),
+    )
+
+
+@st.composite
+def parameter_sets(draw: st.DrawFn, max_size: int = 6) -> ParameterSet:
+    """Jeux valides : noms uniques, une partie seulement des valeurs fournies."""
+    names = draw(st.lists(parameter_names(), unique=True, max_size=max_size))
+    specs = tuple(draw(parameter_specs(name=st.just(name))) for name in names)
+    values: dict[str, float] = {}
+    for spec in specs:
+        if draw(st.booleans()):
+            values[spec.name] = draw(finite_floats(spec.minimum, spec.maximum))
+    return ParameterSet(specs=specs, values=values)

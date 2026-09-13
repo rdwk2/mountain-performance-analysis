@@ -14,6 +14,7 @@ from mountain_perf.schemas.common import (
     SourceRef,
     Sport,
 )
+from mountain_perf.schemas.parameters import ParameterSet, ParameterSpec
 from mountain_perf.validation import ContractError
 
 __all__ = [
@@ -23,6 +24,8 @@ __all__ = [
     "QUALITY_FLAG_DESCRIPTIONS",
     "SPORT_DESCRIPTIONS",
     "ContractError",
+    "ParameterSet",
+    "ParameterSpec",
     "QualityFlag",
     "SourceRef",
     "Sport",
