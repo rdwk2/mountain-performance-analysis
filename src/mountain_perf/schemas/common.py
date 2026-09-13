@@ -197,12 +197,17 @@ class SourceRef:
     def __post_init__(self) -> None:
         require_non_empty(self.kind, "kind")
         require_non_empty(self.identifier, "identifier")
-        if any(sep in self.identifier for sep in _PATH_SEPARATORS) or (
-            self.identifier in (".", "..")
-        ):
+        # La valeur reçue n'est volontairement pas citée : un chemin personnel ne
+        # doit pas entrer dans une trace d'exception.
+        if any(sep in self.identifier for sep in _PATH_SEPARATORS):
             raise ContractError(
-                "identifier doit être un nom de fichier, jamais un chemin, "
-                f"reçu {self.identifier!r}."
+                "identifier doit être un nom de fichier, pas un chemin "
+                "(séparateur trouvé)."
+            )
+        if self.identifier in (".", ".."):
+            raise ContractError(
+                "identifier doit être un nom de fichier, pas un chemin "
+                "(« . » ou « .. »)."
             )
         if not _SHA256_HEX.fullmatch(self.content_hash):
             raise ContractError(
