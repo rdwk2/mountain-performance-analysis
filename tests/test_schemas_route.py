@@ -249,10 +249,11 @@ def test_profile_mutable_arrays_are_refused(field_name: str) -> None:
         replace(LOLLIPOP_PROFILE, **changes)
 
 
-@given(non_finite_floats())
-def test_profile_non_finite_distance_is_refused(value: float) -> None:
-    distances = _with_value(tuple(LOLLIPOP_PROFILE.distance_m), 3, value)
-    with pytest.raises(ContractError, match=r"distance_m\[3\]"):
+@pytest.mark.parametrize("index", [0, 3, 6])
+@given(value=non_finite_floats())
+def test_profile_non_finite_distance_is_refused(index: int, value: float) -> None:
+    distances = _with_value(tuple(LOLLIPOP_PROFILE.distance_m), index, value)
+    with pytest.raises(ContractError, match=rf"distance_m\[{index}\]"):
         replace(LOLLIPOP_PROFILE, distance_m=distances)
 
 
