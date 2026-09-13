@@ -1,6 +1,7 @@
 """Tests de ParameterSpec et ParameterSet, sur des specs inventées."""
 
 from dataclasses import FrozenInstanceError, replace
+from typing import Any
 
 import pytest
 from hypothesis import given
@@ -135,8 +136,10 @@ def test_duplicate_spec_names_are_refused() -> None:
 
 
 def test_specs_must_be_a_tuple() -> None:
+    # Any : on passe volontairement une list là où le type exige un tuple.
+    mutable_specs: Any = list(SPECS)
     with pytest.raises(ContractError, match="tuple"):
-        ParameterSet(specs=list(SPECS))  # type: ignore[arg-type]
+        ParameterSet(specs=mutable_specs)
 
 
 def test_set_is_frozen_and_its_table_is_read_only() -> None:

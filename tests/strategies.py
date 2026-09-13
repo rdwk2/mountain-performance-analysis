@@ -13,6 +13,7 @@ Deux familles :
 
 import hashlib
 from datetime import datetime, timedelta, timezone
+from itertools import accumulate
 
 from hypothesis import strategies as st
 
@@ -20,9 +21,14 @@ from mountain_perf.schemas import (
     ELEVATION_RANGE_M,
     LATITUDE_RANGE_DEG,
     LONGITUDE_RANGE_DEG,
+    NamedPoint,
     ParameterSet,
     ParameterSpec,
+    PointKind,
     QualityFlag,
+    ResolvedPoint,
+    Route,
+    RouteProfile,
     SourceRef,
     Sport,
 )
@@ -184,3 +190,95 @@ def parameter_sets(draw: st.DrawFn, max_size: int = 6) -> ParameterSet:
         if draw(st.booleans()):
             values[spec.name] = draw(finite_floats(spec.minimum, spec.maximum))
     return ParameterSet(specs=specs, values=values)
+
+
+# ---------------------------------------------------------------------------
+# Tracé
+# ---------------------------------------------------------------------------
+
+
+def named_points() -> st.SearchStrategy[NamedPoint]:
+    return st.builds(
+        NamedPoint,
+        name=non_empty_texts(),
+        latitude_deg=latitudes_deg(),
+        longitude_deg=longitudes_deg(),
+        elevation_m=st.one_of(st.none(), elevations_m()),
+        kind=st.sampled_from(PointKind),
+        raw_type=st.one_of(st.none(), st.text(max_size=20)),
+        cutoff_s=st.one_of(st.none(), finite_floats(1.0, 1e6)),
+        description=st.one_of(st.none(), st.text(max_size=40)),
+    )
+
+
+@st.composite
+def routes(draw: st.DrawFn, max_points: int = 50) -> Route:
+    """Tracés valides : tableaux parallèles en tuples, 2 points au moins."""
+    n = draw(st.integers(min_value=2, max_value=max_points))
+    return Route(
+        name=draw(non_empty_texts()),
+        latitude_deg=tuple(draw(st.lists(latitudes_deg(), min_size=n, max_size=n))),
+        longitude_deg=tuple(draw(st.lists(longitudes_deg(), min_size=n, max_size=n))),
+        elevation_m=tuple(draw(st.lists(elevations_m(), min_size=n, max_size=n))),
+        named_points=tuple(draw(st.lists(named_points(), max_size=4))),
+        source=draw(source_refs()),
+    )
+
+
+def resolved_points(
+    max_distance_m: float, point: st.SearchStrategy[NamedPoint] | None = None
+) -> st.SearchStrategy[ResolvedPoint]:
+    """Passages valides dont l'abscisse est dans ``[0, max_distance_m]``."""
+    return st.builds(
+        ResolvedPoint,
+        point=point if point is not None else named_points(),
+        distance_m=finite_floats(0.0, max_distance_m),
+        elevation_m=elevations_m(),
+        offset_m=finite_floats(0.0, 1e4),
+    )
+
+
+@st.composite
+def route_profiles(
+    draw: st.DrawFn, max_points: int = 60, duplicate_named_point: bool = False
+) -> RouteProfile:
+    """Profils valides.
+
+    Grille : incréments de 0,1 m à 1 km depuis 0, donc strictement croissante.
+    Si ``duplicate_named_point``, un même ``NamedPoint`` est résolu à deux abscisses
+    distinctes, en plus des autres passages.
+    """
+    n = draw(st.integers(min_value=2, max_value=max_points))
+    increments = draw(
+        st.lists(finite_floats(0.1, 1000.0), min_size=n - 1, max_size=n - 1)
+    )
+    distance_m = tuple(accumulate(increments, initial=0.0))
+    elevation_m = tuple(draw(st.lists(elevations_m(), min_size=n, max_size=n)))
+    passages = draw(st.lists(resolved_points(distance_m[-1]), max_size=5))
+    if duplicate_named_point:
+        place = draw(named_points())
+        a, b = draw(
+            st.lists(
+                finite_floats(0.0, distance_m[-1]), min_size=2, max_size=2, unique=True
+            )
+        )
+        for abscissa in (a, b):
+            passages.append(
+                ResolvedPoint(
+                    point=place,
+                    distance_m=abscissa,
+                    elevation_m=draw(elevations_m()),
+                    offset_m=draw(finite_floats(0.0, 1e4)),
+                )
+            )
+    passages.sort(key=lambda passage: passage.distance_m)
+    return RouteProfile(
+        route_name=draw(non_empty_texts()),
+        source=draw(source_refs()),
+        distance_m=distance_m,
+        elevation_m=elevation_m,
+        resolved_points=tuple(passages),
+        step_m=draw(finite_floats(0.1, 1000.0)),
+        build_parameters=draw(parameter_sets(max_size=3)),
+        quality_flags=draw(quality_flag_sets()),
+    )

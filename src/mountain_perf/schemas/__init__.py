@@ -15,18 +15,32 @@ from mountain_perf.schemas.common import (
     Sport,
 )
 from mountain_perf.schemas.parameters import ParameterSet, ParameterSpec
+from mountain_perf.schemas.route import (
+    POINT_KIND_DESCRIPTIONS,
+    NamedPoint,
+    PointKind,
+    ResolvedPoint,
+    Route,
+    RouteProfile,
+)
 from mountain_perf.validation import ContractError
 
 __all__ = [
     "ELEVATION_RANGE_M",
     "LATITUDE_RANGE_DEG",
     "LONGITUDE_RANGE_DEG",
+    "POINT_KIND_DESCRIPTIONS",
     "QUALITY_FLAG_DESCRIPTIONS",
     "SPORT_DESCRIPTIONS",
     "ContractError",
+    "NamedPoint",
     "ParameterSet",
     "ParameterSpec",
+    "PointKind",
     "QualityFlag",
+    "ResolvedPoint",
+    "Route",
+    "RouteProfile",
     "SourceRef",
     "Sport",
 ]
