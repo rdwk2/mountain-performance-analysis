@@ -13,6 +13,8 @@ le dépôt est publiable à tout moment, sans nettoyage.
   tête ;
 - un commentaire ou un en-tête qui dit ce que la fixture représente et quel test
   s'en sert.
+- des modules Python qui construisent des objets de contrat à la main
+  (ex. `routes.py`), sous les mêmes règles : inventés, minuscules, valeurs rondes.
 
 ## Ce qui est interdit ici
 
