@@ -16,6 +16,28 @@ Backtest (à partir de M4) : métrique avant → après.
 
 ---
 
+### 2026-09-13 · M1a — Contrats du tracé
+Contrats du socle et du tracé, sans E/S ni algorithme. `validation.py` :
+`ContractError` et vérifications génériques (dont `require_finite` sur tout flottant
+et `require_immutable_sequence`, qui refuse une `list` plutôt que de la copier).
+Paquet `schemas/` : `Sport`, `QualityFlag` (trois valeurs définies, aucun détecteur),
+`SourceRef` (nom de fichier jamais chemin, sha256, instant normalisé UTC),
+`ParameterSpec`/`ParameterSet` (complété par les défauts, table en lecture seule),
+`NamedPoint`, `Route`, `ResolvedPoint`, `RouteProfile` — pente et cumuls D+/D− en
+propriétés, un même lieu résolu deux fois autorisé et testé (fixture « sucette »,
+Source traversée à 1 km et 5 km). Stratégies Hypothesis réutilisables dans
+`tests/strategies.py`. Dictionnaire de données généré depuis les docstrings
+(`just dictionary`), avec un test qui rougit si le fichier commité est périmé
+(contre-épreuve faite) ; annotations rendues depuis les chaînes sources pour ne pas
+dépendre de la version de Python. Membres d'enum décrits dans des `Mapping` voisins
+(Python jette les docstrings de membres). Décisions 0003, 0004, 0006, 0007 ; 0005
+laissée libre. mypy : racines `src`/`tests` explicites (`fixtures/routes.py` était vu
+sous deux noms).
+Conclusion : `just check` vert (178 tests). Code de `src/` ≈ 510 lignes hors
+docstrings, au-dessus du seuil de 300 — signalé dans la PR. Rangé dans
+`src/mountain_perf/{validation.py,schemas/}`, `tests/`, `scripts/`,
+`docs/DICTIONNAIRE_DONNEES.md`, `docs/decisions/`, branche `m1a/contrats-trace`.
+
 ### 2026-09-13 · Ménage post-M0
 Sans logique métier. Ruff : `allowed-confusables = × − ’ … –` avec un commentaire
 qui dit pourquoi RUF001-003 restent actives (homoglyphes) ; le `×` du docstring

@@ -97,6 +97,7 @@ just check      # lint + types + tests  ← LA commande. Vert = le projet va bie
 just test       # pytest seul
 just lint       # ruff
 just fmt        # formatage
+just dictionary # régénère docs/DICTIONNAIRE_DONNEES.md depuis les docstrings
 just backtest   # (à partir de M4) erreur du modèle sur le jeu de référence
 ```
 
@@ -106,7 +107,12 @@ just backtest   # (à partir de M4) erreur du modèle sur le jeu de référence
 
 ```
 src/mountain_perf/     le code de la bibliothèque
-  schemas.py           les contrats de données (M1)
+  validation.py        vérifications partagées des contrats, ContractError (M1)
+  schemas/             les contrats de données (M1) — aucune E/S, aucun algorithme
+    common.py          Sport, QualityFlag, SourceRef, plages physiques
+    parameters.py      ParameterSpec, ParameterSet
+    route.py           PointKind, NamedPoint, Route, ResolvedPoint, RouteProfile
+    _dictionary.py     rendu du dictionnaire de données depuis les docstrings
   gpx/                 lecture GPX, profil, grille de pente (M2)
   model/               le moteur de projection (M3, puis M6a, M7)
   backtest/            évaluation contre des performances réelles (M4)
@@ -114,8 +120,11 @@ src/mountain_perf/     le code de la bibliothèque
   ui/                  interface — appelle la bibliothèque, ne calcule rien (M5)
   cli.py
 tests/
+  strategies.py        stratégies Hypothesis des contrats, réutilisées par tous les jalons
   fixtures/            données synthétiques minuscules, commitées
-docs/                  ROADMAP, JOURNAL, PIEGES_DATA, MODELE_V1, decisions/
+scripts/               outillage du dépôt (ex. `just dictionary`), jamais de logique métier
+docs/                  ROADMAP, JOURNAL, PIEGES_DATA, MODELE_V1, decisions/,
+                       DICTIONNAIRE_DONNEES (généré — ne pas éditer à la main)
 notebooks/             exploration uniquement, jamais de logique
 ```
 

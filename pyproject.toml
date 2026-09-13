@@ -53,7 +53,12 @@ allowed-confusables = ["×", "−", "’", "…", "–"]
 [tool.mypy]
 # Strict sur src/ (exigence du projet). tests/ passe aussi : pytest et hypothesis
 # sont typés, le coût est nul et ça attrape les coquilles de fixtures.
-files = ["src", "tests"]
+files = ["src", "tests", "scripts"]
+# tests/ n'est pas un paquet : ses modules partagés (`strategies`, `fixtures.routes`)
+# s'importent comme sous pytest. Sans ces racines explicites, mypy voit
+# `fixtures/routes.py` à la fois comme `routes` et `fixtures.routes`.
+mypy_path = "$MYPY_CONFIG_FILE_DIR/src,$MYPY_CONFIG_FILE_DIR/tests"
+explicit_package_bases = true
 python_version = "3.12"
 strict = true
 warn_unreachable = true

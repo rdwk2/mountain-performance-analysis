@@ -25,6 +25,12 @@ Format : `- [ ] (jalon visé) idée — pourquoi`
 - [ ] (M8) Vérifier la calibration de l'intervalle : ~80 % des temps réels dans le P80, sinon l'intervalle ment
 - [ ] Effet de la technicité du terrain (non capturé par la pente seule) — commencer par regarder si le résidu du backtest corrèle avec quelque chose de mesurable
 - [ ] Sensibilité du modèle : quel paramètre bouge le plus le temps final ? Utile pour savoir où investir
+- [ ] (M6a) Remplacer le facteur d'arrêts global par un temps d'arrêt par point de passage — le contrat arrivée/départ rend le multiplicateur global inapplicable tel quel
+- [ ] (M6a) Distinguer la fatigue subie de la gestion choisie — effort est aujourd'hui constant sur toute la course, ce qui suppose une stratégie plate
+- [ ] (M8) Tester « descente courue vs marchée » comme variable explicative du résidu — distinct de « roulant vs raide », les deux se croisent
+- [ ] (M4) Attention à l'autocorrélation des erreurs sur temps cumulés au moment de choisir la métrique : une erreur précoce est comptée dans tous les cumuls suivants
+- [ ] (M3) Définir l'extrapolation de la courbe hors de sa plage de pentes observées
+- [ ] (M6b/M7) Grit et Flow (dynamique VTT Garmin) comme covariables explicatives du résidu — mesurables a posteriori, non projetables sur un tracé neuf
 
 ## Données et ingestion
 
@@ -33,6 +39,8 @@ Format : `- [ ] (jalon visé) idée — pourquoi`
 - [ ] Températures : croiser météo de l'activité et capteur de la montre, voir lequel prédit le mieux
 - [ ] Import de traces autres que Garmin (GPX/FIT génériques) pour ne pas être enfermé
 - [ ] (M6b) Vérifier empiriquement si le `sumDistance` de Garmin est une distance 2D ou 3D : recalculer la distance depuis le flux de positions et comparer. Toute la convention de pente en dépend (cf. docs/decisions/0002-unites.md) — un écart passerait inaperçu et biaiserait le modèle d'autant plus que la pente est forte.
+- [ ] (M4) Séparer physiquement $MPA_DATA_DIR/reference/ (soi, évaluable) et population/ (446 coureurs, non évaluable)
+- [ ] Contrat pour les données de population, le jour où leur usage sera défini
 
 ## Outil et interface
 
@@ -42,6 +50,8 @@ Format : `- [ ] (jalon visé) idée — pourquoi`
 - [ ] Plan hydrique et nutrition dérivé du temps par segment et de la température
 - [ ] (M3/M5) Choisir le format d'affichage selon le régime : VAM en montée soutenue, min/km sur le plat et le roulant — le seuil de pente est un paramètre du modèle, pas une constante du formateur
 - [ ] (M3) `format_duration(duration_s)` → `"1:23:45"` pour les tableaux de temps de passage
+- [ ] (M5) Remplir PointKind, à la main ou semi-automatiquement — aucune inférence en M1
+- [ ] (M2) Projeter un tracé à l'envers — ce n'est pas renverser la liste, D+ et D− s'échangent
 
 ## Long terme — hors périmètre actuel
 
@@ -50,6 +60,7 @@ Format : `- [ ] (jalon visé) idée — pourquoi`
 - [ ] Corrélations données santé (HRV, sommeil, stress) × charge d'entraînement
 - [ ] Déploiement en ligne : question ouverte de l'import et de la conservation des données d'autres utilisateurs
 - [ ] Planification d'entraînement à partir du modèle
+- [ ] (long terme) BERA : la section « qualité de la neige » est exploitable par extraction de texte ; le risque d'avalanche n'est pas la skiabilité
 
 ## Outillage et dépôt
 

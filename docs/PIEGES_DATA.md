@@ -85,3 +85,15 @@ localement le tracé.
 **La densité d'échantillonnage varie fortement d'une source à l'autre.** Toujours
 rééchantillonner sur une grille à pas fixe avant de calculer quoi que ce soit ;
 un calcul de pente point-à-point sur des points irréguliers donne du bruit.
+
+---
+
+## Performances de référence
+
+**Les conventions de chronométrage sont mélangées dans `passages_tous.csv`.** Les
+temps sont en principe relevés à la **sortie** du ravitaillement, mais certains
+l'ont été à l'arrivée. Un ravito où l'on passe douze minutes produit alors un écart
+de douze minutes qui n'est pas une erreur de modèle — et comme les cumuls
+s'additionnent, il pollue tous les points suivants. Sans le savoir, on cherche un
+effet de fatigue qui n'existe pas. D'où le champ de convention par passage sur
+`ReferencePerformance`, avec `UNKNOWN` comme valeur honnête.
