@@ -642,6 +642,8 @@ L'estimation de courbe (M6b), qui filtre et sélectionne les activités.
 - `utc_offset_s` est le décalage administratif ; l'heure *solaire*, qui compte
   physiquement pour la chaleur et la nuit, en diffère de quelques dizaines de
   minutes sur les Alpes (`docs/decisions/0006`) ;
+- le fuseau d'origine de `start_time` n'est pas conservé : il est ramené à un
+  fuseau à décalage fixe de même instant et de même heure murale ;
 - `quality_flags` vide ne garantit pas l'absence de défaut.
 
 ---
@@ -1059,6 +1061,8 @@ d'incertitude (M8).
 - `utc_offset_s` est le décalage **au départ** : une projection qui franchit un
   changement d'heure calculera les heures locales avec une heure d'écart après la
   bascule ;
+- le fuseau d'origine de `start_time` n'est pas conservé : il est ramené à un
+  fuseau à décalage fixe de même instant et de même heure murale ;
 - l'origine des temps n'est pas garantie nulle (`passages[0].arrival_s`).
 
 ---

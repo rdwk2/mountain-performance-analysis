@@ -11,7 +11,7 @@ from __future__ import annotations
 from bisect import bisect_left, bisect_right
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timezone
 from itertools import pairwise
 
 from mountain_perf.schemas.common import ELEVATION_RANGE_M, UTC_OFFSET_RANGE_S
@@ -264,6 +264,8 @@ class Projection:
     - ``utc_offset_s`` est le décalage **au départ** : une projection qui franchit un
       changement d'heure calculera les heures locales avec une heure d'écart après la
       bascule ;
+    - le fuseau d'origine de ``start_time`` n'est pas conservé : il est ramené à un
+      fuseau à décalage fixe de même instant et de même heure murale ;
     - l'origine des temps n'est pas garantie nulle (``passages[0].arrival_s``).
     """
 
@@ -319,6 +321,10 @@ class Projection:
                 offset.total_seconds(),
                 *UTC_OFFSET_RANGE_S,
                 "décalage de start_time (s)",
+            )
+            # Même instant, même heure murale : seul le fuseau devient à décalage fixe.
+            object.__setattr__(
+                self, "start_time", self.start_time.astimezone(timezone(offset))
             )
         require_aware(self.generated_at, "generated_at")
         object.__setattr__(self, "generated_at", self.generated_at.astimezone(UTC))

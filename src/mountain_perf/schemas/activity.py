@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 
 from mountain_perf.schemas.common import (
     ELEVATION_RANGE_M,
@@ -109,6 +109,8 @@ class Activity:
     - ``utc_offset_s`` est le décalage administratif ; l'heure *solaire*, qui compte
       physiquement pour la chaleur et la nuit, en diffère de quelques dizaines de
       minutes sur les Alpes (``docs/decisions/0006``) ;
+    - le fuseau d'origine de ``start_time`` n'est pas conservé : il est ramené à un
+      fuseau à décalage fixe de même instant et de même heure murale ;
     - ``quality_flags`` vide ne garantit pas l'absence de défaut.
     """
 
@@ -132,6 +134,10 @@ class Activity:
         offset = require_aware(self.start_time, "start_time")
         require_in_range(
             offset.total_seconds(), *UTC_OFFSET_RANGE_S, "décalage de start_time (s)"
+        )
+        # Même instant, même heure murale : seul le fuseau devient à décalage fixe.
+        object.__setattr__(
+            self, "start_time", self.start_time.astimezone(timezone(offset))
         )
         for name in ("elapsed_duration_s", "moving_duration_s"):
             value: float = getattr(self, name)
