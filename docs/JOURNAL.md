@@ -16,6 +16,27 @@ Backtest (à partir de M4) : métrique avant → après.
 
 ---
 
+### 2026-09-14 · M1b — Contrats de la performance
+Contrats du côté athlète et de la sortie, sans E/S ni algorithme de modélisation.
+`Activity` (référence son flux, deux durées pour un résidu attribuable),
+`TrackPointStream` (distance croissante au sens large, 1 point suffit),
+`CurveProvenance`/`PaceCurve` (provenance et `sample_count` portés par la courbe),
+`Passage`/`Segment`/`Projection` (segments en propriété, premier passage à 0 et
+dernier en fin de profil, `departure[i] ≤ arrival[i+1]`, mouvement monotone et
+borné par le temps écoulé), `TimingConvention`/`ObservedPassage`/`ReferencePerformance`
+(convention par passage, `UNKNOWN` légitime). Décidé en cours de route : D+/D−/altitudes
+de segment avec **altitude linéaire entre points de grille** (l'hypothèse de
+`RouteProfile.grade`) ; invariant central sommé sur les arrêts **intérieurs** ; fixture
+hors grille à 1 500 m comme seul oracle chiffré de l'interpolation. **Écart au brief** :
+`utc_offset_s` n'est pas un champ mais une propriété lue sur le fuseau de
+`start_time`, stocké dans son fuseau à décalage fixe — normaliser en UTC puis recouper
+un champ parallèle n'était pas idempotent (`replace` levait). 0006 amendée, 0005 écrite.
+`require_aware` renvoie désormais le décalage. Trois lignes de backlog.
+Conclusion : `just check` vert (346 tests). `src/` ≈ 400 lignes hors docstrings, assumé comme
+au M1a. Rangé dans `src/mountain_perf/schemas/{activity,curve,projection,reference}.py`,
+`tests/`, `tests/fixtures/performance.py`, `docs/decisions/0005-…`, branche
+`m1b/contrats-performance`.
+
 ### 2026-09-13 · M1a — Contrats du tracé
 Contrats du socle et du tracé, sans E/S ni algorithme. `validation.py` :
 `ContractError` et vérifications génériques (dont `require_finite` sur tout flottant

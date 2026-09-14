@@ -50,3 +50,13 @@ ressortir le jour où une course se projette à l'autre bout d'un fuseau.
   (`Activity`, M1b) ; la note sur l'heure solaire y sera reprise en docstring.
 - L'heure solaire (longitude) reste une approximation future si le projet sort des
   Alpes.
+
+> **Note du 2026-09-14 (M1b) — précision du stockage.** *Aware* partout reste la
+> décision. La normalisation en UTC ne s'applique qu'aux instants **sans heure locale
+> signifiante** (`SourceRef.retrieved_at`, `generated_at`). Un instant dont l'heure
+> locale a un sens physique (`Activity.start_time`, `Projection.start_time`) se stocke
+> dans **son fuseau à décalage fixe**, et le décalage est porté par ce fuseau plutôt
+> que par un champ parallèle : `utc_offset_s` est une propriété lue sur le fuseau.
+> Raison : normaliser en UTC puis garder un champ `utc_offset_s` à côté faisait deux
+> sources de vérité (`0007`), dont le recoupement n'était pas idempotent — un objet
+> normalisé ne se re-validait plus.

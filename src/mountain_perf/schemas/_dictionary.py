@@ -20,6 +20,7 @@ from itertools import pairwise
 from types import MappingProxyType
 from typing import Any
 
+from mountain_perf.schemas.activity import Activity, TrackPointStream
 from mountain_perf.schemas.common import (
     QUALITY_FLAG_DESCRIPTIONS,
     SPORT_DESCRIPTIONS,
@@ -27,7 +28,15 @@ from mountain_perf.schemas.common import (
     SourceRef,
     Sport,
 )
+from mountain_perf.schemas.curve import CurveProvenance, PaceCurve
 from mountain_perf.schemas.parameters import ParameterSet, ParameterSpec
+from mountain_perf.schemas.projection import Passage, Projection, Segment
+from mountain_perf.schemas.reference import (
+    TIMING_CONVENTION_DESCRIPTIONS,
+    ObservedPassage,
+    ReferencePerformance,
+    TimingConvention,
+)
 from mountain_perf.schemas.route import (
     POINT_KIND_DESCRIPTIONS,
     NamedPoint,
@@ -57,6 +66,16 @@ DOCUMENTED_TYPES: tuple[type, ...] = (
     Route,
     ResolvedPoint,
     RouteProfile,
+    Activity,
+    TrackPointStream,
+    CurveProvenance,
+    PaceCurve,
+    Passage,
+    Segment,
+    Projection,
+    TimingConvention,
+    ObservedPassage,
+    ReferencePerformance,
 )
 """Types publiés dans le dictionnaire, dans l'ordre de lecture."""
 
@@ -66,6 +85,7 @@ ENUM_DESCRIPTIONS: Mapping[type[Enum], Mapping[Any, str]] = MappingProxyType(
         Sport: SPORT_DESCRIPTIONS,
         QualityFlag: QUALITY_FLAG_DESCRIPTIONS,
         PointKind: POINT_KIND_DESCRIPTIONS,
+        TimingConvention: TIMING_CONVENTION_DESCRIPTIONS,
     }
 )
 """Description des membres de chaque énumération publiée."""
