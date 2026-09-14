@@ -6,7 +6,7 @@ variantes de projection, et les oracles chiffrés des fixtures à 30 km.
 
 import math
 from dataclasses import fields, replace
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 from typing import Any
 
 import pytest
@@ -213,6 +213,13 @@ def test_projection_start_time_offset_out_of_range_is_refused(hours: int) -> Non
 def test_projection_naive_generated_at_is_refused(generated_at: datetime) -> None:
     with pytest.raises(ContractError, match="generated_at"):
         replace(THREE_POINT_PROJECTION, generated_at=generated_at)
+
+
+def test_projection_generated_at_is_normalised_to_utc() -> None:
+    local = datetime(2026, 9, 14, 10, 0, tzinfo=timezone(timedelta(hours=2)))
+    projection = replace(THREE_POINT_PROJECTION, generated_at=local)
+    assert projection.generated_at == datetime(2026, 9, 14, 8, 0, tzinfo=UTC)
+    assert projection.generated_at.tzinfo is UTC
 
 
 def test_projection_utc_offset_is_read_from_start_time() -> None:
