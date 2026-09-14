@@ -27,6 +27,7 @@ from mountain_perf.schemas import (
     Activity,
     CurveProvenance,
     NamedPoint,
+    ObservedPassage,
     PaceCurve,
     ParameterSet,
     ParameterSpec,
@@ -34,11 +35,13 @@ from mountain_perf.schemas import (
     PointKind,
     Projection,
     QualityFlag,
+    ReferencePerformance,
     ResolvedPoint,
     Route,
     RouteProfile,
     SourceRef,
     Sport,
+    TimingConvention,
     TrackPointStream,
 )
 
@@ -509,4 +512,38 @@ def projections(
         start_time=draw(st.one_of(st.none(), aware_datetimes())),
         engine_version=draw(non_empty_texts()),
         generated_at=draw(aware_datetimes()),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Référence
+# ---------------------------------------------------------------------------
+
+
+def observed_passages(
+    elapsed_s: st.SearchStrategy[float] | None = None,
+) -> st.SearchStrategy[ObservedPassage]:
+    return st.builds(
+        ObservedPassage,
+        point_name=non_empty_texts(),
+        elapsed_s=elapsed_s if elapsed_s is not None else finite_floats(0.0, 1e6),
+        distance_m=st.one_of(st.none(), finite_floats(0.0, 1e6)),
+        convention=st.sampled_from(TimingConvention),
+    )
+
+
+@st.composite
+def reference_performances(
+    draw: st.DrawFn, max_passages: int = 10
+) -> ReferencePerformance:
+    """Performances valides : temps écoulés triés, conventions mélangées."""
+    times = sorted(
+        draw(st.lists(finite_floats(0.0, 1e6), min_size=2, max_size=max_passages))
+    )
+    return ReferencePerformance(
+        athlete_ref=draw(non_empty_texts()),
+        event_name=draw(non_empty_texts()),
+        date=draw(st.dates()),
+        passages=tuple(draw(observed_passages(st.just(t))) for t in times),
+        source=draw(source_refs()),
     )

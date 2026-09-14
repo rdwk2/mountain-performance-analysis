@@ -21,6 +21,12 @@ from mountain_perf.schemas.common import (
 from mountain_perf.schemas.curve import CurveProvenance, PaceCurve
 from mountain_perf.schemas.parameters import ParameterSet, ParameterSpec
 from mountain_perf.schemas.projection import Passage, Projection, Segment
+from mountain_perf.schemas.reference import (
+    TIMING_CONVENTION_DESCRIPTIONS,
+    ObservedPassage,
+    ReferencePerformance,
+    TimingConvention,
+)
 from mountain_perf.schemas.route import (
     POINT_KIND_DESCRIPTIONS,
     NamedPoint,
@@ -40,11 +46,13 @@ __all__ = [
     "POINT_KIND_DESCRIPTIONS",
     "QUALITY_FLAG_DESCRIPTIONS",
     "SPORT_DESCRIPTIONS",
+    "TIMING_CONVENTION_DESCRIPTIONS",
     "UTC_OFFSET_RANGE_S",
     "Activity",
     "ContractError",
     "CurveProvenance",
     "NamedPoint",
+    "ObservedPassage",
     "PaceCurve",
     "ParameterSet",
     "ParameterSpec",
@@ -52,11 +60,13 @@ __all__ = [
     "PointKind",
     "Projection",
     "QualityFlag",
+    "ReferencePerformance",
     "ResolvedPoint",
     "Route",
     "RouteProfile",
     "Segment",
     "SourceRef",
     "Sport",
+    "TimingConvention",
     "TrackPointStream",
 ]

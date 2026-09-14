@@ -25,7 +25,11 @@
   altitudes 1000–1200. Sans elle, tous les passages tombent sur la grille et un
   accrochage à la maille la plus proche passerait vert.
 
-Utilisées par ``tests/test_schemas_curve.py`` et ``tests/test_schemas_projection.py``.
+- ``THREE_PASSAGE_REFERENCE`` : une ``ReferencePerformance`` à trois passages, dont
+  un en ``UNKNOWN`` — le cas réel d'un relevé qui ne dit pas sa convention.
+
+Utilisées par ``tests/test_schemas_curve.py``, ``tests/test_schemas_projection.py`` et
+``tests/test_schemas_reference.py``.
 """
 
 from datetime import UTC, date, datetime
@@ -33,15 +37,18 @@ from datetime import UTC, date, datetime
 from mountain_perf.schemas import (
     CurveProvenance,
     NamedPoint,
+    ObservedPassage,
     PaceCurve,
     ParameterSet,
     Passage,
     PointKind,
     Projection,
+    ReferencePerformance,
     ResolvedPoint,
     RouteProfile,
     SourceRef,
     Sport,
+    TimingConvention,
 )
 
 GENERATED_AT = datetime(2026, 9, 14, 8, 0, tzinfo=UTC)
@@ -151,4 +158,25 @@ OFF_GRID_PROJECTION = Projection(
     start_time=None,
     engine_version="fixture",
     generated_at=GENERATED_AT,
+)
+
+# ---------------------------------------------------------------------------
+# Référence
+# ---------------------------------------------------------------------------
+
+THREE_PASSAGE_REFERENCE = ReferencePerformance(
+    athlete_ref="athlete-a",
+    event_name="Trail inventé",
+    date=date(2026, 6, 20),
+    passages=(
+        ObservedPassage("Départ", 0.0, 0.0, TimingConvention.DEPARTURE),
+        ObservedPassage("Ravito A", 4800.0, 12000.0, TimingConvention.UNKNOWN),
+        ObservedPassage("Arrivée", 13200.0, 30000.0, TimingConvention.ARRIVAL),
+    ),
+    source=SourceRef(
+        kind="csv",
+        identifier="passages.csv",
+        content_hash="0" * 64,
+        retrieved_at=GENERATED_AT,
+    ),
 )
