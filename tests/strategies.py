@@ -19,11 +19,14 @@ from hypothesis import strategies as st
 
 from mountain_perf.schemas import (
     ELEVATION_RANGE_M,
+    GRADE_RANGE,
     HEART_RATE_RANGE_BPM,
     LATITUDE_RANGE_DEG,
     LONGITUDE_RANGE_DEG,
     Activity,
+    CurveProvenance,
     NamedPoint,
+    PaceCurve,
     ParameterSet,
     ParameterSpec,
     PointKind,
@@ -353,4 +356,60 @@ def track_point_streams(draw: st.DrawFn, max_points: int = 50) -> TrackPointStre
         heart_rate_bpm=optional(heart_rates_bpm()),
         source=draw(source_refs()),
         quality_flags=draw(quality_flag_sets()),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Courbe
+# ---------------------------------------------------------------------------
+
+
+@st.composite
+def curve_provenances(draw: st.DrawFn) -> CurveProvenance:
+    with_hr = draw(st.booleans())
+    day_a, day_b = draw(st.lists(st.dates(), min_size=2, max_size=2))
+    return CurveProvenance(
+        activity_count=draw(st.integers(min_value=0, max_value=5000)),
+        hr_center_bpm=draw(heart_rates_bpm()) if with_hr else None,
+        hr_width_bpm=draw(finite_floats(0.1, 100.0)) if with_hr else None,
+        date_from=min(day_a, day_b),
+        date_to=max(day_a, day_b),
+        source_activity_types=draw(st.frozensets(st.text(max_size=20), max_size=3)),
+        min_duration_s=draw(st.one_of(st.none(), finite_floats(0.0, 1e5))),
+        estimator=draw(non_empty_texts()),
+        generated_at=draw(aware_datetimes()),
+    )
+
+
+@st.composite
+def pace_curves(draw: st.DrawFn, max_bins: int = 30) -> PaceCurve:
+    """Courbes valides : pentes distinctes triées dans ``[-2, 2]``."""
+    grades = sorted(
+        draw(
+            st.lists(
+                finite_floats(*GRADE_RANGE), min_size=2, max_size=max_bins, unique=True
+            )
+        )
+    )
+    n = len(grades)
+    return PaceCurve(
+        sport=draw(sports()),
+        grade=tuple(grades),
+        speed_ms=tuple(
+            draw(st.lists(finite_floats(0.01, 30.0), min_size=n, max_size=n))
+        ),
+        sample_count=tuple(
+            draw(
+                st.lists(
+                    st.integers(min_value=0, max_value=10**6), min_size=n, max_size=n
+                )
+            )
+        ),
+        dispersion_ms=(
+            tuple(draw(st.lists(finite_floats(0.0, 10.0), min_size=n, max_size=n)))
+            if draw(st.booleans())
+            else None
+        ),
+        estimation=draw(curve_provenances()),
+        source=draw(st.one_of(st.none(), source_refs())),
     )

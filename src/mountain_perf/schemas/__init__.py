@@ -18,6 +18,7 @@ from mountain_perf.schemas.common import (
     SourceRef,
     Sport,
 )
+from mountain_perf.schemas.curve import CurveProvenance, PaceCurve
 from mountain_perf.schemas.parameters import ParameterSet, ParameterSpec
 from mountain_perf.schemas.route import (
     POINT_KIND_DESCRIPTIONS,
@@ -41,7 +42,9 @@ __all__ = [
     "UTC_OFFSET_RANGE_S",
     "Activity",
     "ContractError",
+    "CurveProvenance",
     "NamedPoint",
+    "PaceCurve",
     "ParameterSet",
     "ParameterSpec",
     "PointKind",
