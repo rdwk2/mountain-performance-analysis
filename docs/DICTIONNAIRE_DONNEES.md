@@ -1014,7 +1014,8 @@ les autres en UTC (`docs/decisions/0006`).
   arrival_s[i + 1]` (durée de segment `>= 0`, d'où `arrival_s` et
   `departure_s` croissants), `moving_time_s` croissant au sens large, et
   `moving_time_s[i + 1] - moving_time_s[i] <= arrival_s[i + 1] - departure_s[i]`
-  (on ne bouge pas plus longtemps que le temps écoulé sur le segment) ;
+  à `TIME_TOLERANCE_S` près (on ne bouge pas plus longtemps que le temps écoulé
+  sur le segment) ;
 - `start_time` *aware* si présent, décalage dans `[-43200, 50400]` secondes ;
 - `generated_at` *aware*, normalisé en UTC.
 

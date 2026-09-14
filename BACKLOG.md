@@ -32,6 +32,7 @@ Format : `- [ ] (jalon visé) idée — pourquoi`
 - [ ] (M3) Définir l'extrapolation de la courbe hors de sa plage de pentes observées
 - [ ] (M6b/M7) Grit et Flow (dynamique VTT Garmin) comme covariables explicatives du résidu — mesurables a posteriori, non projetables sur un tracé neuf
 - [ ] (M7) Projection franchissant un changement d'heure : utc_offset_s est figé au départ, les effets d'heure dérivent d'une heure après la bascule — décider si ça compte quand le consommateur existera
+- [ ] (M7) Projection.start_time : quel instant désigne-t-il quand passages[0].arrival_s ≠ 0 — t = 0 ou passages[0].departure_s ? Indifférent en M3, à trancher avant les effets d'heure
 
 ## Données et ingestion
 

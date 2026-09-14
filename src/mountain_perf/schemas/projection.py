@@ -28,6 +28,15 @@ from mountain_perf.validation import (
     require_non_empty,
 )
 
+TIME_TOLERANCE_S = 1e-6
+"""Tolérance des comparaisons entre temps dérivés (secondes).
+
+``Δmoving_time_s`` et ``Δtemps écoulé`` sont deux différences de sommes flottantes :
+mathématiquement égales quand le modèle bouge pendant tout le segment, elles
+divergent d'un ulp selon l'ordre des additions. Une microseconde absorbe cet arrondi
+et reste très en dessous de la seconde d'un chronométrage.
+"""
+
 
 @dataclass(frozen=True)
 class Passage:
@@ -210,7 +219,8 @@ class Projection:
       arrival_s[i + 1]`` (durée de segment ``>= 0``, d'où ``arrival_s`` et
       ``departure_s`` croissants), ``moving_time_s`` croissant au sens large, et
       ``moving_time_s[i + 1] - moving_time_s[i] <= arrival_s[i + 1] - departure_s[i]``
-      (on ne bouge pas plus longtemps que le temps écoulé sur le segment) ;
+      à ``TIME_TOLERANCE_S`` près (on ne bouge pas plus longtemps que le temps écoulé
+      sur le segment) ;
     - ``start_time`` *aware* si présent, décalage dans ``[-43200, 50400]`` secondes ;
     - ``generated_at`` *aware*, normalisé en UTC.
 
@@ -298,7 +308,8 @@ class Projection:
                     f"passages[{i + 1}].moving_time_s doit être >= "
                     f"passages[{i}].moving_time_s."
                 )
-            if b.moving_time_s - a.moving_time_s > b.arrival_s - a.departure_s:
+            elapsed = b.arrival_s - a.departure_s
+            if b.moving_time_s - a.moving_time_s > elapsed + TIME_TOLERANCE_S:
                 raise ContractError(
                     f"Segment {i} : moving_time_s progresse plus que le temps écoulé."
                 )

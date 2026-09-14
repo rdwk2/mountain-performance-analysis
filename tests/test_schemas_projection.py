@@ -239,6 +239,7 @@ def test_projection_utc_offset_is_read_from_start_time() -> None:
         {"min_passages": 50, "max_passages": 50},
         {"same_abscissa": True},
         {"repeated_place": True},
+        {"fractional_times": True},
     ],
     ids=[
         "arrets-nuls",
@@ -248,12 +249,13 @@ def test_projection_utc_offset_is_read_from_start_time() -> None:
         "cinquante-passages",
         "meme-abscisse",
         "lieu-traverse-deux-fois",
+        "temps-fractionnaires",
     ],
 )
 @given(data=st.data())
 def test_central_invariant(variant: dict[str, Any], data: st.DataObject) -> None:
     projection = data.draw(projections(**variant))
-    assert _central_gap(projection) == 0.0
+    assert _central_gap(projection) == pytest.approx(0.0, abs=1e-6)
 
 
 @given(projections(edge_stops=True))

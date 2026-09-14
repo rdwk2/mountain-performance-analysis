@@ -437,6 +437,7 @@ def projections(
     edge_stops: bool = False,
     same_abscissa: bool = False,
     repeated_place: bool = False,
+    fractional_times: bool = False,
 ) -> Projection:
     """Projections valides.
 
@@ -446,7 +447,10 @@ def projections(
     - ``stops`` : arrêts nuls, longs (1 h à 24 h) ou quelconques aux passages ;
     - ``edge_stops`` : arrêt non nul au premier **et** au dernier passage ;
     - ``same_abscissa`` : deux passages consécutifs à la même abscisse ;
-    - ``repeated_place`` : un même lieu nommé à deux passages d'abscisses distinctes.
+    - ``repeated_place`` : un même lieu nommé à deux passages d'abscisses distinctes ;
+    - ``fractional_times`` : durées et arrêts en secondes non entières, le mouvement
+      valant parfois exactement la durée du segment — le cas où l'arrondi flottant
+      fait diverger ``Δmoving_time_s`` et ``Δtemps écoulé`` d'un ulp.
     """
     profile = draw(route_profiles(max_points=20))
     end_m = profile.distance_m[-1]
@@ -474,23 +478,28 @@ def projections(
         )
         places[j] = places[i]
 
-    def stop(index: int) -> int:
+    def seconds(low: float, high: float) -> float:
+        if fractional_times:
+            return draw(finite_floats(low, high))
+        return float(draw(st.integers(min_value=int(low), max_value=int(high))))
+
+    def stop(index: int) -> float:
         if edge_stops and index in (0, n - 1):
-            return draw(st.integers(min_value=1, max_value=_LONG_STOP_S[1]))
+            return seconds(1, _LONG_STOP_S[1])
         if stops == "none":
-            return 0
+            return 0.0
         low = _LONG_STOP_S[0] if stops == "long" else 0
-        return draw(st.integers(min_value=low, max_value=_LONG_STOP_S[1]))
+        return seconds(low, _LONG_STOP_S[1])
 
     passages: list[Passage] = []
-    first_arrival = draw(st.integers(min_value=0, max_value=1000))
-    arrival = float(first_arrival)
-    moving = float(draw(st.integers(min_value=0, max_value=first_arrival)))
+    arrival = seconds(0, 1000)
+    moving = seconds(0, arrival)
     for index in range(n):
         if index > 0:
-            duration = draw(st.integers(min_value=0, max_value=100_000))
+            duration = seconds(0, 100_000)
             arrival = passages[-1].departure_s + duration
-            moving += draw(st.integers(min_value=0, max_value=duration))
+            # Parfois tout le segment en mouvement : le cas limite de l'invariant.
+            moving += duration if draw(st.booleans()) else seconds(0, duration)
         passages.append(
             Passage(
                 point=ResolvedPoint(
@@ -501,7 +510,7 @@ def projections(
                 ),
                 moving_time_s=moving,
                 arrival_s=arrival,
-                departure_s=float(arrival + stop(index)),
+                departure_s=arrival + stop(index),
             )
         )
     return Projection(
