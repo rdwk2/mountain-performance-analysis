@@ -14,6 +14,7 @@ Deux familles :
 import hashlib
 from datetime import datetime, timedelta, timezone
 from itertools import accumulate
+from typing import Literal
 
 from hypothesis import strategies as st
 
@@ -29,7 +30,9 @@ from mountain_perf.schemas import (
     PaceCurve,
     ParameterSet,
     ParameterSpec,
+    Passage,
     PointKind,
+    Projection,
     QualityFlag,
     ResolvedPoint,
     Route,
@@ -412,4 +415,98 @@ def pace_curves(draw: st.DrawFn, max_bins: int = 30) -> PaceCurve:
         ),
         estimation=draw(curve_provenances()),
         source=draw(st.one_of(st.none(), source_refs())),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Projection
+# ---------------------------------------------------------------------------
+
+_LONG_STOP_S = (3600, 86400)
+
+
+@st.composite
+def projections(
+    draw: st.DrawFn,
+    min_passages: int = 2,
+    max_passages: int = 8,
+    stops: Literal["none", "long", "any"] = "any",
+    edge_stops: bool = False,
+    same_abscissa: bool = False,
+    repeated_place: bool = False,
+) -> Projection:
+    """Projections valides.
+
+    Temps en secondes entières (flottants exacts) : les invariants de temps se
+    comparent sans bruit d'arrondi. Options :
+
+    - ``stops`` : arrêts nuls, longs (1 h à 24 h) ou quelconques aux passages ;
+    - ``edge_stops`` : arrêt non nul au premier **et** au dernier passage ;
+    - ``same_abscissa`` : deux passages consécutifs à la même abscisse ;
+    - ``repeated_place`` : un même lieu nommé à deux passages d'abscisses distinctes.
+    """
+    profile = draw(route_profiles(max_points=20))
+    end_m = profile.distance_m[-1]
+    n = draw(st.integers(min_value=min_passages, max_value=max_passages))
+    if same_abscissa:
+        n = max(n, 3)
+    inner = sorted(
+        draw(st.lists(finite_floats(0.0, end_m), min_size=n - 2, max_size=n - 2))
+    )
+    abscissae = [0.0, *inner, end_m]
+    if same_abscissa:
+        j = draw(st.integers(min_value=1, max_value=n - 2))
+        abscissae[j] = abscissae[j - 1]
+    # Un petit vivier de lieux : générer cinquante lieux distincts est trop lent.
+    pool = draw(st.lists(named_points(), min_size=1, max_size=3))
+    places = [draw(st.sampled_from(pool)) for _ in range(n)]
+    if repeated_place:
+        i, j = draw(
+            st.lists(
+                st.integers(min_value=0, max_value=n - 1),
+                min_size=2,
+                max_size=2,
+                unique=True,
+            ).filter(lambda ij: abscissae[ij[0]] != abscissae[ij[1]])
+        )
+        places[j] = places[i]
+
+    def stop(index: int) -> int:
+        if edge_stops and index in (0, n - 1):
+            return draw(st.integers(min_value=1, max_value=_LONG_STOP_S[1]))
+        if stops == "none":
+            return 0
+        low = _LONG_STOP_S[0] if stops == "long" else 0
+        return draw(st.integers(min_value=low, max_value=_LONG_STOP_S[1]))
+
+    passages: list[Passage] = []
+    first_arrival = draw(st.integers(min_value=0, max_value=1000))
+    arrival = float(first_arrival)
+    moving = float(draw(st.integers(min_value=0, max_value=first_arrival)))
+    for index in range(n):
+        if index > 0:
+            duration = draw(st.integers(min_value=0, max_value=100_000))
+            arrival = passages[-1].departure_s + duration
+            moving += draw(st.integers(min_value=0, max_value=duration))
+        passages.append(
+            Passage(
+                point=ResolvedPoint(
+                    point=places[index],
+                    distance_m=abscissae[index],
+                    elevation_m=draw(elevations_m()),
+                    offset_m=draw(finite_floats(0.0, 1e4)),
+                ),
+                moving_time_s=moving,
+                arrival_s=arrival,
+                departure_s=float(arrival + stop(index)),
+            )
+        )
+    return Projection(
+        profile=profile,
+        curve_ref=draw(non_empty_texts()),
+        parameters=draw(parameter_sets(max_size=3)),
+        passages=tuple(passages),
+        start_time=draw(st.one_of(st.none(), aware_datetimes())),
+        engine_version=draw(non_empty_texts()),
+        generated_at=draw(aware_datetimes()),
     )
