@@ -14,7 +14,7 @@ altitude…). Celles-ci vivent dans ``mountain_perf.schemas.common``.
 
 import math
 from collections.abc import Sequence
-from datetime import datetime
+from datetime import datetime, timedelta
 
 
 class ContractError(ValueError):
@@ -25,10 +25,15 @@ class ContractError(ValueError):
     """
 
 
-def require_aware(dt: datetime, name: str) -> None:
-    """Refuse un ``datetime`` naïf (sans fuseau, ou fuseau sans décalage défini)."""
-    if dt.tzinfo is None or dt.utcoffset() is None:
+def require_aware(dt: datetime, name: str) -> timedelta:
+    """Refuse un ``datetime`` naïf (sans fuseau, ou fuseau sans décalage défini).
+
+    Renvoie le décalage à UTC, désormais garanti défini.
+    """
+    offset = dt.utcoffset() if dt.tzinfo is not None else None
+    if offset is None:
         raise ContractError(f"{name} doit porter un fuseau horaire, reçu {dt!r}.")
+    return offset
 
 
 def require_same_length(**arrays: Sequence[object]) -> None:

@@ -19,8 +19,10 @@ from hypothesis import strategies as st
 
 from mountain_perf.schemas import (
     ELEVATION_RANGE_M,
+    HEART_RATE_RANGE_BPM,
     LATITUDE_RANGE_DEG,
     LONGITUDE_RANGE_DEG,
+    Activity,
     NamedPoint,
     ParameterSet,
     ParameterSpec,
@@ -31,6 +33,7 @@ from mountain_perf.schemas import (
     RouteProfile,
     SourceRef,
     Sport,
+    TrackPointStream,
 )
 
 _MIN_DATETIME = datetime(1990, 1, 1)
@@ -280,5 +283,74 @@ def route_profiles(
         resolved_points=tuple(passages),
         step_m=draw(finite_floats(0.1, 1000.0)),
         build_parameters=draw(parameter_sets(max_size=3)),
+        quality_flags=draw(quality_flag_sets()),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Activité
+# ---------------------------------------------------------------------------
+
+
+def heart_rates_bpm() -> st.SearchStrategy[float]:
+    return finite_floats(*HEART_RATE_RANGE_BPM)
+
+
+@st.composite
+def activities(draw: st.DrawFn) -> Activity:
+    """Activités valides, ``start_time`` dans un fuseau à décalage fixe."""
+    elapsed = draw(finite_floats(1.0, 1e6))
+    hr_a, hr_b = draw(st.lists(heart_rates_bpm(), min_size=2, max_size=2))
+    with_hr = draw(st.booleans())
+    return Activity(
+        activity_ref=draw(non_empty_texts()),
+        sport=draw(sports()),
+        source_activity_type=draw(st.one_of(st.none(), st.text(max_size=20))),
+        start_time=draw(aware_datetimes()),
+        elapsed_duration_s=elapsed,
+        moving_duration_s=draw(finite_floats(min(1.0, elapsed), elapsed)),
+        distance_m=draw(finite_floats(0.0, 1e6)),
+        ascent_m=draw(finite_floats(0.0, 1e5)),
+        descent_m=draw(finite_floats(0.0, 1e5)),
+        average_hr_bpm=min(hr_a, hr_b) if with_hr else None,
+        max_hr_bpm=max(hr_a, hr_b) if with_hr else None,
+        stream_ref=draw(st.one_of(st.none(), file_names())),
+        source=draw(source_refs()),
+        quality_flags=draw(quality_flag_sets()),
+    )
+
+
+@st.composite
+def track_point_streams(draw: st.DrawFn, max_points: int = 50) -> TrackPointStream:
+    """Flux valides : temps strictement croissant, distance à paliers possibles."""
+    n = draw(st.integers(min_value=1, max_value=max_points))
+    start = draw(finite_floats(0.0, 1e3))
+    time_increments = draw(
+        st.lists(finite_floats(0.1, 60.0), min_size=n - 1, max_size=n - 1)
+    )
+    # 0 autorisé : un arrêt fait un palier de distance.
+    distance_increments = draw(
+        st.lists(finite_floats(0.0, 100.0), min_size=n - 1, max_size=n - 1)
+    )
+
+    def optional(values: st.SearchStrategy[float]) -> tuple[float, ...] | None:
+        if draw(st.booleans()):
+            return None
+        return tuple(draw(st.lists(values, min_size=n, max_size=n)))
+
+    return TrackPointStream(
+        activity_ref=draw(non_empty_texts()),
+        time_s=tuple(accumulate(time_increments, initial=start)),
+        latitude_deg=optional(latitudes_deg()),
+        longitude_deg=optional(longitudes_deg()),
+        elevation_m=optional(elevations_m()),
+        distance_m=(
+            tuple(accumulate(distance_increments, initial=0.0))
+            if draw(st.booleans())
+            else None
+        ),
+        speed_ms=optional(finite_floats(0.0, 30.0)),
+        heart_rate_bpm=optional(heart_rates_bpm()),
+        source=draw(source_refs()),
         quality_flags=draw(quality_flag_sets()),
     )
