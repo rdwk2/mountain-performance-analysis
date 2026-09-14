@@ -31,6 +31,8 @@ Format : `- [ ] (jalon visé) idée — pourquoi`
 - [ ] (M4) Attention à l'autocorrélation des erreurs sur temps cumulés au moment de choisir la métrique : une erreur précoce est comptée dans tous les cumuls suivants
 - [ ] (M3) Définir l'extrapolation de la courbe hors de sa plage de pentes observées
 - [ ] (M6b/M7) Grit et Flow (dynamique VTT Garmin) comme covariables explicatives du résidu — mesurables a posteriori, non projetables sur un tracé neuf
+- [ ] (M7) Projection franchissant un changement d'heure : utc_offset_s est figé au départ, les effets d'heure dérivent d'une heure après la bascule — décider si ça compte quand le consommateur existera
+- [ ] (M7) Projection.start_time : quel instant désigne-t-il quand passages[0].arrival_s ≠ 0 — t = 0 ou passages[0].departure_s ? Indifférent en M3, à trancher avant les effets d'heure
 
 ## Données et ingestion
 
@@ -41,6 +43,7 @@ Format : `- [ ] (jalon visé) idée — pourquoi`
 - [ ] (M6b) Vérifier empiriquement si le `sumDistance` de Garmin est une distance 2D ou 3D : recalculer la distance depuis le flux de positions et comparer. Toute la convention de pente en dépend (cf. docs/decisions/0002-unites.md) — un écart passerait inaperçu et biaiserait le modèle d'autant plus que la pente est forte.
 - [ ] (M4) Séparer physiquement $MPA_DATA_DIR/reference/ (soi, évaluable) et population/ (446 coureurs, non évaluable)
 - [ ] Contrat pour les données de population, le jour où leur usage sera défini
+- [ ] (M6b) FC : un flux Garmin porte des 0 sur les premiers points et des métadonnées où average_hr > max_hr — les invariants durs de M1b imposent de réparer ou d'écarter avant construction, et une valeur de QualityFlag sera à ajouter alors
 
 ## Outil et interface
 
@@ -73,3 +76,4 @@ Format : `- [ ] (jalon visé) idée — pourquoi`
 - [ ] (M4/M6b) Hook `PreToolUse` refusant toute écriture dans le dossier de données, à poser au moment où `--add-dir` donnera accès à `mpa-data` (non versionné, donc sans filet git)
 - [ ] (M6a) Envisager un worktree git quand M6a et M6b tourneront en parallèle
 - [ ] (M6a) Écrire une skill pour la boucle « ajouter un effet → backtest → comparer → entrée de JOURNAL », après l'avoir faite deux fois à la main
+- [ ] Tester le chemin `cached_property` de `_render_dataclass` — la branche existe depuis M1a mais n'est exercée par rien tant qu'aucune propriété n'est mémoïsée

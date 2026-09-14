@@ -112,6 +112,10 @@ src/mountain_perf/     le code de la bibliothèque
     common.py          Sport, QualityFlag, SourceRef, plages physiques
     parameters.py      ParameterSpec, ParameterSet
     route.py           PointKind, NamedPoint, Route, ResolvedPoint, RouteProfile
+    activity.py        Activity, TrackPointStream (M1b)
+    curve.py           PaceCurve, CurveProvenance (M1b)
+    projection.py      Passage, Segment, Projection (M1b)
+    reference.py       TimingConvention, ObservedPassage, ReferencePerformance (M1b)
     _dictionary.py     rendu du dictionnaire de données depuis les docstrings
   gpx/                 lecture GPX, profil, grille de pente (M2)
   model/               le moteur de projection (M3, puis M6a, M7)

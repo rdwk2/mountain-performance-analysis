@@ -35,6 +35,18 @@ LONGITUDE_RANGE_DEG: tuple[float, float] = (-180.0, 180.0)
 ELEVATION_RANGE_M: tuple[float, float] = (-500.0, 9000.0)
 """Plage physique d'une altitude terrestre, en mètres (mer Morte → Everest, arrondi)."""
 
+HEART_RATE_RANGE_BPM: tuple[float, float] = (20.0, 250.0)
+"""Plage physiologique d'une fréquence cardiaque, en battements par minute."""
+
+UTC_OFFSET_RANGE_S: tuple[int, int] = (-43200, 50400)
+"""Plage des décalages horaires réels, en secondes (UTC−12 → UTC+14).
+
+Attrape une confusion secondes / minutes / heures, qui sinon passe en silence.
+"""
+
+GRADE_RANGE: tuple[float, float] = (-2.0, 2.0)
+"""Plage admise d'une pente, en fraction (±200 %) — jamais en pourcentage."""
+
 
 class Sport(StrEnum):
     """Famille de modèle de performance.
