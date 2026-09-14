@@ -6,7 +6,7 @@ variantes de projection, et les oracles chiffrés des fixtures à 30 km.
 
 import math
 from dataclasses import fields, replace
-from datetime import UTC, datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone, tzinfo
 from typing import Any
 
 import pytest
@@ -43,6 +43,23 @@ def _central_gap(projection: Projection) -> float:
         p.stop_duration_s for p in passages[1:-1]
     )
     return lhs - (passages[-1].arrival_s - passages[0].departure_s)
+
+
+class _ConstantOffset(tzinfo):
+    """Fuseau de test à décalage constant, qui n'est pas un ``datetime.timezone``.
+
+    Tient lieu d'un ``ZoneInfo`` sans dépendre d'une base de fuseaux (absente sous
+    Windows sans ``tzdata``).
+    """
+
+    def utcoffset(self, dt: datetime | None) -> timedelta:
+        return timedelta(hours=2)
+
+    def dst(self, dt: datetime | None) -> timedelta:
+        return timedelta(0)
+
+    def tzname(self, dt: datetime | None) -> str:
+        return "TEST+02"
 
 
 # ---------------------------------------------------------------------------
@@ -220,6 +237,15 @@ def test_projection_generated_at_is_normalised_to_utc() -> None:
     projection = replace(THREE_POINT_PROJECTION, generated_at=local)
     assert projection.generated_at == datetime(2026, 9, 14, 8, 0, tzinfo=UTC)
     assert projection.generated_at.tzinfo is UTC
+
+
+def test_projection_start_time_is_converted_to_a_fixed_offset_timezone() -> None:
+    local = datetime(2026, 7, 1, 6, 0, tzinfo=_ConstantOffset())
+    projection = replace(THREE_POINT_PROJECTION, start_time=local)
+    assert isinstance(projection.start_time, datetime)
+    assert isinstance(projection.start_time.tzinfo, timezone)
+    assert projection.start_time == local
+    assert projection.start_time.replace(tzinfo=None) == local.replace(tzinfo=None)
 
 
 def test_projection_utc_offset_is_read_from_start_time() -> None:

@@ -6,7 +6,7 @@ de base construits à la main et modifiés champ par champ par ``replace``.
 
 from collections.abc import Sequence
 from dataclasses import fields, replace
-from datetime import UTC, datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone, tzinfo
 from typing import Any
 
 import pytest
@@ -74,6 +74,23 @@ def _with_value(values: Sequence[float], index: int, value: float) -> tuple[floa
     return (*values[:index], value, *values[index + 1 :])
 
 
+class _ConstantOffset(tzinfo):
+    """Fuseau de test à décalage constant, qui n'est pas un ``datetime.timezone``.
+
+    Tient lieu d'un ``ZoneInfo`` sans dépendre d'une base de fuseaux (absente sous
+    Windows sans ``tzdata``).
+    """
+
+    def utcoffset(self, dt: datetime | None) -> timedelta:
+        return timedelta(hours=2)
+
+    def dst(self, dt: datetime | None) -> timedelta:
+        return timedelta(0)
+
+    def tzname(self, dt: datetime | None) -> str:
+        return "TEST+02"
+
+
 # ---------------------------------------------------------------------------
 # Activity
 # ---------------------------------------------------------------------------
@@ -89,6 +106,14 @@ def test_activity_references_its_stream_and_does_not_contain_it() -> None:
     types = {f.name: f.type for f in fields(Activity)}
     assert types["stream_ref"] == "str | None"
     assert not any("TrackPointStream" in str(t) for t in types.values())
+
+
+def test_activity_start_time_is_converted_to_a_fixed_offset_timezone() -> None:
+    local = datetime(2026, 7, 1, 6, 0, tzinfo=_ConstantOffset())
+    activity = replace(ACTIVITY, start_time=local)
+    assert isinstance(activity.start_time.tzinfo, timezone)
+    assert activity.start_time == local
+    assert activity.start_time.replace(tzinfo=None) == local.replace(tzinfo=None)
 
 
 def test_activity_start_time_keeps_its_local_fixed_offset() -> None:
