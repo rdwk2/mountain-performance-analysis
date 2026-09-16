@@ -12,12 +12,15 @@ Deux familles :
 """
 
 import hashlib
+import math
 from datetime import datetime, timedelta, timezone
 from itertools import accumulate
 from typing import Literal
 
 from hypothesis import strategies as st
 
+from mountain_perf.gpx import PROFILE_PARAMETER_SPECS
+from mountain_perf.gpx.geo import EARTH_RADIUS_M
 from mountain_perf.schemas import (
     ELEVATION_RANGE_M,
     GRADE_RANGE,
@@ -293,6 +296,84 @@ def route_profiles(
         step_m=draw(finite_floats(0.1, 1000.0)),
         build_parameters=draw(parameter_sets(max_size=3)),
         quality_flags=draw(quality_flag_sets()),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Construction du profil (M2)
+# ---------------------------------------------------------------------------
+
+
+@st.composite
+def plausible_routes(draw: st.DrawFn) -> Route:
+    """Marche bornée autour de 45°N, altitudes proches, lieux près du tracé."""
+    steps = draw(
+        st.lists(
+            st.tuples(st.integers(-40, 40), st.integers(5, 50)),
+            min_size=1,
+            max_size=15,
+        )
+    )
+    x_m, y_m = 0.0, 0.0
+    latitude_deg, longitude_deg = [45.0], [6.0]
+    for dx_m, dy_m in steps:
+        x_m += dx_m
+        y_m += dy_m
+        latitude_deg.append(45 + math.degrees(y_m / EARTH_RADIUS_M))
+        longitude_deg.append(
+            6 + math.degrees(x_m / (EARTH_RADIUS_M * math.cos(math.pi / 4)))
+        )
+    places: list[NamedPoint] = []
+    for i in range(draw(st.integers(1, 3))):
+        at = draw(st.integers(0, len(steps)))
+        # Le premier lieu est sur un sommet, les autres à proximité.
+        offset_m = 0.0 if i == 0 else draw(finite_floats(-20, 20))
+        places.append(
+            NamedPoint(
+                name=f"Lieu {i}",
+                latitude_deg=latitude_deg[at],
+                elevation_m=None,
+                longitude_deg=longitude_deg[at]
+                + math.degrees(
+                    offset_m
+                    / (EARTH_RADIUS_M * math.cos(math.radians(latitude_deg[at])))
+                ),
+            )
+        )
+    return Route(
+        name="Marche synthétique",
+        latitude_deg=tuple(latitude_deg),
+        longitude_deg=tuple(longitude_deg),
+        elevation_m=tuple(
+            draw(
+                st.lists(
+                    finite_floats(1490, 1510),
+                    min_size=len(steps) + 1,
+                    max_size=len(steps) + 1,
+                )
+            )
+        ),
+        named_points=tuple(places),
+        source=draw(source_refs()),
+    )
+
+
+@st.composite
+def profile_parameter_sets(draw: st.DrawFn) -> ParameterSet:
+    """Bornes M2, avec h >= 10 m pour garder une grille de taille modeste."""
+    return ParameterSet(
+        specs=PROFILE_PARAMETER_SPECS,
+        values={
+            spec.name: draw(
+                finite_floats(
+                    max(10.0, spec.minimum)
+                    if spec.name == "grid_step_m"
+                    else spec.minimum,
+                    spec.maximum,
+                )
+            )
+            for spec in PROFILE_PARAMETER_SPECS
+        },
     )
 
 
