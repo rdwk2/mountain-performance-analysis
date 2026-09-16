@@ -16,6 +16,28 @@ Backtest (à partir de M4) : métrique avant → après.
 
 ---
 
+### 2026-09-17 · M2 — GPX → profil
+Lecture GPX 1.0/1.1/sans namespace, dédoublonnage conservant le premier point,
+distance haversine horizontale, grille puis lissage, résolution des lieux nommés
+et commande `mperf profile` (texte/CSV). Reprise du plan en six commits avec les
+corrections arbitrées du brief révision 5 : candidats lus sur `t`, diagnostics
+issus de `profile.py`, erreurs numériques converties en `GpxError`.
+Contrats M1 et dépendances inchangés ; aucun accès aux données personnelles.
+Vérifications exécutées dans cette session : `just check` avant chaque commit ;
+oracle 120 m et `40(1+√2)` m avec comparaison des altitudes ; subdivision avec
+lissage à 1e-9 m ; décimation à 1 % ; résolution de la sucette, des lacets et de
+l'aller-retour avant/après subdivision ; tests de propriété avec lieux proches.
+La commande réelle sur `mini_11.gpx` affiche 1 000 m, 21 points, D+ 44 m lissé
+et 50 m brut ; dernière cellule `grade` du CSV vide. `just dictionary` ne change
+pas le dictionnaire. Pas de seuil modifié, de test désactivé ni de dérogation
+Hypothesis. Les commits lecture, profil et résolution dépassent 300 lignes avec
+leurs tests et fixtures (377, 500 et 376 lignes modifiées), signalé en session.
+Conclusion : `just check` vert (424 tests). Rangé dans `src/mountain_perf/gpx/`,
+`src/mountain_perf/cli.py`, `tests/test_gpx_*.py`, `tests/test_cli_profile.py`,
+`tests/fixtures/mini_*.gpx`, `tests/fixtures/synthetic_routes.py`,
+`docs/decisions/0008-geometrie-et-lissage.md`, branche `m2/gpx-profil`.
+Les suites hors périmètre sont inscrites au backlog ; livraison en PR, sans fusion.
+
 ### 2026-09-14 · M1b — Contrats de la performance
 Contrats du côté athlète et de la sortie, sans E/S ni algorithme de modélisation.
 `Activity` (référence son flux, deux durées pour un résidu attribuable),

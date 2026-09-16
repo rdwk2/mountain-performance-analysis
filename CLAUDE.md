@@ -99,6 +99,7 @@ just lint       # ruff
 just fmt        # formatage
 just dictionary # régénère docs/DICTIONNAIRE_DONNEES.md depuis les docstrings
 just backtest   # (à partir de M4) erreur du modèle sur le jeu de référence
+uv run mperf profile tests/fixtures/mini_11.gpx  # compte-rendu GPX (M2), --csv pour la grille
 ```
 
 ---
@@ -118,11 +119,14 @@ src/mountain_perf/     le code de la bibliothèque
     reference.py       TimingConvention, ObservedPassage, ReferencePerformance (M1b)
     _dictionary.py     rendu du dictionnaire de données depuis les docstrings
   gpx/                 lecture GPX, profil, grille de pente (M2)
+    geo.py             haversine 2D, polyligne dédoublonnée, projection point-segment
+    reader.py          read_gpx, GpxReadResult, GpxError
+    profile.py         paramètres, grille, lissage, passages et diagnostics de calcul
   model/               le moteur de projection (M3, puis M6a, M7)
   backtest/            évaluation contre des performances réelles (M4)
   ingest/              acquisition et normalisation Garmin (M6b)
   ui/                  interface — appelle la bibliothèque, ne calcule rien (M5)
-  cli.py
+  cli.py               mperf profile <fichier.gpx>, compte-rendu ou CSV sur stdout
 tests/
   strategies.py        stratégies Hypothesis des contrats, réutilisées par tous les jalons
   fixtures/            données synthétiques minuscules, commitées
