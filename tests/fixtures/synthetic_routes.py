@@ -62,3 +62,62 @@ def flat_route_with_confused_points() -> Route:
         elevation_m=(1500.0, 1500.0, 1515.0, 1530.0, 1500.0),
         named_points=(NamedPoint("Arrêt", route.latitude_deg[1], 6.0, None),),
     )
+
+
+def irregular_route() -> Route:
+    """200 pas de 5 m, puis 222 pas de 9 m ; lieu à 1500 m, entre deux sommets."""
+    distance_m = (*range(0, 1001, 5), *range(1009, 2999, 9))
+    return Route(
+        name="Espacement irrégulier",
+        latitude_deg=tuple(45 + math.degrees(d / EARTH_RADIUS_M) for d in distance_m),
+        longitude_deg=(6.0,) * len(distance_m),
+        elevation_m=(1500.0,) * len(distance_m),
+        named_points=(
+            NamedPoint("Lieu", 45 + math.degrees(1500 / EARTH_RADIUS_M), 6, None),
+        ),
+        source=SOURCE,
+    )
+
+
+def switchback_route() -> Route:
+    """Cinq jambes de 260 m, écarts 70/30/10/50/90 m, même côté du lieu."""
+    xy_m = tuple(
+        (x_m, y_m)
+        for i, y_m in enumerate((70, 30, 10, 50, 90))
+        for x_m in ((-130, 0, 130) if i % 2 == 0 else (130, 0, -130))
+    )
+    return Route(
+        name="Lacets synthétiques",
+        latitude_deg=tuple(45 + math.degrees(y / EARTH_RADIUS_M) for _, y in xy_m),
+        longitude_deg=tuple(
+            6 + math.degrees(x / (EARTH_RADIUS_M * math.cos(math.pi / 4)))
+            for x, _ in xy_m
+        ),
+        elevation_m=(1500.0,) * len(xy_m),
+        named_points=(NamedPoint("Lieu", 45, 6, None),),
+        source=SOURCE,
+    )
+
+
+def out_and_back_route() -> Route:
+    """Demi-tour sur un sommet : brins écartés de 20 m aux extrémités.
+
+    À mi-longueur, le lieu est à 8 m de l'aller et environ 2 m du retour.
+    Coordonnées équatoriales inventées : la subdivision linéaire y conserve les
+    abscisses à 1e-9 m, sans confondre l'écart sphère/plan avec les candidats.
+    """
+    return Route(
+        name="Aller-retour synthétique",
+        latitude_deg=(0.0, 0.0, math.degrees(20 / EARTH_RADIUS_M)),
+        longitude_deg=(0.0, math.degrees(1000 / EARTH_RADIUS_M), 0.0),
+        elevation_m=(1500.0,) * 3,
+        named_points=(
+            NamedPoint(
+                "Lieu",
+                math.degrees(8 / EARTH_RADIUS_M),
+                math.degrees(500 / EARTH_RADIUS_M),
+                None,
+            ),
+        ),
+        source=SOURCE,
+    )

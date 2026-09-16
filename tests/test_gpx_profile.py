@@ -7,16 +7,24 @@ from itertools import pairwise
 import pytest
 from hypothesis import given
 
-from fixtures.synthetic_routes import flat_route_with_confused_points, meridian_route
+from fixtures.routes import COL, DEPART, LOLLIPOP_ROUTE, SOURCE_POINT
+from fixtures.synthetic_routes import (
+    flat_route_with_confused_points,
+    irregular_route,
+    meridian_route,
+    out_and_back_route,
+    subdivide_route,
+    switchback_route,
+)
 from mountain_perf.gpx import (
     PROFILE_PARAMETER_SPECS,
     ProfileError,
     build_profile,
     build_profile_with_diagnostics,
 )
-from mountain_perf.gpx.geo import deduplicated_polyline
+from mountain_perf.gpx.geo import EARTH_RADIUS_M, deduplicated_polyline, haversine_m
 from mountain_perf.gpx.profile import _build_grid, _smooth
-from mountain_perf.schemas import ParameterSet, Route
+from mountain_perf.schemas import NamedPoint, ParameterSet, Route
 from strategies import plausible_routes, profile_parameter_sets
 
 
@@ -90,6 +98,8 @@ def test_confused_points_keep_first_elevation() -> None:
     )
     assert all(e == 1500 for e in profile.elevation_m)
     assert profile.cumulative_ascent_m[-1] == 0
+    assert len(profile.resolved_points) == 1
+    assert profile.resolved_points[0].distance_m == pytest.approx(1000, abs=1e-3)
 
 
 def test_zero_length_route_is_rejected() -> None:
@@ -124,8 +134,203 @@ def test_generated_profiles_satisfy_contract(
     assert profile.build_parameters is parameters
     assert profile.quality_flags == frozenset()
     assert all(math.isfinite(g) for g in profile.grade)
+    assert profile.resolved_points
+    distances_m = [p.distance_m for p in profile.resolved_points]
+    assert distances_m == sorted(distances_m)
+    assert all(0 <= d <= total_m for d in distances_m)
+    assert all(
+        p.offset_m <= parameters["point_match_max_offset_m"]
+        for p in profile.resolved_points
+    )
+    for point in route.named_points:
+        passages_m = [p.distance_m for p in profile.resolved_points if p.point == point]
+        assert all(
+            b - a >= parameters["point_match_min_separation_m"]
+            for a, b in pairwise(passages_m)
+        )
     if total_m >= profile.step_m:
         assert all(
             profile.step_m / 2 - 1e-9 <= b - a <= 1.5 * profile.step_m + 1e-9
             for a, b in pairwise(profile.distance_m)
         )
+
+
+def test_irregular_spacing_resolves_exact_abscissa() -> None:
+    profile = build_profile(irregular_route(), ParameterSet(PROFILE_PARAMETER_SPECS))
+    assert len(profile.resolved_points) == 1
+    assert profile.resolved_points[0].distance_m == pytest.approx(1500, abs=1e-3)
+    assert profile.resolved_points[0].offset_m == pytest.approx(0, abs=1e-9)
+
+
+@pytest.mark.parametrize("offset_m", [0.0, 3.0, 500.0])
+def test_projection_inside_300m_meridian_segment(offset_m: float) -> None:
+    route = meridian_route(length_m=300, spacing_m=300, amplitude_m=0)
+    point = NamedPoint(
+        name="Lieu",
+        latitude_deg=45 + math.degrees(150 / EARTH_RADIUS_M),
+        longitude_deg=6
+        + math.degrees(offset_m / (EARTH_RADIUS_M * math.cos(math.pi / 4))),
+        elevation_m=None,
+    )
+    route = replace(route, named_points=(point,))
+    result = build_profile_with_diagnostics(
+        route, ParameterSet(PROFILE_PARAMETER_SPECS)
+    )
+    if offset_m == 500:
+        assert result.profile.resolved_points == ()
+        assert result.matched_point_count == 0
+        assert len(result.unresolved_points) == 1
+        assert result.unresolved_points[0].point == point
+        assert result.unresolved_points[0].min_offset_m == pytest.approx(500, abs=1e-3)
+    else:
+        assert result.matched_point_count == 1
+        assert result.unresolved_points == ()
+        (passage,) = result.profile.resolved_points
+        assert passage.distance_m == pytest.approx(150, abs=1e-3)
+        # Épingler l'écart, pas seulement la présence d'un passage (cos φ).
+        assert passage.offset_m == pytest.approx(offset_m, abs=1e-3)
+
+
+def test_out_and_back_keeps_both_passages_after_subdivision() -> None:
+    route = out_and_back_route()
+    parameters = ParameterSet(PROFILE_PARAMETER_SPECS)
+    before = build_profile(route, parameters).resolved_points
+    after = build_profile(
+        subdivide_route(subdivide_route(route)), parameters
+    ).resolved_points
+    assert len(before) == len(after) == 2
+    assert [p.distance_m for p in after] == pytest.approx(
+        [p.distance_m for p in before], abs=1e-9
+    )
+    assert [p.offset_m for p in before] == pytest.approx([8, 2], abs=1e-3)
+
+
+def _distance_to_vertex(route: Route, end: int) -> float:
+    return math.fsum(
+        haversine_m(
+            route.latitude_deg[i],
+            route.longitude_deg[i],
+            route.latitude_deg[i + 1],
+            route.longitude_deg[i + 1],
+        )
+        for i in range(end)
+    )
+
+
+def test_lollipop_has_two_junction_passages_and_one_col() -> None:
+    profile = build_profile(LOLLIPOP_ROUTE, ParameterSet(PROFILE_PARAMETER_SPECS))
+    junctions = [
+        p.distance_m for p in profile.resolved_points if p.point == SOURCE_POINT
+    ]
+    assert junctions == pytest.approx(
+        [_distance_to_vertex(LOLLIPOP_ROUTE, i) for i in (1, 5)], abs=1e-9
+    )
+    cols = [p.distance_m for p in profile.resolved_points if p.point == COL]
+    assert cols == pytest.approx([_distance_to_vertex(LOLLIPOP_ROUTE, 2)], abs=1e-9)
+    starts = [p.distance_m for p in profile.resolved_points if p.point == DEPART]
+    assert starts == [0.0]
+
+
+def test_final_waypoint_is_resolved() -> None:
+    route = LOLLIPOP_ROUTE
+    finish = NamedPoint(
+        "Arrivée", route.latitude_deg[-1], route.longitude_deg[-1], None
+    )
+    route = replace(route, named_points=(finish,))
+    profile = build_profile(route, ParameterSet(PROFILE_PARAMETER_SPECS))
+    (passage,) = profile.resolved_points
+    assert passage.distance_m == profile.distance_m[-1]
+    assert passage.offset_m == 0
+
+
+def test_switchbacks_use_greedy_suppression() -> None:
+    route = switchback_route()
+    all_passages = build_profile(
+        route,
+        ParameterSet(PROFILE_PARAMETER_SPECS, {"point_match_min_separation_m": 0}),
+    ).resolved_points
+    assert len(all_passages) == 5
+    offsets_m = [p.offset_m for p in all_passages]
+    assert offsets_m == pytest.approx([70, 30, 10, 50, 90], abs=1e-3)
+    gaps_m = [b.distance_m - a.distance_m for a, b in pairwise(all_passages)]
+    assert all(d < 500 for d in gaps_m)
+    assert all(a + b > 500 for a, b in pairwise(gaps_m))
+    selected = build_profile(
+        route, ParameterSet(PROFILE_PARAMETER_SPECS)
+    ).resolved_points
+    assert len(selected) == 3
+    assert [p.distance_m for p in selected] == pytest.approx(
+        [_distance_to_vertex(route, i) for i in (1, 7, 13)],
+        abs=1e-9,
+    )
+
+
+def test_two_nearby_minima_keep_smaller_offset() -> None:
+    route = replace(
+        out_and_back_route(),
+        latitude_deg=tuple(math.degrees(y / EARTH_RADIUS_M) for y in (0, 0, 10, 10)),
+        longitude_deg=tuple(math.degrees(x / EARTH_RADIUS_M) for x in (0, 100, 100, 0)),
+        elevation_m=(1500.0,) * 4,
+        named_points=(
+            NamedPoint(
+                "Lieu",
+                math.degrees(8 / EARTH_RADIUS_M),
+                math.degrees(55 / EARTH_RADIUS_M),
+                None,
+            ),
+        ),
+    )
+    all_passages = build_profile(
+        route,
+        ParameterSet(
+            PROFILE_PARAMETER_SPECS,
+            {
+                "point_match_max_offset_m": 10,
+                "point_match_min_separation_m": 0,
+            },
+        ),
+    ).resolved_points
+    assert len(all_passages) == 2
+    separation_m = all_passages[1].distance_m - all_passages[0].distance_m
+    assert separation_m == pytest.approx(100, abs=1e-9)
+    kept = build_profile(route, ParameterSet(PROFILE_PARAMETER_SPECS)).resolved_points
+    assert kept == (all_passages[1],)
+    # À la séparation exacte, les deux restent admissibles (suppression stricte).
+    at_boundary = build_profile(
+        route,
+        ParameterSet(
+            PROFILE_PARAMETER_SPECS,
+            {
+                "point_match_max_offset_m": 10,
+                "point_match_min_separation_m": separation_m,
+            },
+        ),
+    ).resolved_points
+    assert at_boundary == all_passages
+
+
+def test_equal_offsets_are_ordered_by_abscissa() -> None:
+    route = replace(
+        out_and_back_route(),
+        latitude_deg=(0.0, 0.0, 0.0),
+        named_points=(NamedPoint("Lieu", 0, math.degrees(500 / EARTH_RADIUS_M), None),),
+    )
+    profile = build_profile(
+        route,
+        ParameterSet(PROFILE_PARAMETER_SPECS, {"point_match_min_separation_m": 1500}),
+    )
+    (passage,) = profile.resolved_points
+    assert passage.distance_m == pytest.approx(500, abs=1e-9)
+
+
+def test_resolved_elevation_interpolates_smoothed_profile() -> None:
+    route = meridian_route()
+    point = NamedPoint("Lieu", 45 + math.degrees(125 / EARTH_RADIUS_M), 6, 1234)
+    profile = build_profile(
+        replace(route, named_points=(point,)), ParameterSet(PROFILE_PARAMETER_SPECS)
+    )
+    (passage,) = profile.resolved_points
+    gain = (1 + math.sqrt(2)) / 3
+    expected_m = 1500 + 20 * gain * (1 + math.sqrt(0.5)) / 2
+    assert passage.elevation_m == pytest.approx(expected_m, abs=1e-9)
+    assert passage.elevation_m != point.elevation_m

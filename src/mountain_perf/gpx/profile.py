@@ -10,8 +10,19 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from itertools import accumulate
 
-from mountain_perf.gpx.geo import deduplicated_polyline
-from mountain_perf.schemas import ParameterSet, ParameterSpec, Route, RouteProfile
+from mountain_perf.gpx.geo import (
+    Polyline,
+    deduplicated_polyline,
+    project_point_on_segment,
+)
+from mountain_perf.schemas import (
+    NamedPoint,
+    ParameterSet,
+    ParameterSpec,
+    ResolvedPoint,
+    Route,
+    RouteProfile,
+)
 
 PROFILE_PARAMETER_SPECS: tuple[ParameterSpec, ...] = (
     ParameterSpec(
@@ -54,11 +65,21 @@ class ProfileError(ValueError):
 
 
 @dataclass(frozen=True)
+class UnresolvedPoint:
+    """Lieu sans passage admissible et écart minimal issu de ses projections."""
+
+    point: NamedPoint
+    min_offset_m: float
+
+
+@dataclass(frozen=True)
 class ProfileBuildResult:
     """Profil et diagnostics du calcul, sans modification des contrats M1."""
 
     profile: RouteProfile
     smoothing_point_count: int
+    unresolved_points: tuple[UnresolvedPoint, ...]
+    matched_point_count: int
 
     @property
     def effective_smoothing_window_m(self) -> float:
@@ -107,6 +128,80 @@ def build_profile(route: Route, parameters: ParameterSet) -> RouteProfile:
     return build_profile_with_diagnostics(route, parameters).profile
 
 
+def _resolve(
+    route: Route,
+    polyline: Polyline,
+    grid_m: tuple[float, ...],
+    elevation_m: tuple[float, ...],
+    parameters: ParameterSet,
+) -> tuple[tuple[ResolvedPoint, ...], tuple[UnresolvedPoint, ...]]:
+    """Candidats lus sur t, puis suppression non maximale gloutonne (0008).
+
+    Intérieur : 0 < t < 1 ; sommet : t_i = 1 et t_{i+1} = 0 ; début :
+    t_0 = 0 ; fin : t_dernier = 1. Les candidats de même abscisse sont confondus.
+    Le tri (écart, abscisse) précède la suppression définitive des voisins trop
+    proches : les écarts de segments voisins ne définissent jamais les candidats.
+    """
+    resolved: list[ResolvedPoint] = []
+    unresolved: list[UnresolvedPoint] = []
+    for point in route.named_points:
+        projections = [
+            project_point_on_segment(
+                route.latitude_deg[a],
+                route.longitude_deg[a],
+                route.latitude_deg[b],
+                route.longitude_deg[b],
+                point.latitude_deg,
+                point.longitude_deg,
+            )
+            for a, b in zip(polyline.indices[:-1], polyline.indices[1:], strict=True)
+        ]
+        candidates: dict[float, float] = {}
+        for i, (t, offset_m) in enumerate(projections):
+            interior = 0 < t < 1
+            start = i == 0 and t == 0
+            end = i == len(projections) - 1 and t == 1
+            vertex = t == 1 and i + 1 < len(projections) and projections[i + 1][0] == 0
+            if interior or start or end or vertex:
+                # Aux sommets, reprendre l'abscisse exacte, sans nouvel arrondi.
+                at_m = (
+                    polyline.distance_m[i + 1]
+                    if t == 1
+                    else polyline.distance_m[i]
+                    + t * (polyline.distance_m[i + 1] - polyline.distance_m[i])
+                )
+                candidates[at_m] = min(offset_m, candidates.get(at_m, offset_m))
+        eligible = sorted(
+            (
+                (at_m, offset_m)
+                for at_m, offset_m in candidates.items()
+                if offset_m <= parameters["point_match_max_offset_m"]
+            ),
+            key=lambda candidate: (candidate[1], candidate[0]),
+        )
+        kept_m: list[float] = []
+        for at_m, offset_m in eligible:
+            if all(
+                abs(at_m - other_m) >= parameters["point_match_min_separation_m"]
+                for other_m in kept_m
+            ):
+                kept_m.append(at_m)
+                resolved.append(
+                    ResolvedPoint(
+                        point=point,
+                        distance_m=at_m,
+                        elevation_m=_interpolate(grid_m, elevation_m, at_m),
+                        offset_m=offset_m,
+                    )
+                )
+        if not kept_m:
+            unresolved.append(
+                UnresolvedPoint(point, min(offset_m for _, offset_m in projections))
+            )
+    resolved.sort(key=lambda passage: passage.distance_m)
+    return tuple(resolved), tuple(unresolved)
+
+
 def build_profile_with_diagnostics(
     route: Route, parameters: ParameterSet
 ) -> ProfileBuildResult:
@@ -125,14 +220,17 @@ def build_profile_with_diagnostics(
     smoothed_m, point_count = _smooth(
         sampled_m, step_m, parameters["smoothing_window_m"]
     )
+    resolved, unresolved = _resolve(route, polyline, grid_m, smoothed_m, parameters)
     profile = RouteProfile(
         route_name=route.name,
         source=route.source,
         distance_m=grid_m,
         elevation_m=smoothed_m,
-        resolved_points=(),
+        resolved_points=resolved,
         step_m=step_m,
         build_parameters=parameters,
         quality_flags=frozenset(),
     )
-    return ProfileBuildResult(profile, point_count)
+    return ProfileBuildResult(
+        profile, point_count, unresolved, len(route.named_points) - len(unresolved)
+    )
