@@ -77,3 +77,9 @@ Format : `- [ ] (jalon visé) idée — pourquoi`
 - [ ] (M6a) Envisager un worktree git quand M6a et M6b tourneront en parallèle
 - [ ] (M6a) Écrire une skill pour la boucle « ajouter un effet → backtest → comparer → entrée de JOURNAL », après l'avoir faite deux fois à la main
 - [ ] Tester le chemin `cached_property` de `_render_dataclass` — la branche existe depuis M1a mais n'est exercée par rien tant qu'aucune propriété n'est mémoïsée
+
+- [ ] (M5) Plage d'affichage des `ParameterSpec`, distincte des bornes de garde-fou — les bornes actuelles sont larges à dessein et feraient un curseur inutilisable.
+- [ ] (M6b) Écrêtage des pics d'altitude et `QualityFlag` correspondant, au moment où les détecteurs existeront.
+- [ ] (M6b) Mesurer le biais sphère / ellipsoïde selon l'azimut lors de la confrontation au `sumDistance` Garmin — il ne se simplifie dans `durée = distance / vitesse` que si les orientations des activités et du tracé se ressemblent.
+- [ ] (M2/M3) Caler les défauts de `smoothing_window_m` et `grid_step_m` sur des fichiers réels — les valeurs livrées sont provisoires.
+- [ ] (hors périmètre M2) Définir le traitement des tracés traversant l'antiméridien avant de généraliser la projection locale — la différence brute de longitude ne représente pas le raccord ±180°.

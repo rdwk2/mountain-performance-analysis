@@ -16,6 +16,46 @@ Backtest (à partir de M4) : métrique avant → après.
 
 ---
 
+### 2026-09-17 · M2 — Couverture A1/A2 après arbitrage A
+Reprise de la PR #5 à `873f9f10756008c076cd96d7edb568fd5d6700ec`, tête locale
+et distante inchangée depuis la relecture C. Deux tests ajoutés uniquement dans
+`tests/test_gpx_profile.py` : A1 vérifie le passage au seuil exact de 3 m sur le
+montage équatorial prescrit ; A2 exige la grille exacte `(0.0, 50.0, 75.0)` pour
+`L = 75.0`, `h = 50.0`, en conservant les tests de bornes existants.
+Preuves ciblées exécutées séparément dans deux copies jetables : chaque nouveau
+test passe sur le code non muté (1 test vert), puis échoue sous sa mutation.
+M09 (`<=` → `<` au filtre maximal) donne zéro passage au lieu d'un ; M10
+(`<` → `<=` au reste de grille) donne `(0.0, 75.0)` au lieu des trois points.
+Chaque source a été restaurée à l'identique avant suppression de la copie.
+Aucune autre campagne de mutations ; aucun changement permanent de calcul,
+de contrat, de fixture partagée, de dépendance ou de décision.
+Conclusion : `just check` vert avant chacun des deux commits, 425 puis 426 tests,
+avec lint, formatage et mypy strict verts. Rangé dans `tests/test_gpx_profile.py`
+et cette entrée, branche `m2/gpx-profil`, PR #5 ; revue GitHub finale et fusion
+laissées à rdw selon l'arbitrage A.
+
+### 2026-09-17 · M2 — GPX → profil
+Lecture GPX 1.0/1.1/sans namespace, dédoublonnage conservant le premier point,
+distance haversine horizontale, grille puis lissage, résolution des lieux nommés
+et commande `mperf profile` (texte/CSV). Reprise du plan en six commits avec les
+corrections arbitrées du brief révision 5 : candidats lus sur `t`, diagnostics
+issus de `profile.py`, erreurs numériques converties en `GpxError`.
+Contrats M1 et dépendances inchangés ; aucun accès aux données personnelles.
+Vérifications exécutées dans cette session : `just check` avant chaque commit ;
+oracle 120 m et `40(1+√2)` m avec comparaison des altitudes ; subdivision avec
+lissage à 1e-9 m ; décimation à 1 % ; résolution de la sucette, des lacets et de
+l'aller-retour avant/après subdivision ; tests de propriété avec lieux proches.
+La commande réelle sur `mini_11.gpx` affiche 1 000 m, 21 points, D+ 44 m lissé
+et 50 m brut ; dernière cellule `grade` du CSV vide. `just dictionary` ne change
+pas le dictionnaire. Pas de seuil modifié, de test désactivé ni de dérogation
+Hypothesis. Les commits lecture, profil et résolution dépassent 300 lignes avec
+leurs tests et fixtures (377, 500 et 376 lignes modifiées), signalé en session.
+Conclusion : `just check` vert (424 tests). Rangé dans `src/mountain_perf/gpx/`,
+`src/mountain_perf/cli.py`, `tests/test_gpx_*.py`, `tests/test_cli_profile.py`,
+`tests/fixtures/mini_*.gpx`, `tests/fixtures/synthetic_routes.py`,
+`docs/decisions/0008-geometrie-et-lissage.md`, branche `m2/gpx-profil`.
+Les suites hors périmètre sont inscrites au backlog ; livraison en PR, sans fusion.
+
 ### 2026-09-14 · M1b — Contrats de la performance
 Contrats du côté athlète et de la sortie, sans E/S ni algorithme de modélisation.
 `Activity` (référence son flux, deux durées pour un résidu attribuable),

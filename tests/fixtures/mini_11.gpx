@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Synthétique : méridien de 1 km, sommet à 500 m, tests de lecture et CLI. -->
+<gpx version="1.1" creator="synthetic-tests" xmlns="http://www.topografix.com/GPX/1/1">
+  <wpt lat="45.00000000000000" lon="6"><ele>999</ele><name>Départ</name><desc>Départ inventé</desc><type>start</type><sym>Flag</sym></wpt>
+  <wpt lat="45.00449660181862" lon="6"><ele>1600</ele><name>Col</name><desc>Col inventé</desc><sym>Summit</sym></wpt>
+  <trk><name>Mini méridien</name><trkseg>
+    <trkpt lat="45.00000000000000" lon="6"><ele>1500</ele></trkpt>
+    <trkpt lat="45.00089932036372" lon="6"><ele>1510</ele></trkpt>
+    <trkpt lat="45.00179864072745" lon="6"><ele>1520</ele></trkpt>
+    <trkpt lat="45.00269796109117" lon="6"><ele>1530</ele></trkpt>
+    <trkpt lat="45.00359728145490" lon="6"><ele>1540</ele></trkpt>
+    <trkpt lat="45.00449660181862" lon="6"><ele>1550</ele></trkpt>
+    <trkpt lat="45.00539592218234" lon="6"><ele>1540</ele></trkpt>
+    <trkpt lat="45.00629524254607" lon="6"><ele>1530</ele></trkpt>
+    <trkpt lat="45.00719456290980" lon="6"><ele>1520</ele></trkpt>
+    <trkpt lat="45.00809388327352" lon="6"><ele>1510</ele></trkpt>
+    <trkpt lat="45.00899320363725" lon="6"><ele>1500</ele></trkpt>
+  </trkseg></trk>
+</gpx>
