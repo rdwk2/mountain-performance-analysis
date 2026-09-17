@@ -7,7 +7,7 @@ from itertools import pairwise
 import pytest
 from hypothesis import given
 
-from fixtures.routes import COL, DEPART, LOLLIPOP_ROUTE, SOURCE_POINT
+from fixtures.routes import COL, DEPART, LOLLIPOP_ROUTE, SOURCE, SOURCE_POINT
 from fixtures.synthetic_routes import (
     flat_route_with_confused_points,
     irregular_route,
@@ -160,6 +160,32 @@ def test_irregular_spacing_resolves_exact_abscissa() -> None:
     assert len(profile.resolved_points) == 1
     assert profile.resolved_points[0].distance_m == pytest.approx(1500, abs=1e-3)
     assert profile.resolved_points[0].offset_m == pytest.approx(0, abs=1e-9)
+
+
+def test_point_at_max_offset_is_resolved() -> None:
+    point = NamedPoint(
+        name="Lieu au seuil",
+        latitude_deg=math.degrees(150 / EARTH_RADIUS_M),
+        longitude_deg=math.degrees(3 / EARTH_RADIUS_M),
+        elevation_m=None,
+    )
+    route = Route(
+        name="Méridien équatorial",
+        latitude_deg=(0.0, math.degrees(300 / EARTH_RADIUS_M)),
+        longitude_deg=(0.0, 0.0),
+        elevation_m=(1500.0, 1500.0),
+        named_points=(point,),
+        source=SOURCE,
+    )
+    parameters = ParameterSet(
+        PROFILE_PARAMETER_SPECS, {"point_match_max_offset_m": 3.0}
+    )
+    profile = build_profile(route, parameters)
+    assert len(profile.resolved_points) == 1
+    passage = profile.resolved_points[0]
+    assert passage.point == point
+    assert passage.offset_m == 3.0
+    assert passage.distance_m == pytest.approx(150.0, rel=0, abs=1e-3)
 
 
 @pytest.mark.parametrize("offset_m", [0.0, 3.0, 500.0])
