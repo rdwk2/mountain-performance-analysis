@@ -16,6 +16,24 @@ Backtest (à partir de M4) : métrique avant → après.
 
 ---
 
+### 2026-09-17 · M2 — Couverture A1/A2 après arbitrage A
+Reprise de la PR #5 à `873f9f10756008c076cd96d7edb568fd5d6700ec`, tête locale
+et distante inchangée depuis la relecture C. Deux tests ajoutés uniquement dans
+`tests/test_gpx_profile.py` : A1 vérifie le passage au seuil exact de 3 m sur le
+montage équatorial prescrit ; A2 exige la grille exacte `(0.0, 50.0, 75.0)` pour
+`L = 75.0`, `h = 50.0`, en conservant les tests de bornes existants.
+Preuves ciblées exécutées séparément dans deux copies jetables : chaque nouveau
+test passe sur le code non muté (1 test vert), puis échoue sous sa mutation.
+M09 (`<=` → `<` au filtre maximal) donne zéro passage au lieu d'un ; M10
+(`<` → `<=` au reste de grille) donne `(0.0, 75.0)` au lieu des trois points.
+Chaque source a été restaurée à l'identique avant suppression de la copie.
+Aucune autre campagne de mutations ; aucun changement permanent de calcul,
+de contrat, de fixture partagée, de dépendance ou de décision.
+Conclusion : `just check` vert avant chacun des deux commits, 425 puis 426 tests,
+avec lint, formatage et mypy strict verts. Rangé dans `tests/test_gpx_profile.py`
+et cette entrée, branche `m2/gpx-profil`, PR #5 ; revue GitHub finale et fusion
+laissées à rdw selon l'arbitrage A.
+
 ### 2026-09-17 · M2 — GPX → profil
 Lecture GPX 1.0/1.1/sans namespace, dédoublonnage conservant le premier point,
 distance haversine horizontale, grille puis lissage, résolution des lieux nommés

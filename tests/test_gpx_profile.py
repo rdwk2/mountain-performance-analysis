@@ -57,6 +57,10 @@ def test_grid_interval_bounds(total_m: float) -> None:
         assert len(grid_m) == 769
 
 
+def test_grid_half_step_remainder_appends_endpoint() -> None:
+    assert _build_grid(75.0, 50.0) == (0.0, 50.0, 75.0)
+
+
 @pytest.mark.parametrize(("length_m", "step_m"), [(20.0, 50.0), (400.0, 1000.0)])
 def test_route_shorter_than_step(length_m: float, step_m: float) -> None:
     assert _build_grid(length_m, step_m) == (0, length_m)
