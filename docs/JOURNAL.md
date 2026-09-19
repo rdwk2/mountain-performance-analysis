@@ -16,6 +16,23 @@ Backtest (à partir de M4) : métrique avant → après.
 
 ---
 
+### 2026-09-19 · Calage GPX post-M2 — maintien des défauts provisoires
+Exploration sur des parcours réels de reliefs différents : répétitions
+d'activités et tracés préparés, pas fixé à 50 m, fenêtres de lissage demandées
+de 0, 150 et 250 m. Comparaison de l'étendue du D+ entre activités et de l'écart
+du préparé à leur médiane, avec tolérances définies avant les essais, complétée
+par l'examen des profils. Calculs au M2 `fe07c4020cb356b59fe5f37ff05bcd3aee72cc58`.
+Aucun réglage testé ne satisfait tous les groupes ; un lissage plus fort peut
+rapprocher les totaux tout en effaçant de petites formes du relief.
+Décision acceptée : conserver `grid_step_m = 50` et `smoothing_window_m = 150`
+comme provisoires, et différer leur validation générale. Pas de référence
+altimétrique terrain ni d'étude de sensibilité au pas ; ces observations
+ne valident pas les temps de projection. La préparation M3 peut poursuivre
+avec ce statut explicite. Aucun changement de code ou de défaut.
+Détail conservé hors dépôt dans le dossier de conception :
+`11_CALAGE_GPX_POST_M2.md`, `11_CALAGE_Q2.md` et `resultat/11_LISEZ_MOI.md`.
+La ligne de suivi M2/M3 du backlog demeure ouverte pour la validation différée.
+
 ### 2026-09-17 · M2 — Couverture A1/A2 après arbitrage A
 Reprise de la PR #5 à `873f9f10756008c076cd96d7edb568fd5d6700ec`, tête locale
 et distante inchangée depuis la relecture C. Deux tests ajoutés uniquement dans
