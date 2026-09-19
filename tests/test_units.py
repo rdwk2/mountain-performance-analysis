@@ -13,6 +13,7 @@ from hypothesis import strategies as st
 
 from mountain_perf.units import (
     UNDEFINED,
+    format_duration,
     format_pace,
     format_vam,
     kmh_to_ms,
@@ -31,9 +32,14 @@ pace_speeds = st.floats(
 )
 # Pentes : −60 % à +60 %.
 grades = st.floats(min_value=-0.6, max_value=0.6, allow_nan=False, allow_infinity=False)
+# Durées : de l'instant au-delà de la journée (100 h), pour exercer le report.
+durations_s = st.floats(
+    min_value=0.0, max_value=360_000.0, allow_nan=False, allow_infinity=False
+)
 
 PACE_RE = re.compile(r"^\d+:[0-5]\d /km$")
 VAM_RE = re.compile(r"^-?\d+ m/h$")
+DURATION_RE = re.compile(r"^\d+:[0-5]\d:[0-5]\d$")
 
 
 # ---------------------------------------------------------------------------
@@ -101,6 +107,31 @@ def test_format_vam_is_total(vertical_speed_ms: float) -> None:
     assert format_vam(vertical_speed_ms) == UNDEFINED
 
 
+@pytest.mark.parametrize(
+    ("duration_s", "expected"),
+    [
+        (0.0, "0:00:00"),
+        (45.0, "0:00:45"),
+        (5025.0, "1:23:45"),
+        # Au-delà de 24 h les heures continuent : 29 h 03 min 07 s, pas « 1 j 5:03:07 ».
+        (104587.0, "29:03:07"),
+    ],
+)
+def test_format_duration_examples(duration_s: float, expected: str) -> None:
+    assert format_duration(duration_s) == expected
+
+
+def test_format_duration_carries_rounded_seconds() -> None:
+    # 3 599,6 s → arrondi à 3 600 → 1:00:00, pas 0:59:60.
+    assert format_duration(3599.6) == "1:00:00"
+    assert format_duration(59.5) == "0:01:00"
+
+
+@pytest.mark.parametrize("duration_s", [-1.0, -0.6, math.nan, math.inf, -math.inf])
+def test_format_duration_is_total(duration_s: float) -> None:
+    assert format_duration(duration_s) == UNDEFINED
+
+
 # ---------------------------------------------------------------------------
 # Propriétés
 # ---------------------------------------------------------------------------
@@ -157,3 +188,12 @@ def test_format_vam_shape_and_no_negative_zero(speed_ms: float, grade: float) ->
     text = format_vam(vertical_speed_from_grade(speed_ms, grade))
     assert VAM_RE.match(text)
     assert text != "-0 m/h"
+
+
+@given(durations_s)
+def test_format_duration_shape_and_round_trip(duration_s: float) -> None:
+    """Forme h:mm:ss, et relecture des trois champs = arrondi de la durée."""
+    text = format_duration(duration_s)
+    assert DURATION_RE.match(text)
+    hours, minutes, seconds = (int(field) for field in text.split(":"))
+    assert hours * 3600 + minutes * 60 + seconds == round(duration_s)
