@@ -58,15 +58,16 @@ def write_curve(
     meta: dict[str, Any] | None = None,
     meta_text: str | None = None,
     with_meta: bool = True,
+    name: str = "courbe.csv",
 ) -> Path:
     """Écrit un couple CSV / compagnon dans ``tmp_path`` et rend le chemin du CSV."""
-    path = tmp_path / "courbe.csv"
+    path = tmp_path / name
     path.write_text(
         CURVE.read_text(encoding="utf-8") if csv_text is None else csv_text,
         encoding="utf-8",
     )
     if with_meta:
-        companion = tmp_path / "courbe.meta.json"
+        companion = tmp_path / f"{path.stem}.meta.json"
         if meta_text is None:
             meta_text = json.dumps(base_meta() if meta is None else meta)
         companion.write_text(meta_text, encoding="utf-8")
@@ -93,14 +94,31 @@ def test_synthetic_curve_is_read_as_expected() -> None:
     assert result.curve.sport is Sport.FOOT
 
 
+# Empreinte de la fixture, écrite en dur : un oracle qui recalcule ce qu'il
+# vérifie ne vérifie rien. Elle bouge si et seulement si le CSV change.
+CURVE_REF = "courbe_synthetique.csv#6767dd38064d"
+
+
 def test_source_and_reference_name_the_file_not_the_path() -> None:
     result = read_curve(CURVE, parameters())
     assert result.source.kind == "csv"
     assert result.source.identifier == "courbe_synthetique.csv"
     assert result.curve.source == result.source
+    assert result.source.content_hash == (
+        "6767dd38064dd789547329f9b46bb6c46d3e54b1593daa38f575614cb4744f06"
+    )
+    assert result.curve_ref == CURVE_REF
     assert result.curve_ref == curve_reference(result.source)
-    assert result.curve_ref.startswith("courbe_synthetique.csv#")
-    assert len(result.curve_ref.rpartition("#")[2]) == 12
+
+
+def test_reference_changes_with_the_content(tmp_path: Path) -> None:
+    """Le nom seul ne suffit pas : deux courbes peuvent le partager."""
+    same_name = read_curve(
+        write_curve(tmp_path, csv_text=MINIMAL, name="courbe_synthetique.csv"),
+        parameters(),
+    )
+    assert same_name.source.identifier == "courbe_synthetique.csv"
+    assert same_name.curve_ref != CURVE_REF
 
 
 def test_provenance_comes_from_the_companion() -> None:
@@ -427,6 +445,9 @@ def test_unreadable_companion_is_rejected(tmp_path: Path) -> None:
         "sport",
         "activity_count",
         "hr_center_bpm",
+        # hr_width_bpm manquait : le compagnon a hr_center_bpm nul, et le champ
+        # jumeau absent doit rester une erreur nommée, pas une absence tolérée.
+        "hr_width_bpm",
         "date_from",
         "date_to",
         "source_activity_types",
@@ -451,6 +472,64 @@ def test_naive_generated_at_is_rejected(tmp_path: Path) -> None:
         meta=base_meta() | {"generated_at": "2026-02-01T12:00:00"},
     )
     with pytest.raises(CurveError, match="doit porter un fuseau horaire"):
+        read_curve(path, parameters())
+
+
+@pytest.mark.parametrize("sport", list(Sport))
+def test_sport_comes_from_the_companion(tmp_path: Path, sport: Sport) -> None:
+    """Chaque valeur admise est lue, pas seulement ``foot`` (C25).
+
+    Sans ce test, renvoyer toujours ``FOOT`` passe : seuls le champ manquant et la
+    valeur inconnue étaient vérifiés.
+    """
+    path = write_curve(
+        tmp_path, csv_text=MINIMAL, meta=base_meta() | {"sport": sport.value}
+    )
+    assert read_curve(path, parameters()).curve.sport is sport
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        # bool est un int en Python : sans garde, true passerait pour 1.
+        ("activity_count", True),
+        ("min_duration_s", True),
+        ("activity_count", 3.5),
+        ("source_activity_types", "trail"),
+        ("estimator", ""),
+        ("date_from", "01/01/2026"),
+        ("generated_at", "pas un instant"),
+    ],
+)
+def test_companion_field_of_the_wrong_type_names_the_field(
+    tmp_path: Path, field: str, value: object
+) -> None:
+    path = write_curve(tmp_path, csv_text=MINIMAL, meta=base_meta() | {field: value})
+    with pytest.raises(CurveError, match=f"champ « {field} »"):
+        read_curve(path, parameters())
+
+
+def test_companion_reduced_to_a_scalar_is_a_curve_error(tmp_path: Path) -> None:
+    """Un JSON valide mais pas un objet : ``CurveError``, pas ``TypeError``."""
+    path = write_curve(tmp_path, csv_text=MINIMAL, meta_text="1")
+    with pytest.raises(CurveError, match="objet JSON est attendu"):
+        read_curve(path, parameters())
+
+
+def test_sample_count_rounds_the_minutes(tmp_path: Path) -> None:
+    """``round(time_min × 60)``, pas ``int`` (C17).
+
+    Toutes les tranches de la fixture ont un produit entier : elles ne distinguent
+    pas les deux.
+    """
+    path = write_curve(tmp_path, csv_text=MINIMAL.replace(",90.0", ",90.01"))
+    assert read_curve(path, parameters()).curve.sample_count == (3600, 7200, 5401)
+
+
+def test_row_with_the_wrong_number_of_cells_is_a_curve_error(tmp_path: Path) -> None:
+    """Le compte de colonnes est vérifié avant le ``zip(strict=True)`` (C35)."""
+    path = write_curve(tmp_path, csv_text=MINIMAL + "20.0,3.6,150,720\n")
+    with pytest.raises(CurveError, match="4 colonnes, 5 attendues"):
         read_curve(path, parameters())
 
 
