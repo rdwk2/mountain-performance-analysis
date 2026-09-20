@@ -246,10 +246,37 @@ def test_non_positive_speed_is_rejected(tmp_path: Path, speed: str) -> None:
         read_curve(path, parameters())
 
 
-def test_speed_above_the_guard_is_rejected(tmp_path: Path) -> None:
+@pytest.mark.parametrize("speed", ["540", "150"])
+def test_speed_above_the_guard_is_rejected(tmp_path: Path, speed: str) -> None:
     """Une vitesse en m/s prise pour des km/h, ou une colonne décalée."""
-    path = write_curve(tmp_path, csv_text=MINIMAL.replace("5.4", "540"))
+    path = write_curve(tmp_path, csv_text=MINIMAL.replace("5.4", speed))
     with pytest.raises(CurveError, match="erreur d'unité ou de colonne"):
+        read_curve(path, parameters())
+
+
+def test_speed_below_the_guard_is_rejected(tmp_path: Path) -> None:
+    """La borne basse est ce qui rend l'inversion sûre, pas un simple ``> 0``.
+
+    Sans elle, une vitesse de ``1e-309`` m/s passe le contrat et l'allure au nœud
+    vaut ``inf``, sans qu'aucun invariant ne s'en plaigne.
+    """
+    path = write_curve(tmp_path, csv_text=MINIMAL.replace("5.4", "0.005"))
+    with pytest.raises(CurveError, match="erreur d'unité ou de colonne"):
+        read_curve(path, parameters())
+
+
+@pytest.mark.parametrize("column", ["hr", "vam_mh"])
+def test_non_finite_value_in_an_ignored_column_is_rejected(
+    tmp_path: Path, column: str
+) -> None:
+    """``hr`` et ``vam_mh`` ne servent à rien, mais elles sont lues **et validées**.
+
+    Une cellule non finie signale un fichier abîmé, même dans une colonne dont le
+    modèle ne se sert pas.
+    """
+    cell = {"hr": "135", "vam_mh": "540"}[column]
+    path = write_curve(tmp_path, csv_text=MINIMAL.replace(f",{cell},", ",nan,"))
+    with pytest.raises(CurveError, match="valeur non finie"):
         read_curve(path, parameters())
 
 
