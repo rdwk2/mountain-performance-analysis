@@ -33,6 +33,7 @@ from mountain_perf.model.engine import (
     route_endpoints,
 )
 from mountain_perf.schemas import (
+    NamedPoint,
     PaceCurve,
     ParameterSet,
     PointKind,
@@ -160,6 +161,40 @@ def test_start_and_finish_are_synthesised_even_over_a_named_place() -> None:
     # Même abscisse, même temps au bit près.
     assert projection.passages[0].arrival_s == projection.passages[1].arrival_s
     assert projection.passages[-2].arrival_s == projection.passages[-1].arrival_s
+
+
+def test_two_places_at_the_same_abscissa_both_get_a_passage() -> None:
+    """Deux lieux **différents** à la même abscisse donnent deux passages.
+
+    Le nombre de passages est vérifié **avant** les temps : sans lui, dédoublonner
+    les ``resolved_points`` ferait disparaître un passage sans qu'aucune assertion
+    ne rougisse — la comparaison des temps est sous un ``if`` qui n'aurait plus de
+    paire à comparer.
+    """
+    coincident = tuple(
+        ResolvedPoint(
+            point=NamedPoint(
+                name=name, latitude_deg=45.0, longitude_deg=6.0, elevation_m=None
+            ),
+            distance_m=250.0,
+            elevation_m=1000.0,
+            offset_m=0.0,
+        )
+        for name in ("Fontaine", "Croisement")
+    )
+    projection = run(replace(SIX_INTERVAL_PROFILE, resolved_points=coincident))
+    assert len(projection.passages) == 4
+    inner = projection.passages[1:3]
+    assert [passage.point.point.name for passage in inner] == [
+        "Fontaine",
+        "Croisement",
+    ]
+    assert inner[0].arrival_s == inner[1].arrival_s
+    assert inner[0].departure_s == inner[1].departure_s
+    assert inner[0].moving_time_s == inner[1].moving_time_s
+    assert inner[0].arrival_s == pytest.approx(
+        REFUGE_ARRIVAL_S, abs=TIME_ABS_TOLERANCE_S
+    )
 
 
 def test_projection_fields() -> None:
