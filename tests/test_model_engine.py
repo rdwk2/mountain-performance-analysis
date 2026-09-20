@@ -15,6 +15,7 @@ from hypothesis import given
 from fixtures.curves import SUPPORT_CURVE
 from fixtures.projection import (
     CURVE_REF,
+    ENDPOINT_FILE_ELEVATIONS_M,
     ENDPOINTS,
     OUT_OF_SUPPORT_DISTANCE_M,
     OUT_OF_SUPPORT_TIME_S,
@@ -142,10 +143,23 @@ def test_start_and_finish_are_always_synthesised() -> None:
     assert first.arrival_s == 0.0
     assert last.point.distance_m == SIX_INTERVAL_PROFILE.distance_m[-1]
     assert last.point.point.kind is PointKind.FINISH
-    # Altitudes lues sur le profil lissé, pas sur le fichier.
-    assert first.point.elevation_m == SIX_INTERVAL_PROFILE.elevation_m[0]
-    assert last.point.elevation_m == SIX_INTERVAL_PROFILE.elevation_m[-1]
     assert first.point.offset_m == last.point.offset_m == 0.0
+
+
+def test_endpoint_elevations_come_from_the_profile_not_the_file() -> None:
+    """Le lieu porte l'altitude du fichier, le passage celle du profil lissé.
+
+    C'est la séparation de la décision ``0004``, et les deux valeurs diffèrent
+    légitimement — le lissage du M2 déplace l'altitude de plusieurs mètres. Tant
+    que la fixture leur donnait la même valeur, lire l'une pour l'autre passait.
+    """
+    first, last = run().passages[0], run().passages[-1]
+    assert first.point.elevation_m == SIX_INTERVAL_PROFILE.elevation_m[0] == 1000.0
+    assert last.point.elevation_m == SIX_INTERVAL_PROFILE.elevation_m[-1] == 1020.0
+    assert first.point.point.elevation_m == ENDPOINT_FILE_ELEVATIONS_M[0] == 999.0
+    assert last.point.point.elevation_m == ENDPOINT_FILE_ELEVATIONS_M[1] == 1019.0
+    assert first.point.elevation_m != first.point.point.elevation_m
+    assert last.point.elevation_m != last.point.point.elevation_m
 
 
 def test_start_and_finish_are_synthesised_even_over_a_named_place() -> None:

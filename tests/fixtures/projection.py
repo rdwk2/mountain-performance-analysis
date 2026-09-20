@@ -61,19 +61,28 @@ SIX_INTERVAL_PROFILE = RouteProfile(
     build_parameters=GRID_PARAMETERS,
 )
 
+ENDPOINT_FILE_ELEVATIONS_M = (999.0, 1019.0)
+"""Altitudes **du fichier** aux deux extrémités, volontairement différentes de
+celles du profil lissé (1000 et 1020 m).
+
+C'est la séparation posée par la décision ``0004`` : le ``NamedPoint`` porte ce que
+le fichier dit, le ``ResolvedPoint`` ce que le profil lissé dit. Tant que la fixture
+donnait la même valeur aux deux, lire l'une pour l'autre passait inaperçu.
+"""
+
 ENDPOINTS = (
     NamedPoint(
         name="Départ",
         latitude_deg=45.0,
         longitude_deg=6.0,
-        elevation_m=1000.0,
+        elevation_m=ENDPOINT_FILE_ELEVATIONS_M[0],
         kind=PointKind.START,
     ),
     NamedPoint(
         name="Arrivée",
         latitude_deg=45.01,
         longitude_deg=6.0,
-        elevation_m=1020.0,
+        elevation_m=ENDPOINT_FILE_ELEVATIONS_M[1],
         kind=PointKind.FINISH,
     ),
 )
