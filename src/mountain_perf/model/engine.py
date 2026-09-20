@@ -77,44 +77,46 @@ porte donc l'échelle qui l'a produite, ce que le biais d'échelle de D6 exige.
 class ProjectionDiagnostics:
     """Ce que la projection a rencontré, et ce qu'elle a dû prolonger.
 
-    Sans les deux fractions hors support, on ne sait pas si le prolongement a pesé
-    sur le résultat — et le prolongement est la partie du modèle qui n'est adossée
-    à aucune mesure.
+    Champs
+    ------
+    - ``out_of_support_distance_m`` — mètres — distance parcourue hors du support
+      de la courbe, ``>= 0``.
+    - ``out_of_support_time_s`` — secondes — temps correspondant, ``>= 0``.
+    - ``out_of_support_distance_share``, ``out_of_support_time_share`` — fractions
+      dans ``[0, 1]`` — les deux précédentes rapportées au total du tracé.
+    - ``grade_min``, ``grade_max`` — fractions — pentes extrêmes rencontrées.
 
-    ``total_distance_m`` et ``total_time_s`` ne sont pas des diagnostics en
-    eux-mêmes : ils sont les **dénominateurs** des deux fractions, et ils sont ici
-    pour que celles-ci se calculent dans la bibliothèque. Les laisser dehors
-    obligeait l'interface à faire la division, c'est-à-dire à calculer (règle 7 de
-    ``CLAUDE.md``), et rendait la fraction intestable côté bibliothèque.
+    Sans les deux fractions, on ne sait pas si le prolongement a pesé sur le
+    résultat — et le prolongement est la partie du modèle qui n'est adossée à
+    aucune mesure.
 
-    Propriétés calculées (jamais stockées) : ``out_of_support_distance_share`` et
-    ``out_of_support_time_share``.
+    **Les fractions sont stockées, pas leurs dénominateurs.** Porter la longueur et
+    la durée totales dupliquerait ``profile.distance_m[-1]`` et
+    ``passages[-1].arrival_s``, que l'appelant a déjà : c'est exactement ce que la
+    décision ``0007`` proscrit. Le quotient, lui, n'existe nulle part ailleurs, et
+    le laisser à l'appelant reviendrait à calculer dans l'interface (règle 7 de
+    ``CLAUDE.md``). ``project_with_diagnostics`` a les totaux au moment du calcul.
+
+    Non promis
+    ----------
+    Une fraction nulle ne distingue pas « rien hors support » d'un tracé de
+    longueur ou de durée nulle — que le M2 ne produit pas.
     """
 
     out_of_support_distance_m: float
     out_of_support_time_s: float
+    out_of_support_distance_share: float
+    out_of_support_time_share: float
     grade_min: float
     grade_max: float
-    total_distance_m: float
-    total_time_s: float
-
-    @property
-    def out_of_support_distance_share(self) -> float:
-        """Part de la distance passée hors du support, fraction dans ``[0, 1]``."""
-        return _share(self.out_of_support_distance_m, self.total_distance_m)
-
-    @property
-    def out_of_support_time_share(self) -> float:
-        """Part du temps passée hors du support, fraction dans ``[0, 1]``."""
-        return _share(self.out_of_support_time_s, self.total_time_s)
 
 
 def _share(part: float, whole: float) -> float:
     """Fraction ``part / whole``, ``0`` pour un total nul.
 
     Un profil produit par le M2 a toujours une longueur et une durée strictement
-    positives ; le cas nul n'existe que pour un diagnostic construit à la main, et
-    « aucune distance, donc aucune part » vaut mieux qu'une division par zéro.
+    positives ; « aucune distance, donc aucune part » vaut mieux qu'une division
+    par zéro pour un profil qui n'en aurait pas.
     """
     return part / whole if whole > 0 else 0.0
 
@@ -272,12 +274,16 @@ def project_with_diagnostics(
         generated_at=datetime.now(UTC) if generated_at is None else generated_at,
     )
     extrapolated = [i for i, g in enumerate(grade) if model.is_extrapolated(g)]
+    out_of_support_distance_m = sum(lengths_m[i] for i in extrapolated)
+    out_of_support_time_s = sum(lengths_m[i] * pace_s_per_m[i] for i in extrapolated)
     diagnostics = ProjectionDiagnostics(
-        out_of_support_distance_m=sum(lengths_m[i] for i in extrapolated),
-        out_of_support_time_s=sum(lengths_m[i] * pace_s_per_m[i] for i in extrapolated),
+        out_of_support_distance_m=out_of_support_distance_m,
+        out_of_support_time_s=out_of_support_time_s,
+        # Les totaux sont ici, à portée : c'est le seul endroit où le quotient se
+        # calcule sans redemander à l'appelant ce qu'il a déjà.
+        out_of_support_distance_share=_share(out_of_support_distance_m, grid_m[-1]),
+        out_of_support_time_share=_share(out_of_support_time_s, cumulative_s[-1]),
         grade_min=min(grade),
         grade_max=max(grade),
-        total_distance_m=grid_m[-1],
-        total_time_s=cumulative_s[-1],
     )
     return projection, diagnostics

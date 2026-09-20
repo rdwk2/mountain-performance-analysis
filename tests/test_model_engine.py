@@ -111,10 +111,6 @@ def test_out_of_support_share() -> None:
     )
     assert diagnostics.grade_min == pytest.approx(-0.40)
     assert diagnostics.grade_max == pytest.approx(0.40)
-    assert diagnostics.total_distance_m == 600.0
-    assert diagnostics.total_time_s == pytest.approx(
-        TOTAL_DURATION_S, abs=TIME_ABS_TOLERANCE_S
-    )
     # 200 m sur 600, 300 s sur 540 : la fraction se calcule ici, pas dans la CLI.
     assert diagnostics.out_of_support_distance_share == pytest.approx(1 / 3)
     assert diagnostics.out_of_support_time_share == pytest.approx(5 / 9)
