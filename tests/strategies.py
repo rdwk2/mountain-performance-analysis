@@ -469,6 +469,46 @@ def curve_provenances(draw: st.DrawFn) -> CurveProvenance:
 
 
 @st.composite
+def model_pace_curves(draw: st.DrawFn, max_bins: int = 10) -> PaceCurve:
+    """Courbes telles que la lecture du M3 les produit, pas telles que le contrat
+    les tolère.
+
+    Le plat est **strictement encadré** et les bords sont à au moins 1 % de pente ;
+    les vitesses tiennent dans le garde-fou de lecture, ``[0,01 ; 100]`` km/h. Ce
+    sont les préconditions dont ``PaceModel`` dépend sans les revérifier, et que
+    :func:`pace_curves` — qui suit le contrat, plus large — ne garantit pas.
+    """
+    half = max(1, max_bins // 2)
+    negatives = draw(
+        st.lists(finite_floats(-2.0, -0.01), min_size=1, max_size=half, unique=True)
+    )
+    positives = draw(
+        st.lists(finite_floats(0.01, 2.0), min_size=1, max_size=half, unique=True)
+    )
+    grades = sorted([*negatives, *([0.0] if draw(st.booleans()) else []), *positives])
+    n = len(grades)
+    return PaceCurve(
+        sport=draw(sports()),
+        grade=tuple(grades),
+        speed_ms=tuple(
+            draw(
+                st.lists(finite_floats(0.01 / 3.6, 100.0 / 3.6), min_size=n, max_size=n)
+            )
+        ),
+        sample_count=tuple(
+            draw(
+                st.lists(
+                    st.integers(min_value=0, max_value=10**6), min_size=n, max_size=n
+                )
+            )
+        ),
+        dispersion_ms=None,
+        estimation=draw(curve_provenances()),
+        source=draw(source_refs()),
+    )
+
+
+@st.composite
 def pace_curves(draw: st.DrawFn, max_bins: int = 30) -> PaceCurve:
     """Courbes valides : pentes distinctes triées dans ``[-2, 2]``."""
     grades = sorted(
