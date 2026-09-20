@@ -90,11 +90,16 @@ class CurveError(ValueError):
 
 @dataclass(frozen=True)
 class CurveBin:
-    """Une ligne du CSV, convertie aux unités internes."""
+    """Une ligne du CSV, convertie aux unités internes.
+
+    ``sample_count`` est calculé ici, à la ligne, pour que son débordement porte un
+    numéro de ligne au lieu de remonter en ``OverflowError`` nu.
+    """
 
     grade: float
     speed_ms: float
     time_min: float
+    sample_count: int
 
 
 @dataclass(frozen=True)
@@ -197,7 +202,16 @@ def _read_bins(text: str) -> list[CurveBin]:
             raise CurveError(
                 f"ligne {line} : time_min doit être >= 0, reçu {time_min}."
             )
-        bins.append(CurveBin(grade, kmh_to_ms(speed_kmh), time_min))
+        try:
+            # round(inf) lève OverflowError : une entrée finie mais démesurée ne
+            # doit pas sortir en trace, comme toute autre erreur d'entrée.
+            sample_count = round(time_min * 60)
+        except OverflowError as error:
+            raise CurveError(
+                f"ligne {line}, colonne time_min : {time_min} minutes déborde le "
+                "comptage d'échantillons."
+            ) from error
+        bins.append(CurveBin(grade, kmh_to_ms(speed_kmh), time_min, sample_count))
     bins.sort(key=lambda curve_bin: curve_bin.grade)
     for previous, current in pairwise(bins):
         if previous.grade == current.grade:
@@ -313,7 +327,13 @@ def _optional_number(meta: dict[str, Any], name: str, file_name: str) -> float |
             f"{file_name} : champ « {name} » attendu comme nombre ou null, "
             f"reçu {value!r}."
         )
-    return float(value)
+    try:
+        # Un entier JSON n'a pas de borne : float(10**400) lève OverflowError.
+        return float(value)
+    except OverflowError as error:
+        raise CurveError(
+            f"{file_name} : champ « {name} » déborde le domaine des flottants."
+        ) from error
 
 
 def _texts(meta: dict[str, Any], name: str, file_name: str) -> frozenset[str]:
@@ -438,7 +458,7 @@ def read_curve(path: Path, parameters: ParameterSet) -> CurveReadResult:
             sport=sport,
             grade=tuple(curve_bin.grade for curve_bin in kept),
             speed_ms=tuple(curve_bin.speed_ms for curve_bin in kept),
-            sample_count=tuple(round(curve_bin.time_min * 60) for curve_bin in kept),
+            sample_count=tuple(curve_bin.sample_count for curve_bin in kept),
             dispersion_ms=None,
             estimation=provenance,
             source=source,

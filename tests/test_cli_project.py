@@ -266,6 +266,46 @@ def test_unreadable_curve_has_no_traceback(
     assert "Traceback" not in captured.err
 
 
+@pytest.mark.parametrize(
+    ("csv_replacement", "meta_replacement", "expected"),
+    [
+        ((",120.0", ",1e308"), None, "time_min"),
+        (
+            None,
+            ('"min_duration_s": 0', '"min_duration_s": ' + "1" + "0" * 400),
+            "min_duration_s",
+        ),
+    ],
+)
+def test_overflowing_input_has_no_traceback(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    csv_replacement: tuple[str, str] | None,
+    meta_replacement: tuple[str, str] | None,
+    expected: str,
+) -> None:
+    """Deux entrées finies mais démesurées sortaient en OverflowError nu.
+
+    Le § 4.5 du brief est explicite : une erreur d'entrée est lisible, code 1,
+    jamais une trace.
+    """
+    text = CURVE.read_text(encoding="utf-8")
+    if csv_replacement is not None:
+        text = text.replace(*csv_replacement)
+    meta = (FIXTURES / "courbe_synthetique.meta.json").read_text(encoding="utf-8")
+    if meta_replacement is not None:
+        meta = meta.replace(*meta_replacement)
+    curve = tmp_path / "demesuree.csv"
+    curve.write_text(text, encoding="utf-8")
+    (tmp_path / "demesuree.meta.json").write_text(meta, encoding="utf-8")
+    assert main(["project", str(GPX), "--curve", str(curve)]) == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert expected in captured.err
+    assert "Traceback" not in captured.err
+    assert "OverflowError" not in captured.err
+
+
 def test_missing_curve_file_is_readable(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

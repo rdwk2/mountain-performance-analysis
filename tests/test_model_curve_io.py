@@ -526,6 +526,30 @@ def test_sample_count_rounds_the_minutes(tmp_path: Path) -> None:
     assert read_curve(path, parameters()).curve.sample_count == (3600, 7200, 5401)
 
 
+def test_huge_time_min_is_a_curve_error_not_an_overflow(tmp_path: Path) -> None:
+    """``round(inf)`` lève ``OverflowError`` : une entrée finie mais démesurée
+    reste une erreur d'entrée lisible, avec sa ligne."""
+    path = write_curve(tmp_path, csv_text=MINIMAL.replace(",120.0", ",1e308"))
+    with pytest.raises(CurveError) as error:
+        read_curve(path, parameters())
+    message = str(error.value)
+    assert "ligne 3" in message
+    assert "time_min" in message
+
+
+def test_huge_json_integer_is_a_curve_error_not_an_overflow(tmp_path: Path) -> None:
+    """``float(10**400)`` lève ``OverflowError`` ; un entier JSON n'a pas de borne."""
+    path = write_curve(
+        tmp_path,
+        csv_text=MINIMAL,
+        meta_text=json.dumps(base_meta()).replace(
+            '"min_duration_s": 0', f'"min_duration_s": {10**400}'
+        ),
+    )
+    with pytest.raises(CurveError, match="champ « min_duration_s » déborde"):
+        read_curve(path, parameters())
+
+
 def test_row_with_the_wrong_number_of_cells_is_a_curve_error(tmp_path: Path) -> None:
     """Le compte de colonnes est vérifié avant le ``zip(strict=True)`` (C35)."""
     path = write_curve(tmp_path, csv_text=MINIMAL + "20.0,3.6,150,720\n")
