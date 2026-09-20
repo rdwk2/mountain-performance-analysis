@@ -152,6 +152,114 @@ def test_a_missing_slice_is_not_a_gap() -> None:
     assert kept == (-0.20, -0.10, 0.0, 0.10, 0.20)
 
 
+def test_row_order_in_the_file_does_not_matter(tmp_path: Path) -> None:
+    """Les lignes sont triées par pente croissante avant toute règle (C07)."""
+    lines = MINIMAL.splitlines()
+    shuffled = "\n".join([lines[0], *reversed(lines[1:])]) + "\n"
+    sorted_curve = read_curve(write_curve(tmp_path, csv_text=MINIMAL), parameters())
+    other = tmp_path / "decroissant"
+    other.mkdir()
+    shuffled_curve = read_curve(write_curve(other, csv_text=shuffled), parameters())
+    for field in ("grade", "speed_ms", "sample_count"):
+        assert getattr(shuffled_curve.curve, field) == getattr(
+            sorted_curve.curve, field
+        )
+
+
+def test_central_kernel_slice_below_threshold_is_named(tmp_path: Path) -> None:
+    """La ligne fautive du noyau peut être celle de pente nulle (C11)."""
+    path = write_curve(
+        tmp_path,
+        csv_text=(
+            "grade_pct,kmh,hr,vam_mh,time_min\n"
+            "-10.0,9.0,135,0,60.0\n"
+            "0.0,10.8,140,0,5.0\n"
+            "10.0,5.4,150,540,90.0\n"
+        ),
+    )
+    with pytest.raises(CurveError) as error:
+        read_curve(path, parameters())
+    message = str(error.value)
+    assert "0 %" in message
+    assert "5.0 min" in message
+
+
+def test_each_side_extends_on_its_own(tmp_path: Path) -> None:
+    """L'extension d'un côté ne dépend pas de celle de l'autre (C13).
+
+    Ici seul le côté montée a de quoi s'étendre ; le côté descente s'arrête faute
+    de ligne, sans empêcher l'autre d'aller jusqu'à +20 %.
+    """
+    path = write_curve(
+        tmp_path,
+        csv_text=(
+            "grade_pct,kmh,hr,vam_mh,time_min\n"
+            "-10.0,9.0,135,0,60.0\n"
+            "0.0,10.8,140,0,120.0\n"
+            "10.0,5.4,150,540,90.0\n"
+            "20.0,3.6,150,720,45.0\n"
+        ),
+    )
+    result = read_curve(path, parameters())
+    assert result.bin_count_kept == 4
+    assert result.kept_grade_range == (-0.10, 0.20)
+    assert result.discarded == ()
+
+
+@pytest.mark.parametrize(
+    ("low_pct", "high_pct"),
+    [("-0.5", "5.0"), ("-5.0", "0.5")],
+)
+def test_a_single_edge_below_one_percent_is_enough_to_refuse(
+    tmp_path: Path, low_pct: str, high_pct: str
+) -> None:
+    """Règle 4 : les **deux** bords doivent s'écarter du plat (C15).
+
+    Le cas symétrique à ±0,5 % ne distingue pas « un bord » de « les deux ».
+    """
+    path = write_curve(
+        tmp_path,
+        csv_text=(
+            "grade_pct,kmh,hr,vam_mh,time_min\n"
+            f"{low_pct},10.0,130,0,60.0\n"
+            f"{high_pct},9.0,140,0,60.0\n"
+        ),
+    )
+    with pytest.raises(CurveError, match="Support trop resserré"):
+        read_curve(path, parameters())
+
+
+def test_threshold_is_inclusive(tmp_path: Path) -> None:
+    """Une tranche exactement au seuil est retenue, noyau comme extension (C29)."""
+    path = write_curve(
+        tmp_path,
+        csv_text=(
+            "grade_pct,kmh,hr,vam_mh,time_min\n"
+            "-20.0,7.2,130,0,10.0\n"
+            "-10.0,9.0,135,0,10.0\n"
+            "0.0,10.8,140,0,10.0\n"
+            "10.0,5.4,150,540,10.0\n"
+        ),
+    )
+    result = read_curve(path, parameters(10.0))
+    assert result.bin_count_kept == 4
+    assert result.kept_grade_range == (-0.20, 0.10)
+
+
+def test_edge_exactly_at_one_percent_is_accepted(tmp_path: Path) -> None:
+    """Règle 4 : la borne d'écartement est inclusive (C30)."""
+    path = write_curve(
+        tmp_path,
+        csv_text=(
+            "grade_pct,kmh,hr,vam_mh,time_min\n"
+            "-1.0,10.0,130,0,60.0\n"
+            "1.0,9.0,140,0,60.0\n"
+        ),
+    )
+    result = read_curve(path, parameters())
+    assert result.kept_grade_range == (-MIN_EDGE_GRADE, MIN_EDGE_GRADE)
+
+
 def test_threshold_zero_keeps_every_line() -> None:
     result = read_curve(CURVE, parameters(0.0))
     assert result.bin_count_kept == result.bin_count_read == 9
@@ -380,42 +488,59 @@ def test_unknown_companion_field_is_ignored(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
+DEFAULT_THRESHOLD_MIN = 10.0
+
+
 @st.composite
-def curve_csv_texts(draw: st.DrawFn) -> str:
-    """CSV bien formés, valeurs quelconques : beaucoup seront refusés, c'est le but."""
-    rows = draw(
-        st.lists(
-            st.tuples(
-                st.integers(min_value=-60, max_value=60),
-                st.floats(
-                    min_value=0.5, max_value=20.0, allow_nan=False, allow_infinity=False
-                ),
-                st.integers(min_value=0, max_value=200),
-                st.integers(min_value=0, max_value=2000),
-                st.floats(
-                    min_value=0.0,
-                    max_value=200.0,
-                    allow_nan=False,
-                    allow_infinity=False,
-                ),
-            ),
-            max_size=12,
-            unique_by=lambda row: row[0],
-        )
+def acceptable_curve_csv_texts(draw: st.DrawFn) -> str:
+    """CSV que le lecteur **doit** accepter au seuil par défaut.
+
+    Le plat est encadré des deux côtés, les pentes sont des pourcentages entiers
+    non nuls — donc à au moins 1 % du plat, ce qui satisfait la règle 4 —, et les
+    trois lignes du noyau atteignent le seuil. Les lignes plus extérieures ont un
+    support quelconque : elles peuvent être écartées, jamais faire échouer.
+    """
+    negatives = sorted(
+        draw(st.lists(st.integers(-60, -1), min_size=1, max_size=5, unique=True))
     )
+    positives = sorted(
+        draw(st.lists(st.integers(1, 60), min_size=1, max_size=5, unique=True))
+    )
+    zero = draw(st.booleans())
+    grades_pct = [*negatives, *([0] if zero else []), *positives]
+    kernel = {negatives[-1], positives[0]} | ({0} if zero else set())
     lines = [",".join(CURVE_HEADER)]
-    lines += [f"{row[0]}.0,{row[1]},{row[2]},{row[3]},{row[4]}" for row in rows]
+    for grade_pct in grades_pct:
+        speed_kmh = draw(
+            st.floats(
+                min_value=0.5, max_value=20.0, allow_nan=False, allow_infinity=False
+            )
+        )
+        time_min = draw(
+            st.floats(
+                min_value=DEFAULT_THRESHOLD_MIN if grade_pct in kernel else 0.0,
+                max_value=200.0,
+                allow_nan=False,
+                allow_infinity=False,
+            )
+        )
+        hr = draw(st.integers(min_value=0, max_value=200))
+        vam = draw(st.integers(min_value=0, max_value=2000))
+        lines.append(f"{grade_pct}.0,{speed_kmh},{hr},{vam},{time_min}")
     return "\n".join(lines) + "\n"
 
 
-@given(curve_csv_texts())
-def test_reader_guarantees_what_the_pace_model_assumes(text: str) -> None:
-    """Une courbe acceptée encadre strictement le plat et reste inversible.
+@given(acceptable_curve_csv_texts())
+def test_reader_accepts_what_it_should_and_guarantees_what_the_model_assumes(
+    text: str,
+) -> None:
+    """Une courbe conforme est **lue**, et ce qu'elle rend tient les préconditions.
 
-    Le contrat ``PaceCurve`` vérifie ses propres invariants ; ce test garantit que
-    le lecteur ne produit **jamais** d'objet qui les violerait, et qu'il tient en
-    plus les préconditions dont :class:`~mountain_perf.model.pace.PaceModel` dépend
-    sans les revérifier.
+    Les deux moitiés comptent. Accepter ``CurveError`` ici laisserait passer le
+    refus d'une courbe valide — un lecteur qui refuse tout satisferait un test qui
+    se contente de « échoue proprement ». Et le contrat ``PaceCurve`` vérifie ses
+    propres invariants, mais pas ceux dont
+    :class:`~mountain_perf.model.pace.PaceModel` dépend sans les revérifier.
     """
     with tempfile.TemporaryDirectory() as directory:
         base = Path(directory)
@@ -424,10 +549,7 @@ def test_reader_guarantees_what_the_pace_model_assumes(text: str) -> None:
         )
         path = base / "courbe.csv"
         path.write_text(text, encoding="utf-8")
-        try:
-            curve = read_curve(path, parameters()).curve
-        except (CurveError, ContractError):
-            return
+        curve = read_curve(path, parameters(DEFAULT_THRESHOLD_MIN)).curve
     assert len(curve.grade) >= 2
     assert curve.grade[0] < 0 < curve.grade[-1]
     assert min(abs(curve.grade[0]), abs(curve.grade[-1])) >= MIN_EDGE_GRADE
