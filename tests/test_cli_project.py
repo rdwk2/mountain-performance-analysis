@@ -10,6 +10,7 @@ de sept points espacés de 100 m tombent à 599,999 999 999 7 m, et les pentes �
 
 import csv
 import io
+import math
 from pathlib import Path
 
 import pytest
@@ -17,6 +18,7 @@ import pytest
 from fixtures.curves import SUPPORT_CURVE
 from fixtures.projection import CURVE_REF, ENDPOINTS, SIX_INTERVAL_PROFILE
 from mountain_perf.cli import PASSAGE_CSV_HEADER, main, write_passages_csv
+from mountain_perf.gpx.geo import EARTH_RADIUS_M
 from mountain_perf.model.engine import PROJECTION_PARAMETER_SPECS, project
 from mountain_perf.schemas import ParameterSet
 
@@ -25,6 +27,28 @@ GPX = FIXTURES / "mini_11.gpx"
 CURVE = FIXTURES / "courbe_synthetique.csv"
 
 TIME_TOLERANCE_S = 1e-6
+
+EXPECTED_HEADER = (
+    "name",
+    "distance_m",
+    "elevation_m",
+    "arrival_s",
+    "departure_s",
+    "moving_time_s",
+    "segment_duration_s",
+    "segment_distance_m",
+    "segment_ascent_m",
+    "segment_descent_m",
+)
+"""L'en-tête du § 4.5 du brief, écrit en toutes lettres.
+
+Importer ``PASSAGE_CSV_HEADER`` ferait un oracle qui vérifie ce qu'il produit :
+renommer une colonne des deux côtés passerait inaperçu.
+"""
+
+
+def test_production_header_matches_the_brief() -> None:
+    assert PASSAGE_CSV_HEADER == EXPECTED_HEADER
 
 
 def written_rows() -> list[dict[str, str]]:
@@ -39,8 +63,8 @@ def written_rows() -> list[dict[str, str]]:
     stream = io.StringIO()
     write_passages_csv(projection, stream)
     rows = list(csv.reader(io.StringIO(stream.getvalue())))
-    assert tuple(rows[0]) == PASSAGE_CSV_HEADER
-    return [dict(zip(PASSAGE_CSV_HEADER, row, strict=True)) for row in rows[1:]]
+    assert tuple(rows[0]) == EXPECTED_HEADER
+    return [dict(zip(EXPECTED_HEADER, row, strict=True)) for row in rows[1:]]
 
 
 # ---------------------------------------------------------------------------
@@ -97,6 +121,16 @@ def test_csv_carries_the_m3_timing_convention() -> None:
         assert row["arrival_s"] == row["departure_s"] == row["moving_time_s"]
 
 
+def test_csv_elevations_come_from_the_smoothed_profile() -> None:
+    """Les altitudes écrites sont celles du profil, pas des zéros (L03).
+
+    Rien ne les vérifiait : les mettre toutes à zéro passait.
+    """
+    altitudes = [float(row["elevation_m"]) for row in written_rows()]
+    assert altitudes == list(SIX_INTERVAL_PROFILE.elevation_m[i] for i in (0, 2, -1))
+    assert altitudes == [1000.0, 1000.0, 1020.0]
+
+
 # ---------------------------------------------------------------------------
 # Bout en bout
 # ---------------------------------------------------------------------------
@@ -125,11 +159,54 @@ def test_end_to_end_csv_header_and_first_row(
     captured = capsys.readouterr()
     assert captured.err == ""
     rows = list(csv.reader(io.StringIO(captured.out)))
-    assert tuple(rows[0]) == PASSAGE_CSV_HEADER
-    first = dict(zip(PASSAGE_CSV_HEADER, rows[1], strict=True))
+    assert tuple(rows[0]) == EXPECTED_HEADER
+    first = dict(zip(EXPECTED_HEADER, rows[1], strict=True))
     assert first["name"] == "Départ"
     assert float(first["distance_m"]) == 0.0
     assert first["segment_duration_s"] == ""
+
+
+def steep_gpx(tmp_path: Path) -> Path:
+    """Méridien de 300 m : plat, puis +40 %, puis plat. Pas 100 m, sans lissage.
+
+    Un tiers de la distance sort du support ±20 % de la courbe synthétique, et
+    comme le prolongement y est lent (2 s/m contre 1/3), il pèse les trois quarts
+    du temps. C'est le cas qui rend les parts affichées observables.
+    """
+    latitudes = [45 + math.degrees(d / EARTH_RADIUS_M) for d in (0, 100, 200, 300)]
+    points = "".join(
+        f'<trkpt lat="{lat:.14f}" lon="6"><ele>{ele}</ele></trkpt>'
+        for lat, ele in zip(latitudes, (1000, 1000, 1040, 1040), strict=True)
+    )
+    path = tmp_path / "raide.gpx"
+    path.write_text(f"<gpx><trk><trkseg>{points}</trkseg></trk></gpx>", "utf-8")
+    return path
+
+
+def test_report_shows_non_zero_out_of_support_shares(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Les parts hors support sont calculées, pas écrites en dur (L06).
+
+    Le seul cas testé jusqu'ici valait 0 % des deux côtés : remplacer le calcul
+    par la chaîne « 0 % » passait.
+    """
+    argv = [
+        "project",
+        str(steep_gpx(tmp_path)),
+        "--curve",
+        str(CURVE),
+        "--step-m",
+        "100",
+        "--smoothing-m",
+        "0",
+    ]
+    assert main(argv) == 0
+    out = capsys.readouterr().out
+    assert "hors support : 33 % de la distance, 75 % du temps" in out
+    assert "pentes rencontrées : +0 % … +40 %" in out
+    # 100/3 + 200 + 100/3 s, soit 4 min 27 s arrondies.
+    assert "durée        0:04:27" in out
 
 
 def test_effort_changes_the_projected_time(
