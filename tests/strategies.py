@@ -378,6 +378,66 @@ def profile_parameter_sets(draw: st.DrawFn) -> ParameterSet:
 
 
 # ---------------------------------------------------------------------------
+# Projection (M3)
+# ---------------------------------------------------------------------------
+
+
+@st.composite
+def projectable_route_profiles(
+    draw: st.DrawFn, max_points: int = 15, duplicate_passage: bool = False
+) -> RouteProfile:
+    """Profils à pentes **bornées**, propres à être projetés.
+
+    :func:`route_profiles` suit le contrat, qui autorise des pas de 0,1 m et des
+    altitudes sur toute la plage ``[−500, 9000]`` : il en sort des pentes jusqu'à
+    95 000, très au-delà du domaine ``|g| <= 1000`` où l'allure du modèle est
+    garantie finie. Ici les pentes sont tirées d'abord, puis intégrées en altitudes
+    écrêtées, ce qui les borne par construction — l'écrêtage ne fait que réduire
+    une pente, jamais l'augmenter.
+
+    ``duplicate_passage`` force deux passages résolus à la **même abscisse**, le cas
+    où le moteur doit rendre exactement le même temps.
+    """
+    n = draw(st.integers(min_value=2, max_value=max_points))
+    steps_m = draw(st.lists(finite_floats(10.0, 200.0), min_size=n - 1, max_size=n - 1))
+    grades = draw(st.lists(finite_floats(-1.0, 1.0), min_size=n - 1, max_size=n - 1))
+    distance_m = tuple(accumulate(steps_m, initial=0.0))
+    elevation_m = [1500.0]
+    for step_m, grade in zip(steps_m, grades, strict=True):
+        elevation_m.append(min(3000.0, max(0.0, elevation_m[-1] + step_m * grade)))
+    end_m = distance_m[-1]
+    abscissae = sorted(
+        draw(st.lists(finite_floats(0.0, end_m), min_size=1, max_size=3))
+        if duplicate_passage
+        else draw(st.lists(finite_floats(0.0, end_m), max_size=3))
+    )
+    if duplicate_passage:
+        abscissae = sorted([*abscissae, abscissae[0]])
+    return RouteProfile(
+        route_name="Profil projetable",
+        source=draw(source_refs()),
+        distance_m=distance_m,
+        elevation_m=tuple(elevation_m),
+        resolved_points=tuple(
+            ResolvedPoint(
+                point=NamedPoint(f"Lieu {i}", 45.0, 6.0, None),
+                distance_m=at_m,
+                elevation_m=1500.0,
+                offset_m=0.0,
+            )
+            for i, at_m in enumerate(abscissae)
+        ),
+        step_m=draw(finite_floats(10.0, 200.0)),
+        build_parameters=draw(profile_parameter_sets()),
+    )
+
+
+def efforts() -> st.SearchStrategy[float]:
+    """Facteurs d'effort dans les bornes de la spec du moteur."""
+    return finite_floats(0.5, 1.5)
+
+
+# ---------------------------------------------------------------------------
 # Activité
 # ---------------------------------------------------------------------------
 
