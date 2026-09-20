@@ -1,0 +1,12 @@
+{
+  "sport": "foot",
+  "activity_count": 3,
+  "hr_center_bpm": null,
+  "hr_width_bpm": null,
+  "date_from": "2026-01-01",
+  "date_to": "2026-01-31",
+  "source_activity_types": ["trail_running"],
+  "min_duration_s": 0,
+  "estimator": "fixture synthétique",
+  "generated_at": "2026-02-01T12:00:00+01:00"
+}
