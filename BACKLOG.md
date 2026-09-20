@@ -78,6 +78,13 @@ Format : `- [ ] (jalon visé) idée — pourquoi`
 - [ ] (M6a) Écrire une skill pour la boucle « ajouter un effet → backtest → comparer → entrée de JOURNAL », après l'avoir faite deux fois à la main
 - [ ] Tester le chemin `cached_property` de `_render_dataclass` — la branche existe depuis M1a mais n'est exercée par rien tant qu'aucune propriété n'est mémoïsée
 
+- [ ] (M6b) Aligner la définition de `sample_count` : la lecture M3 y met des secondes de données, faute de comptage de points dans le CSV de courbe.
+- [ ] (M6b) Réestimer la courbe avec **le même opérateur de pente** que le moteur — largeur `W` identique — pour supprimer le biais d'échelle de D6 (`docs/decisions/0009`).
+- [ ] (M4) Le seuil de support de 10 min est un choix par défaut d'aujourd'hui : le bon critère serait le nombre d'activités contributrices et leur dispersion, absents du fichier de courbe.
+- [ ] (M4) Vérifier que les temps de référence sont comparables aux **temps en mouvement** de la courbe : un arrêt compté dans un passage réel se lirait comme une baisse d'effort.
+- [ ] Sortie console : `mperf` écrit `→` et `−`, absents de cp1252 ; depuis un terminal Windows non UTF-8 la commande lève `UnicodeEncodeError` après quelques lignes. Repéré au M3, présent depuis le M2.
+- [ ] `ParameterSpec.default` de `grid_step_m` vaut l'entier `50`, donc `grid_m[0]` est un `int 0` et le CSV écrit `0` au lieu de `0.0` — cosmétique, mais un mélange int/float dans un calcul est un piège en attente.
+
 - [ ] (M5) Plage d'affichage des `ParameterSpec`, distincte des bornes de garde-fou — les bornes actuelles sont larges à dessein et feraient un curseur inutilisable.
 - [ ] (M6b) Écrêtage des pics d'altitude et `QualityFlag` correspondant, au moment où les détecteurs existeront.
 - [ ] (M6b) Mesurer le biais sphère / ellipsoïde selon l'azimut lors de la confrontation au `sumDistance` Garmin — il ne se simplifie dans `durée = distance / vitesse` que si les orientations des activités et du tracé se ressemblent.

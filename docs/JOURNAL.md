@@ -16,6 +16,40 @@ Backtest (à partir de M4) : métrique avant → après.
 
 ---
 
+### 2026-09-20 · M3 — Moteur de projection v0
+Tranche verticale fermée : `mperf project trace.gpx --curve courbe.csv` produit un
+tableau de temps de passage. Lecture d'un CSV de courbe et de son compagnon
+`<stem>.meta.json` obligatoire (`curve_io`), modèle d'allure à deux régimes
+(`pace`), moteur du `RouteProfile` à la `Projection` avec diagnostics (`engine`),
+`format_duration`, sous-commande `project` (rapport ou `--csv`). Décisions D2 à D8
+consignées dans `docs/decisions/0009`.
+Deux points tranchés en cours de route, hors brief révision 4 : `PaceCurve.sport`
+n'avait aucune source — il devient une clé **obligatoire** du compagnon, valeurs
+`foot`/`ski_touring`/`mtb`, inconnue refusée en nommant les valeurs admises ; et le
+tableau du § 5.6 ne peut pas passer par un GPX — mesuré, `haversine_m` rend
+599,999 999 999 7 m sur un méridien de sept points à 100 m, et des pentes à
+0,100 000 000 000 3. L'écriture CSV est donc extraite dans `write_passages_csv`,
+testée cellule par cellule sur le profil synthétique, le bout en bout restant sur
+`mini_11.gpx`. Aucune tolérance du brief élargie.
+Valeurs du § 5 reproduites : 540 s exact, 675 s exact à effort 0,8, 370/3 à
+1,4e-14, 1250/3 exact, 200 m / 300 s hors support. Seul écart, signalé et non
+absorbé : `p(−5 %)` tombe à 1 ulp de `11/30` (5,6e-17), qui n'est pas représentable
+en binaire — les allures sont comparées à 1e-12 absolu, trois ordres de grandeur
+sous la tolérance des temps du brief.
+Deux contre-épreuves exécutées en copie restaurée par empreinte : remplacer la
+règle 3 de sélection du support par un filtre plat `time_min >= seuil` fait rougir
+trois tests (support retenu [−40 %, +40 %] au lieu de [−20 %, +20 %]) ; écrire
+`arrival_s` dans `segment_duration_s` ne fait rougir que la dernière ligne du CSV,
+exactement le mode d'échec que le § 5.6 annonce.
+Contrats `schemas/` inchangés, aucune dépendance ajoutée, défauts `grid_step_m = 50`
+et `smoothing_window_m = 150` inchangés, aucune ligne existante de `BACKLOG.md`
+cochée. Aucun accès aux données personnelles : toutes les fixtures sont inventées.
+Conclusion : `just check` vert avant chacun des six commits, 523 tests à la fin.
+Rangé dans `src/mountain_perf/model/`, `src/mountain_perf/{units,cli}.py`,
+`tests/{test_model_*,test_cli_project}.py`, `tests/fixtures/{courbe_synthetique.csv,
+courbe_synthetique.meta.json,curves.py,projection.py}`, `docs/decisions/0009`,
+branche `m3/moteur-projection`.
+
 ### 2026-09-19 · Calage GPX post-M2 — maintien des défauts provisoires
 Exploration sur des parcours réels de reliefs différents : répétitions
 d'activités et tracés préparés, pas fixé à 50 m, fenêtres de lissage demandées
