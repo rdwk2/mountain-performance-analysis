@@ -77,6 +77,39 @@ def test_speed_is_the_inverse_of_the_pace() -> None:
     assert MODEL.speed_ms(-0.40) * 0.40 == pytest.approx(0.4)
 
 
+@pytest.mark.parametrize("grade", [0.5, 1.0, 3.0, 10.0, 100.0])
+def test_extrapolation_freezes_the_vertical_speed_however_far(grade: float) -> None:
+    """D4, littéralement : ``|v(g) × g| == C±``, loin du bord comme près.
+
+    Seul le voisinage du bord était vérifié : plafonner ``|g|`` à 3 dans la branche
+    hors support passait. Les vitesses verticales de bord de la courbe synthétique
+    valent ``C₋ = 2,0 × 0,20 = 0,4`` m/s et ``C₊ = 1,0 × 0,20 = 0,2`` m/s.
+    """
+    assert abs(MODEL.speed_ms(grade) * grade) == 0.2
+    assert abs(MODEL.speed_ms(-grade) * -grade) == 0.4
+
+
+@given(model_pace_curves(), finite_floats(1.5, 500.0))
+def test_vertical_speed_is_the_invariant_of_the_extrapolation(
+    curve: PaceCurve, multiplier: float
+) -> None:
+    """La même propriété sur des courbes quelconques, et de chaque côté.
+
+    La pente d'essai est un multiple du bord, jamais le bord lui-même : à
+    ``g = g_b`` on est encore dans le support. Le multiple reste dans le domaine
+    garanti, ``|g_b| <= 2`` et le facteur ``<= 500``.
+    """
+    model = PaceModel(curve)
+    for edge, speed_ms in (
+        (curve.grade[-1], curve.speed_ms[-1]),
+        (curve.grade[0], curve.speed_ms[0]),
+    ):
+        at = edge * multiplier
+        assert model.is_extrapolated(at)
+        vertical = abs(model.speed_ms(at) * at)
+        assert vertical == pytest.approx(abs(speed_ms * edge), rel=1e-12)
+
+
 def test_grade_range_and_extrapolation_flag() -> None:
     assert MODEL.grade_range == (-0.20, 0.20)
     # Les bords font partie du support : ils sont interpolés, pas prolongés.
