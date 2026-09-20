@@ -111,6 +111,50 @@ def test_out_of_support_share() -> None:
     )
     assert diagnostics.grade_min == pytest.approx(-0.40)
     assert diagnostics.grade_max == pytest.approx(0.40)
+    assert diagnostics.total_distance_m == 600.0
+    assert diagnostics.total_time_s == pytest.approx(
+        TOTAL_DURATION_S, abs=TIME_ABS_TOLERANCE_S
+    )
+    # 200 m sur 600, 300 s sur 540 : la fraction se calcule ici, pas dans la CLI.
+    assert diagnostics.out_of_support_distance_share == pytest.approx(1 / 3)
+    assert diagnostics.out_of_support_time_share == pytest.approx(5 / 9)
+
+
+def test_shares_are_zero_when_nothing_leaves_the_support() -> None:
+    """Un profil entièrement dans le support : les deux parts valent 0."""
+    flat = replace(
+        SIX_INTERVAL_PROFILE,
+        elevation_m=(1000.0, 1010.0, 1000.0, 1000.0, 1010.0, 1000.0, 1010.0),
+        resolved_points=(),
+    )
+    _, diagnostics = project_with_diagnostics(
+        flat,
+        SUPPORT_CURVE,
+        parameters(),
+        curve_ref=CURVE_REF,
+        endpoints=ENDPOINTS,
+    )
+    assert diagnostics.out_of_support_distance_m == 0.0
+    assert diagnostics.out_of_support_distance_share == 0.0
+    assert diagnostics.out_of_support_time_share == 0.0
+
+
+@given(projectable_route_profiles(), model_pace_curves(), efforts())
+def test_shares_stay_between_zero_and_one(
+    profile: RouteProfile, curve: PaceCurve, effort: float
+) -> None:
+    _, diagnostics = project_with_diagnostics(
+        profile,
+        curve,
+        parameters(effort),
+        curve_ref=CURVE_REF,
+        endpoints=ENDPOINTS,
+    )
+    for share in (
+        diagnostics.out_of_support_distance_share,
+        diagnostics.out_of_support_time_share,
+    ):
+        assert 0.0 <= share <= 1.0 + 1e-12
 
 
 def test_interval_durations_match_the_brief() -> None:

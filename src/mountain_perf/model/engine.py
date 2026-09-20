@@ -80,12 +80,43 @@ class ProjectionDiagnostics:
     Sans les deux fractions hors support, on ne sait pas si le prolongement a pesé
     sur le résultat — et le prolongement est la partie du modèle qui n'est adossée
     à aucune mesure.
+
+    ``total_distance_m`` et ``total_time_s`` ne sont pas des diagnostics en
+    eux-mêmes : ils sont les **dénominateurs** des deux fractions, et ils sont ici
+    pour que celles-ci se calculent dans la bibliothèque. Les laisser dehors
+    obligeait l'interface à faire la division, c'est-à-dire à calculer (règle 7 de
+    ``CLAUDE.md``), et rendait la fraction intestable côté bibliothèque.
+
+    Propriétés calculées (jamais stockées) : ``out_of_support_distance_share`` et
+    ``out_of_support_time_share``.
     """
 
     out_of_support_distance_m: float
     out_of_support_time_s: float
     grade_min: float
     grade_max: float
+    total_distance_m: float
+    total_time_s: float
+
+    @property
+    def out_of_support_distance_share(self) -> float:
+        """Part de la distance passée hors du support, fraction dans ``[0, 1]``."""
+        return _share(self.out_of_support_distance_m, self.total_distance_m)
+
+    @property
+    def out_of_support_time_share(self) -> float:
+        """Part du temps passée hors du support, fraction dans ``[0, 1]``."""
+        return _share(self.out_of_support_time_s, self.total_time_s)
+
+
+def _share(part: float, whole: float) -> float:
+    """Fraction ``part / whole``, ``0`` pour un total nul.
+
+    Un profil produit par le M2 a toujours une longueur et une durée strictement
+    positives ; le cas nul n'existe que pour un diagnostic construit à la main, et
+    « aucune distance, donc aucune part » vaut mieux qu'une division par zéro.
+    """
+    return part / whole if whole > 0 else 0.0
 
 
 def route_endpoints(route: Route) -> tuple[NamedPoint, NamedPoint]:
@@ -246,5 +277,7 @@ def project_with_diagnostics(
         out_of_support_time_s=sum(lengths_m[i] * pace_s_per_m[i] for i in extrapolated),
         grade_min=min(grade),
         grade_max=max(grade),
+        total_distance_m=grid_m[-1],
+        total_time_s=cumulative_s[-1],
     )
     return projection, diagnostics

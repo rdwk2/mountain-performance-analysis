@@ -73,9 +73,9 @@ def _percent(grade: float) -> str:
     return f"{grade * 100:+.0f} %".replace("-", "−")
 
 
-def _share(part: float, whole: float) -> str:
-    """Part en pourcentage d'un total ; ``whole`` est toujours > 0 ici."""
-    return f"{100 * part / whole:.0f} %"
+def _percent_of(share: float) -> str:
+    """Fraction en pourcentage arrondi. La fraction, elle, vient du moteur."""
+    return f"{100 * share:.0f} %"
 
 
 def _print_csv(profile: RouteProfile) -> None:
@@ -208,9 +208,8 @@ def _print_projection_report(
     total_s = projection.passages[-1].arrival_s
     print(
         f"             hors support : "
-        f"{_share(diagnostics.out_of_support_distance_m, profile.distance_m[-1])} "
-        f"de la distance, "
-        f"{_share(diagnostics.out_of_support_time_s, total_s)} du temps"
+        f"{_percent_of(diagnostics.out_of_support_distance_share)} de la distance, "
+        f"{_percent_of(diagnostics.out_of_support_time_share)} du temps"
     )
     print(f"effort       {projection.parameters['effort']:.2f}")
     print(
