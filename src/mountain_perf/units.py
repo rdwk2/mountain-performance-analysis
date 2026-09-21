@@ -90,6 +90,24 @@ def format_pace(speed_ms: float) -> str:
     return f"{minutes}:{seconds:02d} /km"
 
 
+def format_duration(duration_s: float) -> str:
+    """``"1:23:45"`` — heures sans zéro de tête, minutes et secondes sur deux chiffres.
+
+    Au-delà de 24 h **les heures continuent** (``"29:03:07"``) : on ne passe pas en
+    jours, parce qu'un temps de course se lit en heures et qu'une table de marche
+    affichant « 1 j 5:03:07 » se compare mal d'une ligne à l'autre.
+
+    Les secondes sont arrondies à l'entier, avec report : 3 599,6 s donne
+    ``"1:00:00"`` et jamais ``"0:59:60"``. Renvoie :data:`UNDEFINED` si la durée est
+    négative ou non finie — le formatage ne lève jamais.
+    """
+    if not math.isfinite(duration_s) or duration_s < 0:
+        return UNDEFINED
+    hours, rest_s = divmod(round(duration_s), 3600)
+    minutes, seconds = divmod(rest_s, 60)
+    return f"{hours}:{minutes:02d}:{seconds:02d}"
+
+
 def format_vam(vertical_speed_ms: float) -> str:
     """``"620 m/h"`` — vitesse verticale en mètres par heure, arrondie à l'entier.
 
