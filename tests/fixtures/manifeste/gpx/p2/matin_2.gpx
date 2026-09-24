@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Synthétique : second tronçon de la sortie p2-2026-06-10, après 30 s de trou. -->
+<gpx version="1.1" creator="synthetic-tests" xmlns="http://www.topografix.com/GPX/1/1">
+  <trk><name>Sortie p2, tronçon 2</name><trkseg>
+    <trkpt lat="44.9012" lon="6.1"><ele>1255</ele><time>2026-06-10T05:00:40Z</time></trkpt>
+    <trkpt lat="44.9016" lon="6.1"><ele>1275</ele><time>2026-06-10T05:00:45Z</time></trkpt>
+    <trkpt lat="44.902" lon="6.1"><ele>1300</ele><time>2026-06-10T05:00:50Z</time></trkpt>
+  </trkseg></trk>
+</gpx>

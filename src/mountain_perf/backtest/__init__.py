@@ -7,6 +7,12 @@ from mountain_perf.backtest.calendar import (
     civil_date,
     origin,
 )
+from mountain_perf.backtest.manifest import (
+    ManifestError,
+    ManifestReadResult,
+    RefusedEntry,
+    load_manifest,
+)
 from mountain_perf.backtest.series import (
     MAX_STEP_S,
     SMOOTHING_HALF_WIDTH,
@@ -19,9 +25,13 @@ __all__ = [
     "ORIGIN_LAG",
     "PARIS",
     "SMOOTHING_HALF_WIDTH",
+    "ManifestError",
+    "ManifestReadResult",
+    "RefusedEntry",
     "TraceSeries",
     "available_at_origin",
     "build_series",
     "civil_date",
+    "load_manifest",
     "origin",
 ]

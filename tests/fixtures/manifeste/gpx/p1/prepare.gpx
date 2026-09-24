@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Synthétique : préparé du parcours p1, 4 points. -->
+<gpx version="1.1" creator="synthetic-tests" xmlns="http://www.topografix.com/GPX/1/1">
+  <trk><name>Préparé p1</name><trkseg>
+    <trkpt lat="45.0" lon="6.0"><ele>1500</ele></trkpt>
+    <trkpt lat="45.001" lon="6.0"><ele>1520</ele></trkpt>
+    <trkpt lat="45.002" lon="6.0"><ele>1540</ele></trkpt>
+    <trkpt lat="45.003" lon="6.0"><ele>1560</ele></trkpt>
+  </trkseg></trk>
+</gpx>
