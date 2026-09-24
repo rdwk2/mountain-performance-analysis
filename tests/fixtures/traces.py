@@ -35,6 +35,18 @@ def equatorial_deg(x_m: float, y_m: float) -> tuple[float, float]:
     return math.degrees(y_m / EARTH_RADIUS_M), math.degrees(x_m / EARTH_RADIUS_M)
 
 
+def parallel_deg(
+    x_m: float, latitude_deg: float = 45.0, longitude0_deg: float = 6.0
+) -> tuple[float, float]:
+    """``(latitude, longitude)`` d'un point à ``x`` mètres à l'est de
+    ``(latitude_deg, longitude0_deg)``, sur le même parallèle : ``Δλ = x / (R·cos φ)``.
+
+    Hors de l'équateur, là où le facteur ``cos φ`` du plan local compte.
+    """
+    scale_m = EARTH_RADIUS_M * math.cos(math.radians(latitude_deg))
+    return latitude_deg, longitude0_deg + math.degrees(x_m / scale_m)
+
+
 def equatorial_x_m(longitude_deg: float) -> float:
     """Réciproque de :func:`equatorial_deg` pour ``x`` : mètres vers l'est."""
     return math.radians(longitude_deg) * EARTH_RADIUS_M
@@ -58,6 +70,23 @@ def planar_trace(
         elevation_m=(
             tuple(elevation_m) if elevation_m is not None else (1000.0,) * len(x_m)
         ),
+        sources=(TRACE_SOURCE,),
+        dropped_same_instant_count=0,
+    )
+
+
+def parallel_trace(
+    time_s: Sequence[float], x_m: Sequence[float], latitude_deg: float = 45.0
+) -> RecordedTrace:
+    """Trace sur le parallèle ``latitude_deg``, positions par :func:`parallel_deg`,
+    1 000 m d'altitude."""
+    positions = [parallel_deg(x, latitude_deg) for x in x_m]
+    return RecordedTrace(
+        start_time=TRACE_START,
+        time_s=tuple(time_s),
+        latitude_deg=tuple(lat for lat, _ in positions),
+        longitude_deg=tuple(lon for _, lon in positions),
+        elevation_m=(1000.0,) * len(x_m),
         sources=(TRACE_SOURCE,),
         dropped_same_instant_count=0,
     )

@@ -14,7 +14,7 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from fixtures.traces import planar_trace
+from fixtures.traces import parallel_trace, planar_trace
 from mountain_perf.backtest.clocks import (
     CLOCK_HALF_WINDOW_S,
     Qualification,
@@ -192,6 +192,25 @@ def test_step_of_10_001_s_is_a_gap() -> None:
     trace = planar_trace(times, [0.0] * len(times))
     assert len(build_series(trace).blocks) == 2
     _assert_totals(_totals(trace)[C : C + 1], [(0, 181, 78.001)])
+
+
+# ---------------------------------------------------------------------------
+# Correctifs de relecture de la PR #8
+# ---------------------------------------------------------------------------
+
+EAST_DRIFT_45N = parallel_trace(SECONDS_0_300, [0.08 * t for t in SECONDS_0_300])
+"""Dérive vers l'est à 0,08 m/s sur le parallèle 45° N, 1 Hz, ``t = 0 … 300``."""
+
+
+def test_local_plane_scales_longitude_by_cos_latitude() -> None:
+    """P1 — § 4.7 point 1 : ``x = R·Δλ·cos φ_lo``. Sans le facteur ``cos φ``, une
+    vitesse est-ouest serait surestimée de 41 % à 45° N."""
+    trace = EAST_DRIFT_45N
+    measures = window_measures(trace, build_series(trace), 150, complete=True)
+    assert measures is not None
+    assert (measures.v_h, measures.d_h) == pytest.approx((0.08, 2.4), abs=1e-6)
+    assert (measures.v_z, measures.d_z) == pytest.approx((0, 0), abs=1e-6)
+    _assert_totals(_totals(trace), [(266, 0, 34)] + [(0, 266, 34)] * 4)
 
 
 # ---------------------------------------------------------------------------
