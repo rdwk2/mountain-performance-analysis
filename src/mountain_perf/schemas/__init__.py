@@ -5,6 +5,20 @@ généré depuis les docstrings de ce paquet.
 """
 
 from mountain_perf.schemas.activity import Activity, TrackPointStream
+from mountain_perf.schemas.clock import (
+    CENTRAL_CONVENTION_INDEX,
+    CLOCK_CONVENTIONS,
+    CLOCK_KIND_DESCRIPTIONS,
+    CLOCKS,
+    INTERVAL_STATE_DESCRIPTIONS,
+    Clock,
+    ClockConvention,
+    ClockKind,
+    ClockPartition,
+    ClockTotals,
+    IntervalState,
+    StopEpisode,
+)
 from mountain_perf.schemas.common import (
     ELEVATION_RANGE_M,
     GRADE_RANGE,
@@ -19,6 +33,23 @@ from mountain_perf.schemas.common import (
     Sport,
 )
 from mountain_perf.schemas.curve import CurveProvenance, PaceCurve
+from mountain_perf.schemas.outing import (
+    ARTIFACT_ROLE_DESCRIPTIONS,
+    DATA_SET_DESCRIPTIONS,
+    OUTING_LABEL_DESCRIPTIONS,
+    REFERENCE_KIND_DESCRIPTIONS,
+    UNAVAILABILITY_DESCRIPTIONS,
+    ArtifactRef,
+    ArtifactRole,
+    DataSet,
+    Outing,
+    OutingLabel,
+    Performance,
+    ReferenceKind,
+    RetentionDecision,
+    RouteReference,
+    Unavailability,
+)
 from mountain_perf.schemas.parameters import ParameterSet, ParameterSpec
 from mountain_perf.schemas.projection import Passage, Projection, Segment
 from mountain_perf.schemas.reference import (
@@ -35,38 +66,67 @@ from mountain_perf.schemas.route import (
     Route,
     RouteProfile,
 )
+from mountain_perf.schemas.trace import RecordedTrace
 from mountain_perf.validation import ContractError
 
 __all__ = [
+    "ARTIFACT_ROLE_DESCRIPTIONS",
+    "CENTRAL_CONVENTION_INDEX",
+    "CLOCKS",
+    "CLOCK_CONVENTIONS",
+    "CLOCK_KIND_DESCRIPTIONS",
+    "DATA_SET_DESCRIPTIONS",
     "ELEVATION_RANGE_M",
     "GRADE_RANGE",
     "HEART_RATE_RANGE_BPM",
+    "INTERVAL_STATE_DESCRIPTIONS",
     "LATITUDE_RANGE_DEG",
     "LONGITUDE_RANGE_DEG",
+    "OUTING_LABEL_DESCRIPTIONS",
     "POINT_KIND_DESCRIPTIONS",
     "QUALITY_FLAG_DESCRIPTIONS",
+    "REFERENCE_KIND_DESCRIPTIONS",
     "SPORT_DESCRIPTIONS",
     "TIMING_CONVENTION_DESCRIPTIONS",
+    "UNAVAILABILITY_DESCRIPTIONS",
     "UTC_OFFSET_RANGE_S",
     "Activity",
+    "ArtifactRef",
+    "ArtifactRole",
+    "Clock",
+    "ClockConvention",
+    "ClockKind",
+    "ClockPartition",
+    "ClockTotals",
     "ContractError",
     "CurveProvenance",
+    "DataSet",
+    "IntervalState",
     "NamedPoint",
     "ObservedPassage",
+    "Outing",
+    "OutingLabel",
     "PaceCurve",
     "ParameterSet",
     "ParameterSpec",
     "Passage",
+    "Performance",
     "PointKind",
     "Projection",
     "QualityFlag",
+    "RecordedTrace",
+    "ReferenceKind",
     "ReferencePerformance",
     "ResolvedPoint",
+    "RetentionDecision",
     "Route",
     "RouteProfile",
+    "RouteReference",
     "Segment",
     "SourceRef",
     "Sport",
+    "StopEpisode",
     "TimingConvention",
     "TrackPointStream",
+    "Unavailability",
 ]

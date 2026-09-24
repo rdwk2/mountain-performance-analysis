@@ -13,6 +13,7 @@ Deux familles :
 
 import hashlib
 import math
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from itertools import accumulate
 from typing import Literal
@@ -22,26 +23,38 @@ from hypothesis import strategies as st
 from mountain_perf.gpx import PROFILE_PARAMETER_SPECS
 from mountain_perf.gpx.geo import EARTH_RADIUS_M
 from mountain_perf.schemas import (
+    CLOCK_CONVENTIONS,
     ELEVATION_RANGE_M,
     GRADE_RANGE,
     HEART_RATE_RANGE_BPM,
     LATITUDE_RANGE_DEG,
     LONGITUDE_RANGE_DEG,
     Activity,
+    ArtifactRef,
+    ArtifactRole,
+    ClockPartition,
     CurveProvenance,
+    DataSet,
+    IntervalState,
     NamedPoint,
     ObservedPassage,
+    Outing,
+    OutingLabel,
     PaceCurve,
     ParameterSet,
     ParameterSpec,
     Passage,
+    Performance,
     PointKind,
     Projection,
     QualityFlag,
+    RecordedTrace,
+    ReferenceKind,
     ReferencePerformance,
     ResolvedPoint,
     Route,
     RouteProfile,
+    RouteReference,
     SourceRef,
     Sport,
     TimingConvention,
@@ -737,3 +750,175 @@ def reference_performances(
         passages=tuple(draw(observed_passages(st.just(t))) for t in times),
         source=draw(source_refs()),
     )
+
+
+# ---------------------------------------------------------------------------
+# Backtest (M4a) : sorties, traces, partitions
+# ---------------------------------------------------------------------------
+
+
+def artifact_refs(role: ArtifactRole | None = None) -> st.SearchStrategy[ArtifactRef]:
+    """Artefacts valides, d'un rôle imposé ou quelconque."""
+    return st.builds(
+        ArtifactRef,
+        source=source_refs(),
+        available_at=aware_datetimes(),
+        role=st.just(role) if role is not None else st.sampled_from(ArtifactRole),
+    )
+
+
+def route_references() -> st.SearchStrategy[RouteReference]:
+    return st.builds(
+        RouteReference,
+        kind=st.sampled_from(ReferenceKind),
+        artifact=artifact_refs(ArtifactRole.FORECAST_INPUT),
+    )
+
+
+@st.composite
+def outings(draw: st.DrawFn, athlete_ref: str | None = None) -> Outing:
+    """Sorties valides : écoulé entier de 1 s à ~28 h, doublons seulement si tracée."""
+    athlete = athlete_ref if athlete_ref is not None else draw(non_empty_texts())
+    start = draw(aware_datetimes())
+    evaluation = artifact_refs(ArtifactRole.EVALUATION_OBSERVATION)
+    traces = tuple(draw(st.lists(evaluation, max_size=3)))
+    duplicates = tuple(draw(st.lists(evaluation, max_size=2))) if traces else ()
+    portion: tuple[float, float] | None = None
+    if draw(st.booleans()):
+        a = draw(finite_floats(0.0, 1e5))
+        portion = (a, a + draw(finite_floats(1.0, 1e5)))
+    records = tuple(
+        replace(record, athlete_ref=athlete)
+        for record in draw(st.lists(reference_performances(max_passages=3), max_size=2))
+    )
+    return Outing(
+        outing_id=draw(non_empty_texts()),
+        athlete_ref=athlete,
+        sport=draw(sports()),
+        start_time=start,
+        end_time=start + timedelta(seconds=draw(st.integers(1, 100_000))),
+        traces=traces,
+        duplicates=duplicates,
+        route_id=draw(st.one_of(st.none(), non_empty_texts())),
+        variant=draw(st.one_of(st.none(), non_empty_texts())),
+        declared_portion_m=portion,
+        reference=draw(st.one_of(st.none(), route_references())),
+        dataset=draw(st.one_of(st.none(), st.sampled_from(DataSet))),
+        label=draw(st.one_of(st.none(), st.sampled_from(OutingLabel))),
+        external_records=records,
+    )
+
+
+@st.composite
+def performances(draw: st.DrawFn, max_outings: int = 3) -> Performance:
+    """Performances valides : un athlète, identifiants distincts, ordre du rang."""
+    athlete = draw(non_empty_texts())
+    items = draw(
+        st.lists(
+            outings(athlete_ref=athlete),
+            min_size=1,
+            max_size=max_outings,
+            unique_by=lambda outing: outing.outing_id,
+        )
+    )
+    items.sort(key=lambda outing: (outing.start_time, outing.outing_id))
+    return Performance(civil_date=draw(st.dates()), outings=tuple(items))
+
+
+@st.composite
+def recorded_traces(draw: st.DrawFn, max_records: int = 30) -> RecordedTrace:
+    """Traces valides quelconques : pas de 0,1 à 60 s, positions sur toute la plage."""
+    n = draw(st.integers(min_value=2, max_value=max_records))
+    steps = draw(st.lists(finite_floats(0.1, 60.0), min_size=n - 1, max_size=n - 1))
+    return RecordedTrace(
+        start_time=draw(aware_datetimes()),
+        time_s=tuple(accumulate(steps, initial=0.0)),
+        latitude_deg=tuple(draw(st.lists(latitudes_deg(), min_size=n, max_size=n))),
+        longitude_deg=tuple(draw(st.lists(longitudes_deg(), min_size=n, max_size=n))),
+        elevation_m=tuple(draw(st.lists(elevations_m(), min_size=n, max_size=n))),
+        sources=tuple(draw(st.lists(source_refs(), min_size=1, max_size=3))),
+        dropped_same_instant_count=draw(st.integers(min_value=0, max_value=10)),
+    )
+
+
+_GAP_STEP_S = (10.001, 120.0)
+"""Pas d'un trou dans :func:`eventful_traces` : strictement au-delà de 10 s."""
+
+
+@st.composite
+def eventful_traces(draw: st.DrawFn) -> RecordedTrace:
+    """Traces plausibles qui **contiennent toujours** un trou, des pas irréguliers et
+    une immobilité assez longue pour devenir un arrêt sous ``θ_c``.
+
+    Construction dans un plan local métrique autour d'une origine tirée entre
+    ±60° de latitude, puis conversion en degrés :
+
+    - une phase immobile garantie de 100 à 150 enregistrements à 1 s, position
+      exactement répétée : au moins 68 s d'intervalles immobiles de fenêtre valide ;
+    - une à quatre autres phases, la première à pas irréguliers (0,2 à 10 s) : arrêt
+      (position répétée ou bruitée à ±0,5 m) ou déplacement (jusqu'à 3 m/s à
+      l'horizontale, ±0,5 m/s à la verticale) ;
+    - entre deux phases, un raccord de 1 s ou un trou (10,001 à 120 s), dont au
+      moins un trou.
+    """
+    lat0 = draw(finite_floats(-60.0, 60.0))
+    lon0 = draw(finite_floats(-170.0, 170.0))
+    others = draw(st.integers(min_value=1, max_value=4))
+    still_at = draw(st.integers(min_value=0, max_value=others))
+    phases: list[tuple[str, int, bool]] = []
+    for k in range(others):
+        kind = draw(st.sampled_from(["still", "noisy", "move"]))
+        irregular = k == 0 or draw(st.booleans())
+        phases.append((kind, draw(st.integers(min_value=5, max_value=60)), irregular))
+    phases.insert(still_at, ("still", draw(st.integers(100, 150)), False))
+    forced_gap = draw(st.integers(min_value=0, max_value=len(phases) - 2))
+
+    t_s, x_m, y_m, z_m = 0.0, 0.0, 0.0, 1000.0
+    times, xs, ys, zs = [t_s], [x_m], [y_m], [z_m]
+    for index, (kind, count, irregular) in enumerate(phases):
+        if index > 0:
+            gap = index - 1 == forced_gap or draw(st.booleans())
+            t_s += draw(finite_floats(*_GAP_STEP_S)) if gap else 1.0
+            times.append(t_s)
+            xs.append(x_m)
+            ys.append(y_m)
+            zs.append(z_m)
+        vx, vy, vz = 0.0, 0.0, 0.0
+        if kind == "move":
+            vx, vy = draw(finite_floats(-3.0, 3.0)), draw(finite_floats(-3.0, 3.0))
+            vz = draw(finite_floats(-0.5, 0.5))
+        for _ in range(count):
+            dt = draw(finite_floats(0.2, 10.0)) if irregular else 1.0
+            t_s += dt
+            x_m, y_m, z_m = x_m + vx * dt, y_m + vy * dt, z_m + vz * dt
+            dx_m, dy_m = (
+                (draw(finite_floats(-0.5, 0.5)), draw(finite_floats(-0.5, 0.5)))
+                if kind == "noisy"
+                else (0.0, 0.0)
+            )
+            times.append(t_s)
+            xs.append(x_m + dx_m)
+            ys.append(y_m + dy_m)
+            zs.append(z_m)
+    scale_m = EARTH_RADIUS_M * math.cos(math.radians(lat0))
+    return RecordedTrace(
+        start_time=draw(aware_datetimes()),
+        time_s=tuple(times),
+        latitude_deg=tuple(lat0 + math.degrees(y / EARTH_RADIUS_M) for y in ys),
+        longitude_deg=tuple(lon0 + math.degrees(x / scale_m) for x in xs),
+        elevation_m=tuple(zs),
+        sources=(draw(source_refs()),),
+        dropped_same_instant_count=0,
+    )
+
+
+@st.composite
+def clock_partitions(draw: st.DrawFn, max_intervals: int = 40) -> ClockPartition:
+    """Partitions valides : instants depuis 0, états quelconques par convention."""
+    n = draw(st.integers(min_value=1, max_value=max_intervals))
+    steps = draw(st.lists(finite_floats(0.1, 20.0), min_size=n, max_size=n))
+    states = tuple(
+        tuple(draw(st.lists(st.sampled_from(IntervalState), min_size=n, max_size=n)))
+        for _ in CLOCK_CONVENTIONS
+    )
+    return ClockPartition(time_s=tuple(accumulate(steps, initial=0.0)), states=states)
