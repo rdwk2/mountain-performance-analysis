@@ -94,6 +94,16 @@ def test_files_are_concatenated_in_the_given_order(tmp_path: Path) -> None:
     assert [source.identifier for source in trace.sources] == ["a.gpx", "b.gpx"]
 
 
+def test_repeated_positions_are_never_deduplicated(tmp_path: Path) -> None:
+    """P4 — § 4.2 point 7 : aucune position n'est dédoublonnée ; seuls les instants
+    répétés le sont."""
+    points = [equatorial_point(5.0, f"2026-06-01T08:00:0{s}Z") for s in range(3)]
+    trace = read_trace([_write(tmp_path, "immobile.gpx", gpx_document(points))])
+    assert trace.time_s == (0.0, 1.0, 2.0)
+    assert len(set(zip(trace.latitude_deg, trace.longitude_deg, strict=True))) == 1
+    assert trace.dropped_same_instant_count == 0
+
+
 def test_waypoints_are_ignored(tmp_path: Path) -> None:
     text = gpx_document(_points(0, range(2))).replace(
         "<trk>", '<wpt lat="1" lon="1"><time>2020-01-01T00:00:00Z</time></wpt><trk>'
