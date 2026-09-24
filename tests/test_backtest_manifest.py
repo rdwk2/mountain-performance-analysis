@@ -314,6 +314,29 @@ def test_duplicate_kind_is_its_lowercase_suffix_or_unknown(
     assert result.refused == ()
 
 
+def test_identical_contents_keep_the_first_path_met(tmp_path: Path) -> None:
+    """P6 — § 4.5 : deux fichiers de même contenu à deux chemins distincts donnent
+    une seule entrée, celle du **premier** rencontré dans l'ordre du manifeste."""
+    folder = _copy(tmp_path)
+    shutil.copyfile(folder / "gpx/p1/prepare.gpx", folder / "gpx/p2/copie.gpx")
+
+    def cite(document: Document) -> None:
+        _outing(document, P2)["reference"] = {
+            "file": "gpx/p2/copie.gpx",
+            "kind": "prepared",
+            "available_at": "2026-06-01T08:00:00Z",
+        }
+
+    result = load_manifest(_variant(tmp_path, cite))
+    content_hash = _sha256(FIXTURE / "gpx/p1/prepare.gpx")
+    assert [path for h, path in result.artifact_paths.items() if h == content_hash] == [
+        (folder / "gpx/p1/prepare.gpx").resolve()
+    ]
+    p2 = _by_id(result, P2).reference
+    assert p2 is not None
+    assert p2.artifact.source.identifier == "copie.gpx"
+
+
 def test_declared_sha256_is_compared_case_insensitively(tmp_path: Path) -> None:
     def upper(document: Document) -> None:
         entry = _outing(document, P1)["duplicates"][0]
