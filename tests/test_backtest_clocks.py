@@ -213,6 +213,27 @@ def test_local_plane_scales_longitude_by_cos_latitude() -> None:
     _assert_totals(_totals(trace), [(266, 0, 34)] + [(0, 266, 34)] * 4)
 
 
+SLOW_ZIGZAG = planar_trace(
+    SECONDS_0_300,
+    [0.08 * t + 6 * math.sin(2 * math.pi * t / 10) for t in SECONDS_0_300],
+)
+"""Zigzag lent : ``x = 0,08·t + 6·sin(2π·t/10)`` m. Sur toute fenêtre de 30 s les
+sinus s'annulent aux bornes (``v_h = 0,08``) mais le zigzag lissé donne ``D_h``
+entre 8,67 et 9,47 m, au-dessus de ``30·h`` sous toutes les conventions."""
+
+
+def test_slow_zigzag_is_undetermined_not_stopped() -> None:
+    """P2 — les diamètres décident : lente mais étendue, la fenêtre est indéterminée
+    sous θ2 à θ5, jamais immobile."""
+    _assert_totals(_totals(SLOW_ZIGZAG), [(266, 0, 34)] + [(0, 0, 300)] * 4)
+
+
+def test_economy_matches_the_complete_partition_when_diameters_decide() -> None:
+    """P2 — test 3 du § 8.1 sur une trace où l'économie ne peut pas se taire."""
+    economic = clock_partition(SLOW_ZIGZAG, build_series(SLOW_ZIGZAG))
+    assert economic.states == _complete_partition(SLOW_ZIGZAG)
+
+
 # ---------------------------------------------------------------------------
 # Cumulés et durées (``0010`` D5.3) sur X06-bis, θ_c
 # ---------------------------------------------------------------------------
