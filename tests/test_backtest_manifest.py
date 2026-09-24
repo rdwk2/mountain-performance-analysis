@@ -627,6 +627,18 @@ def test_rule_6_other_athlete_outing_is_refused_and_excluded(tmp_path: Path) -> 
     assert _sha256(FIXTURE / "gpx/p1/jour3.fit") not in result.artifact_paths
 
 
+def test_rule_6_other_athlete_outing_with_existing_files_is_excluded(
+    tmp_path: Path,
+) -> None:
+    """P5 — l'exclusion jugée pour elle-même : la sortie refusée cite ses fichiers
+    existants, rien ne peut échouer avant l'assertion d'exclusion."""
+    result = load_manifest(_variant(tmp_path, _set(P1, "athlete_ref", "athlete-2")))
+    assert [o.outing_id for o in result.outings] == [P2, VELO]
+    assert [(r.outing_id, r.label) for r in result.refused] == [(P1, None)]
+    assert P1 not in result.traces
+    assert _sha256(FIXTURE / "gpx/p1/jour3.gpx") not in result.artifact_paths
+
+
 def test_rule_6_same_athlete_declared_explicitly_is_kept(tmp_path: Path) -> None:
     result = load_manifest(_variant(tmp_path, _set(P1, "athlete_ref", "athlete-1")))
     assert [o.outing_id for o in result.outings] == [P1, P2, VELO]
