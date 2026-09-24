@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Synthétique : premier tronçon de la sortie p2-2026-06-10. -->
+<gpx version="1.1" creator="synthetic-tests" xmlns="http://www.topografix.com/GPX/1/1">
+  <trk><name>Sortie p2, tronçon 1</name><trkseg>
+    <trkpt lat="44.9" lon="6.1"><ele>1200</ele><time>2026-06-10T05:00:00Z</time></trkpt>
+    <trkpt lat="44.9005" lon="6.1"><ele>1225</ele><time>2026-06-10T05:00:05Z</time></trkpt>
+    <trkpt lat="44.901" lon="6.1"><ele>1250</ele><time>2026-06-10T05:00:10Z</time></trkpt>
+  </trkseg></trk>
+</gpx>

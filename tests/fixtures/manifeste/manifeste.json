@@ -1,0 +1,77 @@
+{
+  "schema_version": 1,
+  "athlete_ref": "athlete-1",
+  "domain_start_date": "2026-05-20",
+  "outings": [
+    {
+      "id": "p1-2026-06-07",
+      "sport": "foot",
+      "traces": [
+        {
+          "file": "gpx/p1/jour3.gpx"
+        }
+      ],
+      "duplicates": [
+        {
+          "file": "gpx/p1/jour3.fit",
+          "sha256": "a71857b2dd026d1d0a52a21b04946ca796f781cdc75797089aa7431ad497557b"
+        }
+      ],
+      "route": "p1",
+      "variant": null,
+      "portion_m": null,
+      "reference": {
+        "file": "gpx/p1/prepare.gpx",
+        "kind": "prepared",
+        "available_at": "2026-05-24T20:00:00+02:00"
+      },
+      "dataset": "repeatability",
+      "label": "training"
+    },
+    {
+      "id": "p2-2026-06-10",
+      "sport": "foot",
+      "traces": [
+        {
+          "file": "gpx/p2/matin_1.gpx"
+        },
+        {
+          "file": "gpx/p2/matin_2.gpx"
+        }
+      ],
+      "route": "p2",
+      "portion_m": [
+        0,
+        2500
+      ],
+      "dataset": "development",
+      "label": "race",
+      "external_records": [
+        {
+          "athlete_ref": "athlete-1",
+          "event_name": "Relevé inventé",
+          "date": "2026-06-10",
+          "passages": [
+            {
+              "point_name": "Départ",
+              "elapsed_s": 0,
+              "convention": "departure"
+            },
+            {
+              "point_name": "Arrivée",
+              "elapsed_s": 50,
+              "distance_m": 2500,
+              "convention": "arrival"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "velo-2026-06-07",
+      "sport": "mtb",
+      "start": "2026-06-07T17:00:00+02:00",
+      "end": "2026-06-07T18:10:00+02:00"
+    }
+  ]
+}

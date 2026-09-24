@@ -21,6 +21,17 @@ from types import MappingProxyType
 from typing import Any
 
 from mountain_perf.schemas.activity import Activity, TrackPointStream
+from mountain_perf.schemas.clock import (
+    CLOCK_KIND_DESCRIPTIONS,
+    INTERVAL_STATE_DESCRIPTIONS,
+    Clock,
+    ClockConvention,
+    ClockKind,
+    ClockPartition,
+    ClockTotals,
+    IntervalState,
+    StopEpisode,
+)
 from mountain_perf.schemas.common import (
     QUALITY_FLAG_DESCRIPTIONS,
     SPORT_DESCRIPTIONS,
@@ -29,6 +40,23 @@ from mountain_perf.schemas.common import (
     Sport,
 )
 from mountain_perf.schemas.curve import CurveProvenance, PaceCurve
+from mountain_perf.schemas.outing import (
+    ARTIFACT_ROLE_DESCRIPTIONS,
+    DATA_SET_DESCRIPTIONS,
+    OUTING_LABEL_DESCRIPTIONS,
+    REFERENCE_KIND_DESCRIPTIONS,
+    UNAVAILABILITY_DESCRIPTIONS,
+    ArtifactRef,
+    ArtifactRole,
+    DataSet,
+    Outing,
+    OutingLabel,
+    Performance,
+    ReferenceKind,
+    RetentionDecision,
+    RouteReference,
+    Unavailability,
+)
 from mountain_perf.schemas.parameters import ParameterSet, ParameterSpec
 from mountain_perf.schemas.projection import Passage, Projection, Segment
 from mountain_perf.schemas.reference import (
@@ -45,6 +73,7 @@ from mountain_perf.schemas.route import (
     Route,
     RouteProfile,
 )
+from mountain_perf.schemas.trace import RecordedTrace
 
 RUBRICS: tuple[str, ...] = (
     "Champs",
@@ -76,6 +105,24 @@ DOCUMENTED_TYPES: tuple[type, ...] = (
     TimingConvention,
     ObservedPassage,
     ReferencePerformance,
+    OutingLabel,
+    DataSet,
+    ReferenceKind,
+    ArtifactRole,
+    Unavailability,
+    ArtifactRef,
+    RouteReference,
+    Outing,
+    RetentionDecision,
+    Performance,
+    RecordedTrace,
+    IntervalState,
+    ClockConvention,
+    ClockKind,
+    Clock,
+    ClockPartition,
+    ClockTotals,
+    StopEpisode,
 )
 """Types publiés dans le dictionnaire, dans l'ordre de lecture."""
 
@@ -86,6 +133,13 @@ ENUM_DESCRIPTIONS: Mapping[type[Enum], Mapping[Any, str]] = MappingProxyType(
         QualityFlag: QUALITY_FLAG_DESCRIPTIONS,
         PointKind: POINT_KIND_DESCRIPTIONS,
         TimingConvention: TIMING_CONVENTION_DESCRIPTIONS,
+        OutingLabel: OUTING_LABEL_DESCRIPTIONS,
+        DataSet: DATA_SET_DESCRIPTIONS,
+        ReferenceKind: REFERENCE_KIND_DESCRIPTIONS,
+        ArtifactRole: ARTIFACT_ROLE_DESCRIPTIONS,
+        Unavailability: UNAVAILABILITY_DESCRIPTIONS,
+        IntervalState: INTERVAL_STATE_DESCRIPTIONS,
+        ClockKind: CLOCK_KIND_DESCRIPTIONS,
     }
 )
 """Description des membres de chaque énumération publiée."""

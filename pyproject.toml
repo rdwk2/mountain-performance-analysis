@@ -4,8 +4,10 @@ version = "0.0.1"
 description = "Analyse de données de sport de montagne et modélisation de la performance."
 readme = "README.md"
 requires-python = ">=3.12"
-# Aucune dépendance de calcul au jalon M0 : c'est de l'outillage, pas du métier.
-dependencies = []
+# Aucune dépendance de calcul. tzdata donne à zoneinfo la base de fuseaux qui manque
+# sous Windows (calendrier de Paris du backtest, brief M4a-1 § 4.4) ; sous Linux, la
+# base du système suffit.
+dependencies = ["tzdata; sys_platform == \"win32\""]
 
 [project.scripts]
 mperf = "mountain_perf.cli:main"
