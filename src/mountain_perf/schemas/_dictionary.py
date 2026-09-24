@@ -40,6 +40,11 @@ from mountain_perf.schemas.common import (
     Sport,
 )
 from mountain_perf.schemas.curve import CurveProvenance, PaceCurve
+from mountain_perf.schemas.matching import (
+    POINT_STATUS_DESCRIPTIONS,
+    PointStatus,
+    ScorePointObservation,
+)
 from mountain_perf.schemas.outing import (
     ARTIFACT_ROLE_DESCRIPTIONS,
     DATA_SET_DESCRIPTIONS,
@@ -123,6 +128,8 @@ DOCUMENTED_TYPES: tuple[type, ...] = (
     ClockPartition,
     ClockTotals,
     StopEpisode,
+    PointStatus,
+    ScorePointObservation,
 )
 """Types publiés dans le dictionnaire, dans l'ordre de lecture."""
 
@@ -140,6 +147,7 @@ ENUM_DESCRIPTIONS: Mapping[type[Enum], Mapping[Any, str]] = MappingProxyType(
         Unavailability: UNAVAILABILITY_DESCRIPTIONS,
         IntervalState: INTERVAL_STATE_DESCRIPTIONS,
         ClockKind: CLOCK_KIND_DESCRIPTIONS,
+        PointStatus: POINT_STATUS_DESCRIPTIONS,
     }
 )
 """Description des membres de chaque énumération publiée."""

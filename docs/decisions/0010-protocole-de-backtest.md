@@ -773,6 +773,13 @@ fins et aux cumuls v0 aux abscisses exactes est livré en M4b (adaptateur du mot
 M3) ; *(précision)* le schéma de déclaration est livré avec le registre, en M4b,
 son seul producteur et premier consommateur.
 
+> **Note du 2026-09-24 (M4a-2a) — découpage.** L'appariement (2) est livré en
+> deux PR : M4a-2a, points de score (D4.1 à D4.3, grille et bornes effectives
+> des extrémités de D4.2, D4.5 à D4.9 pour les franchissements) ; M4a-2b,
+> segments et couverture (bornes effectives dans les segments, D4.9 pour les
+> segments, D4.10, D4.11, D6, totaux du support admis de D5.4, D3, D13). M4a est
+> donc livré en quatre PR. Aucune règle ne change.
+
 ### D17 — Reporté, avec déclencheur
 
 Voir les lignes `(M4…)`, `(M6a)` et `(M6b)` ajoutées au `BACKLOG.md` avec cette

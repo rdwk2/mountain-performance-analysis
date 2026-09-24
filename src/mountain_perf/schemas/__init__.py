@@ -33,6 +33,11 @@ from mountain_perf.schemas.common import (
     Sport,
 )
 from mountain_perf.schemas.curve import CurveProvenance, PaceCurve
+from mountain_perf.schemas.matching import (
+    POINT_STATUS_DESCRIPTIONS,
+    PointStatus,
+    ScorePointObservation,
+)
 from mountain_perf.schemas.outing import (
     ARTIFACT_ROLE_DESCRIPTIONS,
     DATA_SET_DESCRIPTIONS,
@@ -84,6 +89,7 @@ __all__ = [
     "LONGITUDE_RANGE_DEG",
     "OUTING_LABEL_DESCRIPTIONS",
     "POINT_KIND_DESCRIPTIONS",
+    "POINT_STATUS_DESCRIPTIONS",
     "QUALITY_FLAG_DESCRIPTIONS",
     "REFERENCE_KIND_DESCRIPTIONS",
     "SPORT_DESCRIPTIONS",
@@ -112,6 +118,7 @@ __all__ = [
     "Passage",
     "Performance",
     "PointKind",
+    "PointStatus",
     "Projection",
     "QualityFlag",
     "RecordedTrace",
@@ -122,6 +129,7 @@ __all__ = [
     "Route",
     "RouteProfile",
     "RouteReference",
+    "ScorePointObservation",
     "Segment",
     "SourceRef",
     "Sport",

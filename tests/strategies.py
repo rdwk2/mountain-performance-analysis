@@ -46,6 +46,7 @@ from mountain_perf.schemas import (
     Passage,
     Performance,
     PointKind,
+    PointStatus,
     Projection,
     QualityFlag,
     RecordedTrace,
@@ -55,6 +56,7 @@ from mountain_perf.schemas import (
     Route,
     RouteProfile,
     RouteReference,
+    ScorePointObservation,
     SourceRef,
     Sport,
     TimingConvention,
@@ -922,3 +924,49 @@ def clock_partitions(draw: st.DrawFn, max_intervals: int = 40) -> ClockPartition
         for _ in CLOCK_CONVENTIONS
     )
     return ClockPartition(time_s=tuple(accumulate(steps, initial=0.0)), states=states)
+
+
+# ---------------------------------------------------------------------------
+# Points de score (M4a-2a)
+# ---------------------------------------------------------------------------
+
+
+@st.composite
+def score_point_observations(
+    draw: st.DrawFn, status: PointStatus | None = None
+) -> ScorePointObservation:
+    """Observations valides : champs datés si et seulement si le statut date, comptes
+    cohérents avec le statut, borne effective distincte seulement pour un ancrage."""
+    status = status if status is not None else draw(st.sampled_from(PointStatus))
+    nominal_m = draw(finite_floats(0.0, 1e5))
+    effective_m = nominal_m
+    if status is PointStatus.ANCHORED and draw(st.booleans()):
+        effective_m = draw(finite_floats(0.0, 1e5))
+    position = time_s = lateral_m = realized_m = None
+    if status in (PointStatus.FOUND, PointStatus.ANCHORED):
+        position = (
+            float(draw(st.integers(0, 100_000)))
+            if status is PointStatus.ANCHORED
+            else draw(finite_floats(0.0, 1e5))
+        )
+        time_s = draw(finite_floats(0.0, 1e6))
+        lateral_m = draw(finite_floats(-1e3, 1e3))
+        realized_m = draw(finite_floats(0.0, 1e6))
+    candidates, events = 0, 0
+    if status is PointStatus.FOUND:
+        candidates, events = draw(st.integers(1, 20)), 1
+    elif status is PointStatus.AMBIGUOUS and draw(st.booleans()):
+        events = draw(st.integers(2, 20))
+        candidates = draw(st.integers(events, 40))
+    return ScorePointObservation(
+        index=draw(st.integers(0, 1000)),
+        nominal_m=nominal_m,
+        effective_m=effective_m,
+        status=status,
+        position=position,
+        time_s=time_s,
+        lateral_m=lateral_m,
+        realized_m=realized_m,
+        candidate_count=candidates,
+        event_count=events,
+    )
