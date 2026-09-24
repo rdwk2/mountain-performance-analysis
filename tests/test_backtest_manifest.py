@@ -357,33 +357,43 @@ def test_declared_sha256_is_compared_case_insensitively(tmp_path: Path) -> None:
 
 def _expect(
     tmp_path: Path, change: Callable[[Document], object], where: str, key: str
-) -> None:
+) -> str:
+    """``ManifestError`` attendue, qui nomme ``where`` et ``key`` ; rend le message."""
     path = _variant(tmp_path, change)
     with pytest.raises(
         ManifestError, match=re.escape(f"{where}, clé {key} :")
     ) as error:
         load_manifest(path)
     assert str(tmp_path) not in str(error.value)
+    return str(error.value)
 
 
 @pytest.mark.parametrize(
-    "file",
+    ("file", "rule"),
     [
-        "/gpx/p1/jour3.gpx",
-        "C:/gpx/p1/jour3.gpx",
-        "//serveur/partage/jour3.gpx",
-        "gpx\\p1\\jour3.gpx",
-        "../manifeste/gpx/p1/jour3.gpx",
-        "gpx/../gpx/p1/jour3.gpx",
+        ("/gpx/p1/jour3.gpx", "chemin absolu"),
+        ("C:/gpx/p1/jour3.gpx", "lecteur Windows"),
+        ("//serveur/partage/jour3.gpx", "chemin réseau"),
+        ("gpx\\p1\\jour3.gpx", "antislash"),
+        ("../manifeste/gpx/p1/jour3.gpx", "composant « .. »"),
+        ("gpx/../gpx/p1/jour3.gpx", "composant « .. »"),
+        ("/home/personne-inventee/courses/prive.gpx", "chemin absolu"),
+        ("C:/Users/personne-inventee/courses/prive.gpx", "lecteur Windows"),
     ],
 )
 def test_rule_1_paths_are_relative_posix_without_parent(
-    tmp_path: Path, file: str
+    tmp_path: Path, file: str, rule: str
 ) -> None:
+    """Le refus ne recopie jamais la valeur reçue : un chemin absolu contient le
+    nom de l'utilisateur (règle 1 de ``CLAUDE.md``, P11)."""
+
     def change(document: Document) -> None:
         _outing(document, P1)["traces"][0]["file"] = file
 
-    _expect(tmp_path, change, f"sortie {P1}", "traces[0].file")
+    message = _expect(tmp_path, change, f"sortie {P1}", "traces[0].file")
+    assert file not in message
+    assert repr(file)[1:-1] not in message
+    assert f"({rule} refusé)" in message
 
 
 def _set(outing_id: str, key: str, value: object) -> Callable[[Document], object]:

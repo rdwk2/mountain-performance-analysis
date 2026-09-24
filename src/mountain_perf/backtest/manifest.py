@@ -381,17 +381,27 @@ class _Reader:
         """Fichier ``data["file"]``, résolu, existant, haché et recoupé à ``sha256``."""
         text = _text(data["file"], where, f"{key}.file")
         relative = PurePosixPath(text)
-        if (
-            "\\" in text
-            or relative.is_absolute()
-            or PureWindowsPath(text).drive
-            or ".." in relative.parts
-        ):
+        # La valeur reçue n'est pas citée : un chemin absolu contient le nom de
+        # l'utilisateur (règle 1 de CLAUDE.md, comme SourceRef).
+        refused = (
+            "antislash"
+            if "\\" in text
+            else "chemin réseau"
+            if text.startswith("//")
+            else "chemin absolu"
+            if relative.is_absolute()
+            else "lecteur Windows"
+            if PureWindowsPath(text).drive
+            else "composant « .. »"
+            if ".." in relative.parts
+            else None
+        )
+        if refused is not None:
             raise _error(
                 where,
                 f"{key}.file",
                 "chemin relatif au manifeste attendu, séparé par « / » et sans "
-                f"« .. », reçu {text!r}.",
+                f"« .. » ({refused} refusé).",
             )
         path = self._folder.joinpath(*relative.parts).resolve()
         if not path.is_file():
