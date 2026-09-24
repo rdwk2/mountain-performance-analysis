@@ -10,6 +10,7 @@ import json
 import re
 import shutil
 from collections.abc import Callable
+from dataclasses import FrozenInstanceError
 from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
@@ -20,6 +21,7 @@ from fixtures.traces import equatorial_point, gpx_document
 from mountain_perf.backtest.manifest import (
     ManifestError,
     ManifestReadResult,
+    RefusedEntry,
     load_manifest,
 )
 from mountain_perf.gpx.reader import GpxError
@@ -709,3 +711,30 @@ def test_rule_7_record_violating_its_contract_is_an_error(
         ManifestError, match=re.escape(f"sortie {P2}, clé external_records[0]")
     ):
         load_manifest(path)
+
+
+# ---------------------------------------------------------------------------
+# P9 — résultats internes gelés ou en lecture seule (§ 4.5)
+# ---------------------------------------------------------------------------
+
+
+def test_manifest_result_is_frozen(valid: ManifestReadResult) -> None:
+    target: Any = valid
+    with pytest.raises(FrozenInstanceError):
+        target.outings = ()
+
+
+@pytest.mark.parametrize("name", ["traces", "artifact_paths"])
+def test_manifest_result_mappings_are_read_only(
+    valid: ManifestReadResult, name: str
+) -> None:
+    mapping: Any = getattr(valid, name)
+    key = next(iter(mapping))
+    with pytest.raises(TypeError):
+        mapping[key] = None
+
+
+def test_refused_entry_is_frozen() -> None:
+    target: Any = RefusedEntry(P1, None, "motif inventé")
+    with pytest.raises(FrozenInstanceError):
+        target.reason = "autre motif"

@@ -8,7 +8,9 @@ des valeurs exactement représentables, jamais à travers une trace (§ 7.0).
 
 import math
 from collections.abc import Sequence
+from dataclasses import FrozenInstanceError
 from itertools import pairwise
+from typing import Any
 
 import pytest
 from hypothesis import given, settings
@@ -246,6 +248,14 @@ def test_window_bound_exactly_on_a_record() -> None:
     )
     assert window_measures(trace, series, 8, complete=True) is None
     _assert_totals(_totals(trace), [(0, 164, 36)] * 5)
+
+
+def test_window_measures_are_frozen() -> None:
+    """P9 — ``WindowMeasures`` est gelé (§ 4.7)."""
+    target: Any = window_measures(T09, build_series(T09), 90)
+    assert target is not None
+    with pytest.raises(FrozenInstanceError):
+        target.v_h = 1.0
 
 
 def test_economy_matches_the_complete_partition_when_diameters_decide() -> None:

@@ -1,8 +1,9 @@
 """Séries dérivées (§ 4.3 du brief M4a-1, ``0010`` D4.4) : blocs, lissage, d_r."""
 
-from dataclasses import replace
+from dataclasses import FrozenInstanceError, replace
 from itertools import pairwise
 from pathlib import Path
+from typing import Any
 
 import pytest
 from hypothesis import given
@@ -164,3 +165,10 @@ def test_realized_distance_is_cumulative_and_bounded_below(
         trace.longitude_deg[-1],
     )
     assert d_r[-1] >= chord_m - 1e-6
+
+
+def test_trace_series_is_frozen() -> None:
+    """P9 — ``TraceSeries`` est gelé (§ 4.3)."""
+    target: Any = build_series(read_trace([TRONCONS]))
+    with pytest.raises(FrozenInstanceError):
+        target.gap_after = ()
