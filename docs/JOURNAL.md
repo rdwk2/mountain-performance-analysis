@@ -39,6 +39,8 @@ collecte. Partition d'une trace synthétique de 77 000 enregistrements : 4,6 s.
 Contrats existants, défauts de `0008` et lignes existantes du backlog inchangés ;
 aucune donnée personnelle, toutes les fixtures inventées.
 Conclusion : `just check` vert avant chacun des huit commits, 939 tests à la fin.
+Correctifs de relecture : tests P1 à P10, message d'erreur du manifeste (P11) ;
+959 tests.
 Rangé dans `src/mountain_perf/schemas/{outing,trace,clock}.py`,
 `src/mountain_perf/gpx/trace_reader.py`, `src/mountain_perf/backtest/`,
 `tests/test_{schemas_outing,schemas_trace,schemas_clock,gpx_trace_reader}.py`,
