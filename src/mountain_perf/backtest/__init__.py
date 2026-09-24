@@ -13,6 +13,15 @@ from mountain_perf.backtest.manifest import (
     RefusedEntry,
     load_manifest,
 )
+from mountain_perf.backtest.outings import (
+    DOMAIN_MIN_DPLUS_PER_KM,
+    RETENTION_LIMIT_S,
+    domain_profile_source,
+    dplus_per_km,
+    group_performances,
+    in_domain,
+    retain_outings,
+)
 from mountain_perf.backtest.series import (
     MAX_STEP_S,
     SMOOTHING_HALF_WIDTH,
@@ -21,9 +30,11 @@ from mountain_perf.backtest.series import (
 )
 
 __all__ = [
+    "DOMAIN_MIN_DPLUS_PER_KM",
     "MAX_STEP_S",
     "ORIGIN_LAG",
     "PARIS",
+    "RETENTION_LIMIT_S",
     "SMOOTHING_HALF_WIDTH",
     "ManifestError",
     "ManifestReadResult",
@@ -32,6 +43,11 @@ __all__ = [
     "available_at_origin",
     "build_series",
     "civil_date",
+    "domain_profile_source",
+    "dplus_per_km",
+    "group_performances",
+    "in_domain",
     "load_manifest",
     "origin",
+    "retain_outings",
 ]
