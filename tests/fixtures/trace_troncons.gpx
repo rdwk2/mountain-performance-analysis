@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Synthétique (brief M4a-1, § 7.1) : latitude 0, x = 0, 1, …, 12 m vers l'est dans
+     l'ordre du document, altitude 1 000 m. Premier trkseg de 08:00:00Z à :05, avec :03
+     répété (second :03 en x = 4 m, écarté) ; second trkseg de 08:00:20Z à :25.
+     Positions écrites par tests/fixtures/traces.py (equatorial_point). -->
+<gpx version="1.1" creator="synthetic-tests" xmlns="http://www.topografix.com/GPX/1/1">
+  <trk><name>Trace synthétique</name>
+    <trkseg>
+      <trkpt lat="0.0" lon="0.0"><ele>1000.0</ele><time>2026-06-01T08:00:00Z</time></trkpt>
+      <trkpt lat="0.0" lon="8.99320363724538e-06"><ele>1000.0</ele><time>2026-06-01T08:00:01Z</time></trkpt>
+      <trkpt lat="0.0" lon="1.798640727449076e-05"><ele>1000.0</ele><time>2026-06-01T08:00:02Z</time></trkpt>
+      <trkpt lat="0.0" lon="2.697961091173614e-05"><ele>1000.0</ele><time>2026-06-01T08:00:03Z</time></trkpt>
+      <trkpt lat="0.0" lon="3.597281454898152e-05"><ele>1000.0</ele><time>2026-06-01T08:00:03Z</time></trkpt>
+      <trkpt lat="0.0" lon="4.49660181862269e-05"><ele>1000.0</ele><time>2026-06-01T08:00:04Z</time></trkpt>
+      <trkpt lat="0.0" lon="5.395922182347228e-05"><ele>1000.0</ele><time>2026-06-01T08:00:05Z</time></trkpt>
+    </trkseg>
+    <trkseg>
+      <trkpt lat="0.0" lon="6.295242546071767e-05"><ele>1000.0</ele><time>2026-06-01T08:00:20Z</time></trkpt>
+      <trkpt lat="0.0" lon="7.194562909796304e-05"><ele>1000.0</ele><time>2026-06-01T08:00:21Z</time></trkpt>
+      <trkpt lat="0.0" lon="8.093883273520843e-05"><ele>1000.0</ele><time>2026-06-01T08:00:22Z</time></trkpt>
+      <trkpt lat="0.0" lon="8.99320363724538e-05"><ele>1000.0</ele><time>2026-06-01T08:00:23Z</time></trkpt>
+      <trkpt lat="0.0" lon="9.892524000969919e-05"><ele>1000.0</ele><time>2026-06-01T08:00:24Z</time></trkpt>
+      <trkpt lat="0.0" lon="0.00010791844364694456"><ele>1000.0</ele><time>2026-06-01T08:00:25Z</time></trkpt>
+    </trkseg>
+  </trk>
+</gpx>
