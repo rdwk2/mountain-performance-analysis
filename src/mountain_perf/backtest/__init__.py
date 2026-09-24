@@ -20,6 +20,11 @@ from mountain_perf.backtest.clocks import (
     trace_totals,
     window_measures,
 )
+from mountain_perf.backtest.geometry import (
+    ReferenceGeometry,
+    reference_geometry,
+    trace_route,
+)
 from mountain_perf.backtest.manifest import (
     ManifestError,
     ManifestReadResult,
@@ -53,6 +58,7 @@ __all__ = [
     "ManifestError",
     "ManifestReadResult",
     "Qualification",
+    "ReferenceGeometry",
     "RefusedEntry",
     "TraceSeries",
     "WindowMeasures",
@@ -70,8 +76,10 @@ __all__ = [
     "load_manifest",
     "origin",
     "qualify",
+    "reference_geometry",
     "retain_outings",
     "stop_episodes",
+    "trace_route",
     "trace_totals",
     "window_measures",
 ]
