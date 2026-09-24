@@ -238,14 +238,22 @@ def test_economy_matches_the_complete_partition_when_diameters_decide() -> None:
 # Cumulés et durées (``0010`` D5.3) sur X06-bis, θ_c
 # ---------------------------------------------------------------------------
 
-X06_BIS_PARTITION = clock_partition(X06_BIS, build_series(X06_BIS))
+
+@pytest.fixture(scope="module")
+def x06_bis_partition() -> ClockPartition:
+    """Partition de X06-bis, calculée à l'exécution et non au chargement du module :
+    une exception de ``clock_partition`` fait rougir des tests nommés, pas la collecte
+    (P3)."""
+    return clock_partition(X06_BIS, build_series(X06_BIS))
 
 
 @pytest.mark.parametrize(
     ("at_s", "expected"), [(90, 2), (89.5, 1.5), (120, 6), (300, 8), (0, 0)]
 )
-def test_cumulative_moving_time(at_s: float, expected: float) -> None:
-    moving = cumulative_s(X06_BIS_PARTITION, C, frozenset({M}), at_s)
+def test_cumulative_moving_time(
+    x06_bis_partition: ClockPartition, at_s: float, expected: float
+) -> None:
+    moving = cumulative_s(x06_bis_partition, C, frozenset({M}), at_s)
     assert moving == pytest.approx(expected, abs=1e-6)
 
 
@@ -258,32 +266,38 @@ def test_cumulative_moving_time(at_s: float, expected: float) -> None:
     ],
     ids=["ecoule", "M_theta_c", "M+U_theta_c"],
 )
-def test_clock_duration_between_80_and_130(clock: Clock, expected: float) -> None:
-    duration = clock_duration_s(X06_BIS_PARTITION, clock, 80, 130)
+def test_clock_duration_between_80_and_130(
+    x06_bis_partition: ClockPartition, clock: Clock, expected: float
+) -> None:
+    duration = clock_duration_s(x06_bis_partition, clock, 80, 130)
     assert duration == pytest.approx(expected, abs=1e-6)
 
 
 @pytest.mark.parametrize("at_s", [-0.001, 300.001, math.nan])
-def test_cumulative_outside_the_trace_is_refused(at_s: float) -> None:
+def test_cumulative_outside_the_trace_is_refused(
+    x06_bis_partition: ClockPartition, at_s: float
+) -> None:
     with pytest.raises(ValueError, match="hors de la trace"):
-        cumulative_s(X06_BIS_PARTITION, C, frozenset({M}), at_s)
+        cumulative_s(x06_bis_partition, C, frozenset({M}), at_s)
 
 
 @pytest.mark.parametrize("clock", CLOCKS, ids=str)
-def test_clock_duration_never_negative(clock: Clock) -> None:
+def test_clock_duration_never_negative(
+    x06_bis_partition: ClockPartition, clock: Clock
+) -> None:
     """Précision de relecture : ``start_s > end_s`` est refusé (``0010`` D4.12) ;
     ``start_s == end_s`` rend 0."""
     with pytest.raises(ValueError, match="jamais de durée négative"):
-        clock_duration_s(X06_BIS_PARTITION, clock, 130, 80)
-    assert clock_duration_s(X06_BIS_PARTITION, clock, 100.5, 100.5) == 0
+        clock_duration_s(x06_bis_partition, clock, 130, 80)
+    assert clock_duration_s(x06_bis_partition, clock, 100.5, 100.5) == 0
 
 
 @pytest.mark.parametrize("bounds", [(-1.0, 10.0), (10.0, 301.0)], ids=str)
 def test_clock_duration_outside_the_trace_is_refused(
-    bounds: tuple[float, float],
+    x06_bis_partition: ClockPartition, bounds: tuple[float, float]
 ) -> None:
     with pytest.raises(ValueError, match="hors de la trace"):
-        clock_duration_s(X06_BIS_PARTITION, CLOCKS[0], *bounds)
+        clock_duration_s(x06_bis_partition, CLOCKS[0], *bounds)
 
 
 # ---------------------------------------------------------------------------
