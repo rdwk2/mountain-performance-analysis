@@ -228,6 +228,26 @@ def test_slow_zigzag_is_undetermined_not_stopped() -> None:
     _assert_totals(_totals(SLOW_ZIGZAG), [(266, 0, 34)] + [(0, 0, 300)] * 4)
 
 
+FIXED_HALF_HERTZ = planar_trace([2.0 * k for k in range(101)], [0.0] * 101)
+"""Position fixe à 0,5 Hz, ``t = 0, 2, …, 200`` : toutes les bornes ``m ± 15`` des
+fenêtres tombent sur un enregistrement."""
+
+
+def test_window_bound_exactly_on_a_record() -> None:
+    """P8 — § 4.7 point 1 : ``j⁻(β) = max{j : t_j <= β}``, confondu avec ``j⁺`` quand
+    ``β`` tombe sur un enregistrement. Fenêtre de l'intervalle 9 : ``[4 ; 34]``, et
+    l'enregistrement en 4 s (indice 2) a un lissage complet."""
+    trace = FIXED_HALF_HERTZ
+    series = build_series(trace)
+    measures = window_measures(trace, series, 9, complete=True)
+    assert measures is not None
+    assert (measures.v_h, measures.v_z, measures.d_h, measures.d_z) == pytest.approx(
+        (0, 0, 0, 0), abs=1e-6
+    )
+    assert window_measures(trace, series, 8, complete=True) is None
+    _assert_totals(_totals(trace), [(0, 164, 36)] * 5)
+
+
 def test_economy_matches_the_complete_partition_when_diameters_decide() -> None:
     """P2 — test 3 du § 8.1 sur une trace où l'économie ne peut pas se taire."""
     economic = clock_partition(SLOW_ZIGZAG, build_series(SLOW_ZIGZAG))
