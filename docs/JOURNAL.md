@@ -16,6 +16,36 @@ Backtest (à partir de M4) : métrique avant → après.
 
 ---
 
+### 2026-09-24 · M4a-1 — Backtest : données et horloges
+Première des trois PR du lot M4a (brief M4a-1 rév. 2, `0010`). `0010` commité octet
+pour octet (SHA-256 `e020c47a…ffbe2e` vérifié avant la copie et sur le commit) ;
+dix-neuf lignes « Backtest (0010) » au backlog. Contrats `outing`, `trace`, `clock`
+(18 types au dictionnaire) ; `read_trace` (tronçons et fichiers concaténés, même
+instant écarté et compté, instant décroissant refusé) ; séries dérivées (blocs,
+lissage par bloc, `d_r`) ; calendrier de Paris et origine `o_j` avec `tzdata` sous
+Windows (décision rdw du 2026-09-23) ; `load_manifest` (refus d'athlète avant toute
+ouverture de fichier, trace refusée conservée pour la règle des 4 h, emplacements par
+empreinte) ; sorties retenues, domaine, performances ; horloges M/S/U sous les cinq
+conventions, cumulés, totaux, épisodes.
+Quatre précisions de relecture intégrées : doublon sans extension → `kind`
+`"unknown"`, `sha256` déclaré comparé sans tenir compte de la casse,
+`clock_duration_s` refuse `start_s > end_s`, ligne `trace_reader.py` dans
+`CLAUDE.md`. Toutes les valeurs du § 7.1 reproduites à leur tolérance, sans
+tolérance élargie, dès le premier essai du prototype. Six contre-épreuves par mutation
+exécutées et restaurées par empreinte : `>= c` → `> c`, rétention `<=`, diamètre sur
+les seules bornes, lissage à travers les trous, `v_z` signée — chacune rougit le test
+attendu ; seuil d'économie au minimum des conventions — `qualify` lève dès la
+collecte. Partition d'une trace synthétique de 77 000 enregistrements : 4,6 s.
+Contrats existants, défauts de `0008` et lignes existantes du backlog inchangés ;
+aucune donnée personnelle, toutes les fixtures inventées.
+Conclusion : `just check` vert avant chacun des huit commits, 939 tests à la fin.
+Rangé dans `src/mountain_perf/schemas/{outing,trace,clock}.py`,
+`src/mountain_perf/gpx/trace_reader.py`, `src/mountain_perf/backtest/`,
+`tests/test_{schemas_outing,schemas_trace,schemas_clock,gpx_trace_reader}.py`,
+`tests/test_backtest_*.py`, `tests/fixtures/{outings,traces}.py`,
+`tests/fixtures/trace_troncons.gpx`, `tests/fixtures/manifeste/`,
+`docs/decisions/0010`, branche `m4a/donnees-horloges`.
+
 ### 2026-09-20 · M3 — Moteur de projection v0
 Tranche verticale fermée : `mperf project trace.gpx --curve courbe.csv` produit un
 tableau de temps de passage. Lecture d'un CSV de courbe et de son compagnon

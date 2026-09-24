@@ -117,13 +117,22 @@ src/mountain_perf/     le code de la bibliothèque
     curve.py           PaceCurve, CurveProvenance (M1b)
     projection.py      Passage, Segment, Projection (M1b)
     reference.py       TimingConvention, ObservedPassage, ReferencePerformance (M1b)
+    outing.py          sorties, artefacts, rétention, performance, statuts (M4a)
+    trace.py           RecordedTrace, trace réalisée lue sans rien de dérivé (M4a)
+    clock.py           conventions, horloges, partition M/S/U, totaux, épisodes (M4a)
     _dictionary.py     rendu du dictionnaire de données depuis les docstrings
   gpx/                 lecture GPX, profil, grille de pente (M2)
     geo.py             haversine 2D, polyligne dédoublonnée, projection point-segment
     reader.py          read_gpx, GpxReadResult, GpxError
+    trace_reader.py    read_trace, TraceError : trace réalisée horodatée (M4a)
     profile.py         paramètres, grille, lissage, passages et diagnostics de calcul
   model/               le moteur de projection (M3, puis M6a, M7)
   backtest/            évaluation contre des performances réelles (M4)
+    calendar.py        jour civil à Paris, origine o_j, disponibilité (M4a)
+    manifest.py        load_manifest, ManifestReadResult, ManifestError (M4a)
+    outings.py         sorties retenues, domaine, performances (M4a)
+    series.py          trous, blocs, lissage par bloc, d_r (M4a)
+    clocks.py          fenêtres, qualification, confirmation, horloges cumulées (M4a)
   ingest/              acquisition et normalisation Garmin (M6b)
   ui/                  interface — appelle la bibliothèque, ne calcule rien (M5)
   cli.py               mperf profile <fichier.gpx>, compte-rendu ou CSV sur stdout
