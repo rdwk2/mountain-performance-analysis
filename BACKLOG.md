@@ -90,3 +90,25 @@ Format : `- [ ] (jalon visé) idée — pourquoi`
 - [ ] (M6b) Mesurer le biais sphère / ellipsoïde selon l'azimut lors de la confrontation au `sumDistance` Garmin — il ne se simplifie dans `durée = distance / vitesse` que si les orientations des activités et du tracé se ressemblent.
 - [ ] (M2/M3) Caler les défauts de `smoothing_window_m` et `grid_step_m` sur des fichiers réels — les valeurs livrées sont provisoires.
 - [ ] (hors périmètre M2) Définir le traitement des tracés traversant l'antiméridien avant de généraliser la projection locale — la différence brute de longitude ne représente pas le raccord ±180°.
+
+## Backtest (0010)
+
+- [ ] (après M6b, ≥ 20 jours hors échantillon) Modèle d'erreur hiérarchique et score prédictif — seuil de réexamen, pas une garantie.
+- [ ] (≥ 10 performances postérieures au figement) Test de confirmation d'un gain utile : blocs indépendants définis avant analyse, `S = Σ_b 1{G_b > δ*}`, égalités non-succès, `p = Σ_{s=S}^{B} binom(B, s) 2^{−B}` ; `δ*`, date d'analyse et gestion de plusieurs candidats fixés d'avance.
+- [ ] (avant la première expérience déclarée, M6a) Réexaminer les seuils d'admission (critère « comparable », référence empruntée) ; après la première déclaration, toute modification est une nouvelle version.
+- [ ] (M6b) Origine glissante 28 j, demi-vie 7 j, `n_eff` publié.
+- [ ] (M6b) Définition commune du mouvement et même opérateur de pente à l'estimation et à l'application.
+- [ ] (M6a) Valider le détecteur d'arrêts sur des épisodes arrêt / marche connus avant toute revendication de temps de mouvement calibré.
+- [ ] (M6a+) Effort de course et affûtage : calibrables sur des courses seulement.
+- [ ] (après M6b) Progression sur 28 j par régime, à comparer à l'origine glissante.
+- [ ] (M6b+) Courbe par période et test des sorties de plat dans leur domaine ; lissage à noyau pondéré ; banc du traitement GPX (MNT ou concordance des répétitions).
+- [ ] (M8) Fourchettes par régime ; loi complète et CRPS ; référence propre `F_usage`.
+- [ ] (M4+) Lecture de `e^L` comme correction d'effort a posteriori : rétrospective, limitée au support comparé, invalide en présence d'arrêts additifs.
+- [ ] (premier cas réel) Jours à plusieurs sorties : revoir la règle des 4 h et définir l'agrégation d'une performance multi-sorties (référence, étiquettes, durée, `K`, cellules répétées).
+- [ ] (prochaine course avec relevés de ravitaillement) Confronter l'association arrêt → passage (médiane, départage à 1 s puis 1 m) aux relevés réels.
+- [ ] (avant la première confirmation) Rôles des artefacts : revoir la séparation entrées de prévision / observations d'évaluation.
+- [ ] (première cellule nulle réelle) Cellule de temps nul dans le gabarit de répétabilité.
+- [ ] (premier préparé avec waypoint terminal) Arrivée unique dans `K`.
+- [ ] (M4d) Dégénérescences de la dérive : `t_h <= 0`, variance nulle de `u`.
+- [ ] (avant la première expérience ciblant q_usage ou un passage, M6a) Préfixe comparable court : un point non daté ou un segment non admis l'arrête ; mesuré en conception, `q_usage` complet n'existe que sur une minorité de sorties et le diagnostic de longue course de la seule course est vide.
+- [ ] (avant la première expérience de l'effet arrêts, ou la première course évaluée) Longs arrêts de course hors support : `ρ` et `H` excluent les segments de ravitaillement (bruit GPS à l'arrêt, ravitaillement à l'écart du tracé).
