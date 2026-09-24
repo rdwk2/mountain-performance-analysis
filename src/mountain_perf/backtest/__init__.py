@@ -7,6 +7,19 @@ from mountain_perf.backtest.calendar import (
     civil_date,
     origin,
 )
+from mountain_perf.backtest.clocks import (
+    CLOCK_HALF_WINDOW_S,
+    Qualification,
+    WindowMeasures,
+    clock_duration_s,
+    clock_partition,
+    confirm,
+    cumulative_s,
+    qualify,
+    stop_episodes,
+    trace_totals,
+    window_measures,
+)
 from mountain_perf.backtest.manifest import (
     ManifestError,
     ManifestReadResult,
@@ -30,6 +43,7 @@ from mountain_perf.backtest.series import (
 )
 
 __all__ = [
+    "CLOCK_HALF_WINDOW_S",
     "DOMAIN_MIN_DPLUS_PER_KM",
     "MAX_STEP_S",
     "ORIGIN_LAG",
@@ -38,16 +52,26 @@ __all__ = [
     "SMOOTHING_HALF_WIDTH",
     "ManifestError",
     "ManifestReadResult",
+    "Qualification",
     "RefusedEntry",
     "TraceSeries",
+    "WindowMeasures",
     "available_at_origin",
     "build_series",
     "civil_date",
+    "clock_duration_s",
+    "clock_partition",
+    "confirm",
+    "cumulative_s",
     "domain_profile_source",
     "dplus_per_km",
     "group_performances",
     "in_domain",
     "load_manifest",
     "origin",
+    "qualify",
     "retain_outings",
+    "stop_episodes",
+    "trace_totals",
+    "window_measures",
 ]
