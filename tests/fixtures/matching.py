@@ -21,11 +21,11 @@ Utilisées par ``tests/test_backtest_matching.py``,
 import math
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from itertools import pairwise
 from typing import Self
 
-from fixtures.traces import TRACE_SOURCE, TRACE_START, local_deg
+from fixtures.traces import TRACE_SOURCE, TRACE_START, gpx_document, local_deg
 from mountain_perf.backtest import (
     MATCHING_PARAMETER_SPECS,
     ReferenceGeometry,
@@ -654,3 +654,49 @@ def wandering_case(
         parameters,
         frozenset(features),
     )
+
+
+# ---------------------------------------------------------------------------
+# § 8, test 6 — la paire de GPX commitée de ``mperf match``
+# ---------------------------------------------------------------------------
+
+MATCH_REFERENCE_GPX = "appariement_reference.gpx"
+MATCH_TRACE_GPX = "appariement_trace_x01.gpx"
+
+
+def utc_text(time_s: float) -> str:
+    """Instant ``TRACE_START + time_s`` en texte ISO 8601, en UTC."""
+    return (TRACE_START + timedelta(seconds=time_s)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def gpx_texts(case: MatchCase, trace_times: bool = True) -> tuple[str, str]:
+    """Référence et trace d'un cas en GPX, coordonnées en ``repr`` exact : la
+    référence sans ``<time>``, la trace horodatée en UTC depuis ``TRACE_START``."""
+    route, trace = case.route, case.trace
+    reference = gpx_document(
+        [
+            (repr(lat), repr(lon), repr(ele), None)
+            for lat, lon, ele in zip(
+                route.latitude_deg, route.longitude_deg, route.elevation_m, strict=True
+            )
+        ]
+    )
+    records = gpx_document(
+        [
+            (repr(lat), repr(lon), repr(ele), utc_text(t) if trace_times else None)
+            for t, lat, lon, ele in zip(
+                trace.time_s,
+                trace.latitude_deg,
+                trace.longitude_deg,
+                trace.elevation_m,
+                strict=True,
+            )
+        ]
+    )
+    return reference, records
+
+
+def x01_gpx_pair() -> tuple[str, str]:
+    """La paire commitée : référence ``(0,0)→(530,0)`` sans lieu nommé, et X01
+    échantillonnée toutes les 10 s (``t = 0 … 320``, 33 enregistrements)."""
+    return gpx_texts(x01(step_s=10.0))
