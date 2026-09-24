@@ -368,7 +368,9 @@ def test_invalid_window_and_gap_have_no_measures() -> None:
     assert window_measures(trace, series, 100) is None  # le trou lui-même
     assert window_measures(trace, series, 16) is None  # lissage tronqué
     assert window_measures(trace, series, 17) is not None
-    assert window_measures(trace, series, 83) is None  # borne haute hors du bloc
+    # j⁺(98,5) = 99, dont le lissage est tronqué ; la borne haute ne sort du bloc
+    # qu'à partir de l'intervalle 85.
+    assert window_measures(trace, series, 83) is None
 
 
 # ---------------------------------------------------------------------------
