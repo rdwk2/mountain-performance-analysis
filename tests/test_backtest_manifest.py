@@ -533,6 +533,55 @@ def test_rule_2_malformed_manifest_names_outing_and_key(
     _expect(tmp_path, change, where, key)
 
 
+JSON_TYPE_CASES: list[tuple[str, Callable[[Document], object], str, str]] = [
+    (
+        "booleen-pour-un-temps",
+        lambda d: _outing(d, P2)["external_records"][0]["passages"][1].__setitem__(
+            "elapsed_s", False
+        ),
+        f"sortie {P2}",
+        "external_records[0].passages[1].elapsed_s",
+    ),
+    (
+        "booleen-dans-la-portion",
+        _set(P2, "portion_m", [False, 2500]),
+        f"sortie {P2}",
+        "portion_m[0]",
+    ),
+    (
+        "version-flottante",
+        lambda d: d.__setitem__("schema_version", 1.0),
+        "manifeste",
+        "schema_version",
+    ),
+    (
+        "sorties-en-objet",
+        lambda d: d.__setitem__("outings", {}),
+        "manifeste",
+        "outings",
+    ),
+    (
+        "traces-en-texte",
+        _set(P1, "traces", "gpx/p1/jour3.gpx"),
+        f"sortie {P1}",
+        "traces",
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    ("change", "where", "key"),
+    [case[1:] for case in JSON_TYPE_CASES],
+    ids=[case[0] for case in JSON_TYPE_CASES],
+)
+def test_rule_2_json_types_are_checked(
+    tmp_path: Path, change: Callable[[Document], object], where: str, key: str
+) -> None:
+    """P10 — choix 6 du plan : un booléen n'est pas un nombre, ``1.0`` n'est pas la
+    version ``1``, une valeur non liste n'est pas une liste vide."""
+    _expect(tmp_path, change, where, key)
+
+
 def test_rule_2_unreadable_json(tmp_path: Path) -> None:
     path = _copy(tmp_path) / "manifeste.json"
     path.write_text("{", encoding="utf-8")
