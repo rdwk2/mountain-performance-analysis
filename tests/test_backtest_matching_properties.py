@@ -29,7 +29,7 @@ from mountain_perf.schemas import PointStatus, ScorePointObservation
 from strategies import straight_cases, wandering_cases
 
 FAST = straight_case(260.0, -1.0, 0.0, [(3.0, 1)], [1.0, -1.0])
-"""Pas de 1/64 s à 3 m/s sur la référence la plus courte : 5 974 enregistrements."""
+"""Pas de 1/64 s à 3 m/s sur la référence la plus courte : 5 570 enregistrements."""
 
 SLOW = straight_case(2999.0, -20.0, 10.0, [(0.3, 640)], [-1.0, 0.5])
 """Pas de 10 s à 0,3 m/s sur une référence de 2 999 m : 3 m par enregistrement."""
