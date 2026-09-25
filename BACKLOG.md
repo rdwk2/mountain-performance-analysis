@@ -116,3 +116,4 @@ Format : `- [ ] (jalon visé) idée — pourquoi`
 - [ ] (M4d, avant l'exécution de la sensibilité) Temps de `match_points` sur une longue trace qui quitte le tracé (fenêtre qui s'élargit après chaque point non daté) : mesurer sur la course du Queyras, et n'optimiser que si les 19 configurations de D13 le rendent nécessaire.
 - [ ] (prochain passage sur `cli.py`) Sortie de `mperf` redirigée sous Windows : stdout en cp1252 refuse `→`, `−`, `Δ`, `ε` (`UnicodeEncodeError`, avec traceback) ; constaté en M4a-2a sur `mperf profile` et `mperf match`, invisible en console et sous pytest.
 - [ ] (outillage) `ℓ` est refusé par les règles RUF001-003 : l'ajouter aux `allowed-confusables` de `pyproject.toml` si les docstrings d'appariement doivent écrire `ℓ*` plutôt que « écart latéral ».
+- [ ] (tests) `local_deg` : longitude de base en paramètre, pour écrire des fixtures à cheval sur un méridien ou l'équateur (exactitude aux sommets, PR #9).
