@@ -5,12 +5,15 @@ effectives, motif, classe, fractions (``0 / 1 / 0`` ou la pureté d'un régime q
 ligne n'en donne pas), ``rho``, ``H_1``, ``H_2`` quand ils sont publiés, instants
 quand la ligne les donne, à ``1e−6`` ; statuts des points pour les lignes neuves (ceux
 des lignes de M4a-2a le sont déjà). Puis la correspondance des statuts (§ 8, test 5)
-et les tests directs du chemin réalisé et du contrôle intérieur.
+et les tests directs du chemin réalisé et du contrôle intérieur ; enfin, par
+``match_trace``, la couverture et le préfixe de chaque ligne, les horloges des lignes
+qui les donnent, et les préconditions.
 """
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from itertools import pairwise
+from typing import Any
 
 import pytest
 
@@ -19,14 +22,21 @@ from fixtures import segments as s
 from fixtures.matching import MatchCase, local_trace, reference
 from mountain_perf.backtest import (
     build_series,
+    clock_partition,
     interior_deviations,
+    match_trace,
     realized_length_m,
     realized_path,
+    stop_episodes,
 )
 from mountain_perf.backtest.geometry import to_local
 from mountain_perf.backtest.segments import _segment_distance_m
+from mountain_perf.gpx import PROFILE_PARAMETER_SPECS
 from mountain_perf.schemas import (
+    CENTRAL_CONVENTION_INDEX,
+    ParameterSet,
     PointStatus,
+    Regime,
     RegimeClass,
     ScoreSegmentObservation,
     SegmentExclusion,
@@ -531,3 +541,369 @@ def test_interior_deviation_without_interior_point() -> None:
     h1_m, h2_m = interior_deviations(geometry, path, 0.0, geometry.length_m, 30.0)
     assert h1_m == 0.0
     assert h2_m == pytest.approx(3.0, abs=1e-6)
+
+
+# ---------------------------------------------------------------------------
+# Couverture, préfixe comparable (§ 5b.6 ; 0010 D4.11, D4.2)
+# ---------------------------------------------------------------------------
+
+NE = None
+"""« n. é. » : régime non évalué, de longueur nulle sur ``[0 ; L]``."""
+
+
+@dataclass(frozen=True)
+class Cov:
+    """Couverture attendue d'une ligne : globale, par régime, écoulé admis, préfixe
+    ``(m, b_m, t*_m)`` (``t*_m`` à ``None`` = « — »), mètres exclus par motif,
+    ancrage, temps exclus connus par motif, dernier passage."""
+
+    fraction: float
+    regimes: tuple[float | None, float | None, float | None]
+    elapsed_s: float
+    prefix: tuple[int, float, float | None]
+    excluded_m: dict[SegmentExclusion, float] = field(default_factory=dict)
+    anchoring_m: float = 0.0
+    excluded_s: dict[SegmentExclusion, float] = field(default_factory=dict)
+    last_passage: str | None = None
+
+
+def flat(
+    fraction: float,
+    elapsed_s: float,
+    prefix: tuple[int, float, float | None],
+    excluded_m: dict[SegmentExclusion, float] | None = None,
+    anchoring_m: float = 0.0,
+    excluded_s: dict[SegmentExclusion, float] | None = None,
+    last_passage: str | None = None,
+) -> Cov:
+    """Référence plate : seul le plat est évalué, à la couverture globale."""
+    return Cov(
+        fraction,
+        (NE, fraction, NE),
+        elapsed_s,
+        prefix,
+        excluded_m or {},
+        anchoring_m,
+        excluded_s or {},
+        last_passage,
+    )
+
+
+COVERAGE: dict[str, Cov] = {
+    "T01": flat(1.0, 260.0, (3, 520.0, 260.0)),
+    "T01-bis": flat(1.0, 260.0, (3, 520.0, 270.0)),
+    "X01": flat(0.90566, 320.0, (3, 505.0, 320.0), anchoring_m=50.0),
+    "X01 à 10 s": flat(0.90566, 320.0, (3, 505.0, 320.0), anchoring_m=50.0),
+    "X08 coude": flat(0.89375, 143.0, (2, 311.0, 143.0), anchoring_m=34.0),
+    "X09 départ rejeté": flat(0.230769, 75.0, (0, 0.0, None), {UNOBSERVED: 250.0}),
+    "X12 K = 1 à rebours": flat(
+        0.0, 0.0, (0, 25.0, 0.0), {UNOBSERVED: 15.0}, anchoring_m=25.0
+    ),
+    "Demi-tour": flat(0.0, 0.0, (0, 0.0, 0.0), {UNOBSERVED: 550.0}),
+    "T05": flat(0.509804, 260.0, (0, 0.0, 0.0), {GAP: 250.0}, excluded_s={GAP: 250.0}),
+    "T05-ter": flat(1.0, 510.0, (3, 510.0, 510.0)),
+    "T07": flat(0.074074, 20.0, (0, 0.0, None), {UNOBSERVED: 250.0}),
+    "Fenêtre": flat(0.666667, 499.999999, (1, 250.0, 125.0), {UNOBSERVED: 500.0}),
+    "Hors ε": flat(0.0, 0.0, (0, 0.0, None), {UNOBSERVED: 510.0}),
+    "À 29 m à l'est": flat(1.0, 510.0, (3, 510.0, 510.0)),
+    "Sans préparé": flat(1.0, 600.0, (3, 600.0, 600.0)),
+    "Coin": flat(
+        0.537037,
+        288.12769,
+        (0, 0.0, 0.0),
+        {INTERIOR: 250.0},
+        excluded_s={INTERIOR: 225.87231},
+    ),
+    "Régimes": Cov(0.975248, (0.9, 1.0, 0.991071), 656.0, (5, 1005.0, 656.0), {}, 25.0),
+    "Régimes-écart": Cov(
+        0.727723,
+        (0.9, 0.2, 0.901786),
+        489.452381,
+        (1, 250.0, 152.785714),
+        {INTERIOR: 250.0},
+        25.0,
+        {INTERIOR: 178.547619},
+    ),
+    "Départ ancré puis trou": flat(
+        0.503922,
+        171.333333,
+        (0, 12.0, 0.0),
+        {GAP: 238.0},
+        anchoring_m=15.0,
+        excluded_s={GAP: 161.666667},
+    ),
+    "Arrivée avant un trou": flat(1.0, 340.0, (3, 510.0, 340.0)),
+    "rho haut": flat(
+        0.0, 0.0, (0, 0.0, 0.0), {RATIO: 510.0}, excluded_s={RATIO: 1020.0}
+    ),
+    "rho et écart": flat(
+        0.0, 0.0, (0, 0.0, 0.0), {RATIO: 510.0}, excluded_s={RATIO: 1020.0}
+    ),
+    "rho bas": flat(
+        0.657534, 240.0, (1, 250.0, 125.0), {RATIO: 250.0}, excluded_s={RATIO: 65.0}
+    ),
+    "Zigzag est-ouest": flat(1.0, 408.0, (3, 510.0, 408.4)),
+    "Bosse à l'est": flat(0.90566, 326.0, (3, 505.0, 326.0), anchoring_m=50.0),
+    "Pointe du tracé": flat(
+        0.593348,
+        182.388268,
+        (1, 250.0, 125.0),
+        {INTERIOR: 250.0},
+        excluded_s={INTERIOR: 97.611732},
+    ),
+    "Écart de la trace": flat(
+        0.509804,
+        208.0,
+        (0, 0.0, 0.0),
+        {INTERIOR: 250.0},
+        excluded_s={INTERIOR: 252.0},
+    ),
+    "Dépassement": flat(1.0, 368.653061, (3, 510.0, 368.653061)),
+    "Arrêt hors support": flat(
+        0.671053,
+        340.293103,
+        (0, 0.0, 0.0),
+        {INTERIOR: 250.0},
+        excluded_s={INTERIOR: 342.706897},
+    ),
+    "Arrêt": flat(1.0, 617.0, (4, 760.0, 617.0)),
+    "Deux arrêts": flat(1.0, 760.0, (8, 760.0, 760.0)),
+    "Passages": flat(
+        0.483168,
+        325.333334,
+        (2, 500.0, 325.333334),
+        {UNOBSERVED: 509.999999},
+        anchoring_m=12.0,
+        last_passage="C",
+    ),
+    "Passages, départ exclu": flat(
+        0.247525,
+        167.045455,
+        (0, 12.0, 0.0),
+        {UNOBSERVED: 509.999999, INTERIOR: 238.0},
+        anchoring_m=12.0,
+        excluded_s={INTERIOR: 182.136364},
+    ),
+}
+
+
+def test_every_row_has_its_coverage() -> None:
+    assert list(COVERAGE) == list(ROWS)
+
+
+EXCLUDED_M = {
+    UNOBSERVED: "excluded_unobserved_bound_m",
+    GAP: "excluded_gap_m",
+    RATIO: "excluded_length_ratio_m",
+    INTERIOR: "excluded_interior_deviation_m",
+}
+EXCLUDED_S = {
+    GAP: "excluded_gap_s",
+    RATIO: "excluded_length_ratio_s",
+    INTERIOR: "excluded_interior_deviation_s",
+}
+
+
+@pytest.mark.parametrize("name", list(COVERAGE))
+def test_coverage_and_prefix_of_the_row(name: str) -> None:
+    """§ 7.2b, une ligne : ``0010`` D4.11 (couverture globale et par régime,
+    distances et temps exclus par motif, ancrage, écoulé admis, préfixe comparable,
+    dernier passage) et D4.2 (bornes effectives)."""
+    expected = COVERAGE[name]
+    coverage = s.matched(ROWS[name].case()).coverage
+    assert coverage.fraction == pytest.approx(expected.fraction, abs=TOLERANCE)
+    for regime, value in zip(Regime, expected.regimes, strict=True):
+        observed = coverage.regime_fraction(regime)
+        if value is None:
+            assert observed is None
+        else:
+            assert observed == pytest.approx(value, abs=TOLERANCE)
+    for exclusion, field_name in EXCLUDED_M.items():
+        assert getattr(coverage, field_name) == pytest.approx(
+            expected.excluded_m.get(exclusion, 0.0), abs=TOLERANCE
+        )
+    assert coverage.anchoring_excluded_m == pytest.approx(
+        expected.anchoring_m, abs=TOLERANCE
+    )
+    for exclusion, field_name in EXCLUDED_S.items():
+        assert getattr(coverage, field_name) == pytest.approx(
+            expected.excluded_s.get(exclusion, 0.0), abs=TOLERANCE
+        )
+    assert coverage.admitted_elapsed_s == pytest.approx(
+        expected.elapsed_s, abs=TOLERANCE
+    )
+    m_expected, end_m, end_s = expected.prefix
+    assert coverage.prefix_segment_count == m_expected
+    assert coverage.prefix_end_m == pytest.approx(end_m, abs=TOLERANCE)
+    if end_s is None:
+        assert coverage.prefix_end_s is None
+    else:
+        assert coverage.prefix_end_s == pytest.approx(end_s, abs=TOLERANCE)
+    assert coverage.prefix_last_passage == expected.last_passage
+
+
+@pytest.mark.parametrize("name", list(ROWS))
+def test_match_trace_publishes_the_observed_segments(name: str) -> None:
+    """Les points et segments du ``MatchResult`` sont ceux de ``match_points`` et
+    d'``observe_segment`` (§ 5b.9)."""
+    case = ROWS[name].case()
+    points, segments = s.observed(case)
+    result = s.matched(case)
+    assert result.points == points
+    assert result.segments == segments
+
+
+# ---------------------------------------------------------------------------
+# Horloges du support admis (§ 5b.7 ; 0010 D5.4), sur les seules lignes qui les
+# donnent
+# ---------------------------------------------------------------------------
+
+Totals = tuple[float, float, float]
+
+
+@dataclass(frozen=True)
+class Clocks:
+    """Horloges attendues : ``M/S/U`` de la trace puis du support admis sous chaque
+    convention, ``θ_bas``, ``θ_haut``, ``I_sens,A`` et le nombre d'épisodes sous
+    ``θ_c``."""
+
+    trace: tuple[Totals, ...]
+    admitted: tuple[Totals, ...]
+    low: int
+    high: int
+    interval: tuple[float, float]
+    episodes: int
+
+
+def same(trace: Totals, admitted: Totals, interval: tuple[float, float]) -> Clocks:
+    """Mêmes totaux sous les cinq conventions ; ``θ_bas = θ_haut = θ1`` ; aucun
+    épisode."""
+    return Clocks((trace,) * 5, (admitted,) * 5, 0, 0, interval, 0)
+
+
+STOP_TOTALS: tuple[Totals, ...] = (
+    (501, 82, 34),
+    (499, 84, 34),
+    (497, 86, 34),
+    (499, 84, 34),
+    (499, 0, 118),
+)
+TWO_STOPS_TOTALS: tuple[Totals, ...] = (
+    (644, 82, 34),
+    (522, 204, 34),
+    (516, 210, 34),
+    (522, 204, 34),
+    (522, 120, 118),
+)
+
+CLOCKS_OF: dict[str, Clocks] = {
+    "T01-bis": same((234, 0, 36), (234, 0, 26), (234, 260)),
+    "X01": same((284, 0, 36), (284, 0, 36), (284, 320)),
+    "X01 à 10 s": same((260, 0, 60), (260, 0, 60), (260, 320)),
+    "X09 départ rejeté": same((288, 0, 34), (58, 0, 17), (58, 75)),
+    "T05": same((431, 0, 79), (243, 0, 17), (243, 260)),
+    "Arrêt hors support": Clocks(
+        (
+            (527, 122, 34),
+            (525, 124, 34),
+            (523, 126, 34),
+            (525, 124, 34),
+            (525, 124, 34),
+        ),
+        ((323.293103, 0, 17),) * 5,
+        0,
+        0,
+        (323.293103, 340.293103),
+        1,
+    ),
+    "Arrêt": Clocks(STOP_TOTALS, STOP_TOTALS, 2, 4, (497, 617), 1),
+    "Deux arrêts": Clocks(TWO_STOPS_TOTALS, TWO_STOPS_TOTALS, 2, 0, (516, 678), 2),
+}
+
+
+@pytest.mark.parametrize("name", list(CLOCKS_OF))
+def test_clocks_of_the_row(name: str) -> None:
+    """§ 7.2b, une ligne qui donne ses horloges : totaux de la trace et du support
+    admis, ``θ_bas`` et ``θ_haut`` (premiers indices), ``I_sens,A``, épisodes sous
+    ``θ_c`` (``0010`` D5.4)."""
+    expected = CLOCKS_OF[name]
+    case = ROWS[name].case()
+    result = s.matched(case)
+    for totals, wanted in zip(result.trace_totals, expected.trace, strict=True):
+        trace = (totals.moving_s, totals.stopped_s, totals.undetermined_s)
+        assert trace == pytest.approx(wanted, abs=TOLERANCE)
+    for support, wanted in zip(result.admitted_totals, expected.admitted, strict=True):
+        admitted = (support.moving_s, support.stopped_s, support.undetermined_s)
+        assert admitted == pytest.approx(wanted, abs=TOLERANCE)
+    assert result.low_convention_index == expected.low
+    assert result.high_convention_index == expected.high
+    assert result.admitted_sensitivity_range_s == pytest.approx(
+        expected.interval, abs=TOLERANCE
+    )
+    series = build_series(case.trace)
+    episodes = stop_episodes(
+        clock_partition(case.trace, series), CENTRAL_CONVENTION_INDEX
+    )
+    assert len(episodes) == expected.episodes
+
+
+def test_out_of_tolerance_has_no_admitted_segment() -> None:
+    """Hors ε : aucun segment admis, ``θ_bas``, ``θ_haut`` et ``I_sens,A`` absents ;
+    cinq totaux admis nuls."""
+    result = s.matched(m.out_of_tolerance())
+    assert result.low_convention_index is None
+    assert result.high_convention_index is None
+    assert result.admitted_sensitivity_range_s is None
+    assert [
+        (t.elapsed_s, t.moving_s, t.stopped_s, t.undetermined_s)
+        for t in result.admitted_totals
+    ] == [(0.0, 0.0, 0.0, 0.0)] * 5
+
+
+def test_departure_delay_is_the_departure_instant() -> None:
+    """T01-bis : départ trouvé à 10 s ; X09 : départ non daté."""
+    assert s.matched(m.t01_bis()).departure_delay_s == pytest.approx(10.0, abs=1e-6)
+    assert s.matched(m.x09()).departure_delay_s is None
+
+
+# ---------------------------------------------------------------------------
+# Préconditions de match_trace (§ 5b.9)
+# ---------------------------------------------------------------------------
+
+
+def _inputs(case: MatchCase) -> dict[str, Any]:
+    series = build_series(case.trace)
+    return {
+        "geometry": case.geometry,
+        "profile": s.reference_profile(case),
+        "trace": case.trace,
+        "series": series,
+        "partition": clock_partition(case.trace, series),
+        "parameters": case.parameters,
+    }
+
+
+@pytest.mark.parametrize("name", ["series", "partition"])
+def test_match_trace_needs_series_and_partition_of_the_trace(name: str) -> None:
+    inputs = _inputs(m.t01())
+    other = m.t05().trace
+    other_series = build_series(other)
+    inputs[name] = (
+        other_series if name == "series" else clock_partition(other, other_series)
+    )
+    with pytest.raises(ValueError, match="longueurs différentes"):
+        match_trace(**inputs)
+
+
+def test_match_trace_needs_the_matching_parameters() -> None:
+    inputs = _inputs(m.t01())
+    inputs["parameters"] = ParameterSet(PROFILE_PARAMETER_SPECS)
+    with pytest.raises(ValueError, match="MATCHING_PARAMETER_SPECS"):
+        match_trace(**inputs)
+
+
+def test_match_trace_needs_profile_and_geometry_of_the_same_route() -> None:
+    inputs = _inputs(m.t01())
+    inputs["profile"] = s.reference_profile(m.t05())
+    with pytest.raises(ValueError, match="profil et géométrie"):
+        match_trace(**inputs)

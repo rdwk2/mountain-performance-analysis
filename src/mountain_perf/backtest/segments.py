@@ -15,19 +15,33 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from itertools import pairwise
 
+from mountain_perf.backtest.clocks import cumulative_s, trace_totals
 from mountain_perf.backtest.geometry import (
     ReferenceGeometry,
     position_at,
     project_restricted,
     to_local,
 )
-from mountain_perf.backtest.matching import gap_between, raw_position_at
+from mountain_perf.backtest.matching import (
+    MATCHING_PARAMETER_SPECS,
+    gap_between,
+    match_points,
+    raw_position_at,
+)
 from mountain_perf.backtest.series import TraceSeries
 from mountain_perf.gpx.geo import haversine_m
 from mountain_perf.schemas import (
+    CLOCK_CONVENTIONS,
+    AdmittedTotals,
+    ClockPartition,
+    Coverage,
+    IntervalState,
+    MatchResult,
+    ParameterSet,
     RecordedTrace,
     Regime,
     RegimeClass,
+    ResolvedPoint,
     RouteProfile,
     ScorePointObservation,
     ScoreSegmentObservation,
@@ -333,4 +347,227 @@ def observe_segment(
         end_s=end.time_s,
         realized_start_m=start.realized_m,
         realized_end_m=end.realized_m,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Couverture et préfixe comparable (0010 D4.11, D4.2)
+# ---------------------------------------------------------------------------
+
+
+def last_passage(
+    resolved_points: Sequence[ResolvedPoint], start_m: float, end_m: float
+) -> str | None:
+    """Nom du lieu résolu de plus grande abscisse dans ``[start_m ; end_m]``, bornes
+    incluses, le dernier dans l'ordre du tuple à abscisse égale ; ``None`` s'il n'y en
+    a pas — jamais un nom inventé (``0010`` D4.11)."""
+    last: ResolvedPoint | None = None
+    for resolved in resolved_points:
+        inside = start_m <= resolved.distance_m <= end_m
+        if inside and (last is None or resolved.distance_m >= last.distance_m):
+            last = resolved
+    return None if last is None else last.point.name
+
+
+def comparable_prefix(segments: Sequence[ScoreSegmentObservation]) -> int:
+    """``m``, nombre de segments admis consécutifs depuis le segment 0 (``0010``
+    D4.11)."""
+    m = 0
+    while m < len(segments) and segments[m].admitted:
+        m += 1
+    return m
+
+
+def _elapsed_s(
+    segments: Sequence[ScoreSegmentObservation], exclusion: SegmentExclusion | None
+) -> float:
+    """Somme des ``t*_{k+1} − t*_k`` des segments d'un motif (``None`` = admis) ;
+    ceux-ci sont datés par contrat."""
+    return math.fsum(
+        segment.end_s - segment.start_s
+        for segment in segments
+        if segment.exclusion is exclusion
+        and segment.start_s is not None
+        and segment.end_s is not None
+    )
+
+
+def observe_coverage(
+    profile: RouteProfile,
+    points: Sequence[ScorePointObservation],
+    segments: Sequence[ScoreSegmentObservation],
+) -> Coverage:
+    """Couverture publiée d'une sortie (``0010`` D4.11, D4.2).
+
+    Sommes ``math.fsum`` sur les segments : longueurs admises et exclues par motif,
+    ``anchoring_excluded_m = b_0 + (L − b_K)`` ; longueurs de régime sur ``[0 ; L]``
+    et dans les segments admis (``regime_lengths``) ; écoulés admis et exclus connus ;
+    préfixe comparable ``m``, sa fin ``b_m`` et ``t*_m`` (point ``m``), et le dernier
+    passage nommé de ``[b_0 ; b_m]``.
+    """
+    length_m = profile.distance_m[-1]
+
+    def excluded_m(exclusion: SegmentExclusion | None) -> float:
+        return math.fsum(s.length_m for s in segments if s.exclusion is exclusion)
+
+    admitted = [
+        regime_lengths(profile, s.start_m, s.end_m) for s in segments if s.admitted
+    ]
+    ascent_m, flat_m, descent_m = regime_lengths(profile, 0.0, length_m)
+    m = comparable_prefix(segments)
+    first, prefix_end = points[0], points[m]
+    return Coverage(
+        reference_length_m=length_m,
+        admitted_m=excluded_m(None),
+        excluded_unobserved_bound_m=excluded_m(SegmentExclusion.UNOBSERVED_BOUND),
+        excluded_gap_m=excluded_m(SegmentExclusion.GAP),
+        excluded_length_ratio_m=excluded_m(SegmentExclusion.LENGTH_RATIO),
+        excluded_interior_deviation_m=excluded_m(SegmentExclusion.INTERIOR_DEVIATION),
+        anchoring_excluded_m=first.effective_m + (length_m - points[-1].effective_m),
+        ascent_length_m=ascent_m,
+        flat_length_m=flat_m,
+        descent_length_m=descent_m,
+        admitted_ascent_m=math.fsum(lengths[0] for lengths in admitted),
+        admitted_flat_m=math.fsum(lengths[1] for lengths in admitted),
+        admitted_descent_m=math.fsum(lengths[2] for lengths in admitted),
+        admitted_elapsed_s=_elapsed_s(segments, None),
+        excluded_gap_s=_elapsed_s(segments, SegmentExclusion.GAP),
+        excluded_length_ratio_s=_elapsed_s(segments, SegmentExclusion.LENGTH_RATIO),
+        excluded_interior_deviation_s=_elapsed_s(
+            segments, SegmentExclusion.INTERIOR_DEVIATION
+        ),
+        prefix_segment_count=m,
+        prefix_end_m=prefix_end.effective_m,
+        prefix_end_s=prefix_end.time_s,
+        prefix_last_passage=last_passage(
+            profile.resolved_points, first.effective_m, prefix_end.effective_m
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Totaux du support admis et extrêmes (0010 D5.4)
+# ---------------------------------------------------------------------------
+
+_STATES = (IntervalState.MOVING, IntervalState.STOPPED, IntervalState.UNDETERMINED)
+
+
+def admitted_totals(
+    partition: ClockPartition, segments: Sequence[ScoreSegmentObservation]
+) -> tuple[AdmittedTotals, ...]:
+    """Les cinq totaux du support admis, dans l'ordre de ``CLOCK_CONVENTIONS``
+    (``0010`` D5.4).
+
+    Pour un segment admis et une convention, ses temps ``M``, ``S``, ``U`` sont les
+    différences ``cumulative_s(…, t*_{k+1}) − cumulative_s(…, t*_k)`` (additivité de
+    D5.3) ; les totaux en sont les sommes (``math.fsum``), et ``E_A`` la somme des
+    ``t*_{k+1} − t*_k``. Cinq totaux nuls sans segment admis.
+    """
+    spans = [
+        (segment.start_s, segment.end_s)
+        for segment in segments
+        if segment.admitted
+        and segment.start_s is not None
+        and segment.end_s is not None
+    ]
+    elapsed_s = _elapsed_s(segments, None)
+    totals: list[AdmittedTotals] = []
+    for k in range(len(CLOCK_CONVENTIONS)):
+        moving_s, stopped_s, undetermined_s = (
+            math.fsum(
+                cumulative_s(partition, k, {state}, end_s)
+                - cumulative_s(partition, k, {state}, start_s)
+                for start_s, end_s in spans
+            )
+            for state in _STATES
+        )
+        totals.append(AdmittedTotals(elapsed_s, moving_s, stopped_s, undetermined_s))
+    return tuple(totals)
+
+
+def convention_extremes(totals: Sequence[AdmittedTotals]) -> tuple[int, int]:
+    """``(θ_bas, θ_haut)`` (``0010`` D5.4) : **premier** indice du minimum de
+    ``moving_s``, **premier** indice du maximum de ``moving_s + undetermined_s``.
+    Jamais d'extrême segment par segment."""
+    indices = range(len(totals))
+    low = min(indices, key=lambda k: totals[k].moving_s)
+    high = max(indices, key=lambda k: totals[k].moving_s + totals[k].undetermined_s)
+    return low, high
+
+
+def sensitivity_range_s(totals: Sequence[AdmittedTotals]) -> tuple[float, float]:
+    """``I_sens,A = (min_θ M_{θ,A} ; E_A − min_θ S_{θ,A})`` (``0010`` D5.4) : l'écoulé
+    du **support**, jamais celui de la trace."""
+    elapsed_s = totals[0].elapsed_s
+    return (
+        min(t.moving_s for t in totals),
+        elapsed_s - min(t.stopped_s for t in totals),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Fonction d'ensemble
+# ---------------------------------------------------------------------------
+
+
+def match_trace(
+    geometry: ReferenceGeometry,
+    profile: RouteProfile,
+    trace: RecordedTrace,
+    series: TraceSeries,
+    partition: ClockPartition,
+    parameters: ParameterSet,
+) -> MatchResult:
+    """Tout ce que l'appariement observe d'une sortie (``0010`` D4, D5.4, D6).
+
+    ``match_points`` ; un ``observe_segment`` par couple de points consécutifs ;
+    couverture et préfixe ; totaux de la trace et du support admis ; ``θ_bas``,
+    ``θ_haut`` et ``I_sens,A`` s'il y a au moins un segment admis ;
+    ``departure_delay_s = t*_0``.
+
+    Préconditions (``ValueError``) : ``series`` et ``partition`` construits sur
+    ``trace`` (mêmes nombres d'enregistrements) ; ``parameters`` déclaré par
+    ``MATCHING_PARAMETER_SPECS`` ; ``profile`` et ``geometry`` issus de la même
+    ``Route`` (``profile.distance_m[-1] == geometry.length_m`` bit pour bit).
+    """
+    records = len(trace.time_s)
+    if len(series.realized_distance_m) != records or len(partition.time_s) != records:
+        raise ValueError(
+            "match_trace : séries, partition et trace de longueurs différentes "
+            f"({len(series.realized_distance_m)}, {len(partition.time_s)}, "
+            f"{records})."
+        )
+    if parameters.specs != MATCHING_PARAMETER_SPECS:
+        raise ValueError(
+            "match_trace : paramètres non déclarés par MATCHING_PARAMETER_SPECS."
+        )
+    if profile.distance_m[-1] != geometry.length_m:
+        raise ValueError(
+            "match_trace : profil et géométrie de tracés différents "
+            f"({profile.distance_m[-1]} ≠ {geometry.length_m})."
+        )
+    points = match_points(geometry, trace, series, parameters)
+    tolerance_m = parameters["lateral_tolerance_m"]
+    segments = tuple(
+        observe_segment(geometry, profile, trace, series, a, b, tolerance_m)
+        for a, b in pairwise(points)
+    )
+    totals = admitted_totals(partition, segments)
+    low: int | None = None
+    high: int | None = None
+    interval: tuple[float, float] | None = None
+    if any(segment.admitted for segment in segments):
+        low, high = convention_extremes(totals)
+        interval = sensitivity_range_s(totals)
+    return MatchResult(
+        parameters=parameters,
+        points=points,
+        segments=segments,
+        coverage=observe_coverage(profile, points, segments),
+        departure_delay_s=points[0].time_s,
+        trace_totals=trace_totals(partition),
+        admitted_totals=totals,
+        low_convention_index=low,
+        high_convention_index=high,
+        admitted_sensitivity_range_s=interval,
     )

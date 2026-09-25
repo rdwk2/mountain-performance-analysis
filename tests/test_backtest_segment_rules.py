@@ -2,7 +2,8 @@
 
 Une assertion par cellule du tableau des fonctions pures : les égalités de seuil se
 testent ici, sur des valeurs exactement représentables, jamais à travers une trace
-(§ 7.0 de M4a-2a).
+(§ 7.0 de M4a-2a). Puis fractions et pureté, T06, et les totaux admis écrits à la
+main (T10, T11, X07).
 """
 
 import pytest
@@ -13,17 +14,28 @@ from mountain_perf.backtest import (
     FineOverlap,
     TraceSeries,
     build_series,
+    convention_extremes,
     fine_overlaps,
     gap_between,
     grade_regime,
     interior_ok,
     is_pure,
+    last_passage,
     length_ratio_ok,
     regime_class,
     regime_lengths,
+    sensitivity_range_s,
 )
 from mountain_perf.gpx import PROFILE_PARAMETER_SPECS, build_profile
-from mountain_perf.schemas import ParameterSet, Regime, RegimeClass, RouteProfile
+from mountain_perf.schemas import (
+    AdmittedTotals,
+    NamedPoint,
+    ParameterSet,
+    Regime,
+    RegimeClass,
+    ResolvedPoint,
+    RouteProfile,
+)
 
 
 def _gap_series() -> TraceSeries:
@@ -213,3 +225,90 @@ def test_fine_overlaps_from_a_grid_point_to_the_end() -> None:
     profile = hand_profile(STEPS, CLIMB)
     assert fine_overlaps(profile, 200.0, 250.0) == (FineOverlap(50.0, 0.0),)
     assert fine_overlaps(profile, 0.0, 50.0) == (FineOverlap(50.0, 0.1),)
+
+
+# ---------------------------------------------------------------------------
+# Dernier passage du préfixe (§ 5b.6 ; 0010 D4.11)
+# ---------------------------------------------------------------------------
+
+
+def _resolved(name: str, distance_m: float) -> ResolvedPoint:
+    return ResolvedPoint(
+        point=NamedPoint(name, 45.0, 6.0, elevation_m=None),
+        distance_m=distance_m,
+        elevation_m=0.0,
+        offset_m=0.0,
+    )
+
+
+PLACES = (
+    _resolved("A", 5.0),
+    _resolved("B", 300.0),
+    _resolved("C", 480.0),
+    _resolved("C2", 480.0),
+    _resolved("E", 500.0),
+)
+"""Lieux résolus d'abscisses 5, 300, 480, 480 (C2 après C dans le tuple) et 500."""
+
+
+@pytest.mark.parametrize(
+    ("start_m", "end_m", "name"),
+    [
+        (12.0, 500.0, "E"),
+        (12.0, 499.99999999999994, "C2"),
+        (5.0, 5.0, "A"),
+        (0.0, 12.0, "A"),
+    ],
+)
+def test_last_passage_bounds_included_last_of_the_tuple(
+    start_m: float, end_m: float, name: str
+) -> None:
+    assert last_passage(PLACES, start_m, end_m) == name
+
+
+@pytest.mark.parametrize(
+    ("start_m", "end_m"), [(12.0, 12.0), (500.00000000000006, 600.0)]
+)
+def test_last_passage_never_invents_a_name(start_m: float, end_m: float) -> None:
+    assert last_passage(PLACES, start_m, end_m) is None
+
+
+# ---------------------------------------------------------------------------
+# Totaux admis et extrêmes (§ 5b.7 ; 0010 D5.4) — écrits à la main
+# ---------------------------------------------------------------------------
+
+
+def _totals(
+    elapsed_s: float, *msu: tuple[float, float, float]
+) -> tuple[AdmittedTotals, ...]:
+    return tuple(AdmittedTotals(elapsed_s, m, s, u) for m, s, u in msu)
+
+
+def test_t10_extremes_are_taken_on_the_totals() -> None:
+    """T10 : sommes de deux segments de 200 s ; ``θ_bas`` = 2 (premier des trois à
+    200), ``θ_haut`` = 0, ``I_sens,A = [200 ; 320]`` — un extrême pris segment par
+    segment donnerait 400."""
+    totals = _totals(
+        400.0, (320, 80, 0), (280, 120, 0), (200, 200, 0), (200, 200, 0), (200, 200, 0)
+    )
+    assert convention_extremes(totals) == (2, 0)
+    assert sensitivity_range_s(totals) == (200.0, 320.0)
+
+
+def test_t11_high_convention_is_the_maximum_of_moving_or_undetermined() -> None:
+    """T11 : ``θ_bas`` = 1, ``θ_haut`` = 1, ``I_sens,A = [280 ; 400]`` ; le maximum
+    de ``M`` seul serait l'indice 0, le minimum de ``M + U`` aussi."""
+    totals = _totals(
+        400.0, (300, 100, 0), (280, 0, 120), (290, 50, 60), (290, 50, 60), (290, 50, 60)
+    )
+    assert convention_extremes(totals) == (1, 1)
+    assert sensitivity_range_s(totals) == (280.0, 400.0)
+
+
+def test_x07_interval_uses_the_elapsed_time_of_the_support() -> None:
+    """X07 : cinq fois ``(400, 100, 100)``, ``E_A = 600``, pour une trace de 1 000 s :
+    ``[400 ; 500]``, et non 900 — jamais le ``E`` de la trace avec le ``S`` du
+    support."""
+    totals = _totals(600.0, *((400, 100, 100),) * 5)
+    assert sensitivity_range_s(totals) == (400.0, 500.0)
+    assert convention_extremes(totals) == (0, 0)

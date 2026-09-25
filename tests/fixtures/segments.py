@@ -26,9 +26,15 @@ from fixtures.matching import (
     reference_route,
 )
 from fixtures.traces import local_deg
-from mountain_perf.backtest import build_series, observe_segment
+from mountain_perf.backtest import (
+    build_series,
+    clock_partition,
+    match_trace,
+    observe_segment,
+)
 from mountain_perf.gpx import PROFILE_PARAMETER_SPECS, build_profile
 from mountain_perf.schemas import (
+    MatchResult,
     NamedPoint,
     ParameterSet,
     Route,
@@ -88,6 +94,20 @@ def observed(
         for a, b in pairwise(points)
     )
     return points, segments
+
+
+def matched(case: MatchCase) -> MatchResult:
+    """``match_trace`` sur un cas : profil aux défauts de ``0008``, séries et
+    partition construites sur sa trace."""
+    series = build_series(case.trace)
+    return match_trace(
+        case.geometry,
+        reference_profile(case),
+        case.trace,
+        series,
+        clock_partition(case.trace, series),
+        case.parameters,
+    )
 
 
 # ---------------------------------------------------------------------------
