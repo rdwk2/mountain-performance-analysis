@@ -12,6 +12,10 @@ haversine la distance euclidienne à mieux que ``1e−6`` m sur ces étendues.
 
 Utilisées par ``tests/test_gpx_trace_reader.py``, ``tests/test_backtest_series.py``
 et ``tests/test_backtest_clocks.py``.
+
+L'appariement (M4a-2a, § 7.0 de son brief) décrit ses fixtures dans un plan à
+**45° N**, par :func:`local_deg` : à l'équateur, ``cos φ = 1`` rendrait invisible le
+facteur de longitude du plan local.
 """
 
 import math
@@ -45,6 +49,23 @@ def parallel_deg(
     """
     scale_m = EARTH_RADIUS_M * math.cos(math.radians(latitude_deg))
     return latitude_deg, longitude0_deg + math.degrees(x_m / scale_m)
+
+
+def local_deg(
+    x_m: float, y_m: float, *, base_latitude_deg: float = 45.0
+) -> tuple[float, float]:
+    """``(latitude, longitude)`` d'un point ``(x, y)`` du plan de base
+    ``(base_latitude_deg, 6° E)`` — l'aide unique des fixtures d'appariement.
+
+    ``lat = base + degrees(y / R)``, ``lon = 6 + degrees(x / (R·cos base))``, avec une
+    échelle de longitude **fixe**. Sur ``y = 0``, rend exactement
+    :func:`parallel_deg` ; deux positions de même ``(x, y)`` ont les mêmes flottants.
+    """
+    scale_m = EARTH_RADIUS_M * math.cos(math.radians(base_latitude_deg))
+    return (
+        base_latitude_deg + math.degrees(y_m / EARTH_RADIUS_M),
+        6.0 + math.degrees(x_m / scale_m),
+    )
 
 
 def equatorial_x_m(longitude_deg: float) -> float:

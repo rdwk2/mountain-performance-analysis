@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="synthetic-tests" xmlns="http://www.topografix.com/GPX/1/1">
+  <trk><name>Trace synthétique</name>
+    <trkseg>
+      <trkpt lat="45.000071945629095" lon="6.000317957763825"><ele>1000.0</ele><time>2026-06-01T08:00:00Z</time></trkpt>
+      <trkpt lat="45.000068011102506" lon="6.000508732422119"><ele>1000.0</ele><time>2026-06-01T08:00:10Z</time></trkpt>
+      <trkpt lat="45.00006407657592" lon="6.000699507080413"><ele>1000.0</ele><time>2026-06-01T08:00:20Z</time></trkpt>
+      <trkpt lat="45.00006014204932" lon="6.000890281738708"><ele>1000.0</ele><time>2026-06-01T08:00:30Z</time></trkpt>
+      <trkpt lat="45.00005620752273" lon="6.001081056397003"><ele>1000.0</ele><time>2026-06-01T08:00:40Z</time></trkpt>
+      <trkpt lat="45.00005227299614" lon="6.0012718310552975"><ele>1000.0</ele><time>2026-06-01T08:00:50Z</time></trkpt>
+      <trkpt lat="45.00004833846955" lon="6.001462605713592"><ele>1000.0</ele><time>2026-06-01T08:01:00Z</time></trkpt>
+      <trkpt lat="45.00004440394296" lon="6.001653380371887"><ele>1000.0</ele><time>2026-06-01T08:01:10Z</time></trkpt>
+      <trkpt lat="45.00004046941637" lon="6.001844155030182"><ele>1000.0</ele><time>2026-06-01T08:01:20Z</time></trkpt>
+      <trkpt lat="45.00003653488977" lon="6.0020349296884765"><ele>1000.0</ele><time>2026-06-01T08:01:30Z</time></trkpt>
+      <trkpt lat="45.000032600363184" lon="6.00222570434677"><ele>1000.0</ele><time>2026-06-01T08:01:40Z</time></trkpt>
+      <trkpt lat="45.000028665836595" lon="6.002416479005065"><ele>1000.0</ele><time>2026-06-01T08:01:50Z</time></trkpt>
+      <trkpt lat="45.00002473131" lon="6.00260725366336"><ele>1000.0</ele><time>2026-06-01T08:02:00Z</time></trkpt>
+      <trkpt lat="45.00002079678341" lon="6.002798028321655"><ele>1000.0</ele><time>2026-06-01T08:02:10Z</time></trkpt>
+      <trkpt lat="45.00001686225682" lon="6.002988802979949"><ele>1000.0</ele><time>2026-06-01T08:02:20Z</time></trkpt>
+      <trkpt lat="45.00001292773023" lon="6.003179577638244"><ele>1000.0</ele><time>2026-06-01T08:02:30Z</time></trkpt>
+      <trkpt lat="45.000008993203636" lon="6.003370352296539"><ele>1000.0</ele><time>2026-06-01T08:02:40Z</time></trkpt>
+      <trkpt lat="45.00000505867705" lon="6.003561126954833"><ele>1000.0</ele><time>2026-06-01T08:02:50Z</time></trkpt>
+      <trkpt lat="45.00000112415046" lon="6.0037519016131276"><ele>1000.0</ele><time>2026-06-01T08:03:00Z</time></trkpt>
+      <trkpt lat="44.99999718962386" lon="6.003942676271422"><ele>1000.0</ele><time>2026-06-01T08:03:10Z</time></trkpt>
+      <trkpt lat="44.99999325509727" lon="6.004133450929717"><ele>1000.0</ele><time>2026-06-01T08:03:20Z</time></trkpt>
+      <trkpt lat="44.999989320570684" lon="6.004324225588012"><ele>1000.0</ele><time>2026-06-01T08:03:30Z</time></trkpt>
+      <trkpt lat="44.99998538604409" lon="6.004515000246307"><ele>1000.0</ele><time>2026-06-01T08:03:40Z</time></trkpt>
+      <trkpt lat="44.9999814515175" lon="6.004705774904601"><ele>1000.0</ele><time>2026-06-01T08:03:50Z</time></trkpt>
+      <trkpt lat="44.99997751699091" lon="6.004896549562895"><ele>1000.0</ele><time>2026-06-01T08:04:00Z</time></trkpt>
+      <trkpt lat="44.999973582464314" lon="6.00508732422119"><ele>1000.0</ele><time>2026-06-01T08:04:10Z</time></trkpt>
+      <trkpt lat="44.999969647937725" lon="6.005278098879485"><ele>1000.0</ele><time>2026-06-01T08:04:20Z</time></trkpt>
+      <trkpt lat="44.999965713411136" lon="6.0054688735377795"><ele>1000.0</ele><time>2026-06-01T08:04:30Z</time></trkpt>
+      <trkpt lat="44.99996177888454" lon="6.005659648196074"><ele>1000.0</ele><time>2026-06-01T08:04:40Z</time></trkpt>
+      <trkpt lat="44.99995784435795" lon="6.005850422854369"><ele>1000.0</ele><time>2026-06-01T08:04:50Z</time></trkpt>
+      <trkpt lat="44.99995390983136" lon="6.006041197512664"><ele>1000.0</ele><time>2026-06-01T08:05:00Z</time></trkpt>
+      <trkpt lat="44.999949975304766" lon="6.006231972170958"><ele>1000.0</ele><time>2026-06-01T08:05:10Z</time></trkpt>
+      <trkpt lat="44.99994604077818" lon="6.006422746829252"><ele>1000.0</ele><time>2026-06-01T08:05:20Z</time></trkpt>
+    </trkseg>
+  </trk>
+</gpx>

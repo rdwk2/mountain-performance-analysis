@@ -18,8 +18,18 @@ from datetime import datetime, timedelta, timezone
 from itertools import accumulate
 from typing import Literal
 
+from hypothesis import assume
 from hypothesis import strategies as st
 
+from fixtures.matching import (
+    MAX_STRAIGHT_RECORDS,
+    MatchCase,
+    Phase,
+    StraightCase,
+    matching_parameters,
+    straight_case,
+    wandering_case,
+)
 from mountain_perf.gpx import PROFILE_PARAMETER_SPECS
 from mountain_perf.gpx.geo import EARTH_RADIUS_M
 from mountain_perf.schemas import (
@@ -46,6 +56,7 @@ from mountain_perf.schemas import (
     Passage,
     Performance,
     PointKind,
+    PointStatus,
     Projection,
     QualityFlag,
     RecordedTrace,
@@ -55,6 +66,7 @@ from mountain_perf.schemas import (
     Route,
     RouteProfile,
     RouteReference,
+    ScorePointObservation,
     SourceRef,
     Sport,
     TimingConvention,
@@ -922,3 +934,133 @@ def clock_partitions(draw: st.DrawFn, max_intervals: int = 40) -> ClockPartition
         for _ in CLOCK_CONVENTIONS
     )
     return ClockPartition(time_s=tuple(accumulate(steps, initial=0.0)), states=states)
+
+
+# ---------------------------------------------------------------------------
+# Points de score (M4a-2a)
+# ---------------------------------------------------------------------------
+
+
+@st.composite
+def score_point_observations(
+    draw: st.DrawFn, status: PointStatus | None = None
+) -> ScorePointObservation:
+    """Observations valides : champs datés si et seulement si le statut date, comptes
+    cohérents avec le statut, borne effective distincte seulement pour un ancrage."""
+    status = status if status is not None else draw(st.sampled_from(PointStatus))
+    nominal_m = draw(finite_floats(0.0, 1e5))
+    effective_m = nominal_m
+    if status is PointStatus.ANCHORED and draw(st.booleans()):
+        effective_m = draw(finite_floats(0.0, 1e5))
+    position = time_s = lateral_m = realized_m = None
+    if status in (PointStatus.FOUND, PointStatus.ANCHORED):
+        position = (
+            float(draw(st.integers(0, 100_000)))
+            if status is PointStatus.ANCHORED
+            else draw(finite_floats(0.0, 1e5))
+        )
+        time_s = draw(finite_floats(0.0, 1e6))
+        lateral_m = draw(finite_floats(-1e3, 1e3))
+        realized_m = draw(finite_floats(0.0, 1e6))
+    candidates, events = 0, 0
+    if status is PointStatus.FOUND:
+        candidates, events = draw(st.integers(1, 20)), 1
+    elif status is PointStatus.AMBIGUOUS and draw(st.booleans()):
+        events = draw(st.integers(2, 20))
+        candidates = draw(st.integers(events, 40))
+    return ScorePointObservation(
+        index=draw(st.integers(0, 1000)),
+        nominal_m=nominal_m,
+        effective_m=effective_m,
+        status=status,
+        position=position,
+        time_s=time_s,
+        lateral_m=lateral_m,
+        realized_m=realized_m,
+        candidate_count=candidates,
+        event_count=events,
+    )
+
+
+@st.composite
+def straight_cases(draw: st.DrawFn) -> StraightCase:
+    """§ 8, test 5 du brief M4a-2a : référence droite sur le parallèle de base, de 260
+    à 3 000 m, non multiple de ``Δ`` (reste ``>= 1`` m) ; trace partant de
+    ``x_0 ∈ [−20 ; −1]``, ``x`` strictement croissant, 0,3 à 3 m/s, pas de temps
+    multiples de ``1/64`` s de ``1/64`` à ``10`` s inclus, ``|y| <= 10`` m et
+    ``|Δy| <= Δx`` ; motifs cyclés, plafonnés à ``MAX_STRAIGHT_RECORDS``."""
+    length_m = float(draw(st.integers(260, 3000).filter(lambda n: n % 250 >= 1)))
+    steps = draw(
+        st.lists(
+            st.tuples(finite_floats(0.3, 3.0), st.integers(1, 640)),
+            min_size=1,
+            max_size=8,
+        )
+    )
+    mean_step_m = sum(v * m / 64 for v, m in steps) / len(steps)
+    assume((length_m + 20) / mean_step_m < MAX_STRAIGHT_RECORDS)
+    return straight_case(
+        length_m,
+        draw(finite_floats(-20.0, -1.0)),
+        draw(finite_floats(-10.0, 10.0)),
+        steps,
+        draw(st.lists(finite_floats(-1.0, 1.0), min_size=1, max_size=8)),
+    )
+
+
+@st.composite
+def wandering_cases(draw: st.DrawFn) -> MatchCase:
+    """§ 8, test 5 du brief M4a-2a : référence en ligne brisée (1 à 5 branches de 60
+    à 400 m, virages jusqu'à 120°) à 45° N, et trace qui erre autour : écarts
+    jusqu'à 80 m, retours en arrière, arrêts, trous de 10,001 à 120 s. Début et fin
+    tirés de part et d'autre des lignes de départ et d'arrivée (``±40`` m le long du
+    tracé, ``±35`` m de côté) : ancrages, franchissements et absences possibles.
+    ``Δ ∈ {100, 250}``, ``ε ∈ {15, 30, 45}``."""
+    heading = draw(finite_floats(0.0, 2 * math.pi))
+    vertices = [(0.0, 0.0)]
+    total_m = 0.0
+    for _ in range(draw(st.integers(1, 5))):
+        length_m = draw(st.integers(60, 400))
+        x_m, y_m = vertices[-1]
+        vertices.append(
+            (x_m + length_m * math.cos(heading), y_m + length_m * math.sin(heading))
+        )
+        total_m += length_m
+        heading += math.radians(draw(st.integers(-120, 120)))
+    phases: list[Phase] = []
+    for _ in range(draw(st.integers(0, 5))):
+        kind = draw(st.sampled_from(["follow", "back", "detour", "stop", "gap"]))
+        speed_ms = draw(finite_floats(0.5, 3.0))
+        step_s = draw(st.sampled_from([1.0, 2.0, 3.0, 5.0]))
+        if kind == "follow":
+            delta_m, offset_m = draw(st.integers(20, 300)), draw(finite_floats(-60, 60))
+            phases.append(("move", delta_m, offset_m, speed_ms, step_s))
+        elif kind == "back":
+            delta_m, offset_m = (
+                -draw(st.integers(10, 100)),
+                draw(finite_floats(-60, 60)),
+            )
+            phases.append(("move", delta_m, offset_m, speed_ms, step_s))
+        elif kind == "detour":
+            delta_m, offset_m = draw(st.integers(0, 50)), draw(finite_floats(-80, 80))
+            phases.append(("move", delta_m, offset_m, speed_ms, step_s))
+        elif kind == "stop":
+            phases.append(("stop", draw(st.integers(2, 30)), 0.0, 0.0, 0.0))
+        else:
+            gap_s = draw(finite_floats(10.001, 120.0))
+            phases.append(("gap", draw(st.integers(-30, 60)), gap_s, 0.0, 0.0))
+    phases.append(
+        (
+            "to",
+            total_m + draw(st.integers(-40, 40)),
+            draw(finite_floats(-35.0, 35.0)),
+            draw(finite_floats(0.5, 3.0)),
+            draw(st.sampled_from([1.0, 2.0, 3.0, 5.0])),
+        )
+    )
+    parameters = matching_parameters(
+        score_step_m=draw(st.sampled_from([100.0, 250.0])),
+        lateral_tolerance_m=draw(st.sampled_from([15.0, 30.0, 45.0])),
+    )
+    start = (float(draw(st.integers(-40, 40))), draw(finite_floats(-35.0, 35.0)))
+    return wandering_case(vertices, start, phases, parameters)

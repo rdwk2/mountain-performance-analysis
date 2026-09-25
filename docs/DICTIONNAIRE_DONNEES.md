@@ -44,6 +44,8 @@
 - `ClockPartition`
 - `ClockTotals`
 - `StopEpisode`
+- `PointStatus`
+- `ScorePointObservation`
 
 ---
 
@@ -2009,3 +2011,122 @@ L'association arrêt → passage (M4a-3) ; le rapport (M4b).
 
 - l'épisode n'est pas un arrêt physique prouvé ;
 - les bornes ne sont pas recoupées avec une partition.
+
+---
+
+## `PointStatus`
+
+*`mountain_perf.schemas.matching` · énumération*
+
+| Membre | Valeur | Description |
+|---|---|---|
+| `FOUND` | `found` | Trouvé : un seul événement de candidats admissibles (D4.5 à D4.7). |
+| `ANCHORED` | `anchored` | Ancré : extrémité sans candidat admissible, datée par le premier ou le dernier enregistrement (D4.8). |
+| `AMBIGUOUS` | `ambiguous` | Ambigu : deux événements ou plus (D4.7), ou projection d'ancrage à égalité (D4.8) ; jamais départagé. |
+| `ABSENT` | `absent` | Absent : aucun franchissement orienté dans la fenêtre, et pas d'ancrage — pour une extrémité, quel que soit l'échec de l'ancrage (D4.8). |
+| `OUT_OF_TOLERANCE` | `out_of_tolerance` | Hors ε : au moins un franchissement orienté dans la fenêtre, aucun admissible, et pas d'ancrage — pour une extrémité aussi (D4.7, précision, appliquée à D4.8). |
+| `UNDEFINED_TANGENT` | `undefined_tangent` | Tangente indéfinie : corde de moins de 1e−6 m (D4.3). |
+
+Statut de l'observation d'un point de score (`0010` D4.3 à D4.8).
+
+#### Champs
+
+Valeurs décrites dans `POINT_STATUS_DESCRIPTIONS`.
+
+#### Invariants
+
+Énumération fermée : un point de score reçoit un seul statut par sortie.
+
+#### Producteur
+
+`match_points` (`mountain_perf.backtest.matching`).
+
+#### Consommateurs
+
+`ScorePointObservation` ; `mperf match` ; les segments, la couverture et le
+préfixe (M4a-2b).
+
+#### Non promis
+
+Seuls `FOUND` et `ANCHORED` datent un point. Les autres statuts sont des
+indisponibilités motivées (`0010` D0) : ni un échec sportif, ni une erreur du
+modèle. `AMBIGUOUS` n'est jamais départagé.
+
+---
+
+## `ScorePointObservation`
+
+*`mountain_perf.schemas.matching` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `index` | `int` | — |
+| `nominal_m` | `float` | — |
+| `effective_m` | `float` | — |
+| `status` | `PointStatus` | — |
+| `position` | `float \| None` | — |
+| `time_s` | `float \| None` | — |
+| `lateral_m` | `float \| None` | — |
+| `realized_m` | `float \| None` | — |
+| `candidate_count` | `int` | — |
+| `event_count` | `int` | — |
+
+| Propriété calculée | Type | Sens |
+|---|---|---|
+| `dated` | `bool` | Le point est daté : statut `FOUND` ou `ANCHORED`. |
+| `anchoring_offset_m` | `float` | `effective_m − nominal_m` (mètres) : nul hors ancrage. |
+
+Observation d'un point `k` de la grille de score par une trace réalisée.
+
+#### Champs
+
+- `index` — sans unité — `k`, rang dans la grille de score.
+- `nominal_m` — mètres — `s_k`, abscisse du point sur la référence.
+- `effective_m` — mètres — borne effective `b_k` (`0010` D4.2) : `s'_0`
+  ou `s'_K` si l'extrémité est ancrée, sinon `s_k`.
+- `status` — sans unité — statut de l'observation.
+- `position` — sans unité — `π = i + f`, position fractionnaire dans la trace.
+- `time_s` — secondes — `t*`, depuis le premier enregistrement de la trace.
+- `lateral_m` — mètres — écart latéral signé `(P − Q)·n` du candidat qui
+  date l'événement, ou de l'enregistrement ancré ; positif à gauche du sens de
+  parcours de la référence.
+- `realized_m` — mètres — `d_r(π)`, abscisse réalisée.
+- `candidate_count` — sans unité — candidats admissibles de la fenêtre, après
+  confusion des candidats de même `π`.
+- `event_count` — sans unité — événements formés par ces candidats.
+
+Propriétés calculées (jamais stockées) : `dated` et `anchoring_offset_m`.
+
+#### Invariants
+
+- `index >= 0` ; `nominal_m` et `effective_m` finis et `>= 0` ;
+- `effective_m != nominal_m` ⇒ `status == ANCHORED` ;
+- `position`, `time_s`, `lateral_m`, `realized_m` présents **si et
+  seulement si** le point est daté ; présents, ils sont finis, et `position`,
+  `time_s`, `realized_m` sont `>= 0` ;
+- `ANCHORED` ⇒ `position` entière : l'ancrage date par un enregistrement ;
+- `candidate_count >= 0`, `event_count >= 0`,
+  `event_count <= candidate_count` ;
+- `FOUND` ⇒ `event_count == 1` ;
+- `ANCHORED`, `ABSENT`, `OUT_OF_TOLERANCE`, `UNDEFINED_TANGENT` ⇒
+  `candidate_count == 0` ;
+- `AMBIGUOUS` ⇒ `event_count >= 2` ou `candidate_count == 0` (au moins
+  deux événements, ou aucun candidat et une projection d'ancrage à égalité).
+
+#### Producteur
+
+`match_points` (`mountain_perf.backtest.matching`).
+
+#### Consommateurs
+
+`mperf match` ; les segments, la couverture et le préfixe (M4a-2b) ; les
+passages nommés (M4a-3).
+
+#### Non promis
+
+- la cohérence **entre** points (indices consécutifs, positions et instants
+  croissants, bornes effectives croissantes) n'est pas vérifiée ici : c'est une
+  propriété de `match_points` et un invariant du futur `MatchResult`
+  (M4a-2b) ;
+- un point ne connaît ni `K` ni `L` ;
+- `lateral_m` n'est pas comparé à `ε`, que le contrat ignore.

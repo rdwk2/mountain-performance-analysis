@@ -16,6 +16,30 @@ Backtest (à partir de M4) : métrique avant → après.
 
 ---
 
+### 2026-09-24 · M4a-2a — Backtest : appariement, points de score
+Deuxième des quatre PR du lot M4a (brief M4a-2a rév. 2, `0010` D4.1 à D4.9 ; note
+datée du découpage ajoutée à la fin de D16). Contrats `PointStatus` et
+`ScorePointObservation` (deux types de plus au dictionnaire) ; géométrie de référence
+(polyligne dédoublonnée de `0008`, position exacte aux sommets, plan local ancré,
+repère, tangente indéfinie, projection restreinte et égalité de l'ancrage) ;
+paramètres `Δ`, `ε`, `r_c`, grille de score et onze prédicats de seuil nommés ;
+positions fractionnaires, franchissements, regroupement en événements, extrémités et
+`match_points` ; `mperf match` (sections 1 à 4) avec une paire de GPX commitée.
+Écart décidé à la relecture du plan : `anchor_projection` et `ANCHOR_TIE_M` vivent
+dans `backtest/geometry.py`, pour éviter un import circulaire.
+Les 33 lignes du § 7.2a reproduites à `1e−6` dès le premier essai, sans tolérance
+élargie ; trois fixtures de session (S01 à S03) pour les règles qu'aucune ligne ne
+distinguait. 35 contre-épreuves par mutation (une au moins par règle des §§ 5a.6 et
+5a.7), toutes rougies, arbre restauré et vérifié par empreinte ; trois mutations
+équivalentes (début du balayage, arrêt de la fenêtre, `j > π_cur` à l'arrivée),
+consignées. `match_points` : 7,5 ms sur Fenêtre (1 141 enregistrements), 29 ms sur
+5 570 ; `mperf match` 0,9 s, démarrage compris. Deux lignes du § 9 au backlog, plus
+deux constats (sortie cp1252 de `mperf` redirigée, `ℓ` refusé par le lint).
+Conclusion : `just check` vert avant chacun des six commits, 1 193 tests à la fin.
+Contrôle sur les douze paires réelles à faire par rdw avant la fusion (§ 11).
+Rangé dans `src/mountain_perf/{schemas,backtest}/matching.py`,
+`backtest/geometry.py`, `cli.py`, `tests/`, branche `m4a/appariement-points`.
+
 ### 2026-09-24 · M4a-1 — Backtest : données et horloges
 Première des trois PR du lot M4a (brief M4a-1 rév. 2, `0010`). `0010` commité octet
 pour octet (SHA-256 `e020c47a…ffbe2e` vérifié avant la copie et sur le commit) ;

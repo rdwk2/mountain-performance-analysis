@@ -20,11 +20,24 @@ from mountain_perf.backtest.clocks import (
     trace_totals,
     window_measures,
 )
+from mountain_perf.backtest.geometry import (
+    ReferenceGeometry,
+    reference_geometry,
+    trace_route,
+)
 from mountain_perf.backtest.manifest import (
     ManifestError,
     ManifestReadResult,
     RefusedEntry,
     load_manifest,
+)
+from mountain_perf.backtest.matching import (
+    MATCHING_PARAMETER_SPECS,
+    match_points,
+    raw_position_at,
+    realized_at,
+    score_grid,
+    time_at,
 )
 from mountain_perf.backtest.outings import (
     DOMAIN_MIN_DPLUS_PER_KM,
@@ -45,6 +58,7 @@ from mountain_perf.backtest.series import (
 __all__ = [
     "CLOCK_HALF_WINDOW_S",
     "DOMAIN_MIN_DPLUS_PER_KM",
+    "MATCHING_PARAMETER_SPECS",
     "MAX_STEP_S",
     "ORIGIN_LAG",
     "PARIS",
@@ -53,6 +67,7 @@ __all__ = [
     "ManifestError",
     "ManifestReadResult",
     "Qualification",
+    "ReferenceGeometry",
     "RefusedEntry",
     "TraceSeries",
     "WindowMeasures",
@@ -68,10 +83,17 @@ __all__ = [
     "group_performances",
     "in_domain",
     "load_manifest",
+    "match_points",
     "origin",
     "qualify",
+    "raw_position_at",
+    "realized_at",
+    "reference_geometry",
     "retain_outings",
+    "score_grid",
     "stop_episodes",
+    "time_at",
+    "trace_route",
     "trace_totals",
     "window_measures",
 ]

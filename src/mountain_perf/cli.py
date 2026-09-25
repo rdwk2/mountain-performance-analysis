@@ -8,10 +8,20 @@ manquerait dans ``src/``.
 import argparse
 import csv
 import sys
-from collections.abc import Sequence
+from collections import Counter
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import TextIO
 
+from mountain_perf.backtest import (
+    MATCHING_PARAMETER_SPECS,
+    ReferenceGeometry,
+    TraceSeries,
+    build_series,
+    dplus_per_km,
+    match_points,
+    reference_geometry,
+)
 from mountain_perf.gpx import (
     PROFILE_PARAMETER_SPECS,
     GpxError,
@@ -22,6 +32,7 @@ from mountain_perf.gpx import (
     build_profile_with_diagnostics,
     read_gpx,
 )
+from mountain_perf.gpx.trace_reader import TraceError, read_trace
 from mountain_perf.model import (
     PROJECTION_PARAMETER_SPECS,
     CurveError,
@@ -31,7 +42,14 @@ from mountain_perf.model import (
     read_curve,
     route_endpoints,
 )
-from mountain_perf.schemas import ParameterSet, Projection, RouteProfile
+from mountain_perf.schemas import (
+    ParameterSet,
+    PointStatus,
+    Projection,
+    RecordedTrace,
+    RouteProfile,
+    ScorePointObservation,
+)
 from mountain_perf.units import format_duration
 from mountain_perf.validation import ContractError
 
@@ -46,6 +64,21 @@ _PROJECTION_OPTIONS = {
     "--effort": "effort",
     "--min-support-min": "curve_min_support_min",
 }
+
+_MATCHING_OPTIONS = {
+    "--delta-m": "score_step_m",
+    "--eps-m": "lateral_tolerance_m",
+}
+
+POINT_STATUS_LABELS: Mapping[PointStatus, str] = {
+    PointStatus.FOUND: "trouvé",
+    PointStatus.ANCHORED: "ancré",
+    PointStatus.AMBIGUOUS: "ambigu",
+    PointStatus.ABSENT: "absent",
+    PointStatus.OUT_OF_TOLERANCE: "hors ε",
+    PointStatus.UNDEFINED_TANGENT: "tangente indéfinie",
+}
+"""Libellés d'affichage des statuts de point, ceux de ``0010`` D4.11."""
 
 PASSAGE_CSV_HEADER = (
     "name",
@@ -230,6 +263,77 @@ def _print_projection_report(
         print(f"  {distance}   {name} {format_duration(passage.arrival_s)}")
 
 
+def _count(n: int, singular: str, plural: str) -> str:
+    """``0 trou``, ``1 trou``, ``2 trous`` : le singulier jusqu'à 1, en français."""
+    return f"{n} {singular if n <= 1 else plural}"
+
+
+def _print_match_report(
+    profile: RouteProfile,
+    geometry: ReferenceGeometry,
+    trace: RecordedTrace,
+    series: TraceSeries,
+    parameters: ParameterSet,
+    points: Sequence[ScorePointObservation],
+) -> None:
+    """Sections 1 à 4 du rapport d'appariement (§ 5a.9 du brief M4a-2a)."""
+    source = profile.source
+    print(f"référence    {source.identifier}   sha256 {source.content_hash[:8]}…")
+    print(
+        f"             L {_number(geometry.length_m)} m, "
+        f"D+/km {_number(dplus_per_km(profile))} m/km"
+    )
+    print(f"trace        {trace.sources[0].identifier}")
+    records = _count(len(trace.time_s), "enregistrement", "enregistrements")
+    dropped = _count(
+        trace.dropped_same_instant_count,
+        "instant dupliqué écarté",
+        "instants dupliqués écartés",
+    )
+    print(
+        f"             {records}, {dropped}, "
+        f"écoulé {format_duration(trace.elapsed_s)}, "
+        f"{_count(len(series.blocks), 'bloc', 'blocs')}, "
+        f"{_count(sum(series.gap_after), 'trou', 'trous')}"
+    )
+    departure, arrival = points[0], points[-1]
+    line = f"départ       {POINT_STATUS_LABELS[departure.status]}"
+    if departure.time_s is not None:
+        line += (
+            f" — b_0 {departure.effective_m:.2f} m, "
+            f"durée avant départ {format_duration(departure.time_s)}"
+        )
+    print(line)
+    line = f"arrivée      {POINT_STATUS_LABELS[arrival.status]}"
+    if arrival.time_s is not None:
+        line += (
+            f" — instant {format_duration(arrival.time_s)}, "
+            f"b_K {arrival.effective_m:.2f} m"
+        )
+        if arrival.status is PointStatus.ANCHORED:
+            # L − b_K est l'opposé du décalage d'ancrage que porte le contrat.
+            line += f", L − b_K {0.0 - arrival.anchoring_offset_m:.2f} m"
+    print(line)
+    print(
+        f"points       Δ {parameters['score_step_m']:g} m, "
+        f"ε {parameters['lateral_tolerance_m']:g} m, "
+        f"r_c {parameters['cluster_radius_m']:g} m — {len(points)} points"
+    )
+    counts = Counter(point.status for point in points)
+    print(
+        "             "
+        + ", ".join(
+            f"{label} {counts[status]}" for status, label in POINT_STATUS_LABELS.items()
+        )
+    )
+    ambiguous = [
+        f"k = {point.index} (s_k = {_number(point.nominal_m)} m)"
+        for point in points
+        if point.status is PointStatus.AMBIGUOUS
+    ]
+    print(f"             ambigus : {', '.join(ambiguous) or 'aucun'}")
+
+
 def _given(args: argparse.Namespace, options: dict[str, str]) -> dict[str, float]:
     """Valeurs passées en ligne de commande ; les autres restent aux défauts."""
     return {
@@ -275,6 +379,17 @@ def _run_project(args: argparse.Namespace) -> None:
         _print_projection_report(result, read_result, projection, diagnostics)
 
 
+def _run_match(args: argparse.Namespace) -> None:
+    parameters = ParameterSet(MATCHING_PARAMETER_SPECS, _given(args, _MATCHING_OPTIONS))
+    read = read_gpx(args.reference)
+    profile = build_profile(read.route, ParameterSet(PROFILE_PARAMETER_SPECS))
+    geometry = reference_geometry(read.route)
+    trace = read_trace([args.trace])
+    series = build_series(trace)
+    points = match_points(geometry, trace, series, parameters)
+    _print_match_report(profile, geometry, trace, series, parameters, points)
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Point d'entrée mperf ; les erreurs d'entrée sont lisibles, sans traceback."""
     parser = argparse.ArgumentParser(prog="mperf")
@@ -302,6 +417,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     project_parser.add_argument(
         "--csv", action="store_true", help="Tableau des passages sur stdout"
     )
+    match_parser = commands.add_parser(
+        "match", help="Apparier une trace réalisée aux points de score d'un tracé"
+    )
+    match_parser.add_argument("reference", type=Path, metavar="référence.gpx")
+    match_parser.add_argument("trace", type=Path, metavar="trace.gpx")
+    for option, parameter in _MATCHING_OPTIONS.items():
+        match_parser.add_argument(option, dest=parameter, type=float, metavar="F")
     args = parser.parse_args(argv)
     if args.command == "project" and args.curve is None:
         print(project_parser.format_usage(), file=sys.stderr, end="")
@@ -314,9 +436,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         if args.command == "project":
             _run_project(args)
+        elif args.command == "match":
+            _run_match(args)
         else:
             _run_profile(args)
-    except (GpxError, ProfileError, CurveError, ContractError, OSError) as error:
+    except (
+        GpxError,
+        TraceError,
+        ProfileError,
+        CurveError,
+        ContractError,
+        OSError,
+    ) as error:
         print(f"Erreur : {error}", file=sys.stderr)
         return 1
     return 0
