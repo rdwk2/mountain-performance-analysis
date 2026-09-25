@@ -765,3 +765,18 @@ def greenwich_arrival() -> MatchCase:
         greenwich_route(),
         degree_trace([2.0 * j for j in range(401)], [45.0] * 401, [*longitudes, east]),
     )
+
+
+# ---------------------------------------------------------------------------
+# Correctifs de la PR #9 — R2 à R5 et R7
+# ---------------------------------------------------------------------------
+
+
+def outer_elbow() -> MatchCase:
+    """R2, Coude extérieur : référence de X08 ; le premier enregistrement, en
+    ``(24, −3)``, est à l'extérieur du coude et se projette sur le sommet ``(20, 0)``,
+    à 5 m (candidat « sommet » de ``project_restricted``). 148 enregistrements."""
+    path = TracePath((24.0, -3.0)).to((22.0, 5.0), (22.0, 291.0), speed_ms=2.0)
+    return MatchCase(
+        reference_route((0.0, 0.0), (20.0, 0.0), (20.0, 300.0)), path.trace()
+    )

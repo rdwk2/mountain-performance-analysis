@@ -410,6 +410,22 @@ def test_arrival_from_ahead_is_not_a_crossing() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Correctifs de la PR #9 — garanties écrites qu'aucune ligne du § 7.2a ne distinguait
+# ---------------------------------------------------------------------------
+
+
+def test_outer_elbow_departure_projects_on_the_vertex() -> None:
+    """R2 : le départ se projette sur le sommet du coude (``t_i = 1``, ``t_{i+1} =
+    0``), à 5 m ; sans la règle « sommet », aucun candidat de projection."""
+    p = cases.outer_elbow().match()
+    assert len(cases.outer_elbow().trace.time_s) == 148
+    assert statuses(p) == [ANCHORED, FOUND, ANCHORED]
+    expect(p[0], ANCHORED, bound=20.0, lateral=-8.731283, t=0, c=0, e=0)
+    expect(p[1], FOUND, pi=116.5, lateral=-1.999928)
+    expect(p[2], ANCHORED, bound=311.0, t=147)
+
+
+# ---------------------------------------------------------------------------
 # § 8, test 4 — reconstructions à 0° et à 60° de latitude de base
 # ---------------------------------------------------------------------------
 
