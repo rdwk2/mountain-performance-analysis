@@ -12,7 +12,14 @@ import math
 import pytest
 
 from fixtures import matching as cases
-from fixtures.matching import MatchCase, local_trace, matching_parameters
+from fixtures.matching import (
+    GREENWICH_EAST_DEG,
+    GREENWICH_WEST_DEG,
+    MatchCase,
+    degree_trace,
+    local_trace,
+    matching_parameters,
+)
 from mountain_perf.backtest import (
     build_series,
     match_points,
@@ -553,6 +560,41 @@ def test_positions_outside_the_trace_are_refused(position: float) -> None:
         realized_at(series, position)
     with pytest.raises(ValueError, match="hors de"):
         raw_position_at(trace, position)
+
+
+def test_time_and_realized_distance_are_exact_at_the_last_record() -> None:
+    """R1b (correctifs de la PR #9) : en ``π = n − 1``, ``(1 − f)·a + f·b`` rend
+    l'enregistrement bit pour bit ; ``a + f·(b − a)`` rendrait
+    ``0.8999999999999999``."""
+    trace = degree_trace(
+        (0.0, 0.2, 0.9),
+        (45.0, 45.0, 45.0),
+        (6.0, 6.0 + math.degrees(1e-7), 6.0 + math.degrees(2e-7)),
+    )
+    series = build_series(trace)
+    assert time_at(trace, 2.0) == 0.9
+    assert realized_at(series, 2.0) == series.realized_distance_m[2]
+
+
+def test_raw_position_is_exact_at_the_last_record_across_a_meridian() -> None:
+    """R1c (correctifs de la PR #9) : même exactitude pour ``P(π)``, sur un pas qui
+    franchit Greenwich."""
+    trace = degree_trace(
+        (0.0, 1.0, 2.0),
+        (45.0, 45.0, 45.0),
+        (GREENWICH_WEST_DEG - 1e-4, GREENWICH_WEST_DEG, GREENWICH_EAST_DEG),
+    )
+    assert raw_position_at(trace, 2.0) == (45.0, 0.007578580617976076)
+
+
+def test_arrival_on_the_last_vertex_across_a_meridian_is_found() -> None:
+    """R1d (correctifs de la PR #9) : la trace finit exactement sur le dernier
+    sommet ; ``h = 0`` exactement et l'arrivée est trouvée en ``π = 400`` par la
+    condition fermée. Un dernier sommet décalé d'un ulp la ferait ancrer."""
+    points = cases.greenwich_arrival().match()
+    assert statuses(points) == [FOUND] * 5
+    expect(points[-1], FOUND, pi=400, t=800)
+    assert points[-1].position == 400.0
 
 
 def test_match_points_needs_series_built_on_the_trace() -> None:

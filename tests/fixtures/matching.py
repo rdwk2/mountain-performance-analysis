@@ -700,3 +700,68 @@ def x01_gpx_pair() -> tuple[str, str]:
     """La paire commitée : référence ``(0,0)→(530,0)`` sans lieu nommé, et X01
     échantillonnée toutes les 10 s (``t = 0 … 320``, 33 enregistrements)."""
     return gpx_texts(x01(step_s=10.0))
+
+
+# ---------------------------------------------------------------------------
+# Correctifs de la PR #9 — R1 : coordonnées en degrés, à cheval sur un méridien
+# ---------------------------------------------------------------------------
+
+GREENWICH_WEST_DEG = -0.0027181091080278373
+GREENWICH_EAST_DEG = 0.007578580617976076
+"""Longitudes de part et d'autre du méridien de Greenwich, à 45° N.
+
+``b − a`` n'y est pas exact : ``a + t·(b − a)`` rend en ``t = 1`` la longitude
+``0.007578580617976077``, un ulp au-delà de ``b``. Aux coordonnées de
+:func:`local_deg` (6° E), la même écriture serait exacte (lemme de Sterbenz) et ne
+se distinguerait pas de ``(1 − t)·a + t·b``. **Exception au § 7.0** : ces fixtures
+sont écrites directement en degrés, ``local_deg`` ne franchissant pas de méridien.
+"""
+
+
+def degree_route(
+    latitude_deg: Sequence[float], longitude_deg: Sequence[float]
+) -> Route:
+    """Référence plate écrite directement en degrés, sans lieu nommé."""
+    return Route(
+        name="Référence en degrés",
+        latitude_deg=tuple(latitude_deg),
+        longitude_deg=tuple(longitude_deg),
+        elevation_m=(0.0,) * len(latitude_deg),
+        named_points=(),
+        source=REFERENCE_SOURCE,
+    )
+
+
+def degree_trace(
+    time_s: Sequence[float],
+    latitude_deg: Sequence[float],
+    longitude_deg: Sequence[float],
+) -> RecordedTrace:
+    """Trace écrite directement en degrés, à 1 000 m d'altitude."""
+    return RecordedTrace(
+        start_time=TRACE_START,
+        time_s=tuple(time_s),
+        latitude_deg=tuple(latitude_deg),
+        longitude_deg=tuple(longitude_deg),
+        elevation_m=(1000.0,) * len(time_s),
+        sources=(TRACE_SOURCE,),
+        dropped_same_instant_count=0,
+    )
+
+
+def greenwich_route() -> Route:
+    """R1a : deux sommets, ``(45, W)`` puis ``(45, E)``, de part et d'autre de
+    Greenwich."""
+    return degree_route((45.0, 45.0), (GREENWICH_WEST_DEG, GREENWICH_EAST_DEG))
+
+
+def greenwich_arrival() -> MatchCase:
+    """R1d : 401 enregistrements toutes les 2 s sur la référence de R1a, longitudes
+    ``(1 − j/400)·W + (j/400)·E`` pour ``j < 400``, puis ``E`` exactement : la trace
+    finit sur le dernier sommet, bit pour bit."""
+    west, east = GREENWICH_WEST_DEG, GREENWICH_EAST_DEG
+    longitudes = [(1 - j / 400) * west + (j / 400) * east for j in range(400)]
+    return MatchCase(
+        greenwich_route(),
+        degree_trace([2.0 * j for j in range(401)], [45.0] * 401, [*longitudes, east]),
+    )

@@ -11,7 +11,12 @@ import math
 import pytest
 from hypothesis import given
 
-from fixtures.matching import reference, reference_route
+from fixtures.matching import (
+    GREENWICH_EAST_DEG,
+    greenwich_route,
+    reference,
+    reference_route,
+)
 from fixtures.synthetic_routes import flat_route_with_confused_points
 from fixtures.traces import local_deg, parallel_deg, parallel_trace
 from mountain_perf.backtest import reference_geometry, trace_route
@@ -111,6 +116,15 @@ def test_position_at_interpolates_along_a_segment() -> None:
     assert to_local(*anchor, *position_at(geometry, s_m)) == pytest.approx(
         (0.0, 45.0), abs=1e-6
     )
+
+
+def test_position_at_is_exact_at_the_end_across_a_meridian() -> None:
+    """R1a (correctifs de la PR #9) : ``(1 − t)·a + t·b`` rend le dernier sommet bit
+    pour bit, là où ``b − a`` n'est pas exact ; ``a + t·(b − a)`` rendrait
+    ``0.007578580617976077``."""
+    geometry = reference_geometry(greenwich_route())
+    assert position_at(geometry, geometry.length_m) == (45.0, GREENWICH_EAST_DEG)
+    assert position_at(geometry, geometry.length_m) == (45.0, 0.007578580617976076)
 
 
 def test_geometry_keeps_the_deduplicated_vertices() -> None:
