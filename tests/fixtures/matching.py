@@ -788,3 +788,19 @@ def departure_ahead_of_the_line() -> MatchCase:
     0, qui ne doit pas être repris comme sommet intérieur."""
     path = TracePath((0.6, 20.0)).to((530.0, 20.0), speed_ms=1.5, step_s=2.0)
     return MatchCase(reference_route(*EAST_520), path.trace())
+
+
+def ambiguous_anchorable_arrival() -> MatchCase:
+    """R4, Arrivée ambiguë ancrable : deux passages de ``x = 510`` séparés par un
+    détour à 20 m, puis un dernier enregistrement en ``(506, 0)``, ancrable
+    (``h = −4``) ; l'ancrage ne doit pas effacer l'ambiguïté. 1 m/s."""
+    path = TracePath((0.0, 0.0)).to(
+        (512.0, 0.0),
+        (512.0, 20.0),
+        (505.0, 20.0),
+        (505.0, 0.0),
+        (512.0, 0.0),
+        (506.0, 0.0),
+        speed_ms=1.0,
+    )
+    return MatchCase(reference_route(*EAST_510), path.trace())

@@ -434,6 +434,16 @@ def test_departure_ahead_of_the_line_projects_inside_the_first_segment() -> None
     expect(p[0], ANCHORED, bound=0.6, lateral=20.0, t=0, c=0, e=0)
 
 
+def test_anchoring_never_erases_an_ambiguous_arrival() -> None:
+    """R4 : à l'arrivée aussi, l'ancrage ne s'applique que sans candidat admissible
+    (D4.8) ; deux événements et un dernier enregistrement ancrable restent ambigus."""
+    p = cases.ambiguous_anchorable_arrival().match()
+    assert statuses(p) == [FOUND, FOUND, FOUND, AMBIGUOUS]
+    for point, t in zip(p[:3], (0, 250, 500), strict=True):
+        expect(point, FOUND, t=t)
+    expect(p[3], AMBIGUOUS, c=2, e=2)
+
+
 # ---------------------------------------------------------------------------
 # § 8, test 4 — reconstructions à 0° et à 60° de latitude de base
 # ---------------------------------------------------------------------------
