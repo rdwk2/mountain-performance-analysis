@@ -444,6 +444,17 @@ def test_anchoring_never_erases_an_ambiguous_arrival() -> None:
     expect(p[3], AMBIGUOUS, c=2, e=2)
 
 
+def test_window_bound_from_a_fractional_current_position() -> None:
+    """R5 (D4.6, § 5a.6 étape 2) : la borne part de ``d_r(π_cur)`` interpolé, ``π_cur``
+    fractionnaire ; lue en ``⌊π_cur⌋``, elle perdrait 4 m et le point 2."""
+    case = cases.fractional_window()
+    assert len(case.trace.time_s) == 283
+    p = case.match()
+    assert statuses(p) == [FOUND] * 6
+    expect(p[1], FOUND, pi=41.666667, dr=250.0)
+    expect(p[2], FOUND, pi=195.660377, dr=1172.988063)
+
+
 # ---------------------------------------------------------------------------
 # § 8, test 4 — reconstructions à 0° et à 60° de latitude de base
 # ---------------------------------------------------------------------------

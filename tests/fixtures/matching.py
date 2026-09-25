@@ -804,3 +804,19 @@ def ambiguous_anchorable_arrival() -> MatchCase:
         speed_ms=1.0,
     )
     return MatchCase(reference_route(*EAST_510), path.trace())
+
+
+def fractional_window() -> MatchCase:
+    """R5, Fenêtre fractionnaire : à 6 m par pas, le point 1 est trouvé en
+    ``π = 41 + 2/3`` ; le point 2, après une boucle de 336,5 m au nord, est franchi à
+    ``d_r ≈ 1 173``, à 2 m sous ``D = d_r(π_cur) + 925 = 1 175``, et à 2 m au-dessus
+    de la borne ``1 171`` que donnerait ``d_r(⌊π_cur⌋) = 246``. 283 enregistrements."""
+    path = TracePath((0.0, 0.0)).to(
+        (264.0, 0.0),
+        (264.0, 336.5),
+        (490.0, 336.5),
+        (490.0, 0.0),
+        (1020.0, 0.0),
+        speed_ms=6.0,
+    )
+    return MatchCase(reference_route((0.0, 0.0), (1010.0, 0.0)), path.trace())
