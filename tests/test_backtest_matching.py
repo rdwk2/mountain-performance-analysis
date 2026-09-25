@@ -8,6 +8,8 @@ session S01 à S03, et les positions fractionnaires du § 5a.5.
 """
 
 import math
+from collections.abc import Callable
+from dataclasses import FrozenInstanceError
 
 import pytest
 
@@ -28,7 +30,11 @@ from mountain_perf.backtest import (
     time_at,
     trace_route,
 )
-from mountain_perf.backtest.geometry import frame_at
+from mountain_perf.backtest.geometry import (
+    LocalFrame,
+    RestrictedProjection,
+    frame_at,
+)
 from mountain_perf.backtest.matching import (
     CrossingCandidate,
     crossing_candidates,
@@ -471,6 +477,35 @@ def test_cluster_radius_is_read_from_the_parameters() -> None:
     p = cases.cluster_edge(radius_m=25.0).match()
     assert statuses(p) == [FOUND, FOUND, FOUND, FOUND]
     expect(p[1], FOUND, pi=29.5, t=29.5, lateral=4.0, dr=294.324171, c=2, e=1)
+
+
+def _frame() -> LocalFrame:
+    frame = frame_at(cases.x05().geometry, 0.0)
+    assert frame is not None
+    return frame
+
+
+@pytest.mark.parametrize(
+    ("make", "field"),
+    [
+        (lambda: cases.x05().geometry, "distance_m"),
+        (_frame, "tangent"),
+        (lambda: RestrictedProjection(10.0, 5.0, False), "offset_m"),
+        (lambda: CrossingCandidate(0.5, 0.0), "lateral_m"),
+    ],
+    ids=[
+        "ReferenceGeometry",
+        "LocalFrame",
+        "RestrictedProjection",
+        "CrossingCandidate",
+    ],
+)
+def test_matching_types_are_frozen(make: Callable[[], object], field: str) -> None:
+    """R8 : les dataclasses de ``backtest/geometry.py`` et ``backtest/matching.py``
+    sont gelées."""
+    instance = make()
+    with pytest.raises(FrozenInstanceError):
+        setattr(instance, field, None)
 
 
 # ---------------------------------------------------------------------------

@@ -84,6 +84,13 @@ def test_every_status_is_described() -> None:
     assert all(text.strip() for text in POINT_STATUS_DESCRIPTIONS.values())
 
 
+def test_status_descriptions_are_read_only() -> None:
+    """R8 (correctifs de la PR #9) : la table refuse l'affectation."""
+    table: Any = POINT_STATUS_DESCRIPTIONS
+    with pytest.raises(TypeError):
+        table[PointStatus.FOUND] = "Autre description."
+
+
 def test_the_six_statuses_of_0010() -> None:
     assert [status.value for status in PointStatus] == [
         "found",
