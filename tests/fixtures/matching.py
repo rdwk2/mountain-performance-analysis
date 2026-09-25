@@ -780,3 +780,11 @@ def outer_elbow() -> MatchCase:
     return MatchCase(
         reference_route((0.0, 0.0), (20.0, 0.0), (20.0, 300.0)), path.trace()
     )
+
+
+def departure_ahead_of_the_line() -> MatchCase:
+    """R3, Départ devant la ligne : premier enregistrement en ``(0,6 ; 20)``, ancrable
+    (``h_0 = 0,6``, écart latéral 20 m) ; sa projection tombe à 0,6 m, près du sommet
+    0, qui ne doit pas être repris comme sommet intérieur."""
+    path = TracePath((0.6, 20.0)).to((530.0, 20.0), speed_ms=1.5, step_s=2.0)
+    return MatchCase(reference_route(*EAST_520), path.trace())

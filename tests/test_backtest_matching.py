@@ -425,6 +425,15 @@ def test_outer_elbow_departure_projects_on_the_vertex() -> None:
     expect(p[2], ANCHORED, bound=311.0, t=147)
 
 
+def test_departure_ahead_of_the_line_projects_inside_the_first_segment() -> None:
+    """R3 : seuls les sommets d'abscisse **strictement** intérieure entrent dans la
+    polyligne restreinte ; repris, le sommet 0 formerait un segment nul dont le
+    candidat « début », à moins de 1 cm du minimum, rendrait le départ ambigu."""
+    p = cases.departure_ahead_of_the_line().match()
+    assert statuses(p) == [ANCHORED, FOUND, FOUND, FOUND]
+    expect(p[0], ANCHORED, bound=0.6, lateral=20.0, t=0, c=0, e=0)
+
+
 # ---------------------------------------------------------------------------
 # § 8, test 4 — reconstructions à 0° et à 60° de latitude de base
 # ---------------------------------------------------------------------------
