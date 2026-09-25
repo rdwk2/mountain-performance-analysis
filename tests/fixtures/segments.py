@@ -21,6 +21,7 @@ from fixtures.matching import (
     MatchCase,
     Point,
     TracePath,
+    gpx_texts,
     local_trace,
     matching_parameters,
     reference_route,
@@ -141,6 +142,19 @@ def named_route(
             for name, (x_m, y_m) in places
         ),
     )
+
+
+def named_gpx_texts(case: MatchCase) -> tuple[str, str]:
+    """Référence et trace d'un cas en GPX (``gpx_texts``), la référence portant en
+    plus ses lieux nommés en ``<wpt>``, coordonnées en ``repr`` exact."""
+    reference, trace = gpx_texts(case)
+    lines = reference.splitlines()
+    waypoints = [
+        f'  <wpt lat="{point.latitude_deg!r}" lon="{point.longitude_deg!r}">'
+        f"<name>{point.name}</name></wpt>"
+        for point in case.route.named_points
+    ]
+    return "\n".join([*lines[:2], *waypoints, *lines[2:], ""]), trace
 
 
 def stay(path: TracePath, count: int) -> TracePath:

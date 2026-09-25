@@ -18,9 +18,11 @@ from mountain_perf.backtest import (
     ReferenceGeometry,
     TraceSeries,
     build_series,
+    clock_partition,
     dplus_per_km,
-    match_points,
+    match_trace,
     reference_geometry,
+    stop_episodes,
 )
 from mountain_perf.gpx import (
     PROFILE_PARAMETER_SPECS,
@@ -43,12 +45,19 @@ from mountain_perf.model import (
     route_endpoints,
 )
 from mountain_perf.schemas import (
+    CENTRAL_CONVENTION_INDEX,
+    AdmittedTotals,
+    ClockTotals,
+    MatchResult,
     ParameterSet,
     PointStatus,
     Projection,
     RecordedTrace,
+    Regime,
     RouteProfile,
     ScorePointObservation,
+    SegmentExclusion,
+    StopEpisode,
 )
 from mountain_perf.units import format_duration
 from mountain_perf.validation import ContractError
@@ -80,6 +89,21 @@ POINT_STATUS_LABELS: Mapping[PointStatus, str] = {
 }
 """Libellés d'affichage des statuts de point, ceux de ``0010`` D4.11."""
 
+SEGMENT_EXCLUSION_LABELS: Mapping[SegmentExclusion, str] = {
+    SegmentExclusion.UNOBSERVED_BOUND: "borne non observée",
+    SegmentExclusion.GAP: "trou",
+    SegmentExclusion.LENGTH_RATIO: "rapport de longueur",
+    SegmentExclusion.INTERIOR_DEVIATION: "écart intérieur",
+}
+"""Libellés d'affichage des motifs d'exclusion, ceux de ``0010`` D4.9 et D4.10."""
+
+REGIME_LABELS: Mapping[Regime, str] = {
+    Regime.ASCENT: "montée",
+    Regime.FLAT: "plat",
+    Regime.DESCENT: "descente",
+}
+"""Libellés d'affichage des régimes (``0010`` D6)."""
+
 PASSAGE_CSV_HEADER = (
     "name",
     "distance_m",
@@ -109,6 +133,12 @@ def _percent(grade: float) -> str:
 def _percent_of(share: float) -> str:
     """Fraction en pourcentage arrondi. La fraction, elle, vient du moteur."""
     return f"{100 * share:.0f} %"
+
+
+def _coverage_percent(share: float | None) -> str:
+    """Couverture en pourcentage à deux décimales, « non évalué » sans dénominateur.
+    La fraction, elle, vient de ``Coverage``."""
+    return "non évalué" if share is None else f"{100 * share:.2f} %"
 
 
 def _print_csv(profile: RouteProfile) -> None:
@@ -334,6 +364,84 @@ def _print_match_report(
     print(f"             ambigus : {', '.join(ambiguous) or 'aucun'}")
 
 
+def _durations(totals: ClockTotals | AdmittedTotals) -> str:
+    """``M / S / U`` d'un jeu de totaux, en ``format_duration``."""
+    return " / ".join(
+        format_duration(value)
+        for value in (totals.moving_s, totals.stopped_s, totals.undetermined_s)
+    )
+
+
+def _print_segment_report(result: MatchResult, episodes: Sequence[StopEpisode]) -> None:
+    """Sections 5 à 9 du rapport d'appariement (§ 5b.11 du brief M4a-2b) : segments,
+    couverture, préfixe, horloges, épisodes sous ``θ_c``. Seuls des comptes et des
+    mises en forme : longueurs, temps et totaux sont lus dans le ``MatchResult``."""
+    segments, coverage = result.segments, result.coverage
+    counts = Counter(segment.exclusion for segment in segments)
+    excluded_m = {
+        SegmentExclusion.UNOBSERVED_BOUND: coverage.excluded_unobserved_bound_m,
+        SegmentExclusion.GAP: coverage.excluded_gap_m,
+        SegmentExclusion.LENGTH_RATIO: coverage.excluded_length_ratio_m,
+        SegmentExclusion.INTERIOR_DEVIATION: coverage.excluded_interior_deviation_m,
+    }
+    motifs = [
+        f"{label} {counts[exclusion]} ({excluded_m[exclusion]:.2f} m)"
+        for exclusion, label in SEGMENT_EXCLUSION_LABELS.items()
+    ]
+    print(f"segments     {counts[None]} admis sur {len(segments)}")
+    print(f"             {', '.join(motifs[:2])}")
+    print(f"             {', '.join(motifs[2:])}")
+    print(f"             ancrage exclu {coverage.anchoring_excluded_m:.2f} m")
+    regimes = ", ".join(
+        f"{label} {_coverage_percent(coverage.regime_fraction(regime))}"
+        for regime, label in REGIME_LABELS.items()
+    )
+    print(f"couverture   {_coverage_percent(coverage.fraction)} — {regimes}")
+    print(f"             écoulé admis {format_duration(coverage.admitted_elapsed_s)}")
+    excluded_s = {
+        SegmentExclusion.GAP: coverage.excluded_gap_s,
+        SegmentExclusion.LENGTH_RATIO: coverage.excluded_length_ratio_s,
+        SegmentExclusion.INTERIOR_DEVIATION: coverage.excluded_interior_deviation_s,
+    }
+    times = ", ".join(
+        f"{SEGMENT_EXCLUSION_LABELS[exclusion]} {format_duration(duration_s)}"
+        for exclusion, duration_s in excluded_s.items()
+    )
+    print(f"             temps exclus : {times}")
+    unknown = _count(counts[SegmentExclusion.UNOBSERVED_BOUND], "segment", "segments")
+    print(f"             durées inconnues : {unknown}")
+    end_s = coverage.prefix_end_s
+    print(
+        "préfixe      "
+        f"{_count(coverage.prefix_segment_count, 'segment', 'segments')}, "
+        f"b_m {coverage.prefix_end_m:.2f} m, "
+        f"t*_m {'non daté' if end_s is None else format_duration(end_s)}, "
+        f"dernier passage {coverage.prefix_last_passage or 'aucun'}"
+    )
+    print("horloges     M / S / U de la trace, puis du support admis")
+    for k, (trace, admitted) in enumerate(
+        zip(result.trace_totals, result.admitted_totals, strict=True)
+    ):
+        print(
+            f"             θ{k + 1}  trace {_durations(trace)}"
+            f"   admis {_durations(admitted)}"
+        )
+    low, high = result.low_convention_index, result.high_convention_index
+    interval = result.admitted_sensitivity_range_s
+    if low is None or high is None or interval is None:
+        print("             θ_bas, θ_haut, I_sens,A : aucun segment admis")
+    else:
+        print(
+            f"             θ_bas θ{low + 1}, θ_haut θ{high + 1}, I_sens,A "
+            f"[{format_duration(interval[0])} ; {format_duration(interval[1])}]"
+        )
+    stopped_s = result.trace_totals[CENTRAL_CONVENTION_INDEX].stopped_s
+    print(
+        f"épisodes     sous θ_c : {_count(len(episodes), 'épisode', 'épisodes')}, "
+        f"{format_duration(stopped_s)}"
+    )
+
+
 def _given(args: argparse.Namespace, options: dict[str, str]) -> dict[str, float]:
     """Valeurs passées en ligne de commande ; les autres restent aux défauts."""
     return {
@@ -386,8 +494,10 @@ def _run_match(args: argparse.Namespace) -> None:
     geometry = reference_geometry(read.route)
     trace = read_trace([args.trace])
     series = build_series(trace)
-    points = match_points(geometry, trace, series, parameters)
-    _print_match_report(profile, geometry, trace, series, parameters, points)
+    partition = clock_partition(trace, series)
+    result = match_trace(geometry, profile, trace, series, partition, parameters)
+    _print_match_report(profile, geometry, trace, series, parameters, result.points)
+    _print_segment_report(result, stop_episodes(partition, CENTRAL_CONVENTION_INDEX))
 
 
 def main(argv: Sequence[str] | None = None) -> int:
