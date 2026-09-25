@@ -16,6 +16,33 @@ Backtest (à partir de M4) : métrique avant → après.
 
 ---
 
+### 2026-09-25 · M4a-2b — Backtest : appariement, segments et couverture
+Troisième des quatre PR du lot M4a (brief M4a-2b rév. 2, `0010` D3, D4.2, D4.3,
+D4.9 à D4.11, D5.4, D6, D13 ; `0010` inchangé). Huit types de plus au dictionnaire
+(`SegmentExclusion`, `Regime`, `RegimeClass`, `ScoreSegmentObservation`, `Coverage`,
+`AdmittedTotals`, `SensitivityConfiguration`, `MatchResult`) ; `gap_between` extraite
+de `_same_event` sans changement de comportement ; `backtest/segments.py` : quatre
+prédicats de seuil, `fine_overlaps` (public, pour le diagnostic roulante / raide de
+M4b), régimes et classes, chemin réalisé, `rho`, `H_1`, `H_2`, `observe_segment`,
+couverture, préfixe comparable, dernier passage, totaux du support admis, `θ_bas`,
+`θ_haut`, `I_sens,A` et `match_trace` ; `backtest/sensitivity.py` (19 configurations
+déclarées) ; `mperf match`, sections 5 à 9. Précisions de la relecture du plan
+intégrées (tolérances de la propriété 1 et ses jumeaux sans écart latéral,
+« non daté » au préfixe, ligne `rho` au backlog).
+Les 33 lignes du § 7.2b reproduites à `1e−6` dès le premier essai, sans tolérance
+élargie (segments, couverture, préfixe, horloges des huit lignes qui les donnent).
+26 contre-épreuves par mutation (au moins une par règle des §§ 5b.4 à 5b.7, trois de
+jonction sur le code de M4a-2a, une sur les épisodes de `mperf match`), toutes
+rougies, arbre restauré et vérifié par empreinte ; huit sont arrêtées par un contrat
+(`ContractError`) avant la comparaison de valeurs. `match_trace` : 32 ms sur Fenêtre
+(1 141 enregistrements), 0,62 s sur 5 570 (surtout `H_1`, une projection restreinte
+par enregistrement intérieur) ; `mperf match` 1,0 s sur Fenêtre, démarrage compris
+(0,9 s). Deux lignes au backlog (§ 9, et `rho` refusé par le lint).
+Conclusion : `just check` vert avant chacun des huit commits, 1 679 tests à la fin.
+Contrôle sur les douze paires réelles à faire par rdw avant la fusion (§ 11).
+Rangé dans `src/mountain_perf/schemas/matching.py`, `backtest/segments.py`,
+`backtest/sensitivity.py`, `cli.py`, `tests/`, branche `m4a/appariement-segments`.
+
 ### 2026-09-24 · M4a-2a — Backtest : appariement, points de score
 Deuxième des quatre PR du lot M4a (brief M4a-2a rév. 2, `0010` D4.1 à D4.9 ; note
 datée du découpage ajoutée à la fin de D16). Contrats `PointStatus` et
