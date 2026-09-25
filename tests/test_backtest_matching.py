@@ -455,6 +455,24 @@ def test_window_bound_from_a_fractional_current_position() -> None:
     expect(p[2], FOUND, pi=195.660377, dr=1172.988063)
 
 
+def test_cluster_edge_checks_both_crossing_points() -> None:
+    """R7 (D4.7) : le sous-chemin fermé comprend ses deux points de franchissement ;
+    le premier, à 20 m de ``Q``, sépare les deux candidats en deux événements."""
+    case = cases.cluster_edge()
+    assert len(case.trace.time_s) == 58
+    p = case.match()
+    assert statuses(p) == [FOUND, AMBIGUOUS, FOUND, FOUND]
+    expect(p[1], AMBIGUOUS, c=2, e=2)
+
+
+def test_cluster_radius_is_read_from_the_parameters() -> None:
+    """R7 : avec ``r_c = 25``, tout le sous-chemin tient dans le disque ; un seul
+    événement, daté par son dernier candidat."""
+    p = cases.cluster_edge(radius_m=25.0).match()
+    assert statuses(p) == [FOUND, FOUND, FOUND, FOUND]
+    expect(p[1], FOUND, pi=29.5, t=29.5, lateral=4.0, dr=294.324171, c=2, e=1)
+
+
 # ---------------------------------------------------------------------------
 # § 8, test 4 — reconstructions à 0° et à 60° de latitude de base
 # ---------------------------------------------------------------------------

@@ -820,3 +820,23 @@ def fractional_window() -> MatchCase:
         speed_ms=6.0,
     )
     return MatchCase(reference_route((0.0, 0.0), (1010.0, 0.0)), path.trace())
+
+
+def cluster_edge(radius_m: float = 15.0) -> MatchCase:
+    """R7, Bord de grappe : premier franchissement de ``x = 250`` en ``(250, 20)``, à
+    20 m de ``Q`` (au-delà de ``r_c = 15``, en deçà de ``ε``) ; enregistrements
+    intérieurs à 14,1 et 7,2 m de ``Q`` ; second franchissement en ``(250, 4)``.
+    10 m/s et trois sauts d'une seconde, 58 enregistrements."""
+    path = (
+        TracePath((0.0, 0.0))
+        .to((240.0, 0.0), (248.0, 26.0), speed_ms=10.0)
+        .jump((252.0, 14.0), 1.0)
+        .jump((246.0, 6.0), 1.0)
+        .jump((254.0, 2.0), 1.0)
+        .to((520.0, 0.0), speed_ms=10.0)
+    )
+    return MatchCase(
+        reference_route(*EAST_510),
+        path.trace(),
+        matching_parameters(cluster_radius_m=radius_m),
+    )
