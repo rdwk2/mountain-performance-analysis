@@ -42,8 +42,19 @@ from mountain_perf.schemas.common import (
 from mountain_perf.schemas.curve import CurveProvenance, PaceCurve
 from mountain_perf.schemas.matching import (
     POINT_STATUS_DESCRIPTIONS,
+    REGIME_CLASS_DESCRIPTIONS,
+    REGIME_DESCRIPTIONS,
+    SEGMENT_EXCLUSION_DESCRIPTIONS,
+    AdmittedTotals,
+    Coverage,
+    MatchResult,
     PointStatus,
+    Regime,
+    RegimeClass,
     ScorePointObservation,
+    ScoreSegmentObservation,
+    SegmentExclusion,
+    SensitivityConfiguration,
 )
 from mountain_perf.schemas.outing import (
     ARTIFACT_ROLE_DESCRIPTIONS,
@@ -130,6 +141,14 @@ DOCUMENTED_TYPES: tuple[type, ...] = (
     StopEpisode,
     PointStatus,
     ScorePointObservation,
+    SegmentExclusion,
+    Regime,
+    RegimeClass,
+    ScoreSegmentObservation,
+    Coverage,
+    AdmittedTotals,
+    SensitivityConfiguration,
+    MatchResult,
 )
 """Types publiés dans le dictionnaire, dans l'ordre de lecture."""
 
@@ -148,6 +167,9 @@ ENUM_DESCRIPTIONS: Mapping[type[Enum], Mapping[Any, str]] = MappingProxyType(
         IntervalState: INTERVAL_STATE_DESCRIPTIONS,
         ClockKind: CLOCK_KIND_DESCRIPTIONS,
         PointStatus: POINT_STATUS_DESCRIPTIONS,
+        SegmentExclusion: SEGMENT_EXCLUSION_DESCRIPTIONS,
+        Regime: REGIME_DESCRIPTIONS,
+        RegimeClass: REGIME_CLASS_DESCRIPTIONS,
     }
 )
 """Description des membres de chaque énumération publiée."""
