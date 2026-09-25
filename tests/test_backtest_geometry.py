@@ -271,13 +271,16 @@ def test_anchor_projection_ambiguous(candidates: list[tuple[float, float]]) -> N
         ([(0.0, 10.0), (0.01, 40.0)], 10.0),
         ([(5.0, 10.0), (5.0, 10.0078125)], 10.0),
         ([(1.0, 3.0078125), (1.0, 3.0)], 3.0),
+        ([(5.0, 0.0), (5.0, 0.01)], 0.0),
     ],
 )
 def test_anchor_projection_not_ambiguous(
     candidates: list[tuple[float, float]], along_m: float
 ) -> None:
     """§ 7.2a, prédicats : écart de distance d'exactement ``0,01`` (pas à égalité),
-    abscisses à ``0,0078125`` (confondues), plus petite abscisse à distance égale."""
+    abscisses à ``0,0078125`` (confondues), plus petite abscisse à distance égale ;
+    R6 (correctifs de la PR #9) : écart d'abscisses d'exactement ``0,01``
+    (``0.01 − 0.0 == ANCHOR_TIE_M``), qui n'est pas « plus de 0,01 m »."""
     chosen_m, distance_m, ambiguous = anchor_projection(candidates)
     assert not ambiguous
     assert chosen_m == along_m
