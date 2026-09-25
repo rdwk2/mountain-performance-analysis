@@ -268,6 +268,25 @@ def crossing_candidates(
     return tuple(ordered_candidates), oriented
 
 
+def gap_between(
+    series: TraceSeries, first_position: float, second_position: float
+) -> bool:
+    """Un intervalle de trou entre deux positions (``0010`` D4.7, D4.9).
+
+    Vrai s'il existe un intervalle de trou d'indice ``i`` avec
+    ``⌊first⌋ <= i <= ⌈second⌉ − 1``. ``first > second`` : ``ValueError``.
+    """
+    if first_position > second_position:
+        raise ValueError(
+            f"gap_between : positions décroissantes {first_position} > "
+            f"{second_position}."
+        )
+    return any(
+        series.gap_after[i]
+        for i in range(math.floor(first_position), math.ceil(second_position))
+    )
+
+
 def _same_event(
     trace: RecordedTrace,
     series: TraceSeries,
@@ -278,7 +297,7 @@ def _same_event(
 ) -> bool:
     """Même bloc, et sous-chemin fermé de ``P(π_a)`` à ``P(π_b)`` à ``<= r_c`` de
     ``Q`` ; vérifier les sommets suffit, le disque est convexe (``0010`` D4.7)."""
-    if any(series.gap_after[i] for i in range(math.floor(first), math.ceil(second))):
+    if gap_between(series, first, second):
         return False
     points = [
         raw_position_at(trace, first),

@@ -33,6 +33,7 @@ from mountain_perf.backtest.manifest import (
 )
 from mountain_perf.backtest.matching import (
     MATCHING_PARAMETER_SPECS,
+    gap_between,
     match_points,
     raw_position_at,
     realized_at,
@@ -80,6 +81,7 @@ __all__ = [
     "cumulative_s",
     "domain_profile_source",
     "dplus_per_km",
+    "gap_between",
     "group_performances",
     "in_domain",
     "load_manifest",
