@@ -74,6 +74,7 @@ from mountain_perf.backtest.segments import (
     regime_lengths,
     sensitivity_range_s,
 )
+from mountain_perf.backtest.sensitivity import SENSITIVITY_CONFIGURATIONS
 from mountain_perf.backtest.series import (
     MAX_STEP_S,
     SMOOTHING_HALF_WIDTH,
@@ -93,6 +94,7 @@ __all__ = [
     "PURITY_THRESHOLD",
     "REGIME_GRADE_THRESHOLD",
     "RETENTION_LIMIT_S",
+    "SENSITIVITY_CONFIGURATIONS",
     "SMOOTHING_HALF_WIDTH",
     "FineOverlap",
     "ManifestError",
