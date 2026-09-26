@@ -16,6 +16,25 @@ Backtest (à partir de M4) : métrique avant → après.
 
 ---
 
+### 2026-09-27 · M4a-2c — Horloges : égalités de seuil ; tests des segments
+Quatrième des cinq PR du lot M4a (brief M4a-2c rév. 2, `0010` D5.2 : une précision,
+rien d'autre). Partie A : `qualify` compare aux seuils d'horloge en réels — une mesure
+est égale à son seuil si `|x − s| ≤ τ·s` et le dépasse si `x − s > τ·s`,
+`τ = CLOCK_THRESHOLD_RELATIVE_TOLERANCE = 1e−6` —, par un seul prédicat privé que
+reprend l'économie de `window_measures` ; `confirm` inchangé. Tableau de `qualify`
+réécrit (neuf lignes à `τ/2` et `2τ` des seuils dyadiques), `τ` épinglé, trois
+fixtures qui atteignent les seuils exactement à travers le lissage et
+l'interpolation (marche de 1,0 m sur 1 234,4 m, marche de 1,5 m, pas de 0,15 m/s) :
+quinze totaux exacts reproduits dès le premier essai, intervalles 136 et 162
+immobiles sous `θ_c`. Partie B : cinq tests des segments (G1 à G5), lacunes d'un
+essai de mutation mécanique de `segments.py`, qui ne change pas.
+Effet chiffré en conception sur les traces réelles, à confirmer par le contrôle réel
+de rdw avant la fusion : Queyras, `M` 64 720 → 64 684 s sous `θ2`, `θ4`, `θ5` ;
+`Q_1_2` et `Q_1_4`, 1 s de `M` passe en `U` ; aucun changement ailleurs.
+11 contre-épreuves par mutation, une à la fois, toutes rougies, arbre restauré et
+vérifié par empreinte ; l'économie restée stricte est arrêtée par `ValueError` (marche
+de 1,5 m, pas de 0,15 m/s). 1 699 tests (+15). Deux lignes au backlog (§ 9 du brief).
+
 ### 2026-09-25 · M4a-2b — Backtest : appariement, segments et couverture
 Troisième des quatre PR du lot M4a (brief M4a-2b rév. 2, `0010` D3, D4.2, D4.3,
 D4.9 à D4.11, D5.4, D6, D13 ; `0010` inchangé). Huit types de plus au dictionnaire
