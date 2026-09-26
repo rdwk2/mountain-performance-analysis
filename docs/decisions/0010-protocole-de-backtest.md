@@ -394,7 +394,11 @@ reçoit **un seul** état `M`, `S` ou `U` :
   le plan local de `0008` ancré en `X̃(m_i − 15)` ;
 - qualification : **mobile** si `v_h > h` ou `v_z > z` ; **immobile** si
   `v_h ≤ h`, `v_z ≤ z`, `D_h ≤ 30h` et `D_z ≤ 30z` ; **indéterminé** sinon, et
-  pour toute fenêtre invalide ;
+  pour toute fenêtre invalide. *(précision, M4a-2c)* Les comparaisons portent sur
+  les valeurs réelles : une mesure qui ne diffère de son seuil que de l'erreur
+  d'arrondi lui est égale — en flottant, `|x − s| ≤ 10⁻⁶·s`. Les altitudes
+  enregistrées au pas de 0,2 m atteignent exactement `z` et `30z` (`Δz = 0,9` m en
+  30 s sous `θ_c`) ;
 - **confirmation** : une suite maximale d'intervalles consécutifs *immobiles* d'un
   même bloc dont la **durée** totale est `≥ c` passe entièrement à `S` ; plus
   courte, elle passe à `U`. *Mobile* → `M` ; *indéterminé* → `U`.
