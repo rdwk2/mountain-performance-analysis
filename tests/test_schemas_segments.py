@@ -14,7 +14,7 @@ from typing import Any
 import pytest
 from hypothesis import given
 
-from mountain_perf.backtest import MATCHING_PARAMETER_SPECS
+from mountain_perf.backtest import MATCHING_PARAMETER_SPECS, FineOverlap
 from mountain_perf.schemas import (
     CLOCKS,
     REGIME_CLASS_DESCRIPTIONS,
@@ -296,10 +296,13 @@ def test_new_types_are_in_the_dictionary() -> None:
         (X01_ADMITTED_TOTALS, "moving_s"),
         (SensitivityConfiguration(250.0, 30.0, 15.0, CLOCKS[0]), "score_step_m"),
         (X01_RESULT, "coverage"),
+        (FineOverlap(30.0, 0.1), "length_m"),
     ],
     ids=lambda x: type(x).__name__ if not isinstance(x, str) else x,
 )
 def test_new_types_are_frozen(instance: object, field: str) -> None:
+    """Les huit contrats, et ``FineOverlap`` (§ 5b.4, R2 des correctifs de la PR
+    #10)."""
     with pytest.raises(FrozenInstanceError):
         setattr(instance, field, None)
 
