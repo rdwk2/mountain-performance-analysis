@@ -983,12 +983,15 @@ def score_point_observations(
 
 
 @st.composite
-def straight_cases(draw: st.DrawFn) -> StraightCase:
+def straight_cases(draw: st.DrawFn, lateral: bool = True) -> StraightCase:
     """§ 8, test 5 du brief M4a-2a : référence droite sur le parallèle de base, de 260
     à 3 000 m, non multiple de ``Δ`` (reste ``>= 1`` m) ; trace partant de
     ``x_0 ∈ [−20 ; −1]``, ``x`` strictement croissant, 0,3 à 3 m/s, pas de temps
     multiples de ``1/64`` s de ``1/64`` à ``10`` s inclus, ``|y| <= 10`` m et
-    ``|Δy| <= Δx`` ; motifs cyclés, plafonnés à ``MAX_STRAIGHT_RECORDS``."""
+    ``|Δy| <= Δx`` ; motifs cyclés, plafonnés à ``MAX_STRAIGHT_RECORDS``.
+
+    ``lateral=False`` (§ 8.2b, test 6, du brief M4a-2b) : écart latéral nul,
+    ``y_0 = 0`` et pentes nulles ; les autres tirages sont inchangés."""
     length_m = float(draw(st.integers(260, 3000).filter(lambda n: n % 250 >= 1)))
     steps = draw(
         st.lists(
@@ -999,9 +1002,12 @@ def straight_cases(draw: st.DrawFn) -> StraightCase:
     )
     mean_step_m = sum(v * m / 64 for v, m in steps) / len(steps)
     assume((length_m + 20) / mean_step_m < MAX_STRAIGHT_RECORDS)
+    x0_m = draw(finite_floats(-20.0, -1.0))
+    if not lateral:
+        return straight_case(length_m, x0_m, 0.0, steps, [0.0])
     return straight_case(
         length_m,
-        draw(finite_floats(-20.0, -1.0)),
+        x0_m,
         draw(finite_floats(-10.0, 10.0)),
         steps,
         draw(st.lists(finite_floats(-1.0, 1.0), min_size=1, max_size=8)),

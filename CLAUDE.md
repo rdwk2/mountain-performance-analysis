@@ -101,6 +101,7 @@ just dictionary # régénère docs/DICTIONNAIRE_DONNEES.md depuis les docstrings
 just backtest   # (à partir de M4) erreur du modèle sur le jeu de référence
 uv run mperf profile tests/fixtures/mini_11.gpx  # compte-rendu GPX (M2), --csv pour la grille
 uv run mperf match tests/fixtures/appariement_reference.gpx tests/fixtures/appariement_trace_x01.gpx  # points de score (M4a-2a)
+# mperf match, sections 5 à 9 (M4a-2b) : segments, couverture, préfixe, horloges, épisodes
 ```
 
 ---
@@ -121,7 +122,8 @@ src/mountain_perf/     le code de la bibliothèque
     outing.py          sorties, artefacts, rétention, performance, statuts (M4a)
     trace.py           RecordedTrace, trace réalisée lue sans rien de dérivé (M4a)
     clock.py           conventions, horloges, partition M/S/U, totaux, épisodes (M4a)
-    matching.py        PointStatus, ScorePointObservation : points de score (M4a-2a)
+    matching.py        PointStatus, ScorePointObservation : points de score (M4a-2a) ;
+                       segments, Coverage, AdmittedTotals, MatchResult (M4a-2b)
     _dictionary.py     rendu du dictionnaire de données depuis les docstrings
   gpx/                 lecture GPX, profil, grille de pente (M2)
     geo.py             haversine 2D, polyligne dédoublonnée, projection point-segment
@@ -137,10 +139,13 @@ src/mountain_perf/     le code de la bibliothèque
     clocks.py          fenêtres, qualification, confirmation, horloges cumulées (M4a)
     geometry.py        géométrie de référence, plan local, repère, projection (M4a-2a)
     matching.py        grille de score, prédicats, franchissements, match_points (M4a-2a)
+    segments.py        régimes, admissibilité, couverture, préfixe, totaux admis, match_trace (M4a-2b)
+    sensitivity.py     les 19 configurations de sensibilité, déclarées (M4a-2b)
   ingest/              acquisition et normalisation Garmin (M6b)
   ui/                  interface — appelle la bibliothèque, ne calcule rien (M5)
   cli.py               mperf profile <fichier.gpx>, compte-rendu ou CSV sur stdout ;
-                       mperf match <référence.gpx> <trace.gpx>, points de score (M4a-2a)
+                       mperf match <référence.gpx> <trace.gpx>, points de score (M4a-2a),
+                       segments, couverture et horloges (M4a-2b)
 tests/
   strategies.py        stratégies Hypothesis des contrats, réutilisées par tous les jalons
   fixtures/            données synthétiques minuscules, commitées

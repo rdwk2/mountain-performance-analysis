@@ -46,6 +46,14 @@
 - `StopEpisode`
 - `PointStatus`
 - `ScorePointObservation`
+- `SegmentExclusion`
+- `Regime`
+- `RegimeClass`
+- `ScoreSegmentObservation`
+- `Coverage`
+- `AdmittedTotals`
+- `SensitivityConfiguration`
+- `MatchResult`
 
 ---
 
@@ -2130,3 +2138,477 @@ passages nommés (M4a-3).
   (M4a-2b) ;
 - un point ne connaît ni `K` ni `L` ;
 - `lateral_m` n'est pas comparé à `ε`, que le contrat ignore.
+
+---
+
+## `SegmentExclusion`
+
+*`mountain_perf.schemas.matching` · énumération*
+
+| Membre | Valeur | Description |
+|---|---|---|
+| `UNOBSERVED_BOUND` | `unobserved_bound` | Borne non observée : une borne ni trouvée ni ancrée (D4.10, point 1) ; durée inconnue. |
+| `GAP` | `gap` | Trou : un intervalle de plus de 10 s à l'intérieur (D4.9) ; temps écoulé connu, jamais scoré. |
+| `LENGTH_RATIO` | `length_ratio` | Rapport de longueur : longueur réalisée sur longueur du segment hors de [0,6 ; 1,6] (D4.10, point 3, précision). |
+| `INTERIOR_DEVIATION` | `interior_deviation` | Écart intérieur : H = max(H_1, H_2) > ε (D4.10, point 4). |
+
+Motif d'exclusion d'un segment de score (`0010` D4.9, D4.10).
+
+#### Champs
+
+Valeurs décrites dans `SEGMENT_EXCLUSION_DESCRIPTIONS`.
+
+Correspondance entre le statut des bornes (`PointStatus`), le motif du segment
+et les indisponibilités de `0010` D0 (`Unavailability`) :
+
+- deux bornes `found` ou `anchored` : admis, `gap`, `length_ratio` ou
+  `interior_deviation` ; pas d'indisponibilité de borne ;
+- une borne `ambiguous`, `absent` ou `undefined_tangent` :
+  `unobserved_bound` ; indisponibilité `ambiguous`, `absent` ou
+  `undefined_tangent` ;
+- une borne `out_of_tolerance` : `unobserved_bound` ; pas d'équivalent
+  (précision de D4.7) ;
+- motif `gap` : indisponibilité `gap` ;
+- motif `length_ratio` : pas d'équivalent (précision de D4.10) ;
+- motif `interior_deviation` : indisponibilité `interior_deviation`.
+
+#### Invariants
+
+Énumération fermée ; un segment non admis porte un seul motif, le premier dans
+l'ordre des conditions de D4.10 : borne non observée, trou, rapport de longueur,
+écart intérieur.
+
+#### Producteur
+
+`observe_segment` et `match_trace` (`mountain_perf.backtest.segments`).
+
+#### Consommateurs
+
+`ScoreSegmentObservation` ; `Coverage` ; `mperf match` ; les métriques
+(M4b), qui lisent le motif et les statuts des bornes.
+
+#### Non promis
+
+`UNOBSERVED_BOUND` ne dit pas quel statut a la borne : ce sont les points du
+`MatchResult` qui le portent. Aucune conversion vers `Unavailability` n'est
+codée ici.
+
+---
+
+## `Regime`
+
+*`mountain_perf.schemas.matching` · énumération*
+
+| Membre | Valeur | Description |
+|---|---|---|
+| `ASCENT` | `ascent` | Montée : pente fine g > 0,05. |
+| `FLAT` | `flat` | Plat : −0,05 ≤ g ≤ 0,05, bornes incluses. |
+| `DESCENT` | `descent` | Descente : pente fine g < −0,05. |
+
+Régime d'un intervalle de la grille fine, selon sa pente (`0010` D6).
+
+#### Champs
+
+Valeurs décrites dans `REGIME_DESCRIPTIONS`.
+
+#### Invariants
+
+Énumération fermée : chaque pente fine reçoit un seul régime.
+
+#### Producteur
+
+`grade_regime` (`mountain_perf.backtest.segments`).
+
+#### Consommateurs
+
+Les fractions de régime des segments ; `Coverage.regime_fraction` ;
+`mperf match` ; les métriques par régime (M4b).
+
+#### Non promis
+
+Le diagnostic « descente roulante / raide » de D6 n'est pas un régime : il n'est
+pas calculé en M4a (M4b).
+
+---
+
+## `RegimeClass`
+
+*`mountain_perf.schemas.matching` · énumération*
+
+| Membre | Valeur | Description |
+|---|---|---|
+| `ASCENT` | `ascent` | Montée pure : au moins 80 % de la longueur en montée. |
+| `FLAT` | `flat` | Plat pur : au moins 80 % de la longueur en plat. |
+| `DESCENT` | `descent` | Descente pure : au moins 80 % de la longueur en descente. |
+| `MIXED` | `mixed` | Mixte : aucun régime n'atteint 80 % de la longueur. |
+
+Classe d'un segment de score (`0010` D6).
+
+#### Champs
+
+Valeurs décrites dans `REGIME_CLASS_DESCRIPTIONS`.
+
+#### Invariants
+
+Énumération fermée : un segment est pur d'un régime ou mixte.
+
+#### Producteur
+
+`regime_class` (`mountain_perf.backtest.segments`).
+
+#### Consommateurs
+
+`ScoreSegmentObservation` ; les métriques par régime (M4b).
+
+#### Non promis
+
+Mixte n'est jamais une cible, un garde-fou ni une dimension d'apprentissage
+(D6). Le temps observé n'est jamais réparti selon les fractions.
+
+---
+
+## `ScoreSegmentObservation`
+
+*`mountain_perf.schemas.matching` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `index` | `int` | — |
+| `nominal_start_m` | `float` | — |
+| `nominal_end_m` | `float` | — |
+| `start_m` | `float` | — |
+| `end_m` | `float` | — |
+| `ascent_fraction` | `float` | — |
+| `flat_fraction` | `float` | — |
+| `descent_fraction` | `float` | — |
+| `regime_class` | `RegimeClass` | — |
+| `exclusion` | `SegmentExclusion \| None` | — |
+| `length_ratio` | `float \| None` | — |
+| `h1_m` | `float \| None` | — |
+| `h2_m` | `float \| None` | — |
+| `start_s` | `float \| None` | — |
+| `end_s` | `float \| None` | — |
+| `realized_start_m` | `float \| None` | — |
+| `realized_end_m` | `float \| None` | — |
+
+| Propriété calculée | Type | Sens |
+|---|---|---|
+| `admitted` | `bool` | Segment admis au score : aucun motif d'exclusion (`0010` D4.10). |
+| `length_m` | `float` | `end_m − start_m` (mètres) : longueur exacte entre les bornes effectives (`0010` D4.2). |
+| `interior_deviation_m` | `float \| None` | `H = max(H_1, H_2)` (mètres, `0010` D4.10) ; `None` si l'un manque. |
+
+Observation d'un segment `[b_k ; b_{k+1}]` de la grille de score.
+
+#### Champs
+
+- `index` — sans unité — `k`, rang du segment.
+- `nominal_start_m`, `nominal_end_m` — mètres — `s_k`, `s_{k+1}`.
+- `start_m`, `end_m` — mètres — bornes effectives `b_k`, `b_{k+1}`
+  (`0010` D4.2).
+- `ascent_fraction`, `flat_fraction`, `descent_fraction` — sans unité —
+  fractions de régime sur `[b_k ; b_{k+1}]` (D6).
+- `regime_class` — sans unité — classe du segment, pure ou mixte (D6).
+- `exclusion` — sans unité — motif d'exclusion ; `None` = admis (D4.10).
+- `length_ratio` — sans unité — rapport de longueur `rho` (D4.10, point 3).
+- `h1_m`, `h2_m` — mètres — `H_1`, `H_2` (D4.10, point 4).
+- `start_s`, `end_s` — secondes — `t*_k`, `t*_{k+1}`, instants des bornes
+  quand elles sont datées.
+- `realized_start_m`, `realized_end_m` — mètres — `d_r(π_k)`,
+  `d_r(π_{k+1})`, abscisses réalisées des bornes quand elles sont datées (D3).
+
+Propriétés calculées (jamais stockées) : `admitted`, `length_m` et
+`interior_deviation_m`.
+
+#### Invariants
+
+- `index >= 0` ; les quatre abscisses finies et `>= 0` ;
+  `nominal_start_m < nominal_end_m` ; `start_m < end_m` ;
+- fractions finies, chacune dans `[0 ; 1]` à `1e−9` près, de somme 1 à
+  `1e−9` près ;
+- `regime_class` est `MIXED` ou le régime d'une plus grande fraction ; une
+  fraction égale à 1 à `1e−9` près impose sa classe ;
+- `start_s` présent si et seulement si `realized_start_m` l'est ; de même
+  pour `end_s` et `realized_end_m` ; présents, ils sont finis et `>= 0` ;
+  `start_s < end_s` et `realized_start_m <= realized_end_m` quand les quatre
+  sont présents ;
+- `length_ratio`, `h1_m`, `h2_m` : tous présents ou tous absents ;
+  présents, finis et `>= 0` ;
+- admis ⇒ `length_ratio`, `start_s`, `end_s` présents ;
+- `UNOBSERVED_BOUND` ⇒ `length_ratio` absent, et `start_s` ou `end_s`
+  absent ;
+- `GAP` ⇒ `length_ratio` absent, `start_s` et `end_s` présents ;
+- `LENGTH_RATIO` ou `INTERIOR_DEVIATION` ⇒ `length_ratio`, `start_s`,
+  `end_s` présents.
+
+#### Producteur
+
+`observe_segment` et `match_trace` (`mountain_perf.backtest.segments`).
+
+#### Consommateurs
+
+`Coverage`, `MatchResult`, `mperf match` ; les métriques (M4b).
+
+#### Non promis
+
+- un segment de bord ancré n'est pas la même cellule que le segment nominal
+  (D4.2) : ses bornes le distinguent, son `index` non ;
+- les temps d'un segment non admis ne sont jamais un score ;
+- le contrat ignore les seuils (`0,6`, `1,6`, `ε`, `0,80`) et ne vérifie
+  donc pas qu'un motif correspond aux valeurs publiées : c'est le rôle des tests
+  du producteur.
+
+---
+
+## `Coverage`
+
+*`mountain_perf.schemas.matching` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `reference_length_m` | `float` | — |
+| `admitted_m` | `float` | — |
+| `excluded_unobserved_bound_m` | `float` | — |
+| `excluded_gap_m` | `float` | — |
+| `excluded_length_ratio_m` | `float` | — |
+| `excluded_interior_deviation_m` | `float` | — |
+| `anchoring_excluded_m` | `float` | — |
+| `ascent_length_m` | `float` | — |
+| `flat_length_m` | `float` | — |
+| `descent_length_m` | `float` | — |
+| `admitted_ascent_m` | `float` | — |
+| `admitted_flat_m` | `float` | — |
+| `admitted_descent_m` | `float` | — |
+| `admitted_elapsed_s` | `float` | — |
+| `excluded_gap_s` | `float` | — |
+| `excluded_length_ratio_s` | `float` | — |
+| `excluded_interior_deviation_s` | `float` | — |
+| `prefix_segment_count` | `int` | — |
+| `prefix_end_m` | `float` | — |
+| `prefix_end_s` | `float \| None` | — |
+| `prefix_last_passage` | `str \| None` | — |
+
+| Propriété calculée | Type | Sens |
+|---|---|---|
+| `fraction` | `float` | `admitted_m / L` (sans unité) : couverture globale (`0010` D4.11). |
+
+Couverture publiée d'une sortie contre un tracé de référence (`0010` D4.11).
+
+#### Champs
+
+- `reference_length_m` — mètres — `L`, longueur du profil de référence.
+- `admitted_m` — mètres — longueur des segments admis.
+- `excluded_unobserved_bound_m`, `excluded_gap_m`,
+  `excluded_length_ratio_m`, `excluded_interior_deviation_m` — mètres —
+  longueur des segments exclus, par motif.
+- `anchoring_excluded_m` — mètres — `b_0 + (L − b_K)`, motif `ancrage`.
+- `ascent_length_m`, `flat_length_m`, `descent_length_m` — mètres —
+  longueurs fines de chaque régime sur `[0 ; L]`.
+- `admitted_ascent_m`, `admitted_flat_m`, `admitted_descent_m` — mètres —
+  longueurs fines de chaque régime dans les segments admis.
+- `admitted_elapsed_s` — secondes — `E_A`, écoulé des segments admis.
+- `excluded_gap_s`, `excluded_length_ratio_s`,
+  `excluded_interior_deviation_s` — secondes — temps écoulés exclus connus,
+  par motif.
+- `prefix_segment_count` — sans unité — `m`, longueur du préfixe comparable.
+- `prefix_end_m` — mètres — `b_m`, fin du préfixe.
+- `prefix_end_s` — secondes — `t*_m`, `None` si le point `m` n'est pas
+  daté.
+- `prefix_last_passage` — sans unité — nom du dernier lieu nommé du préfixe,
+  `None` s'il n'en contient pas.
+
+Propriété calculée (jamais stockée) : `fraction` ; méthode
+`regime_fraction(regime)` : longueur admise du régime rapportée à sa longueur
+sur `[0 ; L]`, `None` si celle-ci est nulle (« non évalué »).
+
+#### Invariants
+
+- valeurs finies et `>= 0` ; `L > 0` ;
+- `admitted_m + Σ excluded_*_m + anchoring_excluded_m = L` à
+  `1e−6·max(1, L)` près ;
+- `ascent_length_m + flat_length_m + descent_length_m = L` à
+  `1e−6·max(1, L)` près ;
+- chaque longueur admise d'un régime `<=` sa longueur sur `[0 ; L]` à
+  `1e−6·max(1, L)` près ;
+- `prefix_segment_count >= 0` ; `prefix_last_passage` non vide s'il est
+  présent.
+
+#### Producteur
+
+`match_trace` (`mountain_perf.backtest.segments`).
+
+#### Consommateurs
+
+`MatchResult`, `mperf match` ; le rapport (M4b).
+
+#### Non promis
+
+- les « durées inconnues » de D4.11 sont les segments `unobserved_bound` du
+  `MatchResult`, que `mperf match` compte ;
+- le temps passé sur les marges d'ancrage n'est pas observé et n'est pas publié ;
+- les comptes de points par statut sont dans les points.
+
+---
+
+## `AdmittedTotals`
+
+*`mountain_perf.schemas.matching` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `elapsed_s` | `float` | — |
+| `moving_s` | `float` | — |
+| `stopped_s` | `float` | — |
+| `undetermined_s` | `float` | — |
+
+Totaux du support admis sous une convention : écoulé, mouvement, arrêt,
+indéterminé (`0010` D5.4).
+
+#### Champs
+
+- `elapsed_s` — secondes — `E_A`, somme des `t*_{k+1} − t*_k` des segments
+  admis.
+- `moving_s` — secondes — `M_{θ,A}`.
+- `stopped_s` — secondes — `S_{θ,A}`.
+- `undetermined_s` — secondes — `U_{θ,A}`.
+
+#### Invariants
+
+- valeurs finies et `>= 0` ;
+- `|M + S + U − E_A| <= 1e−9 · max(1, E_A)` (la tolérance de `ClockTotals`).
+
+#### Producteur
+
+`admitted_totals` (`mountain_perf.backtest.segments`).
+
+#### Consommateurs
+
+`MatchResult`, `mperf match` ; les enveloppes et le rapport (M4b).
+
+#### Non promis
+
+Ce ne sont pas les totaux de la trace (`ClockTotals`) : aucun des deux types ne
+se convertit en l'autre, les deux jeux ne se mélangent jamais (D5.4).
+
+---
+
+## `SensitivityConfiguration`
+
+*`mountain_perf.schemas.matching` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `score_step_m` | `float` | — |
+| `lateral_tolerance_m` | `float` | — |
+| `cluster_radius_m` | `float` | — |
+| `clock` | `Clock` | — |
+
+Une configuration de sensibilité (`0010` D13).
+
+#### Champs
+
+- `score_step_m` — mètres — `Δ`, pas de la grille de score.
+- `lateral_tolerance_m` — mètres — `ε`, tolérance latérale.
+- `cluster_radius_m` — mètres — `r_c`, rayon de regroupement.
+- `clock` — sans unité — l'horloge de la configuration.
+
+#### Invariants
+
+Valeurs finies ; `Δ > 0`, `ε > 0`, `r_c >= 0`.
+
+#### Producteur
+
+`SENSITIVITY_CONFIGURATIONS` (`mountain_perf.backtest.sensitivity`).
+
+#### Consommateurs
+
+L'exécution de la sensibilité (M4d).
+
+#### Non promis
+
+Rien n'est exécuté en M4a ; une configuration ne dit pas comment elle sera
+exécutée.
+
+---
+
+## `MatchResult`
+
+*`mountain_perf.schemas.matching` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `parameters` | `ParameterSet` | — |
+| `points` | `tuple[ScorePointObservation, ...]` | — |
+| `segments` | `tuple[ScoreSegmentObservation, ...]` | — |
+| `coverage` | `Coverage` | — |
+| `departure_delay_s` | `float \| None` | — |
+| `trace_totals` | `tuple[ClockTotals, ...]` | — |
+| `admitted_totals` | `tuple[AdmittedTotals, ...]` | — |
+| `low_convention_index` | `int \| None` | — |
+| `high_convention_index` | `int \| None` | — |
+| `admitted_sensitivity_range_s` | `tuple[float, float] \| None` | — |
+
+Tout ce que l'appariement observe d'une sortie contre un tracé de référence.
+
+#### Champs
+
+- `parameters` — sans unité — `Δ`, `ε`, `r_c`, déclarés par
+  `MATCHING_PARAMETER_SPECS`.
+- `points` — sans unité — l'observation de chaque point de score, dans l'ordre.
+- `segments` — sans unité — l'observation de chaque segment, dans l'ordre.
+- `coverage` — sans unité — couverture, exclusions et préfixe (D4.11).
+- `departure_delay_s` — secondes — `t*_0`, depuis le premier enregistrement ;
+  `None` si le départ n'est pas daté.
+- `trace_totals` — sans unité — les cinq totaux de la trace (D5.4).
+- `admitted_totals` — sans unité — les cinq totaux du support admis (D5.4).
+- `low_convention_index`, `high_convention_index` — sans unité — `θ_bas`,
+  `θ_haut`, indices dans `CLOCK_CONVENTIONS`.
+- `admitted_sensitivity_range_s` — secondes — `I_sens,A`,
+  `(min_θ M_{θ,A} ; E_A − min_θ S_{θ,A})`.
+
+#### Invariants
+
+- `points`, `segments`, `trace_totals`, `admitted_totals` sont des
+  tuples ;
+- `len(points) >= 2`, `len(segments) == len(points) − 1` ;
+- `points[k].index == k` et `segments[k].index == k` ;
+- `points[0].nominal_m == 0`, `points[−1].nominal_m ==
+  coverage.reference_length_m`, `nominal_m` strictement croissants ;
+- `effective_m` strictement croissants ; `effective_m != nominal_m` seulement
+  pour le premier et le dernier point ;
+- `position` et `time_s` strictement croissants le long des points datés ;
+- pour chaque `k` : `nominal_start_m`, `start_m`, `start_s`,
+  `realized_start_m` du segment `k` égaux à `nominal_m`, `effective_m`,
+  `time_s`, `realized_m` du point `k` ; de même pour la fin avec le point
+  `k + 1` ;
+- un segment est `unobserved_bound` si et seulement si l'une de ses bornes
+  n'est pas datée ;
+- `m = coverage.prefix_segment_count` : les `m` premiers segments sont
+  admis, et `m == len(segments)` ou le segment `m` ne l'est pas ;
+  `prefix_end_m` et `prefix_end_s` sont `effective_m` et `time_s` du
+  point `m` ;
+- `departure_delay_s == points[0].time_s` ;
+- `len(trace_totals) == len(admitted_totals) == len(CLOCK_CONVENTIONS)` ; les
+  `elapsed_s` des `admitted_totals` égaux entre eux et à
+  `coverage.admitted_elapsed_s` à `1e−9·max(1, E_A)` près ;
+- `low_convention_index`, `high_convention_index` et
+  `admitted_sensitivity_range_s` sont `None` si et seulement si aucun segment
+  n'est admis ; présents, les deux indices sont le premier indice du minimum de
+  `moving_s` et du maximum de `moving_s + undetermined_s` des
+  `admitted_totals`, et l'intervalle vaut `(min moving_s ; E_A − min
+  stopped_s)` à `1e−9·max(1, E_A)` près (sa borne basse peut dépasser la haute
+  d'un ulp sur un support entièrement mobile).
+
+#### Producteur
+
+`match_trace` (`mountain_perf.backtest.segments`).
+
+#### Consommateurs
+
+`mperf match` ; les passages (M4a-3) ; les métriques et le rapport (M4b).
+
+#### Non promis
+
+- un `MatchResult` ne connaît ni la trace ni le tracé, seulement ce qui en a été
+  observé ;
+- la grille `nominal_m` n'est pas recalculée par le contrat, qui ignore `Δ` ;
+- aucun extrême segment par segment n'est jamais publié (D5.4).
