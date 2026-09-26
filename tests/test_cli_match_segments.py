@@ -167,3 +167,14 @@ def test_stop_off_support_is_counted_on_the_trace(
     ) in out
     assert "             θ_bas θ1, θ_haut θ1, I_sens,A [0:05:23 ; 0:05:40]\n" in out
     assert "épisodes     sous θ_c : 1 épisode, 0:02:04\n" in out
+
+
+def test_two_stops_episodes_are_counted_under_the_central_convention(
+    capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    """R1 (correctifs de la PR #10) : Deux arrêts, aux paramètres par défaut. Deux
+    épisodes sous ``θ_c`` (0:03:24), un seul sous θ1 : c'est la seule paire où le
+    **nombre** d'épisodes distingue la convention. Les segments ne sont pas ceux de
+    la ligne du § 7.2b (``Δ = 100``) ; les épisodes ne dépendent pas de ``Δ``."""
+    out = _pair_report(capsys, tmp_path, s.two_stops)
+    assert "épisodes     sous θ_c : 2 épisodes, 0:03:24\n" in out
