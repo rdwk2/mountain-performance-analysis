@@ -273,6 +273,13 @@ def test_last_passage_never_invents_a_name(start_m: float, end_m: float) -> None
     assert last_passage(PLACES, start_m, end_m) is None
 
 
+def test_last_passage_is_the_largest_abscissa_whatever_the_order() -> None:
+    """R3 (correctifs de la PR #10) : entrée non triée, B à 300 m puis A à 5 m ;
+    ``[0 ; 500]`` → B, le lieu de plus grande abscisse, et non le dernier du tuple."""
+    unsorted = (_resolved("B", 300.0), _resolved("A", 5.0))
+    assert last_passage(unsorted, 0.0, 500.0) == "B"
+
+
 # ---------------------------------------------------------------------------
 # Totaux admis et extrêmes (§ 5b.7 ; 0010 D5.4) — écrits à la main
 # ---------------------------------------------------------------------------
