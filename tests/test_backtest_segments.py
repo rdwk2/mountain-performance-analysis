@@ -62,12 +62,18 @@ PURE_FRACTIONS = {
     RegimeClass.DESCENT: (0.0, 0.0, 1.0),
 }
 
+Dating = tuple[float | None, float | None, float | None, float | None]
+"""``(start_s, realized_start_m, end_s, realized_end_m)`` d'un segment."""
+
 
 @dataclass(frozen=True)
 class Seg:
     """Un segment attendu : ``[b_k ; b_{k+1}]``, motif (``None`` = admis), classe,
     fractions (``None`` : celles de la classe pure), ``(rho, H_1, H_2)`` quand ils
-    sont publiés, instants ``t*_k → t*_{k+1}`` quand la ligne les donne."""
+    sont publiés, instants ``t*_k → t*_{k+1}`` quand la ligne les donne ; pour un
+    segment ``unobserved_bound``, ``(start_s, realized_start_m, end_s,
+    realized_end_m)`` de ses bornes, ``None`` pour une borne non datée (R6 des
+    correctifs de la PR #10)."""
 
     start_m: float
     end_m: float
@@ -76,6 +82,7 @@ class Seg:
     times: tuple[float, float] | None = None
     regime_class: RegimeClass = FLAT
     fractions: tuple[float, float, float] | None = None
+    bounds_dating: Dating = (None, None, None, None)
 
 
 def ok(
@@ -91,8 +98,11 @@ def ok(
     return Seg(start_m, end_m, None, controls, times, regime_class, fractions)
 
 
-def unobserved(start_m: float, end_m: float) -> Seg:
-    return Seg(start_m, end_m, UNOBSERVED)
+def unobserved(
+    start_m: float, end_m: float, bounds_dating: Dating = (None, None, None, None)
+) -> Seg:
+    """Segment ``unobserved_bound`` ; par défaut, ses deux bornes sont non datées."""
+    return Seg(start_m, end_m, UNOBSERVED, bounds_dating=bounds_dating)
 
 
 @dataclass(frozen=True)
@@ -138,18 +148,27 @@ ROWS: dict[str, Row] = {
             ok(250, 311, (1.0, 1.999928, 1.999928)),
         ),
     ),
-    "X09 départ rejeté": Row(m.x09, (unobserved(0, 250), ok(250, 325))),
-    "X12 K = 1 à rebours": Row(m.x12, (unobserved(25, 40),)),
-    "Demi-tour": Row(m.half_turn, (unobserved(0, 275), unobserved(275, 550))),
+    "X09 départ rejeté": Row(
+        m.x09,
+        (unobserved(0, 250, (None, None, 247.0, 247.015341)), ok(250, 325)),
+    ),
+    "X12 K = 1 à rebours": Row(m.x12, (unobserved(25, 40, (0.0, 0.0, None, None)),)),
+    "Demi-tour": Row(
+        m.half_turn,
+        (
+            unobserved(0, 275, (0.0, 0.0, None, None)),
+            unobserved(275, 550, (None, None, 550.0, 550.0)),
+        ),
+    ),
     "T05": Row(m.t05, (Seg(0, 250, GAP), ok(250, 500), ok(500, 510))),
     "T05-ter": Row(m.t05_ter, (ok(0, 250), ok(250, 500), ok(500, 510))),
-    "T07": Row(m.t07, (unobserved(0, 250), ok(250, 270))),
+    "T07": Row(m.t07, (unobserved(0, 250, (None, None, 5.0, 5.0)), ok(250, 270))),
     "Fenêtre": Row(
         m.window,
         (
             ok(0, 250),
-            unobserved(250, 500),
-            unobserved(500, 750),
+            unobserved(250, 500, (125.0, 250.000001, None, None)),
+            unobserved(500, 750, (None, None, 765.000001, 1529.985922)),
             ok(750, 1000),
             ok(1000, 1250),
             ok(1250, 1499.999997),
@@ -393,7 +412,7 @@ ROWS: dict[str, Row] = {
         (
             ok(12, 250, (1.0, 2.0, 2.0), (0.0, 158.666667)),
             ok(250, 500, (1.0, 2.0, 2.0), (158.666667, 325.333334)),
-            unobserved(500, 750),
+            unobserved(500, 750, (325.333334, 487.999847, None, None)),
             unobserved(750, 1000),
             unobserved(1000, LIMIT),
         ),
@@ -404,7 +423,7 @@ ROWS: dict[str, Row] = {
         (
             Seg(12, 250, INTERIOR, (1.131879, 37.15, 23.216006), (0.0, 182.136364)),
             ok(250, 500, (1.0, 2.0, 2.0), (182.136364, 349.181819)),
-            unobserved(500, 750),
+            unobserved(500, 750, (349.181819, 524.829491, None, None)),
             unobserved(750, 1000),
             unobserved(1000, LIMIT),
         ),
@@ -438,6 +457,18 @@ def _expect(segment: ScoreSegmentObservation, expected: Seg) -> None:
     if expected.times is not None:
         times = (segment.start_s, segment.end_s)
         assert times == pytest.approx(expected.times, abs=TOLERANCE)
+    if expected.exclusion is UNOBSERVED:
+        dating = (
+            segment.start_s,
+            segment.realized_start_m,
+            segment.end_s,
+            segment.realized_end_m,
+        )
+        for value, wanted in zip(dating, expected.bounds_dating, strict=True):
+            if wanted is None:
+                assert value is None
+            else:
+                assert value == pytest.approx(wanted, abs=TOLERANCE)
 
 
 @pytest.mark.parametrize("name", list(ROWS))
