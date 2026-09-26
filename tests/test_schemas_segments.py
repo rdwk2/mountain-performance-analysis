@@ -432,6 +432,19 @@ def test_fractions_sum_to_one_within_the_tolerance() -> None:
     assert segment.regime_class is RegimeClass.MIXED
 
 
+def test_fractions_sum_beyond_the_tolerance() -> None:
+    """R4 (correctifs de la PR #10) : ``(0,5 ; 0,5 + 2e−9 ; 0)``, chaque fraction
+    dans ``[0 ; 1]``, somme ``1 + 2e−9`` : refusée par la tolérance de la **somme**,
+    et non par la borne d'une fraction."""
+    with pytest.raises(ContractError, match="somme des fractions"):
+        replace(
+            ADMITTED,
+            ascent_fraction=0.5,
+            flat_fraction=0.5 + 2e-9,
+            regime_class=RegimeClass.MIXED,
+        )
+
+
 def test_class_is_mixed_or_a_largest_fraction() -> None:
     with pytest.raises(ContractError, match="MIXED ou le régime d'une plus grande"):
         replace(
