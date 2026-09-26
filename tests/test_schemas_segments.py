@@ -14,6 +14,8 @@ from typing import Any
 import pytest
 from hypothesis import given
 
+from fixtures.matching import x01
+from fixtures.segments import matched
 from mountain_perf.backtest import MATCHING_PARAMETER_SPECS, FineOverlap
 from mountain_perf.schemas import (
     CLOCKS,
@@ -928,6 +930,23 @@ def test_admitted_elapsed_is_the_same_in_every_total() -> None:
     totals = (*(X01_ADMITTED_TOTALS,) * 4, AdmittedTotals(321.0, 285.0, 0.0, 36.0))
     with pytest.raises(ContractError, match=r"admitted_totals\[4\].elapsed_s"):
         replace(X01_RESULT, admitted_totals=totals)
+
+
+def test_admitted_elapsed_is_that_of_the_coverage() -> None:
+    """R5 (correctifs de la PR #10) : ``MatchResult`` de X01 par ``match_trace``
+    (écoulé admis 320 s) ; les cinq totaux admis remplacés par
+    ``(321, 285, 0, 36)``, égaux entre eux, identité tenue, extrêmes et ``I_sens,A``
+    cohérents : seule l'égalité à ``coverage.admitted_elapsed_s`` est violée."""
+    result = matched(x01())
+    assert result.coverage.admitted_elapsed_s == pytest.approx(320.0, abs=1e-6)
+    with pytest.raises(ContractError, match=r"coverage\.admitted_elapsed_s"):
+        replace(
+            result,
+            admitted_totals=(AdmittedTotals(321.0, 285.0, 0.0, 36.0),) * 5,
+            low_convention_index=0,
+            high_convention_index=0,
+            admitted_sensitivity_range_s=(285.0, 320.0),
+        )
 
 
 @pytest.mark.parametrize(
