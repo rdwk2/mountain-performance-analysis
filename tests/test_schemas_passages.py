@@ -472,8 +472,11 @@ def test_instants_are_finite(changes: dict[str, Any]) -> None:
         ),
         ({"association_window_s": (-1.0, 620.0)}, r"association_window_s\[0\]"),
         ({"stop_total_s": -1.0}, "stop_total_s"),
+        # R10 des correctifs de la PR #12 : A a un épisode, seule l'arrivée est
+        # négative ; tout le reste est valide.
+        ({"arrival_s": -1.0}, "arrival_s"),
     ],
-    ids=["crossing", "window", "stop_total"],
+    ids=["crossing", "window", "stop_total", "arrival"],
 )
 def test_instants_are_non_negative(changes: dict[str, Any], name: str) -> None:
     """Un instant négatif ; ``crossing_s`` est le premier contrôlé."""
