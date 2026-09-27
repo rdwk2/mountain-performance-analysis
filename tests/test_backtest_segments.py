@@ -535,9 +535,12 @@ def test_realized_path_refuses_decreasing_positions() -> None:
 
 
 def test_realized_path_between_equal_positions() -> None:
-    """Lacune G4 (brief M4a-2c, § 6) : des positions égales satisfont la
-    précondition ; le chemin est l'enregistrement brut, deux fois."""
-    assert _moving_path(3.0, 3.0) == pytest.approx([9.0, 9.0], abs=1e-9)
+    """Lacune G4 (brief M4a-2c, § 6 ; correctif R2 de la PR #11) : des positions
+    égales satisfont la précondition ; le chemin est l'enregistrement brut, deux
+    fois, latitude et longitude comprises."""
+    trace = local_trace([2.0 * i for i in range(6)], [(x, 0.0) for x in MOVING_X_M])
+    raw = (trace.latitude_deg[3], trace.longitude_deg[3])
+    assert realized_path(trace, build_series(trace), 3.0, 3.0) == (raw, raw)
 
 
 def test_realized_length_is_the_haversine_length() -> None:
