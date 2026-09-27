@@ -488,6 +488,16 @@ def test_qualification_at_the_thresholds(
     assert qualify(*measures, DYADIC) is expected
 
 
+def test_tolerance_boundary_is_included() -> None:
+    """Correctif R5 de la PR #11 (brief M4a-2c, § 3.1) : une mesure qui dépasse son
+    seuil d'exactement ``τ·s`` lui est égale. Aucune mesure des cinq conventions de
+    ``0010`` ne tombe sur cette frontière : la convention est construite pour."""
+    h = 1_000_000.0 / 2**23
+    x = 1_000_001.0 / 2**23
+    assert x - h == CLOCK_THRESHOLD_RELATIVE_TOLERANCE * h  # frontière exacte
+    assert qualify(x, 0.0, 0.0, 0.0, ClockConvention(h, 0.03, 60.0)) is IMMOBILE
+
+
 def test_qualification_needs_diameters_only_when_not_mobile() -> None:
     assert qualify(1.0, 0.0, None, None, DYADIC) is MOBILE
     with pytest.raises(ValueError, match="D_h et D_z"):
