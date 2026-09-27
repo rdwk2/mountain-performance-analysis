@@ -680,6 +680,42 @@ CORRECTIVE_ROWS: dict[str, Row] = {
         prefix_count=5,
         prefix_end_s=1379.0,
     ),
+    "Hors ε à ε = 50": Row(
+        p.out_of_tolerance_eps_50,
+        "R5 des correctifs de la PR #12 : ε lu dans match.parameters — l'écart de "
+        "45 m devient admissible",
+        (_found("H", 375.5, (INT, 1, False), 375.5, (250.0, 500.000001)),),
+        prefix_count=5,
+        prefix_end_s=1010.0,
+    ),
+    "Arrêt à 35 m à ε = 40": Row(
+        p.stop_at_35_m_eps_40,
+        "R5 des correctifs de la PR #12 : ε lu dans match.parameters pour "
+        "l'association — Z devient candidate",
+        (
+            _found(
+                "Z",
+                345.0,
+                (INT, 1, False),
+                345.0,
+                (250.0, 620.000001),
+                departure_s=488.0,
+                stop_total_s=96.0,
+                episode_count=1,
+            ),
+        ),
+        (Episode(392.0, 488.0, ATTRIBUTED, 0, (380.0, 0.0)),),
+        prefix_count=5,
+        prefix_end_s=1130.0,
+    ),
+    "Lacet large à r_c = 30": Row(
+        p.wide_switchback_radius_30,
+        "R5 des correctifs de la PR #12 : r_c lu dans match.parameters — un seul "
+        "événement, daté par son dernier candidat",
+        (_found("L", 375.5, (INT, 1, False), 435.5, (250.0, 560.000001)),),
+        prefix_count=5,
+        prefix_end_s=1070.0,
+    ),
 }
 """Lignes ajoutées par les correctifs de la PR #12 (R4 à R6), mêmes vérifications."""
 

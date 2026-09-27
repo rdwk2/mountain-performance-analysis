@@ -24,7 +24,13 @@ from collections.abc import Sequence
 from dataclasses import replace
 
 from fixtures import segments
-from fixtures.matching import MatchCase, Point, TracePath, local_trace
+from fixtures.matching import (
+    MatchCase,
+    Point,
+    TracePath,
+    local_trace,
+    matching_parameters,
+)
 from fixtures.segments import named_route, reference_profile, stay
 from fixtures.traces import local_deg
 from mountain_perf.backtest import (
@@ -388,3 +394,29 @@ def two_resumes() -> MatchCase:
     ``(0,0)→(252,0)`` à 1 m/s, ``stay`` 120, ``→(1015,0)`` à 1 m/s."""
     places = (("Borne bis", (249.1, 0.0)), ("Borne", (250.9, 0.0)))
     return _east(places, _stop_at(252.0, 120))
+
+
+# ---------------------------------------------------------------------------
+# Correctifs de la PR #12 — R5 : ε et r_c lus dans les paramètres
+# ---------------------------------------------------------------------------
+
+
+def out_of_tolerance_eps_50() -> MatchCase:
+    """Hors ε à ``ε = 50`` : l'écart latéral de 45 m devient admissible."""
+    return replace(
+        out_of_tolerance(), parameters=matching_parameters(lateral_tolerance_m=50.0)
+    )
+
+
+def stop_at_35_m_eps_40() -> MatchCase:
+    """Arrêt à 35 m à ``ε = 40`` : Z devient candidate."""
+    return replace(
+        stop_at_35_m(), parameters=matching_parameters(lateral_tolerance_m=40.0)
+    )
+
+
+def wide_switchback_radius_30() -> MatchCase:
+    """Lacet large à ``r_c = 30`` : les deux candidats forment un seul événement."""
+    return replace(
+        wide_switchback(), parameters=matching_parameters(cluster_radius_m=30.0)
+    )
