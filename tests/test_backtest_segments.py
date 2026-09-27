@@ -10,6 +10,7 @@ et les tests directs du chemin réalisé et du contrôle intérieur ; enfin, par
 qui les donnent, et les préconditions.
 """
 
+import math
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from itertools import pairwise
@@ -21,6 +22,7 @@ from fixtures import matching as m
 from fixtures import segments as s
 from fixtures.matching import MatchCase, local_trace, reference
 from mountain_perf.backtest import (
+    MATCHING_PARAMETER_SPECS,
     build_series,
     clock_partition,
     interior_deviations,
@@ -532,6 +534,15 @@ def test_realized_path_refuses_decreasing_positions() -> None:
         _moving_path(2.0, 1.5)
 
 
+def test_realized_path_between_equal_positions() -> None:
+    """Lacune G4 (brief M4a-2c, § 6 ; correctif R2 de la PR #11) : des positions
+    égales satisfont la précondition ; le chemin est l'enregistrement brut, deux
+    fois, latitude et longitude comprises."""
+    trace = local_trace([2.0 * i for i in range(6)], [(x, 0.0) for x in MOVING_X_M])
+    raw = (trace.latitude_deg[3], trace.longitude_deg[3])
+    assert realized_path(trace, build_series(trace), 3.0, 3.0) == (raw, raw)
+
+
 def test_realized_length_is_the_haversine_length() -> None:
     """Un aller-retour sur le parallèle de base : 3 + 2 + 5 m, la longueur du chemin
     et non la corde de 6 m (le long du parallèle, haversine et ``x`` diffèrent de
@@ -564,6 +575,13 @@ def test_distance_to_a_zero_length_segment_is_the_distance_to_its_point() -> Non
     assert _segment_distance_m((3.0, 4.0), (0.0, 0.0), (0.0, 0.0)) == 5.0
 
 
+def test_distance_to_a_zero_length_segment_away_from_the_origin() -> None:
+    """Lacune G3 (brief M4a-2c, § 6) : segment de longueur nulle hors de l'origine,
+    les deux coordonnées comptent."""
+    distance_m = _segment_distance_m((-3.0, 4.0), (2.0, -1.0), (2.0, -1.0))
+    assert distance_m == math.hypot(5.0, 5.0)
+
+
 def test_interior_deviation_without_interior_point() -> None:
     """``H_1 = 0`` sans point intérieur ; ``H_2`` lu aux segments du chemin."""
     geometry = reference((0.0, 0.0), (100.0, 0.0))
@@ -572,6 +590,18 @@ def test_interior_deviation_without_interior_point() -> None:
     h1_m, h2_m = interior_deviations(geometry, path, 0.0, geometry.length_m, 30.0)
     assert h1_m == 0.0
     assert h2_m == pytest.approx(3.0, abs=1e-6)
+
+
+def test_interior_deviation_read_at_the_first_grid_point() -> None:
+    """Lacune G1 (brief M4a-2c, § 6) : ``H_2`` n'est décidé qu'au premier point de
+    grille ``b_k + 10`` m, face au décrochement de 5 m du chemin."""
+    geometry = reference((0.0, 0.0), (100.0, 0.0))
+    trace = local_trace(
+        [0, 1, 2, 3, 4], [(0.0, 0.0), (0.0, 5.0), (20.0, 5.0), (20.0, 0.0), (35.0, 0.0)]
+    )
+    path = tuple(zip(trace.latitude_deg, trace.longitude_deg, strict=True))
+    h1_m, h2_m = interior_deviations(geometry, path, 0.0, 35.0, 30.0)
+    assert (h1_m, h2_m) == pytest.approx((5.0, 5.0), abs=1e-6)
 
 
 # ---------------------------------------------------------------------------
@@ -931,6 +961,19 @@ def test_match_trace_needs_the_matching_parameters() -> None:
     inputs["parameters"] = ParameterSet(PROFILE_PARAMETER_SPECS)
     with pytest.raises(ValueError, match="MATCHING_PARAMETER_SPECS"):
         match_trace(**inputs)
+
+
+def test_match_trace_publishes_its_parameters() -> None:
+    """Lacune G5 (brief M4a-2c, § 6 ; correctif R1 de la PR #11) : le résultat
+    publie les paramètres reçus, tous les trois, et non les défauts."""
+    parameters = m.matching_parameters(
+        score_step_m=125.0, lateral_tolerance_m=25.0, cluster_radius_m=12.0
+    )
+    inputs = _inputs(m.t01())
+    inputs["parameters"] = parameters
+    result = match_trace(**inputs)
+    assert result.parameters == parameters
+    assert result.parameters != ParameterSet(MATCHING_PARAMETER_SPECS)
 
 
 def test_match_trace_needs_profile_and_geometry_of_the_same_route() -> None:

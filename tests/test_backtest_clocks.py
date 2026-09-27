@@ -2,8 +2,11 @@
 confirmation, partition, cumulés, totaux, épisodes.
 
 Scénarios du § 7.1 sur le plan équatorial (``fixtures.traces``), 1 Hz et 1 000 m
-d'altitude sauf mention. Les égalités de seuil se testent sur ``qualify`` seul, avec
-des valeurs exactement représentables, jamais à travers une trace (§ 7.0).
+d'altitude sauf mention. Les égalités de seuil se testent sur ``qualify`` seul, par
+un tableau de valeurs exactement représentables à ``τ/2`` et ``2τ`` des seuils ; et,
+pour les horloges seulement, à travers une trace : trois fixtures (brief M4a-2c,
+§ 5.2) atteignent les seuils exactement en réels à travers le lissage et
+l'interpolation, et la règle de ``0010`` D5.2 les retrouve.
 """
 
 import math
@@ -19,7 +22,10 @@ from hypothesis import strategies as st
 from fixtures.traces import parallel_trace, planar_trace
 from mountain_perf.backtest.clocks import (
     CLOCK_HALF_WINDOW_S,
+    CLOCK_THRESHOLD_RELATIVE_TOLERANCE,
     Qualification,
+    _diameter_m,
+    _smoothed_at,
     clock_duration_s,
     clock_partition,
     confirm,
@@ -30,6 +36,7 @@ from mountain_perf.backtest.clocks import (
     window_measures,
 )
 from mountain_perf.backtest.series import build_series
+from mountain_perf.gpx.geo import EARTH_RADIUS_M
 from mountain_perf.schemas import (
     CENTRAL_CONVENTION_INDEX,
     CLOCK_CONVENTIONS,
@@ -88,6 +95,12 @@ def _assert_totals(
 
 def test_window_constant_of_0010_d5_2() -> None:
     assert CLOCK_HALF_WINDOW_S == 15.0
+
+
+def test_threshold_tolerance_of_0010_d5_2() -> None:
+    """``0010`` D5.2, précision M4a-2c : ``τ = 1e−6``. Le tableau de ``qualify`` est
+    construit avec la constante et la suit ; ce test seul en fixe la valeur."""
+    assert CLOCK_THRESHOLD_RELATIVE_TOLERANCE == 1e-6
 
 
 # ---------------------------------------------------------------------------
@@ -265,6 +278,72 @@ def test_economy_matches_the_complete_partition_when_diameters_decide() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Égalités de seuil exactes à travers une trace (``0010`` D5.2, précision M4a-2c)
+# ---------------------------------------------------------------------------
+
+SECONDS_0_299 = [float(t) for t in range(300)]
+
+STEP_1_0_M = planar_trace(
+    SECONDS_0_299,
+    [0.0] * 300,
+    elevation_m=[1234.4 if t < 150 else 1235.4 for t in range(300)],
+)
+"""Marche de 1,0 m entre les enregistrements 149 et 150. Lissée, elle monte en cinq
+pas de 0,2 m ; aux intervalles 136 et 162, ``Δz = 0,9`` m exactement en réels, donc
+``v_z = z`` et ``D_z = 30·z`` sous ``θ2``, ``θ4``, ``θ5``. Sur une base de 1 000 m,
+l'arrondi tomberait du bon côté et la règle stricte passerait."""
+
+STEP_1_5_M = planar_trace(
+    SECONDS_0_299,
+    [0.0] * 300,
+    elevation_m=[1000.0 if t < 150 else 1001.5 for t in range(300)],
+)
+"""Marche de 1,5 m : ``v_z = 0,015`` et ``D_z = 0,45`` sous ``θ1`` (intervalles 133
+et 165) ; ``v_z = 0,045`` et ``D_z = 1,35`` sous ``θ3`` (136 et 162), ``0,045`` étant
+aussi le plus haut seuil vertical de l'économie."""
+
+PACE_0_15_MS = planar_trace(SECONDS_0_299, [0.15 * t for t in SECONDS_0_299])
+"""Pas de 0,15 m/s : ``v_h = h`` et ``D_h = 30·h`` sous ``θ3`` sur toute fenêtre
+valide, ``0,15`` étant aussi le plus haut seuil horizontal de l'économie."""
+
+
+@pytest.mark.parametrize(
+    ("trace", "expected"),
+    [
+        (
+            STEP_1_0_M,
+            [(31, 234, 34), (25, 240, 34), (0, 265, 34), (25, 240, 34), (25, 240, 34)],
+        ),
+        (
+            STEP_1_5_M,
+            [(31, 234, 34), (29, 236, 34), (25, 240, 34), (29, 236, 34), (29, 236, 34)],
+        ),
+        (PACE_0_15_MS, [(265, 0, 34), (265, 0, 34), (0, 265, 34)] + [(265, 0, 34)] * 2),
+    ],
+    ids=["marche-1,0-m", "marche-1,5-m", "pas-0,15-m-s"],
+)
+def test_threshold_equalities_through_a_trace(
+    trace: RecordedTrace, expected: list[tuple[float, float, float]]
+) -> None:
+    """``0010`` D5.2, précision M4a-2c : les égalités exactes en réels sont retrouvées
+    à travers le lissage et l'interpolation. Totaux ``(M, S, U)`` exacts : les durées
+    sont des secondes entières."""
+    assert _totals(trace) == expected
+
+
+@pytest.mark.parametrize("i", [136, 162])
+def test_step_1_0_m_equalities_are_immobile_under_theta_c(i: int) -> None:
+    """``0010`` D5.2, précision M4a-2c : ``v_z = z`` et ``D_z = 30·z`` à l'arrondi
+    près, la fenêtre est immobile."""
+    measures = window_measures(STEP_1_0_M, build_series(STEP_1_0_M), i)
+    assert measures is not None
+    qualification = qualify(
+        measures.v_h, measures.v_z, measures.d_h, measures.d_z, CLOCK_CONVENTIONS[C]
+    )
+    assert qualification is IMMOBILE
+
+
+# ---------------------------------------------------------------------------
 # Cumulés et durées (``0010`` D5.3) sur X06-bis, θ_c
 # ---------------------------------------------------------------------------
 
@@ -360,29 +439,66 @@ def test_confirmation_needs_one_duration_per_interval() -> None:
         confirm((1.0,), (IMMOBILE, IMMOBILE), 60.0)
 
 
+def test_confirmation_has_no_tolerance_below_c() -> None:
+    """Correctif R4 de la PR #11 (brief M4a-2c, § 2 : ``confirm`` inchangé) : une
+    suite immobile d'un flottant sous 60 s reste indéterminée ; la tolérance des
+    seuils de mesure (``0010`` D5.2, précision M4a-2c) ne s'applique pas aux
+    durées."""
+    assert confirm((math.nextafter(60.0, 0.0),), (IMMOBILE,), 60.0) == (U,)
+
+
 DYADIC = ClockConvention(0.125, 0.03125, 60.0)
 """``30·h = 3,75`` et ``30·z = 0,9375`` sont exacts en flottant."""
 
 
-def _up(value: float) -> float:
-    return math.nextafter(value, math.inf)
+TAU = CLOCK_THRESHOLD_RELATIVE_TOLERANCE
+EQUAL = 1 + TAU / 2
+"""Facteur d'une mesure égale à son seuil à ``τ/2`` près."""
+BEYOND = 1 + 2 * TAU
+"""Facteur d'une mesure qui dépasse son seuil."""
 
 
 @pytest.mark.parametrize(
     ("measures", "expected"),
     [
         ((0.125, 0.03125, 3.75, 0.9375), IMMOBILE),
-        ((0.125, 0.03125, _up(3.75), 0.9375), INDETERMINATE),
-        ((0.125, 0.03125, 3.75, _up(0.9375)), INDETERMINATE),
-        ((_up(0.125), 0.03125, 3.75, 0.9375), MOBILE),
-        ((0.125, _up(0.03125), 3.75, 0.9375), MOBILE),
+        ((0.125 * EQUAL, 0.03125, 3.75, 0.9375), IMMOBILE),
+        ((0.125, 0.03125 * EQUAL, 3.75, 0.9375), IMMOBILE),
+        ((0.125, 0.03125, 3.75 * EQUAL, 0.9375), IMMOBILE),
+        ((0.125, 0.03125, 3.75, 0.9375 * EQUAL), IMMOBILE),
+        ((0.125 * BEYOND, 0.03125, 3.75, 0.9375), MOBILE),
+        ((0.125, 0.03125 * BEYOND, 3.75, 0.9375), MOBILE),
+        ((0.125, 0.03125, 3.75 * BEYOND, 0.9375), INDETERMINATE),
+        ((0.125, 0.03125, 3.75, 0.9375 * BEYOND), INDETERMINATE),
     ],
-    ids=["seuils-atteints", "D_h+", "D_z+", "v_h+", "v_z+"],
+    ids=[
+        "seuils-atteints",
+        "v_h-egal",
+        "v_z-egal",
+        "D_h-egal",
+        "D_z-egal",
+        "v_h-au-dela",
+        "v_z-au-dela",
+        "D_h-au-dela",
+        "D_z-au-dela",
+    ],
 )
 def test_qualification_at_the_thresholds(
     measures: tuple[float, float, float, float], expected: Qualification
 ) -> None:
+    """``0010`` D5.2, précision M4a-2c : une mesure égale à son seuil à ``τ/2`` près
+    ne le dépasse pas ; à ``2τ`` au-delà, elle le dépasse."""
     assert qualify(*measures, DYADIC) is expected
+
+
+def test_tolerance_boundary_is_included() -> None:
+    """Correctif R5 de la PR #11 (brief M4a-2c, § 3.1) : une mesure qui dépasse son
+    seuil d'exactement ``τ·s`` lui est égale. Aucune mesure des cinq conventions de
+    ``0010`` ne tombe sur cette frontière : la convention est construite pour."""
+    h = 1_000_000.0 / 2**23
+    x = 1_000_001.0 / 2**23
+    assert x - h == CLOCK_THRESHOLD_RELATIVE_TOLERANCE * h  # frontière exacte
+    assert qualify(x, 0.0, 0.0, 0.0, ClockConvention(h, 0.03, 60.0)) is IMMOBILE
 
 
 def test_qualification_needs_diameters_only_when_not_mobile() -> None:
@@ -401,6 +517,62 @@ def test_invalid_window_and_gap_have_no_measures() -> None:
     # j⁺(98,5) = 99, dont le lissage est tronqué ; la borne haute ne sort du bloc
     # qu'à partir de l'intervalle 85.
     assert window_measures(trace, series, 83) is None
+
+
+# ---------------------------------------------------------------------------
+# Fonctions internes : diamètre, valeurs lissées aux bornes, épisodes
+# (correctif R6 de la PR #11, lacunes K1 à K6 du balayage mécanique)
+# ---------------------------------------------------------------------------
+
+TWO_SECOND_STEPS = [2.0 * k for k in range(11)]
+"""``t = 0, 2, …, 20`` s."""
+
+
+def test_diameter_north_south() -> None:
+    """K1 : diamètre d'une paire qui s'écarte sur les deux axes, nord-sud compris."""
+    assert _diameter_m([(0.0, 0.0), (3.0, 4.0)]) == 5.0
+
+
+def test_diameter_farthest_pair_is_not_first_and_last() -> None:
+    """K2 : la paire la plus éloignée est le premier point et un point intérieur,
+    pas le premier et le dernier."""
+    assert _diameter_m([(0.0, 0.0), (1.0, 0.0), (10.0, 0.0), (2.0, 0.0)]) == 10.0
+
+
+def test_smoothed_at_a_bound_on_a_record() -> None:
+    """K3 : borne de fenêtre sur un enregistrement (``0010`` D5.2, ``j⁻`` et ``j⁺``
+    confondus) : ses latitude et longitude lissées, chacune à sa place."""
+    trace = planar_trace(
+        TWO_SECOND_STEPS, list(TWO_SECOND_STEPS), [2 * t for t in TWO_SECOND_STEPS]
+    )
+    lat, lon, _ = _smoothed_at(trace, build_series(trace), 10.0)
+    assert lat == pytest.approx(math.degrees(20 / EARTH_RADIUS_M), abs=1e-12)
+    assert lon == pytest.approx(math.degrees(10 / EARTH_RADIUS_M), abs=1e-12)
+
+
+def test_smoothed_at_interpolates_on_a_two_second_step() -> None:
+    """K4 : interpolation en temps à un pas différent de 1 s."""
+    trace = planar_trace(TWO_SECOND_STEPS, [0.0] * 11, list(TWO_SECOND_STEPS))
+    lat, _, _ = _smoothed_at(trace, build_series(trace), 9.0)
+    assert lat == pytest.approx(math.degrees(9 / EARTH_RADIUS_M), abs=1e-12)
+
+
+def test_smoothed_at_interpolates_a_non_linear_smoothed_series() -> None:
+    """K5 : interpolation sur une série lissée non linéaire. Altitudes ``t²`` à
+    1 Hz, lissées en ``j² + 2`` : 27 en 5 s, 38 en 6 s, 32,5 à mi-chemin."""
+    seconds = [float(t) for t in range(12)]
+    trace = planar_trace(seconds, [0.0] * 12, elevation_m=[t * t for t in seconds])
+    assert _smoothed_at(trace, build_series(trace), 5.5)[2] == 32.5
+
+
+def test_stop_episode_from_the_first_to_the_last_interval() -> None:
+    """K6 : épisode du premier au dernier intervalle. Inatteignable par
+    ``clock_partition``, dont les bords sont indéterminés, mais ``stop_episodes``
+    est public."""
+    partition = ClockPartition(time_s=(0.0, 1.0, 2.0, 3.0), states=((S, S, S),) * 5)
+    assert stop_episodes(partition, 0) == (
+        StopEpisode(start_s=0.0, end_s=3.0, first_record=0, last_record=3),
+    )
 
 
 # ---------------------------------------------------------------------------

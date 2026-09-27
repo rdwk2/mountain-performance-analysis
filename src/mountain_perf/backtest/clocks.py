@@ -36,6 +36,14 @@ CLOCK_HALF_WINDOW_S = 15.0
 D5.2) ; ses 30 s divisent les déplacements en vitesses et multiplient ``h`` et ``z``
 en seuils de diamètre."""
 
+CLOCK_THRESHOLD_RELATIVE_TOLERANCE = 1e-6
+"""Tolérance relative des comparaisons aux seuils d'horloge (``0010`` D5.2,
+précision M4a-2c) : une mesure ``x`` est égale à son seuil ``s`` quand
+``|x − s| <= τ·s``, et le dépasse quand ``x − s > τ·s``. Les altitudes enregistrées
+au pas de 0,2 m atteignent exactement ``z`` et ``30·z`` en réels ; le lissage et
+l'interpolation n'y ajoutent qu'un bruit d'arrondi, que cette tolérance absorbe sans
+atteindre les écarts réels entre mesures."""
+
 _WINDOW_S = 2 * CLOCK_HALF_WINDOW_S
 _MAX_HORIZONTAL_SPEED_MS = max(c.max_horizontal_speed_ms for c in CLOCK_CONVENTIONS)
 _MAX_VERTICAL_SPEED_MS = max(c.max_vertical_speed_ms for c in CLOCK_CONVENTIONS)
@@ -64,6 +72,12 @@ class WindowMeasures:
     v_z: float
     d_h: float | None
     d_z: float | None
+
+
+def _exceeds(value: float, threshold: float) -> bool:
+    """``value`` dépasse ``threshold`` au-delà de l'erreur d'arrondi
+    (:data:`CLOCK_THRESHOLD_RELATIVE_TOLERANCE`)."""
+    return value - threshold > CLOCK_THRESHOLD_RELATIVE_TOLERANCE * threshold
 
 
 def _smoothed_at(
@@ -135,7 +149,7 @@ def window_measures(
     v_h = math.hypot(*end_xy) / _WINDOW_S
     v_z = abs(z_hi - z_lo) / _WINDOW_S
     if not complete and (
-        v_h > _MAX_HORIZONTAL_SPEED_MS or v_z > _MAX_VERTICAL_SPEED_MS
+        _exceeds(v_h, _MAX_HORIZONTAL_SPEED_MS) or _exceeds(v_z, _MAX_VERTICAL_SPEED_MS)
     ):
         return WindowMeasures(v_h, v_z, None, None)
     interior = range(bisect_right(t, lo), bisect_left(t, hi))
@@ -160,17 +174,21 @@ def qualify(
     d_z: float | None,
     convention: ClockConvention,
 ) -> Qualification:
-    """Mobile si ``v_h > h`` ou ``v_z > z`` ; immobile si ``v_h <= h``, ``v_z <= z``,
-    ``D_h <= 30·h`` et ``D_z <= 30·z`` ; indéterminé sinon (``0010`` D5.2).
+    """Mobile si ``v_h`` dépasse ``h`` ou ``v_z`` dépasse ``z`` ; immobile si aucune
+    des quatre mesures ne dépasse son seuil (``h``, ``z``, ``30·h``, ``30·z``) ;
+    indéterminé sinon (``0010`` D5.2).
 
-    Les diamètres ne servent qu'à une fenêtre non mobile ; absents : ``ValueError``.
+    Les comparaisons portent sur les valeurs réelles : une mesure ``x`` est égale à
+    son seuil ``s`` quand ``|x − s| <= τ·s`` et le dépasse quand ``x − s > τ·s``,
+    ``τ`` = :data:`CLOCK_THRESHOLD_RELATIVE_TOLERANCE`. Les diamètres ne servent
+    qu'à une fenêtre non mobile ; absents : ``ValueError``.
     """
     h, z = convention.max_horizontal_speed_ms, convention.max_vertical_speed_ms
-    if v_h > h or v_z > z:
+    if _exceeds(v_h, h) or _exceeds(v_z, z):
         return Qualification.MOBILE
     if d_h is None or d_z is None:
         raise ValueError("D_h et D_z sont nécessaires pour une fenêtre non mobile.")
-    if d_h <= _WINDOW_S * h and d_z <= _WINDOW_S * z:
+    if not _exceeds(d_h, _WINDOW_S * h) and not _exceeds(d_z, _WINDOW_S * z):
         return Qualification.IMMOBILE
     return Qualification.INDETERMINATE
 

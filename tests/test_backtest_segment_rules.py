@@ -178,6 +178,20 @@ def test_fine_overlaps_of_a_partial_interval() -> None:
     assert regime_class(*fractions) is RegimeClass.MIXED
 
 
+def test_fine_overlaps_shorter_than_a_metre() -> None:
+    """Lacune G2 (brief M4a-2c, § 6 ; correctif R3 de la PR #11) : un chevauchement
+    de 0,5 m est gardé, et un de ``2⁻¹⁰`` m (exact en flottant) aussi."""
+    assert fine_overlaps(hand_profile(STEPS, CLIMB), 49.5, 100.0) == (
+        FineOverlap(0.5, 0.1),
+        FineOverlap(50.0, 0.1),
+    )
+    tiny = 2.0**-10
+    assert fine_overlaps(hand_profile(STEPS, CLIMB), 50.0 - tiny, 100.0) == (
+        FineOverlap(tiny, 0.1),
+        FineOverlap(50.0, 0.1),
+    )
+
+
 def test_grades_at_the_threshold_are_flat() -> None:
     """Pentes ``+0,05`` et ``−0,05`` : tout en plat."""
     profile = hand_profile((0.0, 50.0, 100.0), (0.0, 2.5, 0.0))
