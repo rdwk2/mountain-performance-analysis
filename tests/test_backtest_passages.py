@@ -716,6 +716,35 @@ CORRECTIVE_ROWS: dict[str, Row] = {
         prefix_count=5,
         prefix_end_s=1070.0,
     ),
+    "Chronologie finale et Fin": Row(
+        p.final_chronology_with_end,
+        "R6 des correctifs de la PR #12, choix 11 : un lieu d'arrivée n'entre pas dans "
+        "la chronologie et n'est jamais marqué",
+        (
+            _found(
+                "F",
+                1004.499999,
+                (INT, 4, False),
+                1033.0,
+                (1000.000001, 1143.0),
+                status=AMBIGUOUS,
+                arrival_s=1017.0,
+                departure_s=1166.0,
+                stop_total_s=149.0,
+                episode_count=1,
+                chronology_violation=True,
+                comparable=False,
+                unavailability=Unavailability.AMBIGUOUS,
+            ),
+            _found(
+                "Fin", 1009.999999, (ARR, 5, True), 1143.0, (1000.000001, 1183.0), ARR
+            ),
+        ),
+        (Episode(1017.0, 1166.0, ATTRIBUTED, 0, (1007.425, 0.0)),),
+        prefix_count=5,
+        prefix_end_s=1143.0,
+        point_times=((5, 1143.0),),
+    ),
 }
 """Lignes ajoutées par les correctifs de la PR #12 (R4 à R6), mêmes vérifications."""
 

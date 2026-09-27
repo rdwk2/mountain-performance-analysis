@@ -267,6 +267,14 @@ def final_chronology() -> MatchCase:
     return _east((("F", (1004.5, 0.0)),), path)
 
 
+def final_chronology_with_end() -> MatchCase:
+    """Chronologie finale et Fin (R6 des correctifs de la PR #12) : la trace de
+    Chronologie finale ; F (1004,5 ; 0), Fin (1010 ; 3) — un lieu d'arrivée n'entre
+    pas dans la chronologie."""
+    route = named_route(EAST, (("F", (1004.5, 0.0)), ("Fin", (1010.0, 3.0))))
+    return replace(final_chronology(), route=route)
+
+
 def out_and_back() -> MatchCase:
     """Aller-retour : ``(0,0)→(620,0)→(0,0)`` ; T (620 ; 0), M (300 ; 3), résolu
     deux fois ; ``(0,0)→(620,0)→(305,0)`` à 1 m/s, ``stay`` 120, ``→(0,0)`` à
