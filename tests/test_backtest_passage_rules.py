@@ -372,6 +372,7 @@ def test_attribute_episode(
         (((10.0, 20.0),), 20.0, (False,)),
         (((10.0, 30.0), (40.0, 50.0)), 45.0, (False, True)),
         ((), 100.0, ()),
+        (((0.0, 10.0), (20.0, 50.0), (40.0, 60.0)), None, (False, True, True)),
     ],
     ids=[
         "both_marked",
@@ -381,6 +382,7 @@ def test_attribute_episode(
         "final_equality",
         "last_before_final",
         "no_envelope",
+        "only_the_last_pair",
     ],
 )
 def test_chronology_violations(
