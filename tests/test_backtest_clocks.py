@@ -24,6 +24,8 @@ from mountain_perf.backtest.clocks import (
     CLOCK_HALF_WINDOW_S,
     CLOCK_THRESHOLD_RELATIVE_TOLERANCE,
     Qualification,
+    _diameter_m,
+    _smoothed_at,
     clock_duration_s,
     clock_partition,
     confirm,
@@ -34,6 +36,7 @@ from mountain_perf.backtest.clocks import (
     window_measures,
 )
 from mountain_perf.backtest.series import build_series
+from mountain_perf.gpx.geo import EARTH_RADIUS_M
 from mountain_perf.schemas import (
     CENTRAL_CONVENTION_INDEX,
     CLOCK_CONVENTIONS,
@@ -514,6 +517,62 @@ def test_invalid_window_and_gap_have_no_measures() -> None:
     # j⁺(98,5) = 99, dont le lissage est tronqué ; la borne haute ne sort du bloc
     # qu'à partir de l'intervalle 85.
     assert window_measures(trace, series, 83) is None
+
+
+# ---------------------------------------------------------------------------
+# Fonctions internes : diamètre, valeurs lissées aux bornes, épisodes
+# (correctif R6 de la PR #11, lacunes K1 à K6 du balayage mécanique)
+# ---------------------------------------------------------------------------
+
+TWO_SECOND_STEPS = [2.0 * k for k in range(11)]
+"""``t = 0, 2, …, 20`` s."""
+
+
+def test_diameter_north_south() -> None:
+    """K1 : diamètre d'une paire qui s'écarte sur les deux axes, nord-sud compris."""
+    assert _diameter_m([(0.0, 0.0), (3.0, 4.0)]) == 5.0
+
+
+def test_diameter_farthest_pair_is_not_first_and_last() -> None:
+    """K2 : la paire la plus éloignée est le premier point et un point intérieur,
+    pas le premier et le dernier."""
+    assert _diameter_m([(0.0, 0.0), (1.0, 0.0), (10.0, 0.0), (2.0, 0.0)]) == 10.0
+
+
+def test_smoothed_at_a_bound_on_a_record() -> None:
+    """K3 : borne de fenêtre sur un enregistrement (``0010`` D5.2, ``j⁻`` et ``j⁺``
+    confondus) : ses latitude et longitude lissées, chacune à sa place."""
+    trace = planar_trace(
+        TWO_SECOND_STEPS, list(TWO_SECOND_STEPS), [2 * t for t in TWO_SECOND_STEPS]
+    )
+    lat, lon, _ = _smoothed_at(trace, build_series(trace), 10.0)
+    assert lat == pytest.approx(math.degrees(20 / EARTH_RADIUS_M), abs=1e-12)
+    assert lon == pytest.approx(math.degrees(10 / EARTH_RADIUS_M), abs=1e-12)
+
+
+def test_smoothed_at_interpolates_on_a_two_second_step() -> None:
+    """K4 : interpolation en temps à un pas différent de 1 s."""
+    trace = planar_trace(TWO_SECOND_STEPS, [0.0] * 11, list(TWO_SECOND_STEPS))
+    lat, _, _ = _smoothed_at(trace, build_series(trace), 9.0)
+    assert lat == pytest.approx(math.degrees(9 / EARTH_RADIUS_M), abs=1e-12)
+
+
+def test_smoothed_at_interpolates_a_non_linear_smoothed_series() -> None:
+    """K5 : interpolation sur une série lissée non linéaire. Altitudes ``t²`` à
+    1 Hz, lissées en ``j² + 2`` : 27 en 5 s, 38 en 6 s, 32,5 à mi-chemin."""
+    seconds = [float(t) for t in range(12)]
+    trace = planar_trace(seconds, [0.0] * 12, elevation_m=[t * t for t in seconds])
+    assert _smoothed_at(trace, build_series(trace), 5.5)[2] == 32.5
+
+
+def test_stop_episode_from_the_first_to_the_last_interval() -> None:
+    """K6 : épisode du premier au dernier intervalle. Inatteignable par
+    ``clock_partition``, dont les bords sont indéterminés, mais ``stop_episodes``
+    est public."""
+    partition = ClockPartition(time_s=(0.0, 1.0, 2.0, 3.0), states=((S, S, S),) * 5)
+    assert stop_episodes(partition, 0) == (
+        StopEpisode(start_s=0.0, end_s=3.0, first_record=0, last_record=3),
+    )
 
 
 # ---------------------------------------------------------------------------
