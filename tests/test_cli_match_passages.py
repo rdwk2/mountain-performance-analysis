@@ -193,3 +193,12 @@ def test_section_ten_of_the_committed_pair(capsys: pytest.CaptureFixture[str]) -
         "tangente indéfinie 0, hors préfixe 0 ; comparables 0",
         f"{INDENT}épisodes θ_c : attribués 0, sans candidate 0, non attribués 0",
     ]
+
+
+def test_plural_episodes(capsys: pytest.CaptureFixture[str], tmp_path: Path) -> None:
+    """R2 des correctifs de la PR #12 : Deux arrêts, « 2 épisodes » au pluriel. La fin
+    de ligne seulement : ``t*`` et l'arrivée (375,5 s) tombent sur une demi-seconde
+    (§ 7.0)."""
+    lines = _section_ten(_pair_report(capsys, tmp_path, p.two_stops))
+    (line,) = [line for line in lines if line.startswith(f"{INDENT}A — 375.50 m, ")]
+    assert line.endswith(", S 0:02:32, 2 épisodes ; comparable")
