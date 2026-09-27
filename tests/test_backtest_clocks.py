@@ -436,6 +436,14 @@ def test_confirmation_needs_one_duration_per_interval() -> None:
         confirm((1.0,), (IMMOBILE, IMMOBILE), 60.0)
 
 
+def test_confirmation_has_no_tolerance_below_c() -> None:
+    """Correctif R4 de la PR #11 (brief M4a-2c, § 2 : ``confirm`` inchangé) : une
+    suite immobile d'un flottant sous 60 s reste indéterminée ; la tolérance des
+    seuils de mesure (``0010`` D5.2, précision M4a-2c) ne s'applique pas aux
+    durées."""
+    assert confirm((math.nextafter(60.0, 0.0),), (IMMOBILE,), 60.0) == (U,)
+
+
 DYADIC = ClockConvention(0.125, 0.03125, 60.0)
 """``30·h = 3,75`` et ``30·z = 0,9375`` sont exacts en flottant."""
 
