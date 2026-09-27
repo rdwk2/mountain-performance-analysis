@@ -3,9 +3,11 @@
 ``backtest/passages.py`` n'importe de ``mountain_perf.backtest`` que ce que le § 0
 réemploie, et ne réécrit ni franchissement, ni regroupement, ni position
 fractionnaire, ni médiane de lissage. Lecture de son arbre syntaxique : ses seules
-sources de position sont ``crossing_candidates``, ``group_events``, ``time_at``,
-``position_at`` et les séries lissées — ni positions brutes de la trace, ni
-coordonnées GPX du lieu. Et aucun des modules qu'il importe ne l'importe.
+sources de position sont ``crossing_candidates``, ``group_events``, ``time_at`` et
+``position_at`` ; les séries lissées ne servent qu'à la médiane de l'épisode — ni
+positions brutes de la trace, ni coordonnées GPX du lieu. Il ne lit rien du repère
+qu'il transmet (R7 des correctifs de la PR #12), et ses définitions de premier niveau
+sont une liste fermée. Aucun des modules qu'il importe ne l'importe.
 """
 
 import ast
@@ -46,6 +48,34 @@ position brute interpolée."""
 
 FORBIDDEN_ATTRIBUTES = {"latitude_deg", "longitude_deg"}
 """Précision P4 : ni positions brutes de la trace, ni coordonnées GPX du lieu."""
+
+FRAME_ATTRIBUTES = {"tangent", "normal", "local", "anchor_lat_deg", "anchor_lon_deg"}
+"""R7 : tout calcul de ``h`` à partir d'un repère en a besoin ; ``passages.py`` ne
+fait que transmettre le repère à ``crossing_candidates`` et ``group_events``."""
+
+TOP_LEVEL_DEFINITIONS = {
+    "snaps_to_point",
+    "observed_in_prefix",
+    "near_passage",
+    "windows_overlap",
+    "time_distance_s",
+    "within_tie",
+    "in_order",
+    "maintained",
+    "attach_occurrence",
+    "occurrence_crossing",
+    "episode_median",
+    "attribute_episode",
+    "chronology_violations",
+    "observe_passages",
+    "_Searched",
+    "_dated",
+    "_resumed",
+    "_bracketed",
+    "_availability",
+}
+"""R7 : les huit prédicats du § 6.2, les fonctions du § 6 et les aides privées. Toute
+définition nouvelle doit être ajoutée ici, ce qui la soumet à la relecture."""
 
 
 def _imports(tree: ast.Module) -> dict[str, set[str]]:
@@ -123,3 +153,21 @@ def test_reused_modules_do_not_import_passages(module: str) -> None:
         assert name != "mountain_perf.backtest.passages"
         if name == "mountain_perf.backtest":
             assert not names & defined
+
+
+def test_the_frame_is_only_passed_on() -> None:
+    """R7 : aucun attribut ``tangent``, ``normal``, ``local``, ``anchor_lat_deg`` ou
+    ``anchor_lon_deg`` n'est lu ni appelé."""
+    read = {node.attr for node in ast.walk(PASSAGES) if isinstance(node, ast.Attribute)}
+    assert not read & FRAME_ATTRIBUTES
+
+
+def test_top_level_definitions_are_a_closed_list() -> None:
+    """R7 : les définitions de premier niveau (fonctions et classes) sont exactement
+    celles de la liste."""
+    defined = {
+        node.name
+        for node in PASSAGES.body
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef)
+    }
+    assert defined == TOP_LEVEL_DEFINITIONS
