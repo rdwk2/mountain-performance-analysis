@@ -28,12 +28,18 @@ l'interpolation (marche de 1,0 m sur 1 234,4 m, marche de 1,5 m, pas de 0,15 m/s
 quinze totaux exacts reproduits dès le premier essai, intervalles 136 et 162
 immobiles sous `θ_c`. Partie B : cinq tests des segments (G1 à G5), lacunes d'un
 essai de mutation mécanique de `segments.py`, qui ne change pas.
-Effet chiffré en conception sur les traces réelles, à confirmer par le contrôle réel
-de rdw avant la fusion : Queyras, `M` 64 720 → 64 684 s sous `θ2`, `θ4`, `θ5` ;
-`Q_1_2` et `Q_1_4`, 1 s de `M` passe en `U` ; aucun changement ailleurs.
+Effet sur les traces réelles, chiffré en conception et **confirmé** par le contrôle
+réel de rdw (12 paires conformes) : Queyras, `M` 64 720 → 64 684 s sous `θ2`, `θ4`,
+`θ5` ; `Q_1_2` et `Q_1_4`, 1 s de `M` passe en `U` ; aucun changement ailleurs.
 11 contre-épreuves par mutation, une à la fois, toutes rougies, arbre restauré et
 vérifié par empreinte ; l'économie restée stricte est arrêtée par `ValueError` (marche
-de 1,5 m, pas de 0,15 m/s). 1 699 tests (+15). Deux lignes au backlog (§ 9 du brief).
+de 1,5 m, pas de 0,15 m/s). Correctifs de la PR après deux relectures et le
+balayage mécanique de `clocks.py` (R1 à R6, tests seulement, `src/` inchangé) : G5
+sur trois paramètres, G4 sur les deux coordonnées, G2 sous 0,5 m, `confirm` sans
+tolérance près de `c`, frontière `τ·s` incluse, six lacunes des fonctions internes
+de `clocks.py` (K1 à K6) ; une contre-épreuve par correctif, cache de bytecode vidé,
+toutes rougies dans le corps du test visé. 1 707 tests (+23). Trois lignes au backlog
+(§ 9 du brief, et `qualify` face à une mesure non finie).
 
 ### 2026-09-25 · M4a-2b — Backtest : appariement, segments et couverture
 Troisième des quatre PR du lot M4a (brief M4a-2b rév. 2, `0010` D3, D4.2, D4.3,
