@@ -41,6 +41,12 @@ préfixe (1 944 enregistrements), démarrage compris ; `observe_passages` 0,3 ms
 Conclusion : `just check` vert avant chacun des six commits, 2 015 tests (+308).
 Contrôle des dix-neuf paires réelles à faire par rdw avant la fusion (§ 11). Trois
 lignes au backlog (§ 9), et le déclencheur de la ligne cp1252 réécrit.
+Correctifs de la PR après la double relecture et le balayage mécanique (R1 à R10,
+tests seulement, `src/` inchangé) : motifs et pluriel de la section 10, chronologie à
+trois enveloppes, Chronologie miroir, `ε` et `r_c` hors défauts, lieu d'arrivée hors
+chronologie, réemploi fermé, longueur au bit près, occurrence et épisode publiés
+entiers, arrivée négative refusée ; une contre-épreuve par correctif, cache de
+bytecode vidé, toutes rougies dans le corps du test visé ; 2 029 tests (+14).
 Rangé dans `src/mountain_perf/schemas/matching.py`, `backtest/passages.py`,
 `backtest/matching.py`, `cli.py`, `tests/`, branche `m4a/passages`.
 
