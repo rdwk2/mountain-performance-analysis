@@ -135,9 +135,42 @@ EXPECTED: dict[str, tuple[Callable[[], MatchCase], list[str]]] = {
             f"{INDENT}épisodes θ_c : attribués 0, sans candidate 1, non attribués 0",
         ],
     ),
+    "Coin coupé": (
+        p.cut_corner,
+        [
+            "passages     1 occurrence — trouvé 0, ancré 0, ambigu 0, absent 1, "
+            "hors ε 0, tangente indéfinie 0, hors préfixe 0 ; comparables 0",
+            f"{INDENT}W — 766.00 m, intermédiaire, absent ; indisponible (absent)",
+            f"{INDENT}épisodes θ_c : attribués 0, sans candidate 0, non attribués 0",
+        ],
+    ),
+    "Hors ε": (
+        p.out_of_tolerance,
+        [
+            "passages     1 occurrence — trouvé 0, ancré 0, ambigu 0, absent 0, "
+            "hors ε 1, tangente indéfinie 0, hors préfixe 0 ; comparables 0",
+            f"{INDENT}H — 375.50 m, intermédiaire, hors ε ; indisponible (absent)",
+            f"{INDENT}épisodes θ_c : attribués 0, sans candidate 0, non attribués 0",
+        ],
+    ),
+    "Aller-retour": (
+        p.out_and_back,
+        [
+            "passages     3 occurrences — trouvé 2, ancré 0, ambigu 0, absent 0, "
+            "hors ε 0, tangente indéfinie 1, hors préfixe 0 ; comparables 2",
+            f"{INDENT}M — 300.00 m, intermédiaire, trouvé, t* 0:05:00, arrivée "
+            "0:05:00, départ 0:05:00, S 0:00:00, 0 épisode ; comparable",
+            f"{INDENT}T — 620.00 m, intermédiaire, tangente indéfinie ; indisponible "
+            "(tangente indéfinie)",
+            f"{INDENT}M — 940.00 m, intermédiaire, trouvé, t* 0:17:40, arrivée "
+            "0:15:47, départ 0:17:40, S 0:01:36, 1 épisode ; comparable",
+            f"{INDENT}épisodes θ_c : attribués 1, sans candidate 0, non attribués 0",
+        ],
+    ),
 }
-"""Section 10 attendue, au texte près : l'exemple du § 6.10 (Passages) et les lignes
-du § 8.3, test 7."""
+"""Section 10 attendue, au texte près : l'exemple du § 6.10 (Passages), les lignes
+du § 8.3, test 7, et, par R1 des correctifs de la PR #12, les motifs ``absent`` et
+``tangente indéfinie`` et le compte ``hors ε`` (Coin coupé, Hors ε, Aller-retour)."""
 
 
 @pytest.mark.parametrize("pair", EXPECTED, ids=EXPECTED.keys())
