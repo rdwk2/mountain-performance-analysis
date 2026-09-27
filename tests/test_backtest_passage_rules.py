@@ -6,15 +6,21 @@ représentables, jamais à travers une trace (§ 7.0) : constantes, prédicats,
 rattachement, recherche d'une occurrence sur le repère direct.
 """
 
+import math
+
 import pytest
 
 from fixtures.passages import DIRECT_FRAME, direct_trace
+from fixtures.traces import local_deg
 from mountain_perf.backtest import (
     ATTRIBUTION_DISTANCE_TIE_M,
     ATTRIBUTION_TIME_TIE_S,
     WAYPOINT_SNAP_M,
     attach_occurrence,
+    attribute_episode,
     build_series,
+    chronology_violations,
+    episode_median,
     in_order,
     maintained,
     near_passage,
@@ -25,7 +31,14 @@ from mountain_perf.backtest import (
     windows_overlap,
     within_tie,
 )
-from mountain_perf.schemas import PassageRole, PassageStatus, RecordedTrace
+from mountain_perf.backtest.geometry import to_local
+from mountain_perf.schemas import (
+    EpisodeOutcome,
+    PassageRole,
+    PassageStatus,
+    RecordedTrace,
+    StopEpisode,
+)
 
 ARRIVAL = PassageRole.ARRIVAL
 DEPARTURE = PassageRole.DEPARTURE
@@ -295,3 +308,98 @@ def test_occurrence_crossing(
     enregistrement confondu avec l'ancre, ``π = 1,5`` et ``3,5`` entre ``x = −1`` et
     ``x = 1``."""
     assert _crossing(trace, after, before) == expected
+
+
+# ---------------------------------------------------------------------------
+# Association et chronologie (§ 6.5, § 6.7, § 7.3.2)
+# ---------------------------------------------------------------------------
+
+ATTRIBUTED = EpisodeOutcome.ATTRIBUTED
+TIE = EpisodeOutcome.TIE
+
+ATTRIBUTION_TABLE: tuple[
+    tuple[str, tuple[tuple[int, float, float], ...], tuple[EpisodeOutcome, int | None]],
+    ...,
+] = (
+    ("1", ((0, 90.0, 10.0), (1, 170.0, 10.0)), (TIE, None)),
+    ("2 (1,5 s > 1 s)", ((0, 90.0, 10.0), (1, 171.5, 10.0)), (ATTRIBUTED, 0)),
+    ("3", ((0, 90.0, 10.0), (1, 170.5, 10.0)), (TIE, None)),
+    ("4 (1,5 m > 1 m)", ((0, 90.0, 10.0), (1, 170.5, 11.5)), (ATTRIBUTED, 0)),
+    ("5 (1 s exactement)", ((0, 90.0, 10.0), (1, 171.0, 10.0)), (TIE, None)),
+    ("6 (1 m exactement)", ((0, 90.0, 10.0), (1, 170.5, 11.0)), (TIE, None)),
+    ("7", ((0, 90.0, 10.0), (1, 170.75, 10.0)), (TIE, None)),
+    ("8", ((0, 90.0, 10.0), (1, 170.5, 10.75)), (TIE, None)),
+    ("9 (le temps d'abord)", ((0, 130.0, 12.0), (1, 170.0, 10.0)), (ATTRIBUTED, 0)),
+    ("10 (deux distances nulles)", ((0, 102.0, 10.0), (1, 131.0, 10.0)), (TIE, None)),
+    (
+        "11 (l'espace ne départage que les gardées par le temps)",
+        ((0, 90.0, 10.0), (1, 170.0, 10.0), (2, 200.0, 1.0)),
+        (TIE, None),
+    ),
+    ("12 (aucune)", (), (EpisodeOutcome.NO_CANDIDATE, None)),
+    ("13", ((3, 500.0, 29.0),), (ATTRIBUTED, 3)),
+    (
+        "14 (minimum spatial parmi les gardées par le temps)",
+        ((0, 90.0, 10.0), (1, 170.0, 11.5), (2, 200.0, 1.0)),
+        (ATTRIBUTED, 0),
+    ),
+)
+"""Les quatorze lignes de ``attribute_episode(100, 160, …)`` du § 7.3.2."""
+
+
+@pytest.mark.parametrize(
+    ("candidates", "expected"),
+    [(c, e) for _, c, e in ATTRIBUTION_TABLE],
+    ids=[label for label, _, _ in ATTRIBUTION_TABLE],
+)
+def test_attribute_episode(
+    candidates: tuple[tuple[int, float, float], ...],
+    expected: tuple[EpisodeOutcome, int | None],
+) -> None:
+    """Choix 9 : distance temporelle à 1 s près du minimum, puis, parmi les gardées,
+    distance à la médiane à 1 m près de **leur** minimum ; une seule : attribué ;
+    plusieurs : non attribué ; aucune : sans candidate."""
+    assert attribute_episode(100.0, 160.0, candidates) == expected
+
+
+@pytest.mark.parametrize(
+    ("envelopes", "final", "expected"),
+    [
+        (((90.0, 200.0), (150.0, 150.0)), None, (True, True)),
+        (((90.0, 520.0),), 510.0, (True,)),
+        (((100.0, 100.0), (100.0, 100.0)), None, (False, False)),
+        (((0.0, 50.0), (40.0, 60.0), (55.0, 70.0)), None, (True, True, True)),
+        (((10.0, 20.0),), 20.0, (False,)),
+        (((10.0, 30.0), (40.0, 50.0)), 45.0, (False, True)),
+        ((), 100.0, ()),
+    ],
+    ids=[
+        "both_marked",
+        "final_only_the_occurrence",
+        "equality_in_order",
+        "every_pair_judged",
+        "final_equality",
+        "last_before_final",
+        "no_envelope",
+    ],
+)
+def test_chronology_violations(
+    envelopes: tuple[tuple[float, float], ...],
+    final: float | None,
+    expected: tuple[bool, ...],
+) -> None:
+    """Choix 11 : chaque couple consécutif jugé sur les valeurs données, les deux
+    marqués, l'arrivée finale jamais marquée ; égalité : dans l'ordre."""
+    assert chronology_violations(envelopes, final) == expected
+
+
+def test_episode_median_of_smoothed_positions() -> None:
+    """Choix 8 : médiane des positions **lissées** des enregistrements
+    ``first_record`` à ``last_record`` inclus. ``x = 0, 0, 0, 3, 0, 0, 12`` à 1 Hz :
+    les ``x`` lissés des enregistrements 1 à 5 valent 0,75, 0,6, 0,6, 3, 3,75
+    (moyenne tronquée au bord du bloc) ; médiane 0,75 — la médiane brute serait 0,
+    celle des enregistrements 2 à 4 serait 0,6."""
+    trace = direct_trace((0.0, 0.0, 0.0, 3.0, 0.0, 0.0, 12.0))
+    episode = StopEpisode(1.0, 5.0, first_record=1, last_record=5)
+    lat_deg, lon_deg = episode_median(build_series(trace), episode)
+    assert math.hypot(*to_local(*local_deg(0.75, 0.0), lat_deg, lon_deg)) <= 1e-6

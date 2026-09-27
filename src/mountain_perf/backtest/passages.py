@@ -15,14 +15,45 @@ l'importe.
 """
 
 import math
+import statistics
 from bisect import bisect_right
 from collections.abc import Sequence
+from dataclasses import dataclass
 from itertools import pairwise
 
-from mountain_perf.backtest.geometry import LocalFrame
-from mountain_perf.backtest.matching import crossing_candidates, group_events
+from mountain_perf.backtest.clocks import stop_episodes
+from mountain_perf.backtest.geometry import (
+    LocalFrame,
+    ReferenceGeometry,
+    frame_at,
+    position_at,
+    to_local,
+)
+from mountain_perf.backtest.matching import (
+    MATCHING_PARAMETER_SPECS,
+    crossing_candidates,
+    group_events,
+    score_grid,
+    time_at,
+)
 from mountain_perf.backtest.series import TraceSeries
-from mountain_perf.schemas import PassageRole, PassageStatus, RecordedTrace
+from mountain_perf.schemas import (
+    CENTRAL_CONVENTION_INDEX,
+    PASSAGE_STATUS_UNAVAILABILITY,
+    ClockPartition,
+    EpisodeAttribution,
+    EpisodeOutcome,
+    MatchResult,
+    PassageMatchResult,
+    PassageObservation,
+    PassageRole,
+    PassageStatus,
+    RecordedTrace,
+    RouteProfile,
+    ScorePointObservation,
+    StopEpisode,
+    Unavailability,
+)
 
 WAYPOINT_SNAP_M = 1.0
 """Distance en deçà de laquelle une occurrence reprend un point de score (m,
@@ -186,3 +217,368 @@ def occurrence_crossing(
     if oriented > 0:
         return PassageStatus.OUT_OF_TOLERANCE, None
     return PassageStatus.ABSENT, None
+
+
+# ---------------------------------------------------------------------------
+# Association arrêt → passage, chronologie (0010 D4.12, alinéas 3 et 4)
+# ---------------------------------------------------------------------------
+
+
+def episode_median(series: TraceSeries, episode: StopEpisode) -> tuple[float, float]:
+    """Position lissée médiane d'un épisode (``0010`` D4.12) : ``statistics.median``
+    des latitudes **lissées**, puis des longitudes lissées, des enregistrements
+    ``first_record`` à ``last_record`` inclus.
+
+    Le plan local de ``0008`` étant affine en degrés à ancre fixe, c'est la médiane
+    coordonnée par coordonnée dans le repère local.
+    """
+    records = slice(episode.first_record, episode.last_record + 1)
+    return (
+        statistics.median(series.smoothed_latitude_deg[records]),
+        statistics.median(series.smoothed_longitude_deg[records]),
+    )
+
+
+def attribute_episode(
+    start_s: float, end_s: float, candidates: Sequence[tuple[int, float, float]]
+) -> tuple[EpisodeOutcome, int | None]:
+    """Attribution d'un épisode ``[a ; b]`` à une seule occurrence (``0010`` D4.12).
+
+    ``candidates`` : ``(rang, t*_w, distance à la médiane)``. Aucune :
+    ``(NO_CANDIDATE, None)``. Sinon, garder celles dont ``time_distance_s`` est à
+    égalité (``within_tie``, 1 s) avec le minimum ; s'il en reste plusieurs, garder
+    parmi **elles** celles dont la distance est à égalité (1 m) avec **leur**
+    minimum. Une seule : ``(ATTRIBUTED, rang)`` ; plusieurs : ``(TIE, None)``,
+    épisode « non attribué », publié.
+    """
+    if not candidates:
+        return EpisodeOutcome.NO_CANDIDATE, None
+    delays_s = [time_distance_s(t_s, start_s, end_s) for _, t_s, _ in candidates]
+    best_s = min(delays_s)
+    kept = [
+        candidate
+        for candidate, delay_s in zip(candidates, delays_s, strict=True)
+        if within_tie(delay_s, best_s, ATTRIBUTION_TIME_TIE_S)
+    ]
+    if len(kept) > 1:
+        best_m = min(distance_m for _, _, distance_m in kept)
+        kept = [
+            candidate
+            for candidate in kept
+            if within_tie(candidate[2], best_m, ATTRIBUTION_DISTANCE_TIE_M)
+        ]
+    if len(kept) == 1:
+        return EpisodeOutcome.ATTRIBUTED, kept[0][0]
+    return EpisodeOutcome.TIE, None
+
+
+def chronology_violations(
+    envelopes: Sequence[tuple[float, float]], final_arrival_s: float | None
+) -> tuple[bool, ...]:
+    """Violations de chronologie (``0010`` D4.12) : un booléen par enveloppe.
+
+    Termes : les enveloppes ``(arrivée, départ)`` dans l'ordre donné, puis
+    ``(final, final)`` si ``final_arrival_s`` est présent. Pour chaque couple de
+    termes consécutifs ``(i, i + 1)`` qui ne vérifie pas ``in_order(départ_i,
+    arrivée_{i+1})``, marquer ``i``, et ``i + 1`` s'il est une enveloppe — l'arrivée
+    finale n'est jamais marquée. Tous les couples sont jugés sur les valeurs données.
+    """
+    terms = list(envelopes)
+    if final_arrival_s is not None:
+        terms.append((final_arrival_s, final_arrival_s))
+    marks = [False] * len(envelopes)
+    for i, ((_, departure_s), (arrival_s, _)) in enumerate(pairwise(terms)):
+        if not in_order(departure_s, arrival_s):
+            marks[i] = True
+            if i + 1 < len(envelopes):
+                marks[i + 1] = True
+    return tuple(marks)
+
+
+# ---------------------------------------------------------------------------
+# Fonction d'ensemble (0010 D4.12)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class _Searched:
+    """Une occurrence après la recherche (§ 6.4 du brief M4a-3) : rôle, statut,
+    ``t*_w`` et fenêtre d'association, ces deux derniers présents si elle est
+    datée."""
+
+    role: PassageRole
+    status: PassageStatus
+    crossing_s: float | None
+    window_s: tuple[float, float] | None
+
+
+def _dated(point: ScorePointObservation) -> tuple[float, float]:
+    """``(π, t*)`` d'un point daté. Tout point du préfixe comparable l'est (ses
+    segments sont admis) : un point non daté ici est une incohérence du
+    ``MatchResult``, ``ValueError``."""
+    if point.position is None or point.time_s is None:
+        raise ValueError(f"observe_passages : point {point.index} non daté.")
+    return point.position, point.time_s
+
+
+def _resumed(
+    role: PassageRole,
+    points: Sequence[ScorePointObservation],
+    k: int,
+    trace: RecordedTrace,
+) -> _Searched:
+    """Reprise du point ``k`` (``0010`` D4.12, choix 3 et 5 du brief) : son statut
+    et son instant, ancrage compris ; fenêtre de ``t*_{k−1}`` (``t*_0`` si
+    ``k = 0``) à l'instant du **premier point daté d'indice > k**, à défaut du
+    dernier enregistrement. Seul un départ, avec ``m = 0``, reprend un point non
+    daté : il n'a alors aucun instant."""
+    point = points[k]
+    status = PassageStatus(point.status.value)
+    if point.time_s is None:
+        return _Searched(role, status, None, None)
+    end_s = trace.time_s[-1]
+    for later in points[k + 1 :]:
+        if later.time_s is not None:
+            end_s = later.time_s
+            break
+    _, start_s = _dated(points[max(0, k - 1)])
+    return _Searched(role, status, point.time_s, (start_s, end_s))
+
+
+def _bracketed(
+    distance_m: float,
+    first: ScorePointObservation,
+    second: ScorePointObservation,
+    geometry: ReferenceGeometry,
+    trace: RecordedTrace,
+    series: TraceSeries,
+    tolerance_m: float,
+    radius_m: float,
+) -> _Searched:
+    """Occurrence encadrée par les points ``k`` et ``k + 1``, tous deux datés
+    (``0010`` D4.12, choix 4) : repère en ``s_w`` (tangente indéfinie : statut du
+    même nom), ``occurrence_crossing`` entre ``π_k`` et ``π_{k+1}``, ``t* = t(π)``,
+    fenêtre ``[t*_k ; t*_{k+1}]``."""
+    frame = frame_at(geometry, distance_m)
+    if frame is None:
+        return _Searched(
+            PassageRole.INTERMEDIATE, PassageStatus.UNDEFINED_TANGENT, None, None
+        )
+    (after, start_s), (before, end_s) = _dated(first), _dated(second)
+    status, position = occurrence_crossing(
+        trace, series, frame, after, before, tolerance_m, radius_m
+    )
+    if position is None:
+        return _Searched(PassageRole.INTERMEDIATE, status, None, None)
+    return _Searched(
+        PassageRole.INTERMEDIATE, status, time_at(trace, position), (start_s, end_s)
+    )
+
+
+def _availability(
+    role: PassageRole,
+    status: PassageStatus,
+    arrival_s: float | None,
+    departure_s: float | None,
+    origin_s: float | None,
+    prefix_end_s: float | None,
+) -> tuple[bool, Unavailability | None]:
+    """Maintien dans le préfixe (``0010`` D4.12, choix 12) : ``(comparable, motif)``.
+
+    Départ : jamais comparable, sans motif. ``FOUND`` ou ``ANCHORED`` : comparable si
+    ``maintained(arrivée, départ, t*_0, t*_m)``, sinon ``INSUFFICIENT_SUPPORT`` —
+    on ne tronque jamais un épisode, on ne retire jamais une attribution. Autre
+    statut : le motif de ``PASSAGE_STATUS_UNAVAILABILITY``.
+    """
+    if role is PassageRole.DEPARTURE:
+        return False, None
+    if status not in (PassageStatus.FOUND, PassageStatus.ANCHORED):
+        return False, PASSAGE_STATUS_UNAVAILABILITY[status]
+    if arrival_s is None or departure_s is None or origin_s is None:
+        raise ValueError("observe_passages : occurrence datée sans instant.")
+    if prefix_end_s is None:
+        raise ValueError("observe_passages : occurrence datée, préfixe non daté.")
+    if maintained(arrival_s, departure_s, origin_s, prefix_end_s):
+        return True, None
+    return False, Unavailability.INSUFFICIENT_SUPPORT
+
+
+def observe_passages(
+    match: MatchResult,
+    geometry: ReferenceGeometry,
+    profile: RouteProfile,
+    trace: RecordedTrace,
+    series: TraceSeries,
+    partition: ClockPartition,
+) -> PassageMatchResult:
+    """Passages nommés et événements d'une sortie (``0010`` D4.12).
+
+    Dans l'ordre du brief M4a-3 (choix 13) :
+
+    1. **recherche**, pour chaque occurrence de ``profile.resolved_points`` :
+       ``attach_occurrence`` sur la grille nominale ``score_grid(L, Δ)`` ; le départ
+       est toujours observé (reprise du point 0) ; l'arrivée l'est si ``m == K``
+       (reprise du point ``K``), sinon ``OUTSIDE_PREFIX`` ; une intermédiaire l'est
+       si ``observed_in_prefix(s_w, b_0, b_m, m)``, sinon ``OUTSIDE_PREFIX`` sans
+       recherche — reprise du point à moins de 1 m, ou recherche entre les deux
+       points qui l'encadrent ;
+    2. **association** des épisodes ``stop_episodes`` sous ``θ_c``, dans l'ordre du
+       temps : candidates = occurrences ``INTERMEDIATE`` ``FOUND`` dont
+       ``Q_w = position_at(s_w)`` est ``near_passage`` de la médiane de l'épisode
+       (distance dans le plan de ``0008`` ancré en ``Q_w``) et dont la fenêtre
+       chevauche l'épisode ; ``attribute_episode`` ;
+    3. **événements** de chaque occurrence datée : ``arrivée = min(t*, a)``,
+       ``départ = max(t*, b)``, ``S = math.fsum(b − a)`` sur ses épisodes
+       attribués ;
+    4. **chronologie** des occurrences ``INTERMEDIATE`` ``FOUND``, dans l'ordre
+       ``(s_w, rang)``, suivies de l'arrivée finale ``t*_K`` si et seulement si
+       ``m == K`` : une occurrence marquée passe ``AMBIGUOUS``, événements
+       conservés ;
+    5. **maintien** : une occurrence ``FOUND`` ou ``ANCHORED`` de rôle autre que
+       départ est comparable si ``maintained(arrivée, départ, t*_0, t*_m)``, sinon
+       ``INSUFFICIENT_SUPPORT`` ; les autres statuts prennent le motif de
+       ``PASSAGE_STATUS_UNAVAILABILITY`` ; un départ n'est jamais comparable.
+
+    Préconditions (``ValueError``) : ``series`` et ``partition`` construits sur
+    ``trace`` (mêmes nombres d'enregistrements) ; ``match.parameters`` déclaré par
+    ``MATCHING_PARAMETER_SPECS`` ; ``profile.distance_m[-1] == geometry.length_m``
+    bit pour bit ; ``len(match.points) == len(score_grid(L, Δ))``.
+    """
+    records = len(trace.time_s)
+    if len(series.realized_distance_m) != records or len(partition.time_s) != records:
+        raise ValueError(
+            "observe_passages : séries, partition et trace de longueurs différentes "
+            f"({len(series.realized_distance_m)}, {len(partition.time_s)}, "
+            f"{records})."
+        )
+    parameters = match.parameters
+    if parameters.specs != MATCHING_PARAMETER_SPECS:
+        raise ValueError(
+            "observe_passages : paramètres non déclarés par MATCHING_PARAMETER_SPECS."
+        )
+    if profile.distance_m[-1] != geometry.length_m:
+        raise ValueError(
+            "observe_passages : profil et géométrie de tracés différents "
+            f"({profile.distance_m[-1]} ≠ {geometry.length_m})."
+        )
+    grid_m = score_grid(geometry.length_m, parameters["score_step_m"])
+    if len(match.points) != len(grid_m):
+        raise ValueError(
+            f"observe_passages : {len(match.points)} points pour une grille de "
+            f"{len(grid_m)}."
+        )
+    tolerance_m = parameters["lateral_tolerance_m"]
+    radius_m = parameters["cluster_radius_m"]
+    points, coverage = match.points, match.coverage
+    last = len(grid_m) - 1
+    m = coverage.prefix_segment_count
+    start_m, end_m = points[0].effective_m, coverage.prefix_end_m
+    occurrences = profile.resolved_points
+
+    # 1. Recherche (§ 6.4).
+    searched: list[_Searched] = []
+    for occurrence in occurrences:
+        distance_m = occurrence.distance_m
+        role, k, snapped = attach_occurrence(distance_m, grid_m)
+        outside = _Searched(role, PassageStatus.OUTSIDE_PREFIX, None, None)
+        if role is PassageRole.DEPARTURE:
+            searched.append(_resumed(role, points, 0, trace))
+        elif role is PassageRole.ARRIVAL:
+            searched.append(
+                _resumed(role, points, last, trace) if m == last else outside
+            )
+        elif not observed_in_prefix(distance_m, start_m, end_m, m):
+            searched.append(outside)
+        elif snapped:
+            searched.append(_resumed(role, points, k, trace))
+        else:
+            searched.append(
+                _bracketed(
+                    distance_m,
+                    points[k],
+                    points[k + 1],
+                    geometry,
+                    trace,
+                    series,
+                    tolerance_m,
+                    radius_m,
+                )
+            )
+
+    # 2. Association (§ 6.5).
+    candidates = [
+        (rank, found, position_at(geometry, occurrences[rank].distance_m))
+        for rank, found in enumerate(searched)
+        if found.role is PassageRole.INTERMEDIATE
+        and found.status is PassageStatus.FOUND
+    ]
+    attributions: list[EpisodeAttribution] = []
+    for episode in stop_episodes(partition, CENTRAL_CONVENTION_INDEX):
+        median = episode_median(series, episode)
+        eligible: list[tuple[int, float, float]] = []
+        for rank, found, anchor in candidates:
+            if found.crossing_s is None or found.window_s is None:
+                continue
+            distance_m = math.hypot(*to_local(*anchor, *median))
+            window_start_s, window_end_s = found.window_s
+            if near_passage(distance_m, tolerance_m) and windows_overlap(
+                window_start_s, window_end_s, episode.start_s, episode.end_s
+            ):
+                eligible.append((rank, found.crossing_s, distance_m))
+        outcome, index = attribute_episode(episode.start_s, episode.end_s, eligible)
+        attributions.append(EpisodeAttribution(episode, outcome, index, *median))
+
+    # 3. Événements (§ 6.6).
+    events: dict[int, tuple[float, float, float, int]] = {}
+    for rank, found in enumerate(searched):
+        if found.crossing_s is None:
+            continue
+        attributed = [a.episode for a in attributions if a.passage_index == rank]
+        events[rank] = (
+            min([found.crossing_s, *(e.start_s for e in attributed)]),
+            max([found.crossing_s, *(e.end_s for e in attributed)]),
+            math.fsum(e.end_s - e.start_s for e in attributed),
+            len(attributed),
+        )
+
+    # 4. Chronologie (§ 6.7).
+    judged = sorted(
+        (rank for rank, _, _ in candidates),
+        key=lambda rank: (occurrences[rank].distance_m, rank),
+    )
+    final_s = points[last].time_s if m == last else None
+    marks = chronology_violations(
+        [(events[rank][0], events[rank][1]) for rank in judged], final_s
+    )
+    violated = {rank for rank, mark in zip(judged, marks, strict=True) if mark}
+
+    # 5. Maintien (§ 6.8).
+    passages: list[PassageObservation] = []
+    for rank, (occurrence, found) in enumerate(zip(occurrences, searched, strict=True)):
+        status = PassageStatus.AMBIGUOUS if rank in violated else found.status
+        arrival_s, departure_s, stop_s, count = events.get(rank, (None, None, None, 0))
+        comparable, unavailability = _availability(
+            found.role,
+            status,
+            arrival_s,
+            departure_s,
+            points[0].time_s,
+            coverage.prefix_end_s,
+        )
+        passages.append(
+            PassageObservation(
+                point=occurrence,
+                role=found.role,
+                status=status,
+                crossing_s=found.crossing_s,
+                association_window_s=found.window_s,
+                arrival_s=arrival_s,
+                departure_s=departure_s,
+                stop_total_s=stop_s,
+                episode_count=count,
+                chronology_violation=rank in violated,
+                comparable=comparable,
+                unavailability=unavailability,
+            )
+        )
+    return PassageMatchResult(passages=tuple(passages), episodes=tuple(attributions))
