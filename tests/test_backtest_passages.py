@@ -31,9 +31,11 @@ from mountain_perf.backtest import (
     clock_partition,
     observe_passages,
     score_grid,
+    stop_episodes,
 )
 from mountain_perf.backtest.geometry import to_local
 from mountain_perf.schemas import (
+    CENTRAL_CONVENTION_INDEX,
     EpisodeOutcome,
     MatchResult,
     ParameterSet,
@@ -772,6 +774,14 @@ def test_observe_passages(row: Row) -> None:
     ``Row.rule`` nomme la règle distinguée."""
     case = row.case()
     match, result = p.observed_passages(case)
+    # R9 des correctifs de la PR #12 : l'occurrence et l'épisode sont publiés entiers.
+    partition = clock_partition(case.trace, build_series(case.trace))
+    assert [q.point for q in result.passages] == list(
+        reference_profile(case).resolved_points
+    )
+    assert [a.episode for a in result.episodes] == list(
+        stop_episodes(partition, CENTRAL_CONVENTION_INDEX)
+    )
     coverage = match.coverage
     if row.length_m is not None:
         assert _close(case.geometry.length_m, row.length_m)
