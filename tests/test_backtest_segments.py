@@ -961,9 +961,11 @@ def test_match_trace_needs_the_matching_parameters() -> None:
 
 
 def test_match_trace_publishes_its_parameters() -> None:
-    """Lacune G5 (brief M4a-2c, § 6) : le résultat publie les paramètres reçus, et
-    non les défauts."""
-    parameters = m.matching_parameters(lateral_tolerance_m=25.0)
+    """Lacune G5 (brief M4a-2c, § 6 ; correctif R1 de la PR #11) : le résultat
+    publie les paramètres reçus, tous les trois, et non les défauts."""
+    parameters = m.matching_parameters(
+        score_step_m=125.0, lateral_tolerance_m=25.0, cluster_radius_m=12.0
+    )
     inputs = _inputs(m.t01())
     inputs["parameters"] = parameters
     result = match_trace(**inputs)
