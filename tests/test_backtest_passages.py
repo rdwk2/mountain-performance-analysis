@@ -643,6 +643,48 @@ ROWS: dict[str, Row] = {
 }
 """Les vingt-six lignes du § 7.3.1, dans l'ordre du tableau."""
 
+CORRECTIVE_ROWS: dict[str, Row] = {
+    "Chronologie miroir": Row(
+        p.chronology_mirror,
+        "R4 des correctifs de la PR #12, choix 11 : le second lieu reçoit l'arrêt ; "
+        "son arrivée (387) précède le départ du premier (411,5) — les deux ambiguës",
+        (
+            _found(
+                "W1",
+                375.5,
+                (INT, 1, False),
+                411.5,
+                (250.0, 869.000001),
+                status=AMBIGUOUS,
+                chronology_violation=True,
+                comparable=False,
+                unavailability=Unavailability.AMBIGUOUS,
+            ),
+            _found(
+                "W2",
+                378.5,
+                (INT, 1, False),
+                599.0,
+                (250.0, 869.000001),
+                status=AMBIGUOUS,
+                arrival_s=387.0,
+                departure_s=737.0,
+                stop_total_s=350.0,
+                episode_count=1,
+                chronology_violation=True,
+                comparable=False,
+                unavailability=Unavailability.AMBIGUOUS,
+            ),
+        ),
+        (Episode(387.0, 737.0, ATTRIBUTED, 1, (378.13, 0.0)),),
+        prefix_count=5,
+        prefix_end_s=1379.0,
+    ),
+}
+"""Lignes ajoutées par les correctifs de la PR #12 (R4 à R6), mêmes vérifications."""
+
+ALL_ROWS = {**ROWS, **CORRECTIVE_ROWS}
+
 
 def _close(actual: float | None, expected: float | None) -> bool:
     if expected is None or actual is None:
@@ -659,10 +701,10 @@ def test_the_table_has_twenty_six_rows() -> None:
     assert len(ROWS) == 26
 
 
-@pytest.mark.parametrize("row", ROWS.values(), ids=ROWS.keys())
+@pytest.mark.parametrize("row", ALL_ROWS.values(), ids=ALL_ROWS.keys())
 def test_observe_passages(row: Row) -> None:
-    """``0010`` D4.12, chaque ligne du § 7.3.1 : ``Row.rule`` nomme la règle
-    distinguée."""
+    """``0010`` D4.12, chaque ligne du § 7.3.1 et celles des correctifs de la PR #12 :
+    ``Row.rule`` nomme la règle distinguée."""
     case = row.case()
     match, result = p.observed_passages(case)
     coverage = match.coverage

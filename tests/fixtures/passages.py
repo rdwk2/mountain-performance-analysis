@@ -236,6 +236,20 @@ def chronology() -> MatchCase:
     return _east((("W1", (375.5, 0.0)), ("W2", (378.5, 0.0))), path)
 
 
+def chronology_mirror() -> MatchCase:
+    """Chronologie miroir (R4 des correctifs de la PR #12) : W1 (375,5 ; 0), W2
+    (378,5 ; 0) ; ``(0,0)→(374,0)`` à 1 m/s, ``→(377,0)`` à 0,04 m/s, ``→(380,0)``
+    à 0,01 m/s, ``→(1015,0)`` à 1 m/s : le second lieu reçoit l'arrêt."""
+    path = (
+        TracePath((0.0, 0.0))
+        .to((374.0, 0.0), speed_ms=1.0)
+        .to((377.0, 0.0), speed_ms=0.04)
+        .to((380.0, 0.0), speed_ms=0.01)
+        .to((1015.0, 0.0), speed_ms=1.0)
+    )
+    return _east((("W1", (375.5, 0.0)), ("W2", (378.5, 0.0))), path)
+
+
 def final_chronology() -> MatchCase:
     """Chronologie finale : F (1004,5 ; 0) ; ``(0,0)→(1003,0)`` à 1 m/s ;
     ``→(1012,0)`` à 0,05 m/s."""
