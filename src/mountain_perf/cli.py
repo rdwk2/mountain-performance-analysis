@@ -21,6 +21,7 @@ from mountain_perf.backtest import (
     clock_partition,
     dplus_per_km,
     match_trace,
+    observe_passages,
     reference_geometry,
     stop_episodes,
 )
@@ -48,8 +49,12 @@ from mountain_perf.schemas import (
     CENTRAL_CONVENTION_INDEX,
     AdmittedTotals,
     ClockTotals,
+    EpisodeOutcome,
     MatchResult,
     ParameterSet,
+    PassageMatchResult,
+    PassageRole,
+    PassageStatus,
     PointStatus,
     Projection,
     RecordedTrace,
@@ -58,6 +63,7 @@ from mountain_perf.schemas import (
     ScorePointObservation,
     SegmentExclusion,
     StopEpisode,
+    Unavailability,
 )
 from mountain_perf.units import format_duration
 from mountain_perf.validation import ContractError
@@ -103,6 +109,31 @@ REGIME_LABELS: Mapping[Regime, str] = {
     Regime.DESCENT: "descente",
 }
 """Libellés d'affichage des régimes (``0010`` D6)."""
+
+PASSAGE_STATUS_LABELS: Mapping[PassageStatus, str] = {
+    **{
+        PassageStatus(status.value): label
+        for status, label in POINT_STATUS_LABELS.items()
+    },
+    PassageStatus.OUTSIDE_PREFIX: "hors préfixe",
+}
+"""Libellés d'affichage des statuts de passage : ceux de ``POINT_STATUS_LABELS``,
+dans le même ordre, puis « hors préfixe » (``0010`` D4.12)."""
+
+PASSAGE_ROLE_LABELS: Mapping[PassageRole, str] = {
+    PassageRole.DEPARTURE: "départ",
+    PassageRole.ARRIVAL: "arrivée",
+    PassageRole.INTERMEDIATE: "intermédiaire",
+}
+"""Libellés d'affichage des rôles d'une occurrence (``0010`` D4.12)."""
+
+PASSAGE_UNAVAILABILITY_LABELS: Mapping[Unavailability, str] = {
+    Unavailability.ABSENT: "absent",
+    Unavailability.AMBIGUOUS: "ambigu",
+    Unavailability.UNDEFINED_TANGENT: "tangente indéfinie",
+    Unavailability.INSUFFICIENT_SUPPORT: "support insuffisant",
+}
+"""Libellés d'affichage des motifs d'une occurrence indisponible (``0010`` D0)."""
 
 PASSAGE_CSV_HEADER = (
     "name",
@@ -442,6 +473,65 @@ def _print_segment_report(result: MatchResult, episodes: Sequence[StopEpisode]) 
     )
 
 
+def _print_passage_report(result: PassageMatchResult) -> None:
+    """Section 10 du rapport d'appariement (§ 6.10 du brief M4a-3) : passages nommés
+    et épisodes sous ``θ_c``. Seuls des comptes et des mises en forme : statuts,
+    instants et attributions sont lus dans le ``PassageMatchResult``."""
+    passages = result.passages
+    counts = Counter(passage.status for passage in passages)
+    statuses = ", ".join(
+        f"{label} {counts[status]}" for status, label in PASSAGE_STATUS_LABELS.items()
+    )
+    comparables = sum(passage.comparable for passage in passages)
+    print(
+        f"passages     {_count(len(passages), 'occurrence', 'occurrences')} — "
+        f"{statuses} ; comparables {comparables}"
+    )
+    for passage in passages:
+        line = (
+            f"             {passage.point.point.name} — "
+            f"{passage.point.distance_m:.2f} m, {PASSAGE_ROLE_LABELS[passage.role]}, "
+            f"{PASSAGE_STATUS_LABELS[passage.status]}"
+        )
+        if passage.chronology_violation:
+            line += " (chronologie)"
+        if (
+            passage.crossing_s is not None
+            and passage.arrival_s is not None
+            and passage.departure_s is not None
+            and passage.stop_total_s is not None
+        ):
+            episodes = _count(passage.episode_count, "épisode", "épisodes")
+            line += (
+                f", t* {format_duration(passage.crossing_s)}, "
+                f"arrivée {format_duration(passage.arrival_s)}, "
+                f"départ {format_duration(passage.departure_s)}, "
+                f"S {format_duration(passage.stop_total_s)}, {episodes}"
+            )
+        if passage.role is PassageRole.DEPARTURE:
+            end = "non cible"
+        elif passage.unavailability is None:
+            end = "comparable"
+        else:
+            motive = PASSAGE_UNAVAILABILITY_LABELS[passage.unavailability]
+            end = f"indisponible ({motive})"
+        print(f"{line} ; {end}")
+    outcomes = Counter(attribution.outcome for attribution in result.episodes)
+    print(
+        "             épisodes θ_c : "
+        f"attribués {outcomes[EpisodeOutcome.ATTRIBUTED]}, "
+        f"sans candidate {outcomes[EpisodeOutcome.NO_CANDIDATE]}, "
+        f"non attribués {outcomes[EpisodeOutcome.TIE]}"
+    )
+    for attribution in result.episodes:
+        if attribution.outcome is EpisodeOutcome.TIE:
+            episode = attribution.episode
+            print(
+                f"             non attribué [{format_duration(episode.start_s)} ; "
+                f"{format_duration(episode.end_s)}]"
+            )
+
+
 def _given(args: argparse.Namespace, options: dict[str, str]) -> dict[str, float]:
     """Valeurs passées en ligne de commande ; les autres restent aux défauts."""
     return {
@@ -496,8 +586,10 @@ def _run_match(args: argparse.Namespace) -> None:
     series = build_series(trace)
     partition = clock_partition(trace, series)
     result = match_trace(geometry, profile, trace, series, partition, parameters)
+    passages = observe_passages(result, geometry, profile, trace, series, partition)
     _print_match_report(profile, geometry, trace, series, parameters, result.points)
     _print_segment_report(result, stop_episodes(partition, CENTRAL_CONVENTION_INDEX))
+    _print_passage_report(passages)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
