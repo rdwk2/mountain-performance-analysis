@@ -11,6 +11,11 @@ segment ``[b_k ; b_{k+1}]`` (régimes, admissibilité), la couverture publiée, 
 totaux du support admis, les configurations de sensibilité et le ``MatchResult``
 qui rassemble le tout. Aucun seuil du protocole ne figure ici : ils vivent dans
 ``mountain_perf.backtest.segments``.
+
+M4a-3 (``0010`` D4.12) : l'observation de chaque occurrence d'un lieu nommé (rôle,
+statut, instant, événements, maintien dans le préfixe), le sort de chaque épisode
+d'arrêt sous ``θ_c`` et le ``PassageMatchResult`` qui les rassemble. Les seuils
+(1 m, 1 s, ``ε``) vivent dans ``mountain_perf.backtest.passages``.
 """
 
 from __future__ import annotations
@@ -27,12 +32,17 @@ from mountain_perf.schemas.clock import (
     CLOCK_TOTALS_RELATIVE_TOLERANCE,
     Clock,
     ClockTotals,
+    StopEpisode,
 )
+from mountain_perf.schemas.common import LATITUDE_RANGE_DEG, LONGITUDE_RANGE_DEG
+from mountain_perf.schemas.outing import Unavailability
 from mountain_perf.schemas.parameters import ParameterSet
+from mountain_perf.schemas.route import ResolvedPoint
 from mountain_perf.validation import (
     ContractError,
     require_finite,
     require_immutable_sequence,
+    require_in_range,
     require_non_empty,
 )
 
@@ -1239,3 +1249,619 @@ class MatchResult:
                     f"la borne {bound} de admitted_sensitivity_range_s ({own}) doit "
                     f"valoir {wanted} : (min moving_s ; E_A − min stopped_s)."
                 )
+
+
+# ---------------------------------------------------------------------------
+# Passages nommés et événements (M4a-3)
+# ---------------------------------------------------------------------------
+
+
+class PassageRole(StrEnum):
+    """Rôle d'une occurrence de lieu nommé du préparé (``0010`` D4.12, D7.4).
+
+    Champs
+    ------
+    Valeurs décrites dans ``PASSAGE_ROLE_DESCRIPTIONS``.
+
+    Invariants
+    ----------
+    Énumération fermée : une occurrence reçoit un seul rôle, déduit du point de score
+    qu'elle reprend.
+
+    Producteur
+    ----------
+    ``attach_occurrence`` et ``observe_passages`` (``mountain_perf.backtest.passages``).
+
+    Consommateurs
+    -------------
+    ``PassageObservation`` ; ``mperf match`` ; la construction de ``K`` (M4b).
+
+    Non promis
+    ----------
+    Le rôle ne dit pas qu'une occurrence est dans ``K`` : M4b le fixe. Le seuil qui
+    le détermine vit dans ``mountain_perf.backtest.passages``.
+    """
+
+    DEPARTURE = "departure"
+    ARRIVAL = "arrival"
+    INTERMEDIATE = "intermediate"
+
+
+PASSAGE_ROLE_DESCRIPTIONS: Mapping[PassageRole, str] = MappingProxyType(
+    {
+        PassageRole.DEPARTURE: (
+            "Départ : l'occurrence reprend le départ (à moins de 1 m de 0) ; jamais "
+            "une cible (D7.4)."
+        ),
+        PassageRole.ARRIVAL: (
+            "Arrivée : l'occurrence reprend l'arrivée (à moins de 1 m de L), "
+            "ancrage compris — arrivée unique (D4.12)."
+        ),
+        PassageRole.INTERMEDIATE: "Intermédiaire : toute autre occurrence.",
+    }
+)
+
+
+class PassageStatus(StrEnum):
+    """Statut de l'observation d'une occurrence de lieu nommé (``0010`` D4.12).
+
+    Champs
+    ------
+    Valeurs décrites dans ``PASSAGE_STATUS_DESCRIPTIONS`` : les six valeurs de
+    ``PointStatus``, mêmes valeurs et mêmes sens pour une occurrence, et
+    ``OUTSIDE_PREFIX``.
+
+    Invariants
+    ----------
+    Énumération fermée : une occurrence reçoit un seul statut par sortie ;
+    ``ANCHORED`` seulement pour un départ ou une arrivée repris d'un point ancré ;
+    ``AMBIGUOUS`` aussi après une violation de chronologie.
+
+    Producteur
+    ----------
+    ``observe_passages`` (``mountain_perf.backtest.passages``).
+
+    Consommateurs
+    -------------
+    ``PassageObservation`` ; ``mperf match`` ; les métriques (M4b).
+
+    Non promis
+    ----------
+    Seuls ``FOUND`` et ``ANCHORED`` datent une occurrence avant la chronologie ; les
+    autres statuts sont des indisponibilités motivées (``0010`` D0), jamais un échec
+    sportif. Le statut d'une reprise est celui du point de score repris, pas un
+    franchissement de la normale du lieu.
+    """
+
+    FOUND = "found"
+    ANCHORED = "anchored"
+    AMBIGUOUS = "ambiguous"
+    ABSENT = "absent"
+    OUT_OF_TOLERANCE = "out_of_tolerance"
+    UNDEFINED_TANGENT = "undefined_tangent"
+    OUTSIDE_PREFIX = "outside_prefix"
+
+
+PASSAGE_STATUS_DESCRIPTIONS: Mapping[PassageStatus, str] = MappingProxyType(
+    {
+        PassageStatus.FOUND: (
+            "Trouvé : un seul événement de franchissement de la normale en s_w entre "
+            "les deux points de score qui l'encadrent, ou point de score repris "
+            "trouvé (D4.12)."
+        ),
+        PassageStatus.ANCHORED: (
+            "Ancré : départ ou arrivée repris d'un point ancré, observé avec son "
+            "statut (D4.8, D7.4)."
+        ),
+        PassageStatus.AMBIGUOUS: (
+            "Ambigu : deux événements ou plus, point repris ambigu, ou violation de "
+            "chronologie (D4.12) ; jamais départagé."
+        ),
+        PassageStatus.ABSENT: (
+            "Absent : aucun franchissement orienté entre les deux points qui "
+            "l'encadrent, ou point repris absent."
+        ),
+        PassageStatus.OUT_OF_TOLERANCE: (
+            "Hors ε : au moins un franchissement orienté, aucun admissible, ou point "
+            "repris hors ε ; se comporte comme absent (D4.7, précision)."
+        ),
+        PassageStatus.UNDEFINED_TANGENT: (
+            "Tangente indéfinie : corde de moins de 1e−6 m en s_w (D4.3), ou point "
+            "repris de tangente indéfinie."
+        ),
+        PassageStatus.OUTSIDE_PREFIX: (
+            "Hors préfixe : occurrence hors du préfixe comparable, non cherchée "
+            "(D4.12, « sur le préfixe comparable seulement »)."
+        ),
+    }
+)
+
+
+PASSAGE_STATUS_UNAVAILABILITY: Mapping[PassageStatus, Unavailability] = (
+    MappingProxyType(
+        {
+            PassageStatus.AMBIGUOUS: Unavailability.AMBIGUOUS,
+            PassageStatus.ABSENT: Unavailability.ABSENT,
+            PassageStatus.OUT_OF_TOLERANCE: Unavailability.ABSENT,
+            PassageStatus.UNDEFINED_TANGENT: Unavailability.UNDEFINED_TANGENT,
+            PassageStatus.OUTSIDE_PREFIX: Unavailability.INSUFFICIENT_SUPPORT,
+        }
+    )
+)
+"""Motif d'indisponibilité d'une occurrence de rôle autre que départ, par statut
+(``0010`` D0, D4.12) : ``hors ε`` se comporte comme ``absent`` (précision de D4.7).
+
+Une occurrence ``found`` ou ``anchored`` non maintenue dans le préfixe a le motif
+``insufficient_support`` : il ne dépend pas du seul statut et n'est pas dans cette
+table. Lue par ``PassageObservation`` et par ``observe_passages``.
+"""
+
+
+class EpisodeOutcome(StrEnum):
+    """Sort d'un épisode d'arrêt sous ``θ_c`` dans l'association arrêt → passage
+    (``0010`` D4.12).
+
+    Champs
+    ------
+    Valeurs décrites dans ``EPISODE_OUTCOME_DESCRIPTIONS``.
+
+    Invariants
+    ----------
+    Énumération fermée : un épisode reçoit une seule issue.
+
+    Producteur
+    ----------
+    ``attribute_episode`` et ``observe_passages``
+    (``mountain_perf.backtest.passages``).
+
+    Consommateurs
+    -------------
+    ``EpisodeAttribution`` ; ``mperf match`` ; le rapport (M4b).
+
+    Non promis
+    ----------
+    ``TIE`` n'est jamais départagé ; ``NO_CANDIDATE`` ne dit pas pourquoi aucune
+    occurrence n'était candidate.
+    """
+
+    ATTRIBUTED = "attributed"
+    NO_CANDIDATE = "no_candidate"
+    TIE = "tie"
+
+
+EPISODE_OUTCOME_DESCRIPTIONS: Mapping[EpisodeOutcome, str] = MappingProxyType(
+    {
+        EpisodeOutcome.ATTRIBUTED: (
+            "Attribué : l'épisode est attribué à une seule occurrence (D4.12)."
+        ),
+        EpisodeOutcome.NO_CANDIDATE: "Sans candidate : aucune occurrence candidate.",
+        EpisodeOutcome.TIE: (
+            "Non attribué : égalité persistante en temps puis en espace ; épisode "
+            "publié (D4.12)."
+        ),
+    }
+)
+
+_PASSAGE_DATED = frozenset({PassageStatus.FOUND, PassageStatus.ANCHORED})
+
+
+@dataclass(frozen=True)
+class PassageObservation:
+    """Observation d'une occurrence de lieu nommé par une trace réalisée (``0010``
+    D4.12).
+
+    Champs
+    ------
+    - ``point`` — sans unité — l'occurrence : ``point.name``, ``distance_m``
+      (``s_w``), ``offset_m``.
+    - ``role`` — sans unité — départ, arrivée ou intermédiaire.
+    - ``status`` — sans unité — statut de l'observation, après la chronologie.
+    - ``crossing_s`` — secondes depuis le premier enregistrement — ``t*_w``.
+    - ``association_window_s`` — secondes — ``(début, fin)`` de la fenêtre
+      d'association.
+    - ``arrival_s``, ``departure_s`` — secondes — ``arrivée_w``, ``départ_w``.
+    - ``stop_total_s`` — secondes — ``S``, somme des durées des épisodes attribués.
+    - ``episode_count`` — sans unité — nombre d'épisodes attribués.
+    - ``chronology_violation`` — sans unité — la chronologie a rendu l'occurrence
+      ambiguë.
+    - ``comparable`` — sans unité — utilisable comme observation comparable,
+      maintenue dans le préfixe.
+    - ``unavailability`` — sans unité — motif quand l'occurrence n'est pas
+      comparable (``0010`` D0).
+
+    Propriété calculée (jamais stockée) : ``dated``.
+
+    Invariants
+    ----------
+    - ``crossing_s``, ``association_window_s``, ``arrival_s``, ``departure_s``,
+      ``stop_total_s`` : tous présents ou tous absents ; présents si et seulement si
+      ``status`` est ``FOUND`` ou ``ANCHORED``, ou ``AMBIGUOUS`` avec
+      ``chronology_violation`` ;
+    - présents : valeurs finies et ``>= 0`` ; ``début <= crossing_s <= fin`` de la
+      fenêtre ; ``arrival_s <= crossing_s <= departure_s`` ;
+      ``0 <= stop_total_s <= departure_s − arrival_s`` ;
+    - ``episode_count >= 0`` ; ``episode_count == 0`` ⇒ ``stop_total_s == 0`` et
+      ``arrival_s == crossing_s == departure_s``, les instants présents ;
+      ``episode_count > 0`` ⇒ ``role`` est ``INTERMEDIATE`` et les instants sont
+      présents ;
+    - ``chronology_violation`` ⇒ ``status == AMBIGUOUS`` et ``role == INTERMEDIATE`` ;
+    - ``status == ANCHORED`` ⇒ ``role`` est ``DEPARTURE`` ou ``ARRIVAL`` ;
+    - ``role == DEPARTURE`` ⇒ ``comparable`` faux, ``unavailability`` absent,
+      ``status`` autre que ``OUTSIDE_PREFIX`` ;
+    - ``role != DEPARTURE`` : ``comparable`` ⇒ ``status`` ``FOUND`` ou ``ANCHORED``
+      et ``unavailability`` absent ; non ``comparable`` ⇒ ``unavailability`` vaut
+      ``INSUFFICIENT_SUPPORT`` pour ``FOUND`` ou ``ANCHORED`` (non maintenue), sinon
+      ``PASSAGE_STATUS_UNAVAILABILITY[status]``.
+
+    Producteur
+    ----------
+    ``observe_passages`` (``mountain_perf.backtest.passages``).
+
+    Consommateurs
+    -------------
+    ``PassageMatchResult``, ``mperf match`` ; les métriques et le rapport (M4b).
+
+    Non promis
+    ----------
+    - ``comparable`` ne dit pas que le passage est dans ``K`` (M4b le fixe) ;
+    - le ``crossing_s`` d'une reprise est l'instant du point de score repris, pas un
+      franchissement de la normale du lieu ;
+    - ``stop_total_s`` n'est pas une durée d'arrêt physique prouvée ;
+    - la fenêtre d'un départ ou d'une arrivée ne sert à aucune association ;
+    - le contrat ignore ``ε``, ``r_c``, ``θ_c`` et les seuils de 1 s et 1 m.
+    """
+
+    point: ResolvedPoint
+    role: PassageRole
+    status: PassageStatus
+    crossing_s: float | None
+    association_window_s: tuple[float, float] | None
+    arrival_s: float | None
+    departure_s: float | None
+    stop_total_s: float | None
+    episode_count: int
+    chronology_violation: bool
+    comparable: bool
+    unavailability: Unavailability | None
+
+    def __post_init__(self) -> None:
+        self._check_status()
+        self._check_instants()
+        self._check_episode_count()
+        self._check_comparable()
+
+    @property
+    def dated(self) -> bool:
+        """Les instants sont présents : ``FOUND``, ``ANCHORED``, ou ``AMBIGUOUS``
+        après une violation de chronologie, événements conservés (``0010`` D4.12)."""
+        return self.status in _PASSAGE_DATED or (
+            self.status is PassageStatus.AMBIGUOUS and self.chronology_violation
+        )
+
+    def _check_status(self) -> None:
+        if self.chronology_violation and (
+            self.status is not PassageStatus.AMBIGUOUS
+            or self.role is not PassageRole.INTERMEDIATE
+        ):
+            raise ContractError(
+                "chronology_violation n'est porté que par une occurrence intermediate "
+                f"AMBIGUOUS, reçu {self.role}, {self.status}."
+            )
+        if self.status is PassageStatus.ANCHORED and self.role not in (
+            PassageRole.DEPARTURE,
+            PassageRole.ARRIVAL,
+        ):
+            raise ContractError(
+                "seuls un départ et une arrivée peuvent être ANCHORED, reçu "
+                f"{self.role}."
+            )
+
+    def _check_instants(self) -> None:
+        values = {
+            "crossing_s": self.crossing_s,
+            "association_window_s": self.association_window_s,
+            "arrival_s": self.arrival_s,
+            "departure_s": self.departure_s,
+            "stop_total_s": self.stop_total_s,
+        }
+        present = [value is not None for value in values.values()]
+        if any(present) and not all(present):
+            raise ContractError(
+                "crossing_s, association_window_s, arrival_s, departure_s et "
+                "stop_total_s doivent être tous présents ou tous absents, reçu "
+                f"{values}."
+            )
+        if all(present) != self.dated:
+            state = "présents" if self.dated else "absents"
+            raise ContractError(
+                f"les instants doivent être {state} pour une occurrence {self.status} "
+                f"(chronology_violation={self.chronology_violation})."
+            )
+        crossing_s, window = self.crossing_s, self.association_window_s
+        arrival_s, departure_s = self.arrival_s, self.departure_s
+        stop_s = self.stop_total_s
+        if (
+            crossing_s is None
+            or window is None
+            or arrival_s is None
+            or departure_s is None
+            or stop_s is None
+        ):
+            return
+        require_immutable_sequence(window, "association_window_s")
+        if len(window) != 2:
+            raise ContractError(
+                f"association_window_s doit être un couple (début, fin), reçu {window}."
+            )
+        start_s, end_s = window
+        for name, value in (
+            ("crossing_s", crossing_s),
+            ("association_window_s[0]", start_s),
+            ("association_window_s[1]", end_s),
+            ("arrival_s", arrival_s),
+            ("departure_s", departure_s),
+            ("stop_total_s", stop_s),
+        ):
+            require_finite(value, name)
+            if value < 0:
+                raise ContractError(f"{name} doit être >= 0, reçu {value}.")
+        if not start_s <= crossing_s <= end_s:
+            raise ContractError(
+                f"crossing_s ({crossing_s}) doit être dans la fenêtre d'association "
+                f"[{start_s} ; {end_s}]."
+            )
+        if not arrival_s <= crossing_s <= departure_s:
+            raise ContractError(
+                f"arrival_s ({arrival_s}) <= crossing_s ({crossing_s}) <= "
+                f"departure_s ({departure_s}) doit tenir."
+            )
+        if not stop_s <= departure_s - arrival_s:
+            raise ContractError(
+                f"stop_total_s ({stop_s}) doit être <= departure_s − arrival_s "
+                f"({departure_s - arrival_s})."
+            )
+
+    def _check_episode_count(self) -> None:
+        count = self.episode_count
+        if count < 0:
+            raise ContractError(f"episode_count doit être >= 0, reçu {count}.")
+        if count > 0:
+            if self.role is not PassageRole.INTERMEDIATE:
+                raise ContractError(
+                    "seule une occurrence intermediate reçoit des épisodes, reçu "
+                    f"{count} épisode(s) pour le rôle {self.role}."
+                )
+            if self.crossing_s is None:
+                raise ContractError(
+                    f"une occurrence qui reçoit {count} épisode(s) a ses instants."
+                )
+            return
+        if self.crossing_s is None:
+            return
+        if self.stop_total_s != 0:
+            raise ContractError(
+                f"stop_total_s doit valoir 0 sans épisode, reçu {self.stop_total_s}."
+            )
+        if not self.arrival_s == self.crossing_s == self.departure_s:
+            raise ContractError(
+                "sans épisode, arrival_s, crossing_s et departure_s sont égaux, reçu "
+                f"{self.arrival_s}, {self.crossing_s}, {self.departure_s}."
+            )
+
+    def _check_comparable(self) -> None:
+        if self.role is PassageRole.DEPARTURE:
+            if self.comparable:
+                raise ContractError("un départ n'est jamais comparable (D7.4).")
+            if self.unavailability is not None:
+                raise ContractError(
+                    "un départ ne porte aucun motif d'indisponibilité, reçu "
+                    f"{self.unavailability}."
+                )
+            if self.status is PassageStatus.OUTSIDE_PREFIX:
+                raise ContractError(
+                    "un départ est toujours observé : jamais OUTSIDE_PREFIX."
+                )
+            return
+        if self.comparable:
+            if self.status not in _PASSAGE_DATED:
+                raise ContractError(
+                    "une occurrence comparable est FOUND ou ANCHORED, reçu "
+                    f"{self.status}."
+                )
+            if self.unavailability is not None:
+                raise ContractError(
+                    "une occurrence comparable ne porte aucun motif, reçu "
+                    f"{self.unavailability}."
+                )
+            return
+        expected = (
+            Unavailability.INSUFFICIENT_SUPPORT
+            if self.status in _PASSAGE_DATED
+            else PASSAGE_STATUS_UNAVAILABILITY[self.status]
+        )
+        if self.unavailability is not expected:
+            raise ContractError(
+                f"une occurrence {self.status} non comparable a le motif {expected}, "
+                f"reçu {self.unavailability}."
+            )
+
+
+@dataclass(frozen=True)
+class EpisodeAttribution:
+    """Sort d'un épisode d'arrêt sous ``θ_c`` (``0010`` D4.12, D5.2).
+
+    Champs
+    ------
+    - ``episode`` — sans unité — l'épisode d'arrêt, bornes ``[a ; b]``.
+    - ``outcome`` — sans unité — attribué, sans candidate ou non attribué.
+    - ``passage_index`` — sans unité — rang de l'occurrence attributaire dans
+      ``PassageMatchResult.passages``.
+    - ``median_latitude_deg``, ``median_longitude_deg`` — degrés — position lissée
+      médiane de l'épisode, coordonnée par coordonnée.
+
+    Invariants
+    ----------
+    - ``passage_index`` présent si et seulement si ``outcome == ATTRIBUTED``, et
+      alors ``>= 0`` ;
+    - médianes finies, latitude dans ``[−90 ; 90]``, longitude dans ``[−180 ; 180]``.
+
+    Producteur
+    ----------
+    ``observe_passages`` (``mountain_perf.backtest.passages``).
+
+    Consommateurs
+    -------------
+    ``PassageMatchResult``, ``mperf match`` ; le rapport (M4b).
+
+    Non promis
+    ----------
+    L'épisode n'est pas un arrêt physique prouvé ; la médiane n'est pas recoupée avec
+    la trace ; le contrat ignore ``ε`` et les seuils de 1 s et 1 m.
+    """
+
+    episode: StopEpisode
+    outcome: EpisodeOutcome
+    passage_index: int | None
+    median_latitude_deg: float
+    median_longitude_deg: float
+
+    def __post_init__(self) -> None:
+        attributed = self.outcome is EpisodeOutcome.ATTRIBUTED
+        if attributed != (self.passage_index is not None):
+            raise ContractError(
+                "passage_index doit être présent si et seulement si l'épisode est "
+                f"attribué, reçu {self.outcome} et {self.passage_index}."
+            )
+        if self.passage_index is not None and self.passage_index < 0:
+            raise ContractError(
+                f"passage_index doit être >= 0, reçu {self.passage_index}."
+            )
+        require_finite(self.median_latitude_deg, "median_latitude_deg")
+        require_in_range(
+            self.median_latitude_deg, *LATITUDE_RANGE_DEG, "median_latitude_deg"
+        )
+        require_finite(self.median_longitude_deg, "median_longitude_deg")
+        require_in_range(
+            self.median_longitude_deg, *LONGITUDE_RANGE_DEG, "median_longitude_deg"
+        )
+
+
+@dataclass(frozen=True)
+class PassageMatchResult:
+    """Les passages d'une sortie contre un tracé de référence (``0010`` D4.12).
+
+    Champs
+    ------
+    - ``passages`` — sans unité — l'observation de chaque occurrence, dans l'ordre de
+      ``profile.resolved_points``.
+    - ``episodes`` — sans unité — le sort de chaque épisode d'arrêt sous ``θ_c``,
+      dans l'ordre du temps.
+
+    Invariants
+    ----------
+    - ``passages`` et ``episodes`` sont des tuples ;
+    - ``point.distance_m`` non décroissants le long de ``passages`` ;
+    - ``episodes[i].episode.end_s < episodes[i + 1].episode.start_s`` ;
+    - tout ``passage_index`` est ``< len(passages)`` et désigne une occurrence
+      ``INTERMEDIATE`` dont le statut est ``FOUND``, ou ``AMBIGUOUS`` avec
+      ``chronology_violation`` ;
+    - pour chaque passage, ``episode_count`` est le nombre d'épisodes qui le
+      désignent ; ses instants présents, ``arrival_s == min(crossing_s, début des
+      épisodes attribués)``, ``departure_s == max(crossing_s, fin des épisodes
+      attribués)`` et ``stop_total_s == math.fsum(fin − début)`` — égalités
+      exactes : le producteur les calcule ainsi.
+
+    Producteur
+    ----------
+    ``observe_passages`` (``mountain_perf.backtest.passages``).
+
+    Consommateurs
+    -------------
+    ``mperf match`` ; les métriques et le rapport (M4b).
+
+    Non promis
+    ----------
+    Le résultat ne porte ni ``K``, ni les points, ni la couverture : ils sont dans le
+    ``MatchResult``. Aucun passage n'y est une cible.
+    """
+
+    passages: tuple[PassageObservation, ...]
+    episodes: tuple[EpisodeAttribution, ...]
+
+    def __post_init__(self) -> None:
+        require_immutable_sequence(self.passages, "passages")
+        require_immutable_sequence(self.episodes, "episodes")
+        for i, (a, b) in enumerate(pairwise(self.passages)):
+            if a.point.distance_m > b.point.distance_m:
+                raise ContractError(
+                    "point.distance_m doit être non décroissant le long de passages "
+                    f"(passages {i} et {i + 1})."
+                )
+        for i, (before, after) in enumerate(pairwise(self.episodes)):
+            if not before.episode.end_s < after.episode.start_s:
+                raise ContractError(
+                    "les épisodes sont dans l'ordre du temps et disjoints : "
+                    f"episodes[{i}] finit à {before.episode.end_s}, episodes[{i + 1}] "
+                    f"commence à {after.episode.start_s}."
+                )
+        attributed: dict[int, list[StopEpisode]] = {}
+        for i, attribution in enumerate(self.episodes):
+            index = attribution.passage_index
+            if index is None:
+                continue
+            if index >= len(self.passages):
+                raise ContractError(
+                    f"episodes[{i}].passage_index ({index}) dépasse le nombre de "
+                    f"passages ({len(self.passages)})."
+                )
+            target = self.passages[index]
+            eligible = target.status is PassageStatus.FOUND or (
+                target.status is PassageStatus.AMBIGUOUS and target.chronology_violation
+            )
+            if target.role is not PassageRole.INTERMEDIATE or not eligible:
+                raise ContractError(
+                    f"episodes[{i}] désigne passages[{index}], {target.role} "
+                    f"{target.status} : seule une occurrence intermediate FOUND, ou "
+                    "AMBIGUOUS par la chronologie, reçoit un épisode."
+                )
+            attributed.setdefault(index, []).append(attribution.episode)
+        for k, passage in enumerate(self.passages):
+            _check_events(k, passage, attributed.get(k, []))
+
+
+def _check_events(
+    k: int, passage: PassageObservation, episodes: list[StopEpisode]
+) -> None:
+    """``episode_count``, ``arrival_s``, ``departure_s`` et ``stop_total_s`` d'un
+    passage, recalculés sur ses épisodes attribués (égalités exactes)."""
+    if passage.episode_count != len(episodes):
+        raise ContractError(
+            f"passages[{k}].episode_count ({passage.episode_count}) doit valoir le "
+            f"nombre d'épisodes qui le désignent ({len(episodes)})."
+        )
+    crossing_s = passage.crossing_s
+    if crossing_s is None:
+        return
+    expected = (
+        (
+            "arrival_s",
+            passage.arrival_s,
+            min([crossing_s, *(e.start_s for e in episodes)]),
+        ),
+        (
+            "departure_s",
+            passage.departure_s,
+            max([crossing_s, *(e.end_s for e in episodes)]),
+        ),
+        (
+            "stop_total_s",
+            passage.stop_total_s,
+            math.fsum(e.end_s - e.start_s for e in episodes),
+        ),
+    )
+    for name, own, wanted in expected:
+        if own != wanted:
+            raise ContractError(
+                f"passages[{k}].{name} ({own}) doit valoir {wanted}, calculé sur ses "
+                "épisodes attribués."
+            )

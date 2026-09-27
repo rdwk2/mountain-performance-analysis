@@ -54,6 +54,12 @@
 - `AdmittedTotals`
 - `SensitivityConfiguration`
 - `MatchResult`
+- `PassageRole`
+- `PassageStatus`
+- `EpisodeOutcome`
+- `PassageObservation`
+- `EpisodeAttribution`
+- `PassageMatchResult`
 
 ---
 
@@ -2612,3 +2618,300 @@ Tout ce que l'appariement observe d'une sortie contre un tracé de référence.
   observé ;
 - la grille `nominal_m` n'est pas recalculée par le contrat, qui ignore `Δ` ;
 - aucun extrême segment par segment n'est jamais publié (D5.4).
+
+---
+
+## `PassageRole`
+
+*`mountain_perf.schemas.matching` · énumération*
+
+| Membre | Valeur | Description |
+|---|---|---|
+| `DEPARTURE` | `departure` | Départ : l'occurrence reprend le départ (à moins de 1 m de 0) ; jamais une cible (D7.4). |
+| `ARRIVAL` | `arrival` | Arrivée : l'occurrence reprend l'arrivée (à moins de 1 m de L), ancrage compris — arrivée unique (D4.12). |
+| `INTERMEDIATE` | `intermediate` | Intermédiaire : toute autre occurrence. |
+
+Rôle d'une occurrence de lieu nommé du préparé (`0010` D4.12, D7.4).
+
+#### Champs
+
+Valeurs décrites dans `PASSAGE_ROLE_DESCRIPTIONS`.
+
+#### Invariants
+
+Énumération fermée : une occurrence reçoit un seul rôle, déduit du point de score
+qu'elle reprend.
+
+#### Producteur
+
+`attach_occurrence` et `observe_passages` (`mountain_perf.backtest.passages`).
+
+#### Consommateurs
+
+`PassageObservation` ; `mperf match` ; la construction de `K` (M4b).
+
+#### Non promis
+
+Le rôle ne dit pas qu'une occurrence est dans `K` : M4b le fixe. Le seuil qui
+le détermine vit dans `mountain_perf.backtest.passages`.
+
+---
+
+## `PassageStatus`
+
+*`mountain_perf.schemas.matching` · énumération*
+
+| Membre | Valeur | Description |
+|---|---|---|
+| `FOUND` | `found` | Trouvé : un seul événement de franchissement de la normale en s_w entre les deux points de score qui l'encadrent, ou point de score repris trouvé (D4.12). |
+| `ANCHORED` | `anchored` | Ancré : départ ou arrivée repris d'un point ancré, observé avec son statut (D4.8, D7.4). |
+| `AMBIGUOUS` | `ambiguous` | Ambigu : deux événements ou plus, point repris ambigu, ou violation de chronologie (D4.12) ; jamais départagé. |
+| `ABSENT` | `absent` | Absent : aucun franchissement orienté entre les deux points qui l'encadrent, ou point repris absent. |
+| `OUT_OF_TOLERANCE` | `out_of_tolerance` | Hors ε : au moins un franchissement orienté, aucun admissible, ou point repris hors ε ; se comporte comme absent (D4.7, précision). |
+| `UNDEFINED_TANGENT` | `undefined_tangent` | Tangente indéfinie : corde de moins de 1e−6 m en s_w (D4.3), ou point repris de tangente indéfinie. |
+| `OUTSIDE_PREFIX` | `outside_prefix` | Hors préfixe : occurrence hors du préfixe comparable, non cherchée (D4.12, « sur le préfixe comparable seulement »). |
+
+Statut de l'observation d'une occurrence de lieu nommé (`0010` D4.12).
+
+#### Champs
+
+Valeurs décrites dans `PASSAGE_STATUS_DESCRIPTIONS` : les six valeurs de
+`PointStatus`, mêmes valeurs et mêmes sens pour une occurrence, et
+`OUTSIDE_PREFIX`.
+
+#### Invariants
+
+Énumération fermée : une occurrence reçoit un seul statut par sortie ;
+`ANCHORED` seulement pour un départ ou une arrivée repris d'un point ancré ;
+`AMBIGUOUS` aussi après une violation de chronologie.
+
+#### Producteur
+
+`observe_passages` (`mountain_perf.backtest.passages`).
+
+#### Consommateurs
+
+`PassageObservation` ; `mperf match` ; les métriques (M4b).
+
+#### Non promis
+
+Seuls `FOUND` et `ANCHORED` datent une occurrence avant la chronologie ; les
+autres statuts sont des indisponibilités motivées (`0010` D0), jamais un échec
+sportif. Le statut d'une reprise est celui du point de score repris, pas un
+franchissement de la normale du lieu.
+
+---
+
+## `EpisodeOutcome`
+
+*`mountain_perf.schemas.matching` · énumération*
+
+| Membre | Valeur | Description |
+|---|---|---|
+| `ATTRIBUTED` | `attributed` | Attribué : l'épisode est attribué à une seule occurrence (D4.12). |
+| `NO_CANDIDATE` | `no_candidate` | Sans candidate : aucune occurrence candidate. |
+| `TIE` | `tie` | Non attribué : égalité persistante en temps puis en espace ; épisode publié (D4.12). |
+
+Sort d'un épisode d'arrêt sous `θ_c` dans l'association arrêt → passage
+(`0010` D4.12).
+
+#### Champs
+
+Valeurs décrites dans `EPISODE_OUTCOME_DESCRIPTIONS`.
+
+#### Invariants
+
+Énumération fermée : un épisode reçoit une seule issue.
+
+#### Producteur
+
+`attribute_episode` et `observe_passages`
+(`mountain_perf.backtest.passages`).
+
+#### Consommateurs
+
+`EpisodeAttribution` ; `mperf match` ; le rapport (M4b).
+
+#### Non promis
+
+`TIE` n'est jamais départagé ; `NO_CANDIDATE` ne dit pas pourquoi aucune
+occurrence n'était candidate.
+
+---
+
+## `PassageObservation`
+
+*`mountain_perf.schemas.matching` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `point` | `ResolvedPoint` | — |
+| `role` | `PassageRole` | — |
+| `status` | `PassageStatus` | — |
+| `crossing_s` | `float \| None` | — |
+| `association_window_s` | `tuple[float, float] \| None` | — |
+| `arrival_s` | `float \| None` | — |
+| `departure_s` | `float \| None` | — |
+| `stop_total_s` | `float \| None` | — |
+| `episode_count` | `int` | — |
+| `chronology_violation` | `bool` | — |
+| `comparable` | `bool` | — |
+| `unavailability` | `Unavailability \| None` | — |
+
+| Propriété calculée | Type | Sens |
+|---|---|---|
+| `dated` | `bool` | Les instants sont présents : `FOUND`, `ANCHORED`, ou `AMBIGUOUS` après une violation de chronologie, événements conservés (`0010` D4.12). |
+
+Observation d'une occurrence de lieu nommé par une trace réalisée (`0010`
+D4.12).
+
+#### Champs
+
+- `point` — sans unité — l'occurrence : `point.name`, `distance_m`
+  (`s_w`), `offset_m`.
+- `role` — sans unité — départ, arrivée ou intermédiaire.
+- `status` — sans unité — statut de l'observation, après la chronologie.
+- `crossing_s` — secondes depuis le premier enregistrement — `t*_w`.
+- `association_window_s` — secondes — `(début, fin)` de la fenêtre
+  d'association.
+- `arrival_s`, `departure_s` — secondes — `arrivée_w`, `départ_w`.
+- `stop_total_s` — secondes — `S`, somme des durées des épisodes attribués.
+- `episode_count` — sans unité — nombre d'épisodes attribués.
+- `chronology_violation` — sans unité — la chronologie a rendu l'occurrence
+  ambiguë.
+- `comparable` — sans unité — utilisable comme observation comparable,
+  maintenue dans le préfixe.
+- `unavailability` — sans unité — motif quand l'occurrence n'est pas
+  comparable (`0010` D0).
+
+Propriété calculée (jamais stockée) : `dated`.
+
+#### Invariants
+
+- `crossing_s`, `association_window_s`, `arrival_s`, `departure_s`,
+  `stop_total_s` : tous présents ou tous absents ; présents si et seulement si
+  `status` est `FOUND` ou `ANCHORED`, ou `AMBIGUOUS` avec
+  `chronology_violation` ;
+- présents : valeurs finies et `>= 0` ; `début <= crossing_s <= fin` de la
+  fenêtre ; `arrival_s <= crossing_s <= departure_s` ;
+  `0 <= stop_total_s <= departure_s − arrival_s` ;
+- `episode_count >= 0` ; `episode_count == 0` ⇒ `stop_total_s == 0` et
+  `arrival_s == crossing_s == departure_s`, les instants présents ;
+  `episode_count > 0` ⇒ `role` est `INTERMEDIATE` et les instants sont
+  présents ;
+- `chronology_violation` ⇒ `status == AMBIGUOUS` et `role == INTERMEDIATE` ;
+- `status == ANCHORED` ⇒ `role` est `DEPARTURE` ou `ARRIVAL` ;
+- `role == DEPARTURE` ⇒ `comparable` faux, `unavailability` absent,
+  `status` autre que `OUTSIDE_PREFIX` ;
+- `role != DEPARTURE` : `comparable` ⇒ `status` `FOUND` ou `ANCHORED`
+  et `unavailability` absent ; non `comparable` ⇒ `unavailability` vaut
+  `INSUFFICIENT_SUPPORT` pour `FOUND` ou `ANCHORED` (non maintenue), sinon
+  `PASSAGE_STATUS_UNAVAILABILITY[status]`.
+
+#### Producteur
+
+`observe_passages` (`mountain_perf.backtest.passages`).
+
+#### Consommateurs
+
+`PassageMatchResult`, `mperf match` ; les métriques et le rapport (M4b).
+
+#### Non promis
+
+- `comparable` ne dit pas que le passage est dans `K` (M4b le fixe) ;
+- le `crossing_s` d'une reprise est l'instant du point de score repris, pas un
+  franchissement de la normale du lieu ;
+- `stop_total_s` n'est pas une durée d'arrêt physique prouvée ;
+- la fenêtre d'un départ ou d'une arrivée ne sert à aucune association ;
+- le contrat ignore `ε`, `r_c`, `θ_c` et les seuils de 1 s et 1 m.
+
+---
+
+## `EpisodeAttribution`
+
+*`mountain_perf.schemas.matching` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `episode` | `StopEpisode` | — |
+| `outcome` | `EpisodeOutcome` | — |
+| `passage_index` | `int \| None` | — |
+| `median_latitude_deg` | `float` | — |
+| `median_longitude_deg` | `float` | — |
+
+Sort d'un épisode d'arrêt sous `θ_c` (`0010` D4.12, D5.2).
+
+#### Champs
+
+- `episode` — sans unité — l'épisode d'arrêt, bornes `[a ; b]`.
+- `outcome` — sans unité — attribué, sans candidate ou non attribué.
+- `passage_index` — sans unité — rang de l'occurrence attributaire dans
+  `PassageMatchResult.passages`.
+- `median_latitude_deg`, `median_longitude_deg` — degrés — position lissée
+  médiane de l'épisode, coordonnée par coordonnée.
+
+#### Invariants
+
+- `passage_index` présent si et seulement si `outcome == ATTRIBUTED`, et
+  alors `>= 0` ;
+- médianes finies, latitude dans `[−90 ; 90]`, longitude dans `[−180 ; 180]`.
+
+#### Producteur
+
+`observe_passages` (`mountain_perf.backtest.passages`).
+
+#### Consommateurs
+
+`PassageMatchResult`, `mperf match` ; le rapport (M4b).
+
+#### Non promis
+
+L'épisode n'est pas un arrêt physique prouvé ; la médiane n'est pas recoupée avec
+la trace ; le contrat ignore `ε` et les seuils de 1 s et 1 m.
+
+---
+
+## `PassageMatchResult`
+
+*`mountain_perf.schemas.matching` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `passages` | `tuple[PassageObservation, ...]` | — |
+| `episodes` | `tuple[EpisodeAttribution, ...]` | — |
+
+Les passages d'une sortie contre un tracé de référence (`0010` D4.12).
+
+#### Champs
+
+- `passages` — sans unité — l'observation de chaque occurrence, dans l'ordre de
+  `profile.resolved_points`.
+- `episodes` — sans unité — le sort de chaque épisode d'arrêt sous `θ_c`,
+  dans l'ordre du temps.
+
+#### Invariants
+
+- `passages` et `episodes` sont des tuples ;
+- `point.distance_m` non décroissants le long de `passages` ;
+- `episodes[i].episode.end_s < episodes[i + 1].episode.start_s` ;
+- tout `passage_index` est `< len(passages)` et désigne une occurrence
+  `INTERMEDIATE` dont le statut est `FOUND`, ou `AMBIGUOUS` avec
+  `chronology_violation` ;
+- pour chaque passage, `episode_count` est le nombre d'épisodes qui le
+  désignent ; ses instants présents, `arrival_s == min(crossing_s, début des
+  épisodes attribués)`, `departure_s == max(crossing_s, fin des épisodes
+  attribués)` et `stop_total_s == math.fsum(fin − début)` — égalités
+  exactes : le producteur les calcule ainsi.
+
+#### Producteur
+
+`observe_passages` (`mountain_perf.backtest.passages`).
+
+#### Consommateurs
+
+`mperf match` ; les métriques et le rapport (M4b).
+
+#### Non promis
+
+Le résultat ne porte ni `K`, ni les points, ni la couverture : ils sont dans le
+`MatchResult`. Aucun passage n'y est une cible.

@@ -230,6 +230,7 @@ def crossing_candidates(
     closed: bool,
     tolerance_m: float,
     departure: bool,
+    end_position: float | None = None,
 ) -> tuple[tuple[CrossingCandidate, ...], int]:
     """Candidats admissibles d'un point, et nombre de franchissements orientés.
 
@@ -241,6 +242,12 @@ def crossing_candidates(
     les candidats de la fenêtre sont énumérés ; ceux de même ``π`` sont confondus
     (D4.7). Rend les candidats triés par ``π`` et le nombre de franchissements
     orientés, qui départage ``hors ε`` et ``absent``.
+
+    ``end_position`` (M4a-3, passages nommés de D4.12) : borne haute **stricte** de
+    la recherche. Un franchissement de position ``π >= end_position`` n'est ni
+    compté parmi les franchissements orientés, ni candidat ; le parcours s'arrête au
+    premier intervalle ``i >= end_position``, dont tout franchissement serait en
+    ``π >= i``. ``None`` : aucune borne haute, comportement de M4a-2a.
     """
     lat, lon = trace.latitude_deg, trace.longitude_deg
     realized_m = series.realized_distance_m
@@ -251,11 +258,15 @@ def crossing_candidates(
     for i in range(start, len(lat) - 1):
         if not within_window(realized_m[i], bound_m):
             break
+        if end_position is not None and i >= end_position:
+            break
         h_after_m, lateral_after_m = frame.coordinates(lat[i + 1], lon[i + 1])
         if crosses(h_before_m, h_after_m, closed=closed) and not series.gap_after[i]:
             f = crossing_fraction(h_before_m, h_after_m)
             position = i + f
             ordered = position >= 0 if departure else position > current_position
+            if end_position is not None:
+                ordered = ordered and position < end_position
             if ordered and within_window(realized_at(series, position), bound_m):
                 oriented += 1
                 lateral_m = (1 - f) * lateral_before_m + f * lateral_after_m

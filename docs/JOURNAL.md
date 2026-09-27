@@ -16,6 +16,40 @@ Backtest (à partir de M4) : métrique avant → après.
 
 ---
 
+### 2026-09-27 · M4a-3 — Backtest : passages et événements
+Cinquième et dernière PR du lot M4a (brief M4a-3 rév. 1, `0010` D4.12 ; `0010`
+inchangé). Six types de plus au dictionnaire (`PassageRole`, `PassageStatus`,
+`EpisodeOutcome`, `PassageObservation`, `EpisodeAttribution`, `PassageMatchResult`)
+et la table unique `PASSAGE_STATUS_UNAVAILABILITY` ; mot-clé `end_position` de
+`crossing_candidates` (borne haute stricte, arrêt anticipé, `None` inchangé) ;
+`backtest/passages.py` : huit prédicats, rattachement à la grille nominale,
+recherche d'une occurrence encadrée, reprise d'un point de score (fenêtre jusqu'au
+premier point daté après `k`), association arrêt → passage sous `θ_c` (médiane
+lissée, 1 s puis 1 m), événements, chronologie (départ et arrivée hors chronologie),
+maintien dans le préfixe, `observe_passages` ; `mperf match`, section 10. Précisions
+de la relecture du plan intégrées (P1 à P5 : invariants du départ et de
+`passage_index`, ligne cp1252 de la section Backtest, table testée valeur par
+valeur, réemploi vérifié par l'arbre syntaxique, `time_distance_s` au commit 3).
+Les 26 lignes du § 7.3.1 et la section 10 des sept paires reproduites dès le premier
+essai, sans tolérance élargie. 61 contre-épreuves par mutation (chaque ligne du § 8,
+chaque variante), une à la fois, cache de bytecode vidé, toutes rougies, arbre
+restauré et vérifié par empreinte ; deux notes : la médiane brute ne s'écrit qu'au
+point d'appel (`episode_median` n'a pas la trace), où seul le test de réemploi la
+rougit ; `outside_prefix → absent` est d'abord arrêtée à la collecte des tests de
+contrat, puis rougit dans le corps de Passages. `mperf match` 1,03 s sur Final hors
+préfixe (1 944 enregistrements), démarrage compris ; `observe_passages` 0,3 ms.
+Conclusion : `just check` vert avant chacun des six commits, 2 015 tests (+308).
+Contrôle des dix-neuf paires réelles à faire par rdw avant la fusion (§ 11). Trois
+lignes au backlog (§ 9), et le déclencheur de la ligne cp1252 réécrit.
+Correctifs de la PR après la double relecture et le balayage mécanique (R1 à R10,
+tests seulement, `src/` inchangé) : motifs et pluriel de la section 10, chronologie à
+trois enveloppes, Chronologie miroir, `ε` et `r_c` hors défauts, lieu d'arrivée hors
+chronologie, réemploi fermé, longueur au bit près, occurrence et épisode publiés
+entiers, arrivée négative refusée ; une contre-épreuve par correctif, cache de
+bytecode vidé, toutes rougies dans le corps du test visé ; 2 029 tests (+14).
+Rangé dans `src/mountain_perf/schemas/matching.py`, `backtest/passages.py`,
+`backtest/matching.py`, `cli.py`, `tests/`, branche `m4a/passages`.
+
 ### 2026-09-27 · M4a-2c — Horloges : égalités de seuil ; tests des segments
 Quatrième des cinq PR du lot M4a (brief M4a-2c rév. 2, `0010` D5.2 : une précision,
 rien d'autre). Partie A : `qualify` compare aux seuils d'horloge en réels — une mesure

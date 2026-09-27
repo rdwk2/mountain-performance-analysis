@@ -25,11 +25,15 @@ from fixtures.matching import (
     MAX_STRAIGHT_RECORDS,
     MatchCase,
     Phase,
+    Point,
     StraightCase,
+    TracePath,
     matching_parameters,
     straight_case,
     wandering_case,
 )
+from fixtures.segments import named_route, stay
+from mountain_perf.backtest import score_grid
 from mountain_perf.gpx import PROFILE_PARAMETER_SPECS
 from mountain_perf.gpx.geo import EARTH_RADIUS_M
 from mountain_perf.schemas import (
@@ -1070,3 +1074,103 @@ def wandering_cases(draw: st.DrawFn) -> MatchCase:
     )
     start = (float(draw(st.integers(-40, 40))), draw(finite_floats(-35.0, 35.0)))
     return wandering_case(vertices, start, phases, parameters)
+
+
+# ---------------------------------------------------------------------------
+# Passages nommés (M4a-3)
+# ---------------------------------------------------------------------------
+
+PASSAGE_INGREDIENTS = ("stop", "tie", "creep", "detour")
+"""Ingrédients de :func:`passage_cases`, placés le long de la trace."""
+
+
+@st.composite
+def passage_cases(draw: st.DrawFn) -> MatchCase:
+    """§ 8.3, test 6, du brief M4a-3 : référence droite vers l'est à 45° N (760, 1010
+    ou 1260 m ; ``Δ = 250``, ``ε = 30``, ``r_c = 15``), lieux nommés sur le tracé, et
+    trace qui le suit à 1 Hz, à 1, 1,5 ou 2 m/s. Étiquettes (``features``) :
+
+    - ``start_creep`` : départ en reptation de ``x = −1`` à 4 à 6 m à 0,04 m/s, un
+      lieu à 1,5 à 3,5 m (arrivée avant ``t*_0``, comme Départ dans l'arrêt) ;
+    - ``stop`` : jusqu'à trois ingrédients le long de la trace, dont des arrêts de
+      90 à 150 s ; ``near_stop`` : un lieu à moins de 41 m de l'arrêt ;
+    - ``tie_pair`` : arrêt entre deux lieux symétriques (égalité en temps et en
+      espace) ;
+    - ``creep`` : reptation de 3 à 6 m, le premier tiers à 0,01 ou 0,015 m/s, le
+      reste quatre fois plus vite, sur deux lieux à ``w/6`` et ``2w/3`` : la médiane
+      de l'arrêt rampant tombe près du premier, qui reçoit l'épisode (chronologie,
+      comme la ligne Chronologie) ;
+    - ``detour`` : écart de 50 m au nord sur 60 m (préfixe coupé) ;
+    - ``near_score_point`` : un lieu à 0,5 m au plus d'un point de score, départ et
+      arrivée compris (reprises) ;
+    - ``short`` : trace arrêtée 30 à 300 m avant l'arrivée.
+    """
+    length_m = draw(st.sampled_from([760.0, 1010.0, 1260.0]))
+    speed_ms = draw(st.sampled_from([1.0, 1.5, 2.0]))
+    features: set[str] = set()
+    places: list[tuple[str, Point]] = []
+
+    def place(x_m: float) -> None:
+        places.append((f"L{len(places)}", (x_m, 0.0)))
+
+    if draw(st.booleans()):
+        features.add("start_creep")
+        path = TracePath((-1.0, 0.0)).to(
+            (draw(st.sampled_from([4.0, 5.0, 6.0])), 0.0), speed_ms=0.04
+        )
+        place(draw(st.sampled_from([1.5, 2.5, 3.5])))
+    else:
+        path = TracePath((0.0, 0.0))
+    x_m = path.points_m[-1][0]
+    for kind in draw(st.lists(st.sampled_from(PASSAGE_INGREDIENTS), max_size=3)):
+        anchor_m = x_m + draw(st.integers(40, 260))
+        if anchor_m > length_m - 80:
+            break
+        path.to((anchor_m, 0.0), speed_ms=speed_ms)
+        x_m = anchor_m
+        if kind == "stop":
+            features.add("stop")
+            offset_m = draw(st.sampled_from([None, -20.5, -8.5, -3.5, 4.5, 12.5, 40.5]))
+            if offset_m is not None:
+                features.add("near_stop")
+                place(anchor_m + offset_m)
+            stay(path, draw(st.integers(90, 150)))
+        elif kind == "tie":
+            features.add("tie_pair")
+            half_m = draw(st.sampled_from([6.5, 9.5, 14.5]))
+            place(anchor_m - half_m)
+            place(anchor_m + half_m)
+            stay(path, draw(st.integers(90, 150)))
+        elif kind == "creep":
+            features.add("creep")
+            width_m = draw(st.sampled_from([3.0, 4.5, 6.0]))
+            place(anchor_m + width_m / 6)
+            place(anchor_m + 2 * width_m / 3)
+            creep_ms = draw(st.sampled_from([0.01, 0.015]))
+            path.to((anchor_m + width_m / 3, 0.0), speed_ms=creep_ms)
+            path.to((anchor_m + width_m, 0.0), speed_ms=4 * creep_ms)
+            x_m = anchor_m + width_m
+        else:
+            features.add("detour")
+            path.to((anchor_m + 30.0, 50.0), (anchor_m + 60.0, 0.0), speed_ms=speed_ms)
+            x_m = anchor_m + 60.0
+    grid_m = score_grid(length_m, 250.0)
+    for _ in range(draw(st.integers(0, 3))):
+        if draw(st.booleans()):
+            features.add("near_score_point")
+            s_m = draw(st.sampled_from(grid_m)) + draw(
+                st.sampled_from([-0.5, 0.0, 0.5])
+            )
+        else:
+            s_m = draw(st.integers(0, round(10 * length_m))) / 10
+        place(min(max(s_m, 0.0), length_m))
+    end_m = length_m + 5.0
+    if draw(st.booleans()):
+        features.add("short")
+        end_m = max(x_m + 20.0, length_m - draw(st.integers(30, 300)))
+    path.to((end_m, 0.0), speed_ms=speed_ms)
+    return MatchCase(
+        named_route(((0.0, 0.0), (length_m, 0.0)), places),
+        path.trace(),
+        features=frozenset(features),
+    )
