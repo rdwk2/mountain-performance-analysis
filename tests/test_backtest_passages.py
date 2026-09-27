@@ -918,3 +918,26 @@ def test_points_of_another_grid_are_refused() -> None:
     parameters = ParameterSet(MATCHING_PARAMETER_SPECS, {"score_step_m": 100.0})
     with pytest.raises(ValueError, match="6 points pour une grille de 12"):
         _observe_with(case, match=replace(match, parameters=parameters))
+
+
+def test_length_is_compared_bit_for_bit() -> None:
+    """R8 des correctifs de la PR #12 : une géométrie dont la dernière abscisse est plus
+    grande d'un ulp est d'un autre tracé (« bit pour bit », § 6.9)."""
+    case = p.passages()
+    match, _ = p.observed_passages(case)
+    series = build_series(case.trace)
+    distance_m = case.geometry.distance_m
+    longer = replace(
+        case.geometry,
+        distance_m=(*distance_m[:-1], math.nextafter(distance_m[-1], math.inf)),
+    )
+    assert longer.length_m > case.geometry.length_m
+    with pytest.raises(ValueError, match="profil et géométrie"):
+        observe_passages(
+            match,
+            longer,
+            reference_profile(case),
+            case.trace,
+            series,
+            clock_partition(case.trace, series),
+        )
