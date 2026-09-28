@@ -455,3 +455,12 @@ def test_usage_motif_is_the_first_in_k_order(
     élément indisponible dans l'ordre de ``K``, quel que soit celui des suivants."""
     target = usage_target((100.0, 200.0), (100.0, 200.0), (None, None), motifs)
     assert target.q_usage == MetricValue(None, expected, 0)
+
+
+def test_zero_anchor_gap_is_published() -> None:
+    """Choix 9 : l'écart d'ancrage est fini et ``>= 0``, zéro compris ; publié tel
+    quel."""
+    target = usage_target(
+        (490.0,), (490.0,), (490.0,), (None,), arrival_anchor_gap_m=0.0
+    )
+    assert target.arrival_anchor_gap_m == 0.0
