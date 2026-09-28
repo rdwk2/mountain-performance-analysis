@@ -65,6 +65,16 @@ from mountain_perf.schemas.matching import (
     SegmentExclusion,
     SensitivityConfiguration,
 )
+from mountain_perf.schemas.metrics import (
+    ClassMetrics,
+    LogRatioEnvelope,
+    MetricValue,
+    PassageErrors,
+    PositiveTimeDiagnostic,
+    SupportMetrics,
+    TargetMember,
+    UsageTarget,
+)
 from mountain_perf.schemas.outing import (
     ARTIFACT_ROLE_DESCRIPTIONS,
     DATA_SET_DESCRIPTIONS,
@@ -164,6 +174,14 @@ DOCUMENTED_TYPES: tuple[type, ...] = (
     PassageObservation,
     EpisodeAttribution,
     PassageMatchResult,
+    MetricValue,
+    ClassMetrics,
+    SupportMetrics,
+    PositiveTimeDiagnostic,
+    LogRatioEnvelope,
+    PassageErrors,
+    TargetMember,
+    UsageTarget,
 )
 """Types publiés dans le dictionnaire, dans l'ordre de lecture."""
 

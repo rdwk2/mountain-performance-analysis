@@ -60,6 +60,14 @@
 - `PassageObservation`
 - `EpisodeAttribution`
 - `PassageMatchResult`
+- `MetricValue`
+- `ClassMetrics`
+- `SupportMetrics`
+- `PositiveTimeDiagnostic`
+- `LogRatioEnvelope`
+- `PassageErrors`
+- `TargetMember`
+- `UsageTarget`
 
 ---
 
@@ -2915,3 +2923,431 @@ Les passages d'une sortie contre un tracé de référence (`0010` D4.12).
 
 Le résultat ne porte ni `K`, ni les points, ni la couverture : ils sont dans le
 `MatchResult`. Aucun passage n'y est une cible.
+
+---
+
+## `MetricValue`
+
+*`mountain_perf.schemas.metrics` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `value` | `float \| None` | — |
+| `unavailability` | `Unavailability \| None` | — |
+| `count` | `int` | — |
+
+| Propriété calculée | Type | Sens |
+|---|---|---|
+| `available` | `bool` | La valeur est présente (`value is not None`). |
+
+Une valeur de métrique, ou son indisponibilité, avec son effectif (`0010` D0,
+D7.5).
+
+#### Champs
+
+- `value` — unité de la métrique : sans unité pour les métriques logarithmiques
+  et `q_usage`, secondes pour `C_k` — la valeur.
+- `unavailability` — sans unité — le motif (`0010` D0).
+- `count` — sans unité — l'effectif du support de la valeur, en segments ou en
+  passages.
+
+Propriété calculée (jamais stockée) : `available`.
+
+#### Invariants
+
+- exactement un de `value` et `unavailability` est présent ;
+- `value` finie ;
+- `count >= 0` ;
+- `value` présente ⇒ `count >= 1`.
+
+#### Producteur
+
+Les fonctions de `mountain_perf.backtest.metrics`.
+
+#### Consommateurs
+
+Les contrats qui la portent (`ClassMetrics`, `SupportMetrics`,
+`PassageErrors`, `UsageTarget`) et leurs consommateurs : l'assemblage (M4b-2),
+la référence D8 (M4b-3), le rapport (M4b-5), l'admission (M4c).
+
+#### Non promis
+
+- le contrat ne dit pas de quel support il s'agit : c'est le contrat qui le porte ;
+- une valeur n'est jamais « zéro par défaut ».
+
+---
+
+## `ClassMetrics`
+
+*`mountain_perf.schemas.metrics` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `regime_class` | `RegimeClass` | — |
+| `segment_count` | `int` | — |
+| `underrepresented` | `bool` | — |
+| `log_ratio` | `MetricValue` | — |
+| `dispersion` | `MetricValue` | — |
+| `shape` | `MetricValue` | — |
+
+Les métriques d'une classe de régime sur le support (`0010` D6, D7.2, D7.5).
+
+#### Champs
+
+- `regime_class` — sans unité — la classe.
+- `segment_count` — sans unité — `n_R`, segments du support dans la classe.
+- `underrepresented` — sans unité — « trop peu représenté » (D7.5).
+- `log_ratio` — sans unité — `E_R`.
+- `dispersion` — sans unité — `D_R`.
+- `shape` — sans unité — `E_R − L`, diagnostic de forme.
+
+#### Invariants
+
+- `segment_count >= 0` ;
+- les trois valeurs ont `count == segment_count`, le même motif, ou sont toutes
+  trois présentes ;
+- motif parmi les motifs du support (`insufficient_support`, `zero_time`,
+  `model_error`) ;
+- `segment_count == 0` ⇒ motif `insufficient_support` ;
+- `underrepresented` ⇒ `segment_count >= 1` ;
+- `dispersion` présente ⇒ `dispersion.value >= 0` ;
+- `dispersion` présente et `segment_count == 1` ⇒ `dispersion.value == 0.0`
+  **exactement** (D7.2).
+
+#### Producteur
+
+`support_metrics` et `positive_time_diagnostic`
+(`mountain_perf.backtest.metrics`).
+
+#### Consommateurs
+
+`SupportMetrics`, qui la porte, et ses consommateurs : l'assemblage (M4b-2), la
+référence D8 (M4b-3), le rapport (M4b-5), l'admission (M4c).
+
+#### Non promis
+
+- le seuil de 3 n'est pas dans le contrat : le contrat ne vérifie pas que
+  `underrepresented` correspond à l'effectif (tests du producteur) ;
+- `E_R` d'une classe « trop peu représentée » n'est ni une cible ni un garde-fou
+  (D7.5) ;
+- mixte n'est jamais une cible (D6).
+
+---
+
+## `SupportMetrics`
+
+*`mountain_perf.schemas.metrics` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `segment_count` | `int` | — |
+| `model_error` | `bool` | — |
+| `log_ratio` | `MetricValue` | — |
+| `dispersion` | `MetricValue` | — |
+| `within` | `MetricValue` | — |
+| `between` | `MetricValue` | — |
+| `compensation` | `MetricValue` | — |
+| `classes` | `tuple[ClassMetrics, ...]` | — |
+
+Les métriques d'un support (`0010` D7.1, D7.2, D5.5).
+
+#### Champs
+
+- `segment_count` — sans unité — `n`, segments du support.
+- `model_error` — sans unité — sortie de modèle invalide sur le support (D7.1).
+- `log_ratio` — sans unité — `L`.
+- `dispersion` — sans unité — `A`.
+- `within` — sans unité — `W`.
+- `between` — sans unité — `B`.
+- `compensation` — sans unité — `C_comp`.
+- `classes` — sans unité — les métriques de chaque classe de régime.
+
+#### Invariants
+
+- `classes` est un tuple de quatre éléments, de `regime_class` montée, plat,
+  descente, mixte, dans cet ordre ;
+- `sum(segment_count des classes) == segment_count` ;
+- `log_ratio`, `dispersion`, `within`, `between`, `compensation` ont
+  `count == segment_count` ;
+- `dispersion`, `within`, `between`, `compensation` ont le même motif, ou
+  sont toutes présentes (« motif vectoriel ») ;
+- tous les motifs sont parmi les motifs du support (`insufficient_support`,
+  `zero_time`, `model_error`) ;
+- `segment_count == 0` ⇐⇒ `log_ratio` et le motif vectoriel sont
+  `insufficient_support` ; et alors `model_error` est faux ;
+- `model_error` ⇒ aucune valeur présente, ni du support ni des classes ;
+- non `model_error` ⇒ aucun motif `model_error`, nulle part ;
+- `log_ratio` en `zero_time` ⇒ motif vectoriel `zero_time` ;
+- `dispersion` présente ⇒ `log_ratio` présente ;
+- pour chaque classe, son motif est `insufficient_support` si son effectif est
+  nul, sinon le motif vectoriel ;
+- `shape` présente ⇒ `shape.value == log_ratio.value (de la classe) −
+  log_ratio.value (du support)` exactement ;
+- valeurs vectorielles présentes : `A`, `W`, `B` `>= 0` ; avec
+  `S = A + W + B + |C_comp|` : `C_comp >= −τ·S` et
+  `|A − (W + B − C_comp)| <= τ·S` (`τ = METRIC_RELATIVE_TOLERANCE`).
+
+#### Producteur
+
+`support_metrics` et `positive_time_diagnostic`
+(`mountain_perf.backtest.metrics`).
+
+#### Consommateurs
+
+L'assemblage (M4b-2), la référence D8 (M4b-3, scores du jour retiré), le rapport
+(M4b-5), l'admission (M4c).
+
+#### Non promis
+
+- ni les `r_i`, ni `alpha_R`, ni les totaux ne sont publiés ;
+- l'identité ne sépare pas deux causes additives (D7.2) ;
+- le contrat ne connaît ni l'horloge, ni le scénario, ni le modèle : ils sont dans
+  l'assemblage (M4b-2) ;
+- un `SupportMetrics` ne dit pas s'il porte le support principal ou le
+  diagnostic : c'est `PositiveTimeDiagnostic` qui le dit ;
+- le résultat n'est pas promis hors du domaine du brief M4b-1 (§ 3, choix 12) :
+  projections et temps observés positifs dans `[1e−6 ; 1e12]` ; au-delà, une
+  valeur finie `> 0` peut faire sous-dépasser ou déborder un quotient ou une
+  somme.
+
+---
+
+## `PositiveTimeDiagnostic`
+
+*`mountain_perf.schemas.metrics` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `mask` | `tuple[bool, ...]` | — |
+| `metrics` | `SupportMetrics` | — |
+
+Le diagnostic du sous-support à temps positifs (`0010` D5.5).
+
+#### Champs
+
+- `mask` — sans unité — un booléen par segment du support principal, vrai si
+  `t_i > 0`.
+- `metrics` — sans unité — les métriques des segments de masque vrai.
+
+#### Invariants
+
+- `mask` est un tuple de booléens ;
+- `metrics.segment_count` égale le nombre de vrais de `mask` ;
+- aucun motif `zero_time` dans `metrics`.
+
+#### Producteur
+
+`positive_time_diagnostic` (`mountain_perf.backtest.metrics`).
+
+#### Consommateurs
+
+L'assemblage (M4b-2), le rapport (M4b-5).
+
+#### Non promis
+
+- **ne remplace jamais le support principal**, ni pour une cible ni pour un
+  garde-fou (D5.5) ;
+- le contrat ne vérifie pas le masque contre les temps (il ne les connaît pas).
+
+---
+
+## `LogRatioEnvelope`
+
+*`mountain_perf.schemas.metrics` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `lower` | `float \| None` | — |
+| `upper` | `float \| None` | — |
+| `min_abs` | `float \| None` | — |
+| `unavailability` | `Unavailability \| None` | — |
+
+L'intervalle de `L` pour un temps admissible dans `[a ; b]` (`0010` D5.4).
+
+#### Champs
+
+- `lower`, `upper` — sans unité — bornes de `L`, `ln(P/b)` et `ln(P/a)`.
+- `min_abs` — sans unité — `min |L|` sur l'intervalle.
+- `unavailability` — sans unité — le motif (`0010` D0).
+
+#### Invariants
+
+- motif absent ⇒ les trois valeurs présentes et finies ;
+- motif `model_error` ⇒ les trois absentes ;
+- motif `zero_time` ⇒ soit les trois absentes (`b = 0`), soit `lower` finie,
+  `upper == math.inf` et `min_abs` finie (`a = 0 < b`) ;
+- aucun autre motif ;
+- valeurs présentes : `lower <= upper`, `min_abs >= 0`, et `min_abs == 0` si
+  et seulement si `lower <= 0 <= upper`.
+
+#### Producteur
+
+`log_ratio_envelope` (`mountain_perf.backtest.metrics`).
+
+#### Consommateurs
+
+M4b-2 (enveloppes de la performance et de chaque régime), le rapport (M4b-5).
+
+#### Non promis
+
+- une enveloppe vaut **à `P` fixé** : elle ne borne pas les scores de modèles
+  recalés différemment selon l'horloge (D5.4) ;
+- `E_R` et `D_R` aux horloges scénarios ne sont pas des bornes.
+
+---
+
+## `PassageErrors`
+
+*`mountain_perf.schemas.metrics` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `errors_s` | `tuple[MetricValue, ...]` | — |
+| `model_error` | `bool` | — |
+| `max_abs_error_s` | `MetricValue` | — |
+| `max_error_s` | `MetricValue` | — |
+| `min_error_s` | `MetricValue` | — |
+
+Les erreurs aux passages (`0010` D7.3).
+
+#### Champs
+
+- `errors_s` — secondes — `C_k = P_k − T_k`, un par point donné, dans l'ordre
+  donné.
+- `model_error` — sans unité — sortie de modèle invalide en l'un des points
+  donnés.
+- `max_abs_error_s`, `max_error_s`, `min_error_s` — secondes —
+  `max |C_k|`, `max C_k`, `min C_k`.
+
+#### Invariants
+
+- `errors_s` est un tuple ; chacun de ses éléments a `count == 1` ;
+- les trois agrégats ont le même motif et le même effectif, ou sont tous trois
+  présents ;
+- leur effectif est le nombre d'erreurs présentes ou en `model_error` (points
+  observés) ;
+- effectif nul ⇒ motif `insufficient_support` ;
+- effectif non nul : agrégats en `model_error` si et seulement si
+  `model_error` ;
+- non `model_error` ⇒ aucune erreur en `model_error` ;
+- agrégats présents ⇒ égaux, exactement, à `max(|c|)`, `max(c)`, `min(c)`
+  sur les erreurs présentes ;
+- un `C_k` présent reste permis quand `model_error` est vrai (brief M4b-1,
+  § 3, choix 7).
+
+#### Producteur
+
+`passage_errors` (`mountain_perf.backtest.metrics`).
+
+#### Consommateurs
+
+L'assemblage (M4b-2), le rapport (M4b-5).
+
+#### Non promis
+
+- ni les abscisses, ni les noms des points : l'appelant tient l'ordre ;
+- l'ensemble des points (préfixe, origine exclue) est construit par l'appelant
+  (M4b-2).
+
+---
+
+## `TargetMember`
+
+*`mountain_perf.schemas.metrics` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `occurrence_index` | `int \| None` | — |
+| `arrival` | `bool` | — |
+
+Un élément de l'ensemble `K` de la cible d'usage (`0010` D7.4, D4.12).
+
+#### Champs
+
+- `occurrence_index` — sans unité — rang de l'occurrence dans la suite des rôles
+  donnée à `default_targets` (celle de `PassageMatchResult.passages`).
+- `arrival` — sans unité — l'élément est l'arrivée.
+
+#### Invariants
+
+- `occurrence_index` absent ⇒ `arrival` ;
+- présent ⇒ `>= 0`.
+
+#### Producteur
+
+`default_targets` (`mountain_perf.backtest.metrics`).
+
+#### Consommateurs
+
+M4b-2 (cumulés et statut de chaque élément), le rapport (M4b-5).
+
+#### Non promis
+
+Un élément d'arrivée sans occurrence désigne l'arrivée de la grille de score
+(`b_K`).
+
+---
+
+## `UsageTarget`
+
+*`mountain_perf.schemas.metrics` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `weights` | `tuple[float, ...] \| None` | — |
+| `q_usage` | `MetricValue` | — |
+| `q_usage_prefix` | `MetricValue` | — |
+| `comparable` | `tuple[bool, ...]` | — |
+| `model_error` | `bool` | — |
+| `arrival_anchor_gap_m` | `float \| None` | — |
+
+| Propriété calculée | Type | Sens |
+|---|---|---|
+| `target_count` | `int` | `N`, nombre d'éléments de `K` (`len(comparable)`). |
+| `available_count` | `int` | `n` de « n passages sur N » : éléments disponibles (`q_usage.count`). |
+
+La cible d'usage d'une performance (`0010` D7.4).
+
+#### Champs
+
+- `weights` — sans unité — les `w_k` ; absents si les poids par défaut ne sont
+  pas calculables.
+- `q_usage` — sans unité — la cible d'usage.
+- `q_usage_prefix` — sans unité — le diagnostic `q_usage | préfixe`.
+- `comparable` — sans unité — un booléen par élément de `K` : passage
+  comparable (garde-fou de D10.4).
+- `model_error` — sans unité — sortie de modèle invalide en l'un des éléments de
+  `K` (`P_k` ou `P^(0)_k`).
+- `arrival_anchor_gap_m` — mètres — `L − s'_K` d'une arrivée ancrée.
+
+Propriétés calculées (jamais stockées) : `target_count` (`N`) et
+`available_count` (`n` de « n passages sur N »).
+
+#### Invariants
+
+- `comparable` est un tuple non vide ;
+- `weights` présents : tuple de longueur `len(comparable)`, valeurs finies,
+  `>= 0`, de somme 1 à `WEIGHT_SUM_TOLERANCE` près ;
+- `weights` absents ⇒ `model_error` ;
+- `q_usage.count == q_usage_prefix.count <= len(comparable)` ;
+- `q_usage` présent ⇒ `count == len(comparable)` et `value >= 0` ;
+- `q_usage_prefix` présent ⇒ `value >= 0` ;
+- `model_error` ⇒ `q_usage_prefix` indisponible et `q_usage` indisponible ;
+- non `model_error` ⇒ aucun des deux n'a le motif `model_error` ;
+- le nombre de vrais de `comparable` est `<= q_usage.count` ;
+- `arrival_anchor_gap_m` présent ⇒ fini et `>= 0`.
+
+#### Producteur
+
+`usage_target` (`mountain_perf.backtest.metrics`).
+
+#### Consommateurs
+
+L'assemblage (M4b-2), le rapport (M4b-5), l'admission (M4c).
+
+#### Non promis
+
+- `q_usage_prefix` n'est **ni une cible ni un garde-fou** (D7.4) ;
+- le contrat ne connaît pas les éléments de `K` (l'appelant les tient) ;
+- il ne vérifie ni « départ exclu » ni « arrivée unique » (tests de
+  `default_targets`).
