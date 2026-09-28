@@ -3,6 +3,7 @@
 import csv
 import io
 import math
+import sys
 from pathlib import Path
 
 import pytest
@@ -161,3 +162,65 @@ def test_missing_file_is_readable(
     assert captured.out == ""
     assert "Erreur" in captured.err
     assert "Traceback" not in captured.err
+
+
+# ---------------------------------------------------------------------------
+# Sorties sous une console cp1252
+# ---------------------------------------------------------------------------
+
+
+def _cp1252(errors: str) -> tuple[io.BytesIO, io.TextIOWrapper]:
+    """Ce que Python ouvre sur une sortie redirigée sous Windows."""
+    raw = io.BytesIO()
+    return raw, io.TextIOWrapper(raw, encoding="cp1252", errors=errors)
+
+
+def test_report_is_utf8_under_a_cp1252_stdout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    raw, stream = _cp1252("strict")
+    monkeypatch.setattr(sys, "stdout", stream)
+    assert main(["profile", str(FIXTURES / "mini_11.gpx")]) == 0
+    stream.flush()
+    # Décodé en UTF-8 : en cp1252, un flux non reconfiguré passerait sur « é ».
+    text = raw.getvalue().decode("utf-8")
+    assert "lissage      150 m demandé → 150 m effectif (3 points)" in text
+    assert "D+ 44 m / D− 44 m" in text
+    assert stream.errors == "strict"
+
+
+def test_help_is_utf8_under_a_cp1252_stdout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    raw, stream = _cp1252("strict")
+    monkeypatch.setattr(sys, "stdout", stream)
+    # Sous 25 colonnes, argparse couperait la ligne de l'aide.
+    monkeypatch.setenv("COLUMNS", "80")
+    with pytest.raises(SystemExit) as exit_info:
+        main(["project", "--help"])
+    assert exit_info.value.code == 0
+    stream.flush()
+    assert "Courbe allure↔pente" in raw.getvalue().decode("utf-8")
+
+
+def test_error_is_utf8_under_a_cp1252_stderr(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    raw, stream = _cp1252("backslashreplace")
+    monkeypatch.setattr(sys, "stderr", stream)
+    assert main(["profile", str(FIXTURES / "absent_é.gpx")]) == 1
+    stream.flush()
+    # En cp1252, « é » s'écrit 0xE9, qui n'est pas de l'UTF-8 : le décodage échouerait.
+    text = raw.getvalue().decode("utf-8")
+    assert text.startswith("Erreur : ")
+    assert "absent_é.gpx" in text
+    assert stream.errors == "backslashreplace"
+
+
+def test_other_streams_are_left_as_they_are(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stream = io.StringIO()
+    monkeypatch.setattr(sys, "stdout", stream)
+    assert main(["profile", str(FIXTURES / "mini_11.gpx")]) == 0
+    assert "lissage      150 m demandé → 150 m effectif (3 points)" in stream.getvalue()

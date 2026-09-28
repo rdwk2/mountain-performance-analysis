@@ -7,6 +7,7 @@ manquerait dans ``src/``.
 
 import argparse
 import csv
+import io
 import sys
 from collections import Counter
 from collections.abc import Mapping, Sequence
@@ -592,8 +593,23 @@ def _run_match(args: argparse.Namespace) -> None:
     _print_passage_report(passages)
 
 
+def _write_utf8() -> None:
+    """Sorties standard en UTF-8, quel que soit l'encodage de la console.
+
+    Une sortie redirigée sous Windows s'ouvre en cp1252, qui n'a ni ``→``, ni ``−``,
+    ni ``Δ``, ni ``ε``, ni ``↔`` : ``print`` lèverait ``UnicodeEncodeError``, aide
+    comprise — d'où l'appel avant la lecture des arguments. Seul l'encodage change :
+    le gestionnaire d'erreurs du flux est gardé, ``reconfigure`` le remettrait sinon
+    à ``strict``. Un flux qui n'est pas un ``io.TextIOWrapper`` est laissé tel quel.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        if isinstance(stream, io.TextIOWrapper):
+            stream.reconfigure(encoding="utf-8", errors=stream.errors)
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Point d'entrée mperf ; les erreurs d'entrée sont lisibles, sans traceback."""
+    _write_utf8()
     parser = argparse.ArgumentParser(prog="mperf")
     commands = parser.add_subparsers(dest="command", required=True)
     profile_parser = commands.add_parser(
