@@ -464,3 +464,10 @@ def test_zero_anchor_gap_is_published() -> None:
         (490.0,), (490.0,), (490.0,), (None,), arrival_anchor_gap_m=0.0
     )
     assert target.arrival_anchor_gap_m == 0.0
+
+
+def test_short_positive_times_are_comparable() -> None:
+    """``0010`` D7.4 : un passage est comparable s'il est disponible et ``T_k > 0`` —
+    ``0.5`` s et ``1`` s compris (domaine promis, choix 12)."""
+    target = usage_target((0.5, 1.0), (0.5, 1.0), (0.5, 1.0), (None, None))
+    assert target.comparable == (True, True)
