@@ -21,7 +21,9 @@ exemples fixés. Propriétés :
    ``τ`` relatif près, ne dépend pas de l'ordre de ``K`` au bit, et
    ``q_usage | préfixe`` l'égale à ``τ`` relatif près ;
 9. ``passage_errors`` (:func:`strategies.passage_error_cases`) :
-   ``max_abs_error_s == max(|max_error_s|, |min_error_s|)``.
+   ``max_abs_error_s == max(|max_error_s|, |min_error_s|)`` ;
+10. avec temps nul et sans sortie invalide, le diagnostic égale ``support_metrics``
+    des segments de masque vrai.
 
 Un test vérifie, par ``hypothesis.find``, que chaque étiquette produit le cas qu'elle
 vise.
@@ -349,3 +351,24 @@ def test_support_strategy_reaches(feature: str) -> None:
     (classe absente, temps nul, erreur du modèle, les deux, rapport constant, une seule
     classe, un segment)."""
     find(support_cases(), lambda case: feature in case.features, settings=_SEARCH)
+
+
+@settings(deadline=None)
+@given(support_cases(zero_time=True, model_error=False))
+@example(SUPPORT_CASES["Temps nul"])
+@example(SUPPORT_CASES["Tout nul"])
+@example(SupportCase((50.0, 100.0), (0.0, 100.0), SUPPORT_CASES["Temps nul"].classes))
+def test_diagnostic_is_the_support_of_the_kept_segments(case: SupportCase) -> None:
+    """Propriété 10 (correctif de la relecture) : ``0010`` D5.5, § 6.5 du brief — sans
+    sortie invalide, le diagnostic égale (``==``) ``support_metrics`` appliqué aux
+    seuls segments de masque vrai (projections, temps et classes)."""
+    diagnostic = positive_time_diagnostic(
+        case.projected_s, case.observed_s, case.classes
+    )
+    kept = [i for i, time_s in enumerate(case.observed_s) if time_s > 0]
+    assert diagnostic.mask == tuple(time_s > 0 for time_s in case.observed_s)
+    assert diagnostic.metrics == support_metrics(
+        [case.projected_s[i] for i in kept],
+        [case.observed_s[i] for i in kept],
+        [case.classes[i] for i in kept],
+    )

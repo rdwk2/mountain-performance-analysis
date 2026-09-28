@@ -480,3 +480,18 @@ def test_diagnostic_drops_the_zero_time_class() -> None:
     assert ascent.segment_count == 0
     assert not ascent.underrepresented
     assert ascent.log_ratio.unavailability is INSUF
+
+
+# ---------------------------------------------------------------------------
+# Correctifs de la relecture de la PR #14
+# ---------------------------------------------------------------------------
+
+
+def test_diagnostic_keeps_the_projections_of_the_kept_segments() -> None:
+    """§ 6.5 : le diagnostic prend les projections des segments de masque vrai. Le
+    segment gardé a ``p = t = 100`` : ``L`` et ``E_descente`` valent ``0``."""
+    diagnostic = positive_time_diagnostic((50.0, 100.0), (0.0, 100.0), (A, D))
+    assert diagnostic.mask == (False, True)
+    assert diagnostic.metrics.segment_count == 1
+    assert diagnostic.metrics.log_ratio.value == 0.0
+    assert diagnostic.metrics.classes[2].log_ratio.value == 0.0
