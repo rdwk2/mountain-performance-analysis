@@ -431,3 +431,26 @@ def test_usage_target_observation_preconditions(
     d'appel."""
     with raises_value_error(f"usage_target : .*{match}"):
         usage_target(*arguments)
+
+
+# ---------------------------------------------------------------------------
+# Correctifs de la relecture de la PR #14
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("motifs", "expected"),
+    [
+        ((ABSENT, AMBIGUOUS), ABSENT),
+        ((AMBIGUOUS, ABSENT), AMBIGUOUS),
+        ((INSUF, ABSENT), INSUF),
+    ],
+    ids=["absent,ambigu", "ambigu,absent", "insuffisant,absent"],
+)
+def test_usage_motif_is_the_first_in_k_order(
+    motifs: tuple[Unavailability, Unavailability], expected: Unavailability
+) -> None:
+    """Choix 6 de rdw, ``0010`` D7.4 (précision de M4b-1) : le motif du premier
+    élément indisponible dans l'ordre de ``K``, quel que soit celui des suivants."""
+    target = usage_target((100.0, 200.0), (100.0, 200.0), (None, None), motifs)
+    assert target.q_usage == MetricValue(None, expected, 0)
