@@ -807,3 +807,11 @@ def test_tolerances_of_the_brief() -> None:
     """Choix 11 du brief."""
     assert METRIC_RELATIVE_TOLERANCE == 1e-12
     assert WEIGHT_SUM_TOLERANCE == 1e-9
+
+
+def test_shape_is_checked_after_an_absent_class() -> None:
+    """Correctif de la relecture : ``E_R − L`` est vérifié pour chaque classe
+    présente, y compris après une classe absente (le mixte de ``VALID`` suit deux
+    classes absentes)."""
+    shifted = replace(MIXED_1, shape=value(math.nextafter(-0.25, 0.0), 1))
+    _raises(VALID, "exactement", classes=(*VALID.classes[:3], shifted))
