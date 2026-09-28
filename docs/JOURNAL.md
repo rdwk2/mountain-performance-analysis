@@ -16,6 +16,26 @@ Backtest (à partir de M4) : métrique avant → après.
 
 ---
 
+### 2026-09-28 · M4b-1 — Backtest : métriques D7, définitions
+Les métriques de `0010` D7 en fonctions pures sur des vecteurs et des statuts (brief
+M4b-1 rév. 2, cinq précisions de la relecture du plan). Contrats `MetricValue`,
+`ClassMetrics`, `SupportMetrics`, `PositiveTimeDiagnostic`, `LogRatioEnvelope`,
+`PassageErrors`, `TargetMember`, `UsageTarget`. Fonctions `support_metrics` et
+`positive_time_diagnostic` (un seul code, motifs « l'observation avant le modèle »),
+`log_ratio_envelope`, `passage_errors`, `default_targets` (une seule arrivée, en
+dernier) et `usage_target`. Écritures imposées : `log_ratio`, `math.fsum`,
+`time_weighted_deviation`, `compensation`. Toutes les valeurs du § 7 sont reproduites,
+les égalités `==` au bit. Cinq précisions ajoutées à `0010` (D5.5, D7.1 à D7.4), sur
+des lignes neuves.
+Conclusion : `just check` vert, 2 353 tests. Contre-épreuves : 70 mutations sur 71
+rougissent sur le test que le brief désigne ; `sum` au lieu de `math.fsum` est
+équivalente (§ 7.8). `C_comp = W + B − A` n'est vue que par le réemploi au bit.
+Rangé dans `src/mountain_perf/schemas/metrics.py`,
+`src/mountain_perf/backtest/metrics.py`, `tests/test_schemas_metrics.py`,
+`tests/test_backtest_metrics_*.py`, `tests/fixtures/metrics.py`, `tests/strategies.py`,
+`docs/decisions/0010-protocole-de-backtest.md` et `BACKLOG.md` (une ligne cochée, deux
+ajoutées), branche `m4b/metriques-definitions`.
+
 ### 2026-09-28 · M4b-0 — Hygiène : test instable, sortie console
 PR d'hygiène avant les métriques M4b (brief M4b-0 rév. 1). Test instable
 `test_pace_varies_at_the_local_slope_on_each_side` : le défaut était le pas de

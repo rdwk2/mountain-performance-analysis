@@ -438,6 +438,9 @@ les quantités vectorielles (`r`, `E_R`, `D_R`, `A`, `W`, `B`, `C_comp`) sont
 calculable si le total est positif. Un diagnostic sur le sous-support à temps
 positifs peut être publié avec son masque ; il ne remplace jamais le support
 principal.
+*(précision, M4b-1)* Le diagnostic porte les mêmes métriques que le support
+principal (D7.2), calculées sur les segments de temps positif, et publie son
+masque ; l'erreur du modèle s'y juge sur le support principal.
 
 ### D6 — Régimes
 
@@ -459,6 +462,10 @@ d'effets sans nouvelle préspécification.
 donc identiques pour tous les modèles comparés. Une sortie de modèle `p_i ≤ 0`,
 non finie ou manquante sur ce support donne le statut `erreur du modèle` pour la
 performance et ce modèle : **aucune exclusion** de la portion concernée.
+*(précision, M4b-1)* Quand plusieurs statuts s'appliquent à une même valeur,
+l'observation passe avant le modèle : support vide, régime absent, temps nul,
+puis erreur du modèle. L'erreur du modèle est en outre signalée pour la
+performance et le modèle.
 
 **D7.2 Formules** (`p_i > 0`, `t_i > 0`, `T = Σ t_i`, `T_R = Σ_{i∈R} t_i`,
 `α_R = T_R/T`) :
@@ -472,6 +479,9 @@ performance et ce modèle : **aucune exclusion** de la portion concernée.
 - Cas limites : support vide → `L`, `A`, `W`, `B`, `C_comp` indisponibles ; régime
   absent → `E_R`, `D_R` indisponibles (jamais `0/0`, jamais `α_R · NaN`) ; un seul
   segment dans `R` → `D_R = 0` exactement, sans valeur de preuve.
+  *(précision, M4b-1)* Le support vide et le régime absent portent le statut
+  `support insuffisant`, d'effectif nul ; le régime absent est le « non évalué »
+  de D6.
 - Diagnostic de forme `E_R − L`. Invariances : `D_R` ne change pas si l'on
   multiplie les `p_i` d'un régime par une constante ; `E_R − L` ne change pas sous
   une multiplication globale. D'où les garde-fous de niveau et de passages de D10.
@@ -481,6 +491,11 @@ performance et ce modèle : **aucune exclusion** de la portion concernée.
 passages nommés et aux points de score du **préfixe comparable** seulement (ce ne
 sont pas des sommes de segments admis). Publier `max_k |C_k|`, `max_k C_k`,
 `min_k C_k` ; ensemble vide → indisponible.
+*(précision, M4b-1)* L'origine `(t*_0, b_0)` n'est pas un point de l'ensemble
+(`C_0 = 0` par construction). Un `C_k` indisponible est publié avec son motif.
+Les agrégats portent sur les points observés : aucun point observé,
+`support insuffisant` ; une sortie de modèle invalide en l'un des points donnés,
+observé ou non, `erreur du modèle` ; sinon, les `C_k` des points observés.
 
 **D7.4 Cible d'usage.**
 `q_usage = Σ_{k∈K} w_k |P_k − T_k| / P_k^(0)`, avec `P^(0)` la projection du modèle
@@ -499,6 +514,10 @@ projetée en `b_K`, avec son statut. Conditions : `K` non vide, départ exclu,
   situés dans le préfixe comparable, poids renormalisés, avec la mention « n
   passages sur N » ; ce diagnostic n'est ni une cible ni un garde-fou, sauf
   déclaration explicite d'une expérience avant résultat.
+  *(précision, M4b-1)* `q_usage` indisponible porte le motif du premier passage
+  indisponible de `K` dans l'ordre des abscisses, avec pour effectif le nombre de
+  passages disponibles. `q_usage | préfixe` porte sur les passages de `K`
+  disponibles, poids renormalisés sur eux.
 - Une expérience peut déclarer un autre `K` et d'autres poids avant résultat, sous
   les mêmes règles.
 - **Passages comparables** (garde-fou de D10.4) : passages de `K` situés dans le
