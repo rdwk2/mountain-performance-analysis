@@ -22,6 +22,7 @@ from typing import TypeGuard
 
 from mountain_perf.schemas import (
     ClassMetrics,
+    LogRatioEnvelope,
     MetricValue,
     PositiveTimeDiagnostic,
     RegimeClass,
@@ -365,3 +366,51 @@ def positive_time_diagnostic(
         outputs, [observed_s[i] for i in kept], [classes[i] for i in kept]
     )
     return PositiveTimeDiagnostic(mask, metrics)
+
+
+# ---------------------------------------------------------------------------
+# Enveloppes (brief M4b-1, § 6.6)
+# ---------------------------------------------------------------------------
+
+
+def log_ratio_envelope(
+    projected_s: float | None, low_s: float, high_s: float
+) -> LogRatioEnvelope:
+    """L'intervalle de ``L`` quand le temps admissible parcourt ``[a ; b]``
+    (``0010`` D5.4 ; brief M4b-1, § 6.6 et choix 6) : ``L ∈ [ln(P/b) ; ln(P/a)]``.
+
+    Dans l'ordre : ``b == 0`` → ``zero_time``, rien de calculable (l'observation
+    d'abord) ; sortie invalide → ``model_error``, rien de calculable ; sinon
+    ``lower = log_ratio(P, b)`` ; ``a == 0 < b`` → ``upper = +inf`` et ``zero_time``,
+    ``lower`` et ``min |L|`` restant publiés ; ``min |L| = 0`` si l'intervalle contient
+    zéro, sinon ``min(|lower|, |upper|)``. Pour un régime, M4b-2 appelle la même
+    fonction avec ``P_R``, ``a_R`` et ``b_R``.
+
+    Préconditions (``ValueError``) : ``low_s`` et ``high_s`` finis, ``>= 0``,
+    ``low_s <= high_s``.
+
+    Non promis : hors du domaine du brief M4b-1 (§ 3, choix 12 : projection et bornes
+    positives dans ``[1e−6 ; 1e12]``), une valeur finie ``> 0`` peut faire
+    sous-dépasser ou déborder un quotient et lever une exception.
+    """
+    for name, value in (("low_s", low_s), ("high_s", high_s)):
+        if not (math.isfinite(value) and value >= 0):
+            raise ValueError(
+                f"log_ratio_envelope : {name} doit être fini et >= 0, reçu {value}."
+            )
+    if low_s > high_s:
+        raise ValueError(
+            f"log_ratio_envelope : low_s ({low_s}) doit être <= high_s ({high_s})."
+        )
+    if high_s == 0:
+        return LogRatioEnvelope(None, None, None, _ZERO_TIME)
+    if not _valid_output(projected_s):
+        return LogRatioEnvelope(None, None, None, _MODEL_ERROR)
+    lower = log_ratio(projected_s, high_s)
+    motif: Unavailability | None
+    if low_s == 0:
+        upper, motif = math.inf, _ZERO_TIME
+    else:
+        upper, motif = log_ratio(projected_s, low_s), None
+    min_abs = 0.0 if lower <= 0 <= upper else min(abs(lower), abs(upper))
+    return LogRatioEnvelope(lower, upper, min_abs, motif)
