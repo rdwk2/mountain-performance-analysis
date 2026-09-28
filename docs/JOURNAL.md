@@ -35,6 +35,11 @@ Rangé dans `src/mountain_perf/schemas/metrics.py`,
 `tests/test_backtest_metrics_*.py`, `tests/fixtures/metrics.py`, `tests/strategies.py`,
 `docs/decisions/0010-protocole-de-backtest.md` et `BACKLOG.md` (une ligne cochée, deux
 ajoutées), branche `m4b/metriques-definitions`.
+Après la double relecture de la PR #14 et le balayage mécanique des deux
+`metrics.py`, neuf correctifs de tests (R1 à R9, `CORRECTIFS_PR-14.md`) tiennent des
+règles qu'aucun test de valeur ne tenait (sélection du diagnostic, `E_R − L` et `L`
+au bit, premier motif, arrivée en dernier, imports relatifs, valeurs limites), sans
+changer `src/` : 2 365 tests.
 
 ### 2026-09-28 · M4b-0 — Hygiène : test instable, sortie console
 PR d'hygiène avant les métriques M4b (brief M4b-0 rév. 1). Test instable
