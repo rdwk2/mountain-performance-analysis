@@ -15,7 +15,13 @@ exemples fixés. Propriétés :
    ``zero_time`` ;
 6. ``E_R`` entre le plus petit et le plus grand ``r_i`` de sa classe, ``L`` entre le
    plus petit et le plus grand ``E_R`` (à ``1e−12`` près) ;
-7. sans temps nul, le diagnostic égale le support principal.
+7. sans temps nul, le diagnostic égale le support principal ;
+8. ``usage_target`` aux poids par défaut, tous éléments disponibles
+   (:func:`strategies.usage_cases`) : ``q_usage`` égale ``Σ |P − T| / Σ P^(0)`` à
+   ``τ`` relatif près, ne dépend pas de l'ordre de ``K`` au bit, et
+   ``q_usage | préfixe`` l'égale à ``τ`` relatif près ;
+9. ``passage_errors`` (:func:`strategies.passage_error_cases`) :
+   ``max_abs_error_s == max(|max_error_s|, |min_error_s|)``.
 
 Un test vérifie, par ``hypothesis.find``, que chaque étiquette produit le cas qu'elle
 vise.
@@ -30,7 +36,12 @@ from hypothesis import Phase, example, find, given, settings
 from hypothesis import strategies as st
 
 from fixtures.metrics import SUPPORT_CASES, SupportCase, bits
-from mountain_perf.backtest import positive_time_diagnostic, support_metrics
+from mountain_perf.backtest import (
+    passage_errors,
+    positive_time_diagnostic,
+    support_metrics,
+    usage_target,
+)
 from mountain_perf.schemas import (
     METRIC_RELATIVE_TOLERANCE,
     MetricValue,
@@ -42,8 +53,10 @@ from strategies import (
     PROMISED_MIN,
     SUPPORT_FEATURES,
     invalid_model_outputs,
+    passage_error_cases,
     promised_outputs,
     support_cases,
+    usage_cases,
 )
 
 TAU = METRIC_RELATIVE_TOLERANCE
@@ -259,6 +272,69 @@ def test_diagnostic_without_zero_time_is_the_support(case: SupportCase) -> None:
     )
     assert diagnostic.mask == (True,) * len(case.observed_s)
     assert diagnostic.metrics == metrics_of(case)
+
+
+def _close(a: float, b: float) -> bool:
+    """``a`` et ``b`` égaux à ``τ`` relatif près."""
+    return abs(a - b) <= TAU * max(abs(a), abs(b))
+
+
+@settings(deadline=None)
+@given(usage_cases(), st.data())
+@example(((140.0, 250.0), (100.0, 300.0), (120.0, 280.0)), None)
+@example(((40.0, 210.0), (50.0, 200.0), (0.0, 200.0)), None)
+def test_default_usage_target(
+    case: tuple[tuple[float, ...], tuple[float, ...], tuple[float, ...]],
+    data: st.DataObject | None,
+) -> None:
+    """Propriété 8 : ``0010`` D7.4 — aux poids par défaut, ``q_usage =
+    Σ |P_k − T_k| / Σ P_k^(0)`` (à ``τ`` relatif près, B2 de la passe 1) ; il ne
+    dépend pas de l'ordre de ``K``, au bit ; ``q_usage | préfixe`` l'égale à ``τ``
+    relatif près quand tous les éléments sont disponibles."""
+    projected, base, observed = case
+    n = len(observed)
+    target = usage_target(projected, base, observed, (None,) * n)
+    usage = _value(target.q_usage)
+    short = math.fsum(abs(p - t) for p, t in zip(projected, observed, strict=True))
+    assert _close(usage, short / math.fsum(base))
+    assert _close(_value(target.q_usage_prefix), usage)
+    order = (
+        list(reversed(range(n)))
+        if data is None
+        else data.draw(st.permutations(range(n)))
+    )
+    permuted = usage_target(
+        [projected[k] for k in order],
+        [base[k] for k in order],
+        [observed[k] for k in order],
+        (None,) * n,
+    )
+    assert _value(permuted.q_usage).hex() == usage.hex()
+
+
+@settings(deadline=None)
+@given(passage_error_cases())
+@example(((100.0, 200.0, 300.0, 400.0), (120.0, 240.0, 360.0, 480.0), (None,) * 4))
+@example(
+    (
+        (90.0, 250.0, 290.0, 400.0),
+        (120.0, 240.0, None, 380.0),
+        (None, None, Unavailability.AMBIGUOUS, None),
+    )
+)
+def test_max_abs_error_is_the_larger_extreme(
+    case: tuple[
+        tuple[float | None, ...],
+        tuple[float | None, ...],
+        tuple[Unavailability | None, ...],
+    ],
+) -> None:
+    """Propriété 9 : ``0010`` D7.3 — ``max |C_k| == max(|max C_k|, |min C_k|)``, au
+    bit, quand les agrégats sont présents ; le contrat accepte tout résultat."""
+    errors = passage_errors(*case)
+    if errors.max_abs_error_s.available:
+        high, low = _value(errors.max_error_s), _value(errors.min_error_s)
+        assert _value(errors.max_abs_error_s) == max(abs(high), abs(low))
 
 
 _SEARCH = settings(

@@ -21,13 +21,18 @@ from collections.abc import Sequence
 from typing import TypeGuard
 
 from mountain_perf.schemas import (
+    WEIGHT_SUM_TOLERANCE,
     ClassMetrics,
     LogRatioEnvelope,
     MetricValue,
+    PassageErrors,
+    PassageRole,
     PositiveTimeDiagnostic,
     RegimeClass,
     SupportMetrics,
+    TargetMember,
     Unavailability,
+    UsageTarget,
 )
 
 _INSUFFICIENT = Unavailability.INSUFFICIENT_SUPPORT
@@ -414,3 +419,248 @@ def log_ratio_envelope(
         upper, motif = log_ratio(projected_s, low_s), None
     min_abs = 0.0 if lower <= 0 <= upper else min(abs(lower), abs(upper))
     return LogRatioEnvelope(lower, upper, min_abs, motif)
+
+
+# ---------------------------------------------------------------------------
+# Erreurs aux passages, K par défaut, cible d'usage (brief M4b-1, §§ 6.7 à 6.9)
+# ---------------------------------------------------------------------------
+
+
+def _require_observed(
+    function: str,
+    observed_s: Sequence[float | None],
+    unavailability: Sequence[Unavailability | None],
+) -> None:
+    """Préconditions des instants observés et de leurs motifs (choix 10 du brief) :
+    instant présent si et seulement si motif absent ; présent, fini et ``>= 0`` ;
+    jamais le motif ``model_error``, qui est un motif de modèle, pas d'observation."""
+    for k, (time_s, motif) in enumerate(zip(observed_s, unavailability, strict=True)):
+        if (time_s is None) == (motif is None):
+            raise ValueError(
+                f"{function} : observed_s[{k}] est présent si et seulement si "
+                f"unavailability[{k}] est absent, reçu {time_s} et {motif}."
+            )
+        if time_s is not None and not (math.isfinite(time_s) and time_s >= 0):
+            raise ValueError(
+                f"{function} : observed_s[{k}] doit être fini et >= 0, reçu {time_s}."
+            )
+        if motif is _MODEL_ERROR:
+            raise ValueError(
+                f"{function} : unavailability[{k}] vaut model_error, un motif de "
+                "modèle et non d'observation."
+            )
+
+
+def passage_errors(
+    projected_s: Sequence[float | None],
+    observed_s: Sequence[float | None],
+    unavailability: Sequence[Unavailability | None],
+) -> PassageErrors:
+    """Les erreurs aux passages ``C_k = P_k − T_k`` (s) et leurs agrégats (``0010``
+    D7.3 ; brief M4b-1, § 6.7 et choix 7).
+
+    Les points sont donnés par l'appelant (M4b-2) : passages nommés et points de score
+    du préfixe comparable, **origine exclue** ; ``T_k`` et ``P_k`` cumulés depuis
+    ``(t*_0, b_0)``. Pour chaque point : son motif d'observation d'abord, puis
+    ``model_error`` si ``P_k`` est invalide, sinon ``P_k − T_k`` ; un ``C_k`` sain est
+    publié même sous le drapeau. Drapeau : ``P_k`` invalide en l'un des points
+    donnés, observé ou non. Agrégats, sur les ``m`` points observés : aucun →
+    ``insufficient_support`` (0) ; drapeau → ``model_error`` (``m``) ; sinon
+    ``max |C_k|``, ``max C_k``, ``min C_k``.
+
+    Préconditions (``ValueError``) : mêmes longueurs ; ``observed_s[k]`` présent si et
+    seulement si ``unavailability[k]`` est absent ; présent, fini et ``>= 0`` ; aucun
+    motif ``model_error``.
+    """
+    if not len(projected_s) == len(observed_s) == len(unavailability):
+        raise ValueError(
+            f"passage_errors : longueurs différentes (projected_s={len(projected_s)}, "
+            f"observed_s={len(observed_s)}, unavailability={len(unavailability)})."
+        )
+    _require_observed("passage_errors", observed_s, unavailability)
+    errors: list[MetricValue] = []
+    for projected, time_s, motif in zip(
+        projected_s, observed_s, unavailability, strict=True
+    ):
+        if time_s is None:
+            errors.append(MetricValue(None, motif, 1))
+        elif not _valid_output(projected):
+            errors.append(MetricValue(None, _MODEL_ERROR, 1))
+        else:
+            errors.append(MetricValue(projected - time_s, None, 1))
+    model_error = any(is_invalid_model_output(p) for p in projected_s)
+    observed = sum(time_s is not None for time_s in observed_s)
+    if observed == 0:
+        aggregates = (MetricValue(None, _INSUFFICIENT, 0),) * 3
+    elif model_error:
+        aggregates = (MetricValue(None, _MODEL_ERROR, observed),) * 3
+    else:
+        present = [error.value for error in errors if error.value is not None]
+        aggregates = (
+            MetricValue(max(abs(c) for c in present), None, observed),
+            MetricValue(max(present), None, observed),
+            MetricValue(min(present), None, observed),
+        )
+    return PassageErrors(tuple(errors), model_error, *aggregates)
+
+
+def default_targets(roles: Sequence[PassageRole]) -> tuple[TargetMember, ...]:
+    """L'ensemble ``K`` par défaut (``0010`` D7.4, D4.12 ; brief M4b-1, § 6.8 et
+    choix 8).
+
+    ``roles`` : les rôles des occurrences, dans l'ordre de
+    ``PassageMatchResult.passages``. Un élément par occurrence intermédiaire, dans
+    l'ordre ; aucun pour un départ (départ exclu) ; puis **un seul** élément
+    d'arrivée, **toujours le dernier**, qui désigne la première occurrence de rôle
+    arrivée, ou aucune (arrivée de la grille) — arrivée unique, même pour deux lieux à
+    moins de 1 m de ``L``.
+    """
+    members = [
+        TargetMember(i, False)
+        for i, role in enumerate(roles)
+        if role is PassageRole.INTERMEDIATE
+    ]
+    arrival = next(
+        (i for i, role in enumerate(roles) if role is PassageRole.ARRIVAL), None
+    )
+    return (*members, TargetMember(arrival, True))
+
+
+def _require_usage(
+    projected_s: Sequence[float | None],
+    base_projected_s: Sequence[float | None],
+    observed_s: Sequence[float | None],
+    unavailability: Sequence[Unavailability | None],
+    weights: Sequence[float] | None,
+    arrival_anchor_gap_m: float | None,
+) -> None:
+    """Préconditions de ``usage_target`` (choix 9 et 10 du brief)."""
+    lengths = (
+        len(projected_s),
+        len(base_projected_s),
+        len(observed_s),
+        len(unavailability),
+    )
+    if len(set(lengths)) != 1:
+        raise ValueError(f"usage_target : longueurs différentes {lengths}.")
+    if not observed_s:
+        raise ValueError("usage_target : K vide.")
+    _require_observed("usage_target", observed_s, unavailability)
+    if weights is not None:
+        if len(weights) != len(observed_s):
+            raise ValueError(
+                f"usage_target : {len(weights)} poids pour {len(observed_s)} "
+                "éléments de K."
+            )
+        for k, weight in enumerate(weights):
+            if not (math.isfinite(weight) and weight >= 0):
+                raise ValueError(
+                    f"usage_target : weights[{k}] doit être fini et >= 0, reçu "
+                    f"{weight}."
+                )
+        total = math.fsum(weights)
+        if abs(total - 1.0) > WEIGHT_SUM_TOLERANCE:
+            raise ValueError(
+                f"usage_target : les poids somment à {total}, et non à 1 à "
+                f"{WEIGHT_SUM_TOLERANCE} près."
+            )
+    gap_m = arrival_anchor_gap_m
+    if gap_m is not None and not (math.isfinite(gap_m) and gap_m >= 0):
+        raise ValueError(
+            f"usage_target : arrival_anchor_gap_m doit être fini et >= 0, reçu {gap_m}."
+        )
+
+
+def usage_target(
+    projected_s: Sequence[float | None],
+    base_projected_s: Sequence[float | None],
+    observed_s: Sequence[float | None],
+    unavailability: Sequence[Unavailability | None],
+    *,
+    weights: Sequence[float] | None = None,
+    arrival_anchor_gap_m: float | None = None,
+) -> UsageTarget:
+    """La cible d'usage d'une performance (``0010`` D7.4 ; brief M4b-1, § 6.9,
+    choix 9 et choix 5 et 6 de rdw).
+
+    Les quatre séquences sont dans l'ordre de ``K`` (celui des abscisses) :
+    ``P_k``, ``P^(0)_k``, ``T_k`` (s), motifs d'observation. Drapeau : ``P_k`` ou
+    ``P^(0)_k`` invalide en l'un des éléments de ``K``. Poids déclarés publiés tels
+    quels (en tuple) ; par défaut ``P^(0)_k / fsum(P^(0))``, absents si un ``P^(0)_k``
+    est invalide. ``q_usage = fsum(w_k · |P_k − T_k| / P^(0)_k)`` sur tout ``K``, une
+    seule formule pour tous les poids ; indisponible avec le motif du **premier**
+    élément indisponible et pour effectif le nombre d'éléments disponibles, sinon
+    ``model_error`` sous le drapeau. ``q_usage | préfixe`` sur les éléments
+    disponibles, poids renormalisés : aucun → ``insufficient_support`` (0) ; somme
+    nulle de leurs poids → ``insufficient_support`` ; puis le drapeau. Passage
+    comparable : disponible et ``T_k > 0``. L'écart d'une arrivée ancrée est publié
+    tel quel.
+
+    Préconditions (``ValueError``) : ``K`` non vide ; mêmes longueurs ;
+    ``observed_s[k]`` présent si et seulement si ``unavailability[k]`` est absent ;
+    présent, fini et ``>= 0`` ; aucun motif ``model_error`` ; poids déclarés de même
+    longueur, finis, ``>= 0``, de somme 1 à ``WEIGHT_SUM_TOLERANCE`` près ; écart
+    d'ancrage fini et ``>= 0``.
+
+    Non promis : hors du domaine du brief M4b-1 (§ 3, choix 12 : projections,
+    ``P^(0)`` et temps observés positifs dans ``[1e−6 ; 1e12]``), une valeur finie
+    ``> 0`` peut faire sous-dépasser ou déborder un quotient ou une somme et lever une
+    exception.
+    """
+    _require_usage(
+        projected_s,
+        base_projected_s,
+        observed_s,
+        unavailability,
+        weights,
+        arrival_anchor_gap_m,
+    )
+    outputs = _model_outputs(projected_s)
+    base = _model_outputs(base_projected_s)
+    model_error = outputs is None or base is None
+    published: tuple[float, ...] | None
+    if weights is not None:
+        published = tuple(weights)
+    elif base is None:
+        published = None
+    else:
+        total_s = math.fsum(base)
+        published = tuple(p0 / total_s for p0 in base)
+    times = {k: t for k, t in enumerate(observed_s) if t is not None}
+    available = len(times)
+    first = next((motif for motif in unavailability if motif is not None), None)
+    if first is not None:
+        usage = MetricValue(None, first, available)
+    elif outputs is None or base is None or published is None:
+        usage = MetricValue(None, _MODEL_ERROR, available)
+    else:
+        usage = MetricValue(
+            math.fsum(
+                w * abs(p - times[k]) / p0
+                for k, (w, p, p0) in enumerate(
+                    zip(published, outputs, base, strict=True)
+                )
+            ),
+            None,
+            len(observed_s),
+        )
+    weight_sum = None if published is None else math.fsum(published[k] for k in times)
+    if available == 0:
+        prefix = MetricValue(None, _INSUFFICIENT, 0)
+    elif weight_sum == 0:
+        prefix = MetricValue(None, _INSUFFICIENT, available)
+    elif outputs is None or base is None or published is None or weight_sum is None:
+        prefix = MetricValue(None, _MODEL_ERROR, available)
+    else:
+        prefix = MetricValue(
+            math.fsum(
+                (published[k] / weight_sum) * abs(outputs[k] - t) / base[k]
+                for k, t in times.items()
+            ),
+            None,
+            available,
+        )
+    comparable = tuple(t is not None and t > 0 for t in observed_s)
+    return UsageTarget(
+        published, usage, prefix, comparable, model_error, arrival_anchor_gap_m
+    )

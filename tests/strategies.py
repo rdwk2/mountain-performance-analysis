@@ -77,6 +77,7 @@ from mountain_perf.schemas import (
     Sport,
     TimingConvention,
     TrackPointStream,
+    Unavailability,
 )
 
 _MIN_DATETIME = datetime(1990, 1, 1)
@@ -1288,3 +1289,57 @@ def support_cases(
     return SupportCase(
         tuple(projected), tuple(times), tuple(classes), frozenset(features)
     )
+
+
+OBSERVATION_MOTIFS = tuple(
+    motif for motif in Unavailability if motif is not Unavailability.MODEL_ERROR
+)
+"""Les motifs d'observation d'un passage : tous sauf ``model_error`` (choix 10 du
+brief M4b-1)."""
+
+
+@st.composite
+def usage_cases(
+    draw: st.DrawFn,
+) -> tuple[tuple[float, ...], tuple[float, ...], tuple[float, ...]]:
+    """``(P, P^(0), T)`` d'une cible d'usage dont tous les éléments sont disponibles :
+    1 à 10 éléments, ``P`` et ``P^(0)`` dans le domaine promis, ``T`` nul ou dans le
+    domaine promis (brief M4b-1, § 3, choix 12)."""
+    n = draw(st.integers(1, 10))
+    projected = draw(st.lists(promised_outputs(), min_size=n, max_size=n))
+    base = draw(st.lists(promised_outputs(), min_size=n, max_size=n))
+    observed = draw(
+        st.lists(st.one_of(st.just(0.0), promised_outputs()), min_size=n, max_size=n)
+    )
+    return tuple(projected), tuple(base), tuple(observed)
+
+
+@st.composite
+def passage_error_cases(
+    draw: st.DrawFn,
+) -> tuple[
+    tuple[float | None, ...],
+    tuple[float | None, ...],
+    tuple[Unavailability | None, ...],
+]:
+    """``(P, T, motifs)`` de 0 à 10 points : sorties valides ou invalides des cinq
+    formes, instants nuls ou dans le domaine promis, ou absents avec un motif
+    d'observation."""
+    n = draw(st.integers(0, 10))
+    projected = draw(
+        st.lists(
+            st.one_of(promised_outputs(), invalid_model_outputs()),
+            min_size=n,
+            max_size=n,
+        )
+    )
+    observed: list[float | None] = []
+    motifs: list[Unavailability | None] = []
+    for _ in range(n):
+        if draw(st.booleans()):
+            observed.append(None)
+            motifs.append(draw(st.sampled_from(OBSERVATION_MOTIFS)))
+        else:
+            observed.append(draw(st.one_of(st.just(0.0), promised_outputs())))
+            motifs.append(None)
+    return tuple(projected), tuple(observed), tuple(motifs)
