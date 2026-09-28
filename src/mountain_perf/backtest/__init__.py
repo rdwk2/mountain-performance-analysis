@@ -46,6 +46,8 @@ from mountain_perf.backtest.metrics import (
     is_invalid_model_output,
     is_underrepresented,
     log_ratio,
+    positive_time_diagnostic,
+    support_metrics,
     time_weighted_deviation,
 )
 from mountain_perf.backtest.outings import (
@@ -177,6 +179,7 @@ __all__ = [
     "observed_in_prefix",
     "occurrence_crossing",
     "origin",
+    "positive_time_diagnostic",
     "qualify",
     "raw_position_at",
     "realized_at",
@@ -190,6 +193,7 @@ __all__ = [
     "sensitivity_range_s",
     "snaps_to_point",
     "stop_episodes",
+    "support_metrics",
     "time_at",
     "time_distance_s",
     "time_weighted_deviation",

@@ -6,13 +6,28 @@ les modules du projet, seulement ``mountain_perf.schemas`` et
 ``mountain_perf.validation``, que le § 6 permet. Aucun module de ``src/`` ne l'importe,
 hors l'export de ``backtest/__init__.py``. Lecture de son arbre syntaxique, comme
 ``test_backtest_passages_reuse.py``.
+
+Et les valeurs publiées par ``support_metrics`` sont, **au bit**, celles des fonctions
+pures appliquées aux valeurs publiées (choix 1 du brief) : ``L`` et ``E_R`` par
+``log_ratio``, ``A`` et ``D_R`` par ``time_weighted_deviation``, ``C_comp`` par
+``compensation`` — jamais par ``W + B − A``.
 """
 
 import ast
+import math
 from pathlib import Path
+
+import pytest
 
 import mountain_perf
 import mountain_perf.backtest as backtest
+from fixtures.metrics import SUPPORT_CASES
+from mountain_perf.backtest import (
+    compensation,
+    log_ratio,
+    support_metrics,
+    time_weighted_deviation,
+)
 
 PACKAGE = Path(backtest.__file__).parent
 SOURCE = Path(mountain_perf.__file__).parent
@@ -81,3 +96,42 @@ def test_no_module_imports_metrics_but_the_backtest_package() -> None:
 def test_the_backtest_package_exports_metrics() -> None:
     init = ast.parse((PACKAGE / "__init__.py").read_text(encoding="utf-8"))
     assert "mountain_perf.backtest.metrics" in _imported_modules(init)
+
+
+def _hex(value: float | None) -> str:
+    assert value is not None
+    return value.hex()
+
+
+@pytest.mark.parametrize("name", ["T12", "Dyadique", "Quatre classes", "Une classe"])
+def test_published_values_are_the_pure_functions_at_the_bit(name: str) -> None:
+    """Test 7 : ``L``, ``E_R``, ``A``, ``D_R`` et ``C_comp`` publiés égalent au bit les
+    fonctions pures appliquées aux valeurs publiées (``0010`` D7.2, choix 1)."""
+    case = SUPPORT_CASES[name]
+    p = [value for value in case.projected_s if value is not None]
+    t, classes = case.observed_s, case.classes
+    assert len(p) == len(t)
+    metrics = support_metrics(p, t, classes)
+    level = metrics.log_ratio.value
+    assert level is not None
+    assert level.hex() == log_ratio(math.fsum(p), math.fsum(t)).hex()
+    r = [log_ratio(p_i, t_i) for p_i, t_i in zip(p, t, strict=True)]
+    levels = {}
+    for regime in metrics.classes:
+        members = [i for i, c in enumerate(classes) if c is regime.regime_class]
+        if not members:
+            continue
+        p_r = [p[i] for i in members]
+        t_r = [t[i] for i in members]
+        class_level = regime.log_ratio.value
+        assert class_level is not None
+        assert class_level.hex() == log_ratio(math.fsum(p_r), math.fsum(t_r)).hex()
+        dispersion = time_weighted_deviation(
+            [r[i] for i in members], [class_level] * len(members), t_r
+        )
+        assert _hex(regime.dispersion.value) == dispersion.hex()
+        levels[regime.regime_class] = class_level
+    dispersion = time_weighted_deviation(r, [level] * len(t), t)
+    assert _hex(metrics.dispersion.value) == dispersion.hex()
+    compensation_value = compensation(r, [levels[c] for c in classes], level, t)
+    assert _hex(metrics.compensation.value) == compensation_value.hex()

@@ -18,6 +18,20 @@ Ce module n'importe aucun autre module de ``mountain_perf.backtest``.
 
 import math
 from collections.abc import Sequence
+from typing import TypeGuard
+
+from mountain_perf.schemas import (
+    ClassMetrics,
+    MetricValue,
+    PositiveTimeDiagnostic,
+    RegimeClass,
+    SupportMetrics,
+    Unavailability,
+)
+
+_INSUFFICIENT = Unavailability.INSUFFICIENT_SUPPORT
+_ZERO_TIME = Unavailability.ZERO_TIME
+_MODEL_ERROR = Unavailability.MODEL_ERROR
 
 UNDERREPRESENTED_BELOW = 3
 """Effectif en deçà duquel une classe est « trop peu représentée » (``0010`` D7.5) :
@@ -122,3 +136,232 @@ def compensation(
         )
         / total_s
     )
+
+
+# ---------------------------------------------------------------------------
+# Métriques du support et diagnostic (brief M4b-1, §§ 6.4, 6.5)
+# ---------------------------------------------------------------------------
+
+
+def _valid_output(value: float | None) -> TypeGuard[float]:
+    """Sortie de modèle valide : la négation de ``is_invalid_model_output``, et rien
+    d'autre ; le garde ne sert qu'au typage."""
+    return not is_invalid_model_output(value)
+
+
+def _model_outputs(projected_s: Sequence[float | None]) -> tuple[float, ...] | None:
+    """Les sorties du modèle si aucune n'est invalide (``0010`` D7.1) ; sinon
+    ``None``."""
+    outputs: list[float] = []
+    for value in projected_s:
+        if _valid_output(value):
+            outputs.append(value)
+        else:
+            return None
+    return tuple(outputs)
+
+
+def _require_support(
+    function: str,
+    projected_s: Sequence[float | None],
+    observed_s: Sequence[float],
+    classes: Sequence[RegimeClass],
+) -> None:
+    """Préconditions de ``support_metrics`` et ``positive_time_diagnostic`` : des
+    entrées d'observation fausses sont une erreur d'appel (choix 10 du brief)."""
+    if not len(projected_s) == len(observed_s) == len(classes):
+        raise ValueError(
+            f"{function} : longueurs différentes (projected_s={len(projected_s)}, "
+            f"observed_s={len(observed_s)}, classes={len(classes)})."
+        )
+    for i, time_s in enumerate(observed_s):
+        if not (math.isfinite(time_s) and time_s >= 0):
+            raise ValueError(
+                f"{function} : observed_s[{i}] doit être fini et >= 0, reçu {time_s}."
+            )
+    for i, regime in enumerate(classes):
+        if not isinstance(regime, RegimeClass):
+            raise ValueError(
+                f"{function} : classes[{i}] doit être une RegimeClass, reçu {regime!r}."
+            )
+
+
+def _first_motif(*rules: tuple[bool, Unavailability]) -> Unavailability | None:
+    """Le motif de la première règle vraie, dans l'ordre donné (choix 5 de rdw :
+    l'observation avant le modèle) ; ``None`` si aucune ne s'applique."""
+    for applies, motif in rules:
+        if applies:
+            return motif
+    return None
+
+
+def _unavailable_class(
+    regime: RegimeClass, count: int, vector_motif: Unavailability | None
+) -> ClassMetrics:
+    """Une classe sans valeur : absente (``insufficient_support``, effectif 0, choix 3
+    de rdw), sinon le motif vectoriel, jamais celui du support (choix 4 du brief)."""
+    motif = _INSUFFICIENT if count == 0 else vector_motif
+    value = MetricValue(None, motif, count)
+    return ClassMetrics(regime, count, is_underrepresented(count), value, value, value)
+
+
+def _computed(
+    outputs: tuple[float, ...],
+    observed_s: Sequence[float],
+    classes: Sequence[RegimeClass],
+) -> SupportMetrics:
+    """Les valeurs d'un support sans motif, par les écritures du choix 1 du brief."""
+    n = len(observed_s)
+    total_s = math.fsum(observed_s)
+    ratios = [log_ratio(p, t) for p, t in zip(outputs, observed_s, strict=True)]
+    level = log_ratio(math.fsum(outputs), total_s)
+    class_levels: dict[RegimeClass, float] = {}
+    rows: list[tuple[float, float, float]] = []
+    metrics: list[ClassMetrics] = []
+    for regime in RegimeClass:
+        members = [i for i, c in enumerate(classes) if c is regime]
+        count = len(members)
+        if not members:
+            metrics.append(_unavailable_class(regime, 0, None))
+            continue
+        class_s = [observed_s[i] for i in members]
+        class_total_s = math.fsum(class_s)
+        class_level = log_ratio(math.fsum(outputs[i] for i in members), class_total_s)
+        dispersion = time_weighted_deviation(
+            [ratios[i] for i in members], [class_level] * count, class_s
+        )
+        weight = class_total_s / total_s
+        class_levels[regime] = class_level
+        rows.append((class_level, dispersion, weight))
+        metrics.append(
+            ClassMetrics(
+                regime,
+                count,
+                is_underrepresented(count),
+                MetricValue(class_level, None, count),
+                MetricValue(dispersion, None, count),
+                MetricValue(class_level - level, None, count),
+            )
+        )
+    within = math.fsum(weight * dispersion for _, dispersion, weight in rows)
+    between = math.fsum(
+        weight * abs(class_level - level) for class_level, _, weight in rows
+    )
+    dispersion = time_weighted_deviation(ratios, [level] * n, observed_s)
+    centers = [class_levels[regime] for regime in classes]
+    return SupportMetrics(
+        segment_count=n,
+        model_error=False,
+        log_ratio=MetricValue(level, None, n),
+        dispersion=MetricValue(dispersion, None, n),
+        within=MetricValue(within, None, n),
+        between=MetricValue(between, None, n),
+        compensation=MetricValue(
+            compensation(ratios, centers, level, observed_s), None, n
+        ),
+        classes=tuple(metrics),
+    )
+
+
+def _support(
+    outputs: tuple[float, ...] | None,
+    observed_s: Sequence[float],
+    classes: Sequence[RegimeClass],
+) -> SupportMetrics:
+    """Le code commun de ``support_metrics`` et ``positive_time_diagnostic``.
+
+    ``outputs`` vaut ``None`` si une sortie du modèle est invalide sur le support
+    **principal** ; le drapeau ne se lève que sur un support non vide. Motifs par la
+    table du § 6.4 du brief, lue de gauche à droite.
+    """
+    n = len(observed_s)
+    model_error = n > 0 and outputs is None
+    total_s = math.fsum(observed_s)
+    level_motif = _first_motif(
+        (n == 0, _INSUFFICIENT),
+        (total_s == 0, _ZERO_TIME),
+        (model_error, _MODEL_ERROR),
+    )
+    vector_motif = _first_motif(
+        (n == 0, _INSUFFICIENT),
+        (any(t == 0 for t in observed_s), _ZERO_TIME),
+        (model_error, _MODEL_ERROR),
+    )
+    if outputs is not None and vector_motif is None:
+        return _computed(outputs, observed_s, classes)
+    if outputs is not None and level_motif is None:
+        level = MetricValue(log_ratio(math.fsum(outputs), total_s), None, n)
+    else:
+        level = MetricValue(None, level_motif, n)
+    vector = MetricValue(None, vector_motif, n)
+    return SupportMetrics(
+        segment_count=n,
+        model_error=model_error,
+        log_ratio=level,
+        dispersion=vector,
+        within=vector,
+        between=vector,
+        compensation=vector,
+        classes=tuple(
+            _unavailable_class(regime, sum(c is regime for c in classes), vector_motif)
+            for regime in RegimeClass
+        ),
+    )
+
+
+def support_metrics(
+    projected_s: Sequence[float | None],
+    observed_s: Sequence[float],
+    classes: Sequence[RegimeClass],
+) -> SupportMetrics:
+    """Les métriques d'un support (``0010`` D7.1, D7.2, D5.5, D7.5 ; brief M4b-1,
+    § 6.4).
+
+    ``projected_s`` : les sorties du modèle ``p_i`` (s), n'importe quelle valeur,
+    ``None`` compris ; ``observed_s`` : les temps observés ``t_i`` (s) ;
+    ``classes`` : les classes des segments admis, dans l'ordre du support.
+
+    Motifs, dans l'ordre (choix 5 de rdw, l'observation avant le modèle) : support
+    vide (``insufficient_support``, effectif 0), classe absente (idem), un temps nul
+    (``zero_time`` pour ``A``, ``W``, ``B``, ``C_comp`` et les valeurs des classes
+    présentes ; ``L`` seulement si ``fsum(t) == 0``), erreur du modèle. Le drapeau
+    ``model_error`` est levé dès qu'une sortie est invalide sur un support non vide,
+    quel que soit le motif publié (D7.1).
+
+    Préconditions (``ValueError``) : mêmes longueurs ; temps finis et ``>= 0`` ;
+    classes de type ``RegimeClass``.
+
+    Non promis : hors du domaine du brief M4b-1 (§ 3, choix 12 : projections et temps
+    observés positifs dans ``[1e−6 ; 1e12]``), une valeur finie ``> 0`` peut faire
+    sous-dépasser ou déborder un quotient ou une somme et lever une exception.
+    """
+    _require_support("support_metrics", projected_s, observed_s, classes)
+    return _support(_model_outputs(projected_s), observed_s, classes)
+
+
+def positive_time_diagnostic(
+    projected_s: Sequence[float | None],
+    observed_s: Sequence[float],
+    classes: Sequence[RegimeClass],
+) -> PositiveTimeDiagnostic:
+    """Le diagnostic du sous-support à temps positifs (``0010`` D5.5 ; brief M4b-1,
+    § 6.5 et choix 5).
+
+    Masque ``t_i > 0`` ; mêmes métriques que ``support_metrics``, par le même code,
+    sur les segments de masque vrai. **L'erreur du modèle s'y juge sur le support
+    principal** : une sortie invalide sur un segment masqué rend le diagnostic
+    indisponible (``model_error``), sauf si le sous-support est vide. Sans temps nul,
+    ``metrics`` égale ``support_metrics`` sur les mêmes entrées. Toujours calculable ;
+    ne remplace jamais le support principal.
+
+    Mêmes préconditions que ``support_metrics``.
+    """
+    _require_support("positive_time_diagnostic", projected_s, observed_s, classes)
+    mask = tuple(t > 0 for t in observed_s)
+    kept = [i for i, positive in enumerate(mask) if positive]
+    principal = _model_outputs(projected_s)
+    outputs = None if principal is None else tuple(principal[i] for i in kept)
+    metrics = _support(
+        outputs, [observed_s[i] for i in kept], [classes[i] for i in kept]
+    )
+    return PositiveTimeDiagnostic(mask, metrics)

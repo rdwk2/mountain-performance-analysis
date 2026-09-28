@@ -32,6 +32,7 @@ from fixtures.matching import (
     straight_case,
     wandering_case,
 )
+from fixtures.metrics import SupportCase
 from fixtures.segments import named_route, stay
 from mountain_perf.backtest import score_grid
 from mountain_perf.gpx import PROFILE_PARAMETER_SPECS
@@ -66,6 +67,7 @@ from mountain_perf.schemas import (
     RecordedTrace,
     ReferenceKind,
     ReferencePerformance,
+    RegimeClass,
     ResolvedPoint,
     Route,
     RouteProfile,
@@ -1173,4 +1175,116 @@ def passage_cases(draw: st.DrawFn) -> MatchCase:
         named_route(((0.0, 0.0), (length_m, 0.0)), places),
         path.trace(),
         features=frozenset(features),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Métriques D7 (M4b-1)
+# ---------------------------------------------------------------------------
+
+PROMISED_MIN = 1e-6
+PROMISED_MAX = 1e12
+"""Domaine promis des projections et des temps positifs (brief M4b-1, § 3, choix 12)."""
+
+SUPPORT_FEATURES = frozenset(
+    {
+        "absent_class",
+        "zero_time",
+        "model_error",
+        "zero_time_and_error",
+        "constant_ratio",
+        "single_class",
+        "single_segment",
+    }
+)
+"""Les étiquettes de :func:`support_cases` (§ 8.1, test 8, du brief M4b-1)."""
+
+
+def invalid_model_outputs() -> st.SearchStrategy[float | None]:
+    """Les cinq formes d'une sortie de modèle invalide (``0010`` D7.1) : ``None``,
+    ``nan``, ``±inf``, ``0.0`` (et ``−0.0``), ``< 0``."""
+    return st.one_of(
+        st.sampled_from([None, math.nan, math.inf, -math.inf, 0.0, -0.0]),
+        finite_floats(-PROMISED_MAX, -PROMISED_MIN),
+    )
+
+
+def promised_outputs() -> st.SearchStrategy[float]:
+    """Une sortie de modèle valide du domaine promis."""
+    return finite_floats(PROMISED_MIN, PROMISED_MAX)
+
+
+@st.composite
+def support_cases(
+    draw: st.DrawFn,
+    *,
+    min_size: int = 0,
+    zero_time: bool | None = None,
+    model_error: bool | None = None,
+    single_class: bool | None = None,
+) -> SupportCase:
+    """Un support de ``min_size`` à 40 segments dans le domaine promis (brief M4b-1,
+    § 3, choix 12) : ``t`` dans ``[1e−3 ; 1e5]`` ou nul, rapports ``p/t`` jusqu'à
+    ``e^{±10}``, ``p`` ramené dans ``[1e−6 ; 1e12]``.
+
+    Ingrédients : classes absentes, temps nuls, sorties invalides des cinq formes,
+    rapports constants par classe (``W = C_comp = 0`` en réels). ``zero_time``,
+    ``model_error`` et ``single_class`` imposent l'ingrédient (``True``), l'excluent
+    (``False``) ou le tirent (``None``). Étiquettes (``features``) :
+    :data:`SUPPORT_FEATURES`, lues sur le cas produit.
+    """
+    forced = zero_time is True or model_error is True
+    n = draw(st.integers(max(min_size, 1 if forced else 0), 40))
+    if single_class is None:
+        used = draw(st.lists(st.sampled_from(RegimeClass), min_size=1, unique=True))
+    elif single_class:
+        used = [draw(st.sampled_from(RegimeClass))]
+    else:
+        used = draw(
+            st.lists(st.sampled_from(RegimeClass), min_size=2, max_size=4, unique=True)
+        )
+    classes = draw(st.lists(st.sampled_from(used), min_size=n, max_size=n))
+    times = draw(st.lists(finite_floats(1e-3, 1e5), min_size=n, max_size=n))
+    with_zero = draw(st.booleans()) if zero_time is None else zero_time
+    if n and with_zero:
+        for i in draw(st.sets(st.integers(0, n - 1), min_size=1, max_size=n)):
+            times[i] = 0.0
+    constant = draw(st.booleans())
+    if constant:
+        by_class = {regime: draw(finite_floats(-10.0, 10.0)) for regime in used}
+        logs = [by_class[regime] for regime in classes]
+    else:
+        logs = draw(st.lists(finite_floats(-10.0, 10.0), min_size=n, max_size=n))
+    projected: list[float | None] = []
+    for time_s, log in zip(times, logs, strict=True):
+        if time_s == 0:
+            projected.append(draw(promised_outputs()))
+        else:
+            projected.append(
+                min(max(time_s * math.exp(log), PROMISED_MIN), PROMISED_MAX)
+            )
+    with_error = draw(st.booleans()) if model_error is None else model_error
+    if n and with_error:
+        for i in draw(st.sets(st.integers(0, n - 1), min_size=1, max_size=3)):
+            projected[i] = draw(invalid_model_outputs())
+    features: set[str] = set()
+    present = set(classes)
+    if n and len(present) < len(RegimeClass):
+        features.add("absent_class")
+    has_zero = 0.0 in times
+    has_error = any(p is None or not math.isfinite(p) or p <= 0 for p in projected)
+    if has_zero:
+        features.add("zero_time")
+    if has_error:
+        features.add("model_error")
+    if has_zero and has_error:
+        features.add("zero_time_and_error")
+    if constant and n:
+        features.add("constant_ratio")
+    if len(present) == 1:
+        features.add("single_class")
+    if n == 1:
+        features.add("single_segment")
+    return SupportCase(
+        tuple(projected), tuple(times), tuple(classes), frozenset(features)
     )
