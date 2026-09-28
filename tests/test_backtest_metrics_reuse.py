@@ -39,15 +39,41 @@ PROJECT_MODULES_ALLOWED = {"mountain_perf.schemas", "mountain_perf.validation"}
 ``mountain_perf.validation``."""
 
 
-def _imported_modules(tree: ast.Module) -> dict[str, set[str]]:
+def _imported_modules(tree: ast.Module, package: str) -> dict[str, set[str]]:
+    """Les modules importés par ``tree``, avec les noms pris à chacun ; un import
+    relatif est résolu depuis ``package``, le paquet du fichier lu."""
     found: dict[str, set[str]] = {}
     for node in ast.walk(tree):
-        if isinstance(node, ast.ImportFrom) and node.module is not None:
-            found.setdefault(node.module, set()).update(a.name for a in node.names)
+        if isinstance(node, ast.ImportFrom):
+            parts = package.split(".")
+            base = parts[: len(parts) - node.level + 1] if node.level else []
+            module = ".".join([*base, *([node.module] if node.module else [])])
+            found.setdefault(module, set()).update(a.name for a in node.names)
         elif isinstance(node, ast.Import):
             for alias in node.names:
                 found.setdefault(alias.name, set())
     return found
+
+
+def _package(path: Path) -> str:
+    """Le paquet d'un fichier de ``src/`` : ``mountain_perf.backtest`` pour
+    ``backtest/metrics.py``."""
+    return ".".join(("mountain_perf", *path.relative_to(SOURCE).parent.parts))
+
+
+def test_relative_imports_are_resolved() -> None:
+    """Correctif de la relecture : un import relatif compte comme l'import absolu
+    qu'il désigne."""
+    tree = ast.parse(
+        "from .passages import observe_passages\n"
+        "from . import metrics\n"
+        "from ..schemas import MetricValue\n"
+    )
+    assert _imported_modules(tree, "mountain_perf.backtest") == {
+        "mountain_perf.backtest.passages": {"observe_passages"},
+        "mountain_perf.backtest": {"metrics"},
+        "mountain_perf.schemas": {"MetricValue"},
+    }
 
 
 def _defined_names(tree: ast.Module) -> set[str]:
@@ -66,12 +92,12 @@ def _defined_names(tree: ast.Module) -> set[str]:
 
 def test_metrics_imports_no_backtest_module() -> None:
     """Précision 2 : aucun module ``mountain_perf.backtest*``."""
-    imported = _imported_modules(METRICS)
+    imported = _imported_modules(METRICS, "mountain_perf.backtest")
     assert not [name for name in imported if name.startswith("mountain_perf.backtest")]
 
 
 def test_metrics_imports_only_schemas_and_validation_from_the_project() -> None:
-    imported = _imported_modules(METRICS)
+    imported = _imported_modules(METRICS, "mountain_perf.backtest")
     project = {name for name in imported if name.startswith("mountain_perf")}
     assert project <= PROJECT_MODULES_ALLOWED
 
@@ -86,9 +112,11 @@ def test_no_module_imports_metrics_but_the_backtest_package() -> None:
         if path in (PACKAGE / "__init__.py", PACKAGE / "metrics.py"):
             continue
         tree = ast.parse(path.read_text(encoding="utf-8"))
-        for module, names in _imported_modules(tree).items():
+        for module, names in _imported_modules(tree, _package(path)).items():
             by_module = module == "mountain_perf.backtest.metrics"
-            by_package = module == "mountain_perf.backtest" and names & defined
+            by_package = module == "mountain_perf.backtest" and names & (
+                defined | {"metrics"}
+            )
             if by_module or by_package:
                 importers.append(path.relative_to(SOURCE).as_posix())
     assert importers == []
@@ -96,7 +124,9 @@ def test_no_module_imports_metrics_but_the_backtest_package() -> None:
 
 def test_the_backtest_package_exports_metrics() -> None:
     init = ast.parse((PACKAGE / "__init__.py").read_text(encoding="utf-8"))
-    assert "mountain_perf.backtest.metrics" in _imported_modules(init)
+    assert "mountain_perf.backtest.metrics" in _imported_modules(
+        init, "mountain_perf.backtest"
+    )
 
 
 def _hex(value: float | None) -> str:
