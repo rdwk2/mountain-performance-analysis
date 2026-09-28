@@ -7,9 +7,10 @@ représentable en binaire.
 """
 
 import math
+from dataclasses import replace
 
 import pytest
-from hypothesis import given
+from hypothesis import example, given
 
 from fixtures.curves import SUPPORT_CURVE
 from mountain_perf.model.pace import MAX_SAFE_GRADE, PaceModel
@@ -151,7 +152,28 @@ def test_extrapolation_joins_interpolation_exactly_at_both_edges(
         assert model.pace_s_per_m(grade) == pytest.approx(extended, rel=1e-12)
 
 
+# Les deux contre-exemples d'Hypothesis connus du test suivant. UNSTABLE_LOW vient de
+# la ligne de backlog de la PR #11 (bord bas), UNSTABLE_HIGH des correctifs de la
+# PR #12 (bord haut). Ils rougissaient quand l'écart était comparé au pas nominal :
+# `edge ± ε` est arrondi, et la pente locale (K ≈ 16 000 s/m par unité de pente)
+# multiplie cet arrondi au-delà de la marge absolue de 1e-12.
+UNSTABLE_LOW = replace(
+    SUPPORT_CURVE,
+    grade=(-1.453125, -1.4375, 1.0),
+    speed_ms=(1.0, 0.00390625, 1.0),
+    sample_count=(1, 1, 1),
+)
+UNSTABLE_HIGH = replace(
+    SUPPORT_CURVE,
+    grade=(-1.0, 1.0, 1.65625, 1.6640625),
+    speed_ms=(1.0, 1.0, 1.0, 0.0078125),
+    sample_count=(1, 1, 1, 1),
+)
+
+
 @given(model_pace_curves(), finite_floats(0.0, 0.01))
+@example(UNSTABLE_LOW, 1e-9)
+@example(UNSTABLE_HIGH, 1e-9)
 def test_pace_varies_at_the_local_slope_on_each_side(
     curve: PaceCurve, epsilon: float
 ) -> None:
@@ -166,29 +188,32 @@ def test_pace_varies_at_the_local_slope_on_each_side(
     low, high = curve.grade[0], curve.grade[-1]
     pace_low, pace_high = 1.0 / curve.speed_ms[0], 1.0 / curve.speed_ms[-1]
 
-    def bounded(reference: float, at: float, slope: float, step: float) -> None:
+    def bounded(reference: float, edge: float, at: float, slope: float) -> None:
+        # Le pas est mesuré sur l'abscisse évaluée : `edge ± ε` est arrondi, et la
+        # pente locale multiplie cet arrondi bien au-delà de la marge absolue.
+        step = abs(at - edge)
         gap = abs(model.pace_s_per_m(at) - reference)
         assert gap <= slope * step * (1 + 1e-9) + 1e-12
 
-    bounded(pace_low, low - epsilon, 1.0 / abs(curve.speed_ms[0] * low), epsilon)
-    bounded(pace_high, high + epsilon, 1.0 / abs(curve.speed_ms[-1] * high), epsilon)
+    bounded(pace_low, low, low - epsilon, 1.0 / abs(curve.speed_ms[0] * low))
+    bounded(pace_high, high, high + epsilon, 1.0 / abs(curve.speed_ms[-1] * high))
     # À l'intérieur, le pas est borné par la tranche voisine : au-delà, la pente
     # locale n'est plus celle de cet intervalle-là.
     inner_low = min(epsilon, curve.grade[1] - low)
     width_low = curve.grade[1] - low
     bounded(
         pace_low,
+        low,
         low + inner_low,
         abs(pace_low - 1.0 / curve.speed_ms[1]) / width_low,
-        inner_low,
     )
     inner_high = min(epsilon, high - curve.grade[-2])
     width_high = high - curve.grade[-2]
     bounded(
         pace_high,
+        high,
         high - inner_high,
         abs(pace_high - 1.0 / curve.speed_ms[-2]) / width_high,
-        inner_high,
     )
 
 
