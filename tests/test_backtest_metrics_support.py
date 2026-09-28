@@ -495,3 +495,11 @@ def test_diagnostic_keeps_the_projections_of_the_kept_segments() -> None:
     assert diagnostic.metrics.segment_count == 1
     assert diagnostic.metrics.log_ratio.value == 0.0
     assert diagnostic.metrics.classes[2].log_ratio.value == 0.0
+
+
+def test_mask_keeps_a_small_positive_time() -> None:
+    """Choix 5 et 12 : masque ``t_i > 0`` strict ; ``t = 1e−5`` s est dans le domaine
+    promis, sous le ``1e−3`` de la stratégie des propriétés."""
+    diagnostic = positive_time_diagnostic((2e-5, 100.0), (1e-5, 100.0), (A, D))
+    assert diagnostic.mask == (True, True)
+    assert diagnostic.metrics == support_metrics((2e-5, 100.0), (1e-5, 100.0), (A, D))
