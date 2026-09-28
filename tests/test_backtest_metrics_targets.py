@@ -40,8 +40,9 @@ NAN = math.nan
         ((Dp, Dp, In), ((2, False), (None, True))),
         ((Ar,), ((0, True),)),
         ((In, Dp), ((0, False), (None, True))),
+        ((Ar, In), ((1, False), (0, True))),
     ],
-    ids=["none", "I,I", "Dp,I,Ar", "I,Ar,Ar", "Dp", "Dp,Dp,I", "Ar", "I,Dp"],
+    ids=["none", "I,I", "Dp,I,Ar", "I,Ar,Ar", "Dp", "Dp,Dp,I", "Ar", "I,Dp", "Ar,I"],
 )
 def test_default_targets(
     roles: tuple[PassageRole, ...], expected: tuple[tuple[int | None, bool], ...]
