@@ -9,8 +9,9 @@ hors l'export de ``backtest/__init__.py``. Lecture de son arbre syntaxique, comm
 
 Et les valeurs publiées par ``support_metrics`` sont, **au bit**, celles des fonctions
 pures appliquées aux valeurs publiées (choix 1 du brief) : ``L`` et ``E_R`` par
-``log_ratio``, ``A`` et ``D_R`` par ``time_weighted_deviation``, ``C_comp`` par
-``compensation`` — jamais par ``W + B − A``.
+``log_ratio``, ``E_R − L`` par une seule soustraction, ``A`` et ``D_R`` par
+``time_weighted_deviation``, ``C_comp`` par ``compensation`` — jamais par
+``W + B − A``.
 """
 
 import ast
@@ -105,8 +106,9 @@ def _hex(value: float | None) -> str:
 
 @pytest.mark.parametrize("name", ["T12", "Dyadique", "Quatre classes", "Une classe"])
 def test_published_values_are_the_pure_functions_at_the_bit(name: str) -> None:
-    """Test 7 : ``L``, ``E_R``, ``A``, ``D_R`` et ``C_comp`` publiés égalent au bit les
-    fonctions pures appliquées aux valeurs publiées (``0010`` D7.2, choix 1)."""
+    """Test 7 : ``L``, ``E_R``, ``E_R − L``, ``A``, ``D_R`` et ``C_comp`` publiés
+    égalent au bit les fonctions pures appliquées aux valeurs publiées (``0010`` D7.2,
+    choix 1)."""
     case = SUPPORT_CASES[name]
     p = [value for value in case.projected_s if value is not None]
     t, classes = case.observed_s, case.classes
@@ -126,6 +128,7 @@ def test_published_values_are_the_pure_functions_at_the_bit(name: str) -> None:
         class_level = regime.log_ratio.value
         assert class_level is not None
         assert class_level.hex() == log_ratio(math.fsum(p_r), math.fsum(t_r)).hex()
+        assert _hex(regime.shape.value) == (class_level - level).hex()
         dispersion = time_weighted_deviation(
             [r[i] for i in members], [class_level] * len(members), t_r
         )
@@ -135,3 +138,13 @@ def test_published_values_are_the_pure_functions_at_the_bit(name: str) -> None:
     assert _hex(metrics.dispersion.value) == dispersion.hex()
     compensation_value = compensation(r, [levels[c] for c in classes], level, t)
     assert _hex(metrics.compensation.value) == compensation_value.hex()
+
+
+def test_zero_time_level_is_log_ratio_at_the_bit() -> None:
+    """§ 6.4, étape 5 : sous temps nul, ``L`` par la même écriture
+    ``log_ratio(fsum p, fsum t)``, au bit (« Temps nul » du § 7.1 : ``ln 2``)."""
+    case = SUPPORT_CASES["Temps nul"]
+    p = [value for value in case.projected_s if value is not None]
+    metrics = support_metrics(p, case.observed_s, case.classes)
+    expected = log_ratio(math.fsum(p), math.fsum(case.observed_s))
+    assert _hex(metrics.log_ratio.value) == expected.hex()
