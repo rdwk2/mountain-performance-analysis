@@ -16,6 +16,23 @@ Backtest (à partir de M4) : métrique avant → après.
 
 ---
 
+### 2026-09-28 · M4b-0 — Hygiène : test instable, sortie console
+PR d'hygiène avant les métriques M4b (brief M4b-0 rév. 1). Test instable
+`test_pace_varies_at_the_local_slope_on_each_side` : le défaut était le pas de
+référence, pas la tolérance — `edge ± ε` est arrondi et la pente locale
+(K ≈ 16 000 s/m) multiplie cet arrondi au-delà de la marge absolue de `1e-12` ; le
+pas est désormais mesuré sur l'abscisse évaluée (`abs(at − edge)`), marges
+inchangées, et les deux contre-exemples connus (PR #11, PR #12) sont des `@example`.
+`mperf` : `stdout` et `stderr` reconfigurés en UTF-8 en tête de `main`, avant la
+lecture des arguments, en gardant le gestionnaire d'erreurs de chaque flux ; seuls
+les `io.TextIOWrapper` sont touchés ; quatre tests de sortie sous un flux cp1252.
+Les onze contre-épreuves du § 5 rougissent là où le brief l'annonce ; témoin
+Windows (`cmd /c` redirigé, `PYTHONIOENCODING` retiré) : `main` rend 1 avec
+`UnicodeEncodeError`, la branche rend 0 avec `→` et `D−` lisibles.
+Conclusion : `just check` vert, 2 033 tests. Rangé dans `tests/test_model_pace.py`,
+`src/mountain_perf/cli.py`, `tests/test_cli_profile.py`, `BACKLOG.md` (trois lignes
+barrées), branche `m4b/hygiene`.
+
 ### 2026-09-27 · M4a-3 — Backtest : passages et événements
 Cinquième et dernière PR du lot M4a (brief M4a-3 rév. 1, `0010` D4.12 ; `0010`
 inchangé). Six types de plus au dictionnaire (`PassageRole`, `PassageStatus`,
