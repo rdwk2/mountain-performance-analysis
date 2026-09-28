@@ -126,6 +126,8 @@ src/mountain_perf/     le code de la bibliothèque
     matching.py        PointStatus, ScorePointObservation : points de score (M4a-2a) ;
                        segments, Coverage, AdmittedTotals, MatchResult (M4a-2b) ;
                        PassageObservation, EpisodeAttribution, PassageMatchResult (M4a-3)
+    metrics.py         MetricValue, ClassMetrics, SupportMetrics, PositiveTimeDiagnostic,
+                       LogRatioEnvelope, PassageErrors, TargetMember, UsageTarget (M4b-1)
     _dictionary.py     rendu du dictionnaire de données depuis les docstrings
   gpx/                 lecture GPX, profil, grille de pente (M2)
     geo.py             haversine 2D, polyligne dédoublonnée, projection point-segment
@@ -144,6 +146,8 @@ src/mountain_perf/     le code de la bibliothèque
     segments.py        régimes, admissibilité, couverture, préfixe, totaux admis, match_trace (M4a-2b)
     passages.py        rattachement, recherche, association, chronologie, maintien, observe_passages (M4a-3)
     sensitivity.py     les 19 configurations de sensibilité, déclarées (M4a-2b)
+    metrics.py         seuil, prédicats, métriques du support, diagnostic, enveloppes, C_k,
+                       K par défaut, q_usage : métriques D7, fonctions pures (M4b-1)
   ingest/              acquisition et normalisation Garmin (M6b)
   ui/                  interface — appelle la bibliothèque, ne calcule rien (M5)
   cli.py               mperf profile <fichier.gpx>, compte-rendu ou CSV sur stdout ;
