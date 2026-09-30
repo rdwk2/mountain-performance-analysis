@@ -1,0 +1,27 @@
+v0 brut      courbe courbe_synthetique.csv   sha256 6767dd38…
+             effort 1.00, moteur projection-v0 ; horloges du rapport : écoulé, M θ1, (M+U) θ1
+usage        sans référence : scénario contrôle seul (0010 D3)
+contrôle     appariement_trace_x01.gpx ; 2 segments admis : montée 0, plat 2 (trop peu représenté), descente 0, mixte 0
+             enveloppe       support [−0.692722 ; −0.485083], min |L| 0.485083
+                             montée non évalué
+                             plat [−0.692722 ; −0.485083], min |L| 0.485083
+                             descente non évalué
+                             mixte non évalué
+                             écoulé              M θ1                (M+U) θ1
+             L               −0.692722           −0.485083           −0.692722
+             A               +0.000001           +0.009512           +0.000001
+             W               +0.000001           +0.009512           +0.000001
+             B               +0.000000           +0.000000           +0.000000
+             C_comp          +0.000000           +0.000000           +0.000000
+             montée E_R      support insuffisant support insuffisant support insuffisant
+             montée D_R      support insuffisant support insuffisant support insuffisant
+             montée E_R−L    support insuffisant support insuffisant support insuffisant
+             plat E_R        −0.692722           −0.485083           −0.692722
+             plat D_R        +0.000001           +0.009512           +0.000001
+             plat E_R−L      +0.000000           +0.000000           +0.000000
+             descente E_R    support insuffisant support insuffisant support insuffisant
+             descente D_R    support insuffisant support insuffisant support insuffisant
+             descente E_R−L  support insuffisant support insuffisant support insuffisant
+             mixte E_R       support insuffisant support insuffisant support insuffisant
+             mixte D_R       support insuffisant support insuffisant support insuffisant
+             mixte E_R−L     support insuffisant support insuffisant support insuffisant
