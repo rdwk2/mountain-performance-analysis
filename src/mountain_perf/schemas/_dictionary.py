@@ -108,6 +108,17 @@ from mountain_perf.schemas.route import (
     Route,
     RouteProfile,
 )
+from mountain_perf.schemas.scoring import (
+    SCENARIO_DESCRIPTIONS,
+    AdmittedSegment,
+    ClockScores,
+    ModelForecast,
+    ObservedPoint,
+    OutingObservation,
+    OutingScores,
+    Scenario,
+    ScenarioScores,
+)
 from mountain_perf.schemas.trace import RecordedTrace
 
 RUBRICS: tuple[str, ...] = (
@@ -182,6 +193,14 @@ DOCUMENTED_TYPES: tuple[type, ...] = (
     PassageErrors,
     TargetMember,
     UsageTarget,
+    Scenario,
+    AdmittedSegment,
+    ObservedPoint,
+    OutingObservation,
+    ModelForecast,
+    ClockScores,
+    ScenarioScores,
+    OutingScores,
 )
 """Types publiés dans le dictionnaire, dans l'ordre de lecture."""
 
@@ -206,6 +225,7 @@ ENUM_DESCRIPTIONS: Mapping[type[Enum], Mapping[Any, str]] = MappingProxyType(
         PassageRole: PASSAGE_ROLE_DESCRIPTIONS,
         PassageStatus: PASSAGE_STATUS_DESCRIPTIONS,
         EpisodeOutcome: EPISODE_OUTCOME_DESCRIPTIONS,
+        Scenario: SCENARIO_DESCRIPTIONS,
     }
 )
 """Description des membres de chaque énumération publiée."""

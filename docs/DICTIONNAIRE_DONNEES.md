@@ -68,6 +68,14 @@
 - `PassageErrors`
 - `TargetMember`
 - `UsageTarget`
+- `Scenario`
+- `AdmittedSegment`
+- `ObservedPoint`
+- `OutingObservation`
+- `ModelForecast`
+- `ClockScores`
+- `ScenarioScores`
+- `OutingScores`
 
 ---
 
@@ -3351,3 +3359,425 @@ L'assemblage (M4b-2), le rapport (M4b-5), l'admission (M4c).
 - le contrat ne connaît pas les éléments de `K` (l'appelant les tient) ;
 - il ne vérifie ni « départ exclu » ni « arrivée unique » (tests de
   `default_targets`).
+
+---
+
+## `Scenario`
+
+*`mountain_perf.schemas.scoring` · énumération*
+
+| Membre | Valeur | Description |
+|---|---|---|
+| `USAGE` | `usage` | Usage : projection sur le profil de référence (préparé ou trace de référence désignée), comparée à la trace réalisée (D3). |
+| `CONTROL` | `control` | Contrôle : projection sur le profil de la trace réalisée elle-même, rétrospective, non disponible à J−7 (D3). |
+
+Scénario d'une prévision (`0010` D3).
+
+#### Champs
+
+Valeurs décrites dans `SCENARIO_DESCRIPTIONS`.
+
+#### Invariants
+
+Énumération fermée : usage ou contrôle.
+
+#### Producteur
+
+`usage_forecast` et `control_forecast` (`mountain_perf.backtest.scoring`).
+
+#### Consommateurs
+
+`ModelForecast`, `ScenarioScores`, `OutingScores` ; `mperf match` ; le
+rapport (M4b-5).
+
+#### Non promis
+
+L'écart de scores entre les deux scénarios n'isole pas causalement une cause
+(D3) ; le diagnostic de géométrie (usage − contrôle) n'est pas calculé ici.
+
+---
+
+## `AdmittedSegment`
+
+*`mountain_perf.schemas.scoring` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `index` | `int` | — |
+| `nominal_start_m` | `float` | — |
+| `nominal_end_m` | `float` | — |
+| `start_m` | `float` | — |
+| `end_m` | `float` | — |
+| `realized_start_m` | `float` | — |
+| `realized_end_m` | `float` | — |
+| `regime_class` | `RegimeClass` | — |
+| `times_s` | `tuple[float, ...]` | — |
+
+Un segment admis de la sortie et ses temps sous les onze horloges (`0010`
+D4.2, D5.3, D5.4, D7.1).
+
+#### Champs
+
+- `index` — sans unité — `k`, rang du segment dans la grille de score.
+- `nominal_start_m`, `nominal_end_m` — mètres — `s_k`, `s_{k+1}`, bornes
+  nominales.
+- `start_m`, `end_m` — mètres — `b_k`, `b_{k+1}`, bornes effectives
+  (D4.2).
+- `realized_start_m`, `realized_end_m` — mètres — `d_r(π_k)`,
+  `d_r(π_{k+1})`, abscisses réalisées des bornes (D3).
+- `regime_class` — sans unité — la classe du segment, celle de la référence
+  (partition commune, D3).
+- `times_s` — secondes — le temps du segment sous chacune des onze horloges,
+  dans l'ordre de `CLOCKS`.
+
+#### Invariants
+
+- `index >= 0` ; les six abscisses finies et `>= 0` ;
+  `nominal_start_m < nominal_end_m` ; `start_m < end_m` ;
+  `realized_start_m <= realized_end_m` ;
+- `regime_class` est une `RegimeClass` ;
+- `times_s` est un tuple de `len(CLOCKS)` valeurs finies et `>= 0` ;
+- `times_s[0] > 0` (l'écoulé d'un segment admis : `t*_k < t*_{k+1}`).
+
+#### Producteur
+
+`observe_outing` (`mountain_perf.backtest.scoring`).
+
+#### Consommateurs
+
+`score_scenario` ; la référence D8 (M4b-3 : un segment est identifié par ses
+bornes, et un segment de bord ancré n'est pas la cellule nominale, D4.2) ; le
+rapport (M4b-5) ; les baselines (M4c).
+
+#### Non promis
+
+- `M_θ <= (M + U)_θ <= E` n'est vrai qu'en réels et n'est pas vérifié ;
+- les temps ne sont pas recoupés avec une partition ;
+- le contrat ne dit pas quelles bornes effectives diffèrent des nominales (celles
+  d'un bord ancré, par le producteur).
+
+---
+
+## `ObservedPoint`
+
+*`mountain_perf.schemas.scoring` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `distance_m` | `float` | — |
+| `score_index` | `int \| None` | — |
+| `passage_index` | `int \| None` | — |
+| `unavailability` | `Unavailability \| None` | — |
+| `times_s` | `tuple[float, ...] \| None` | — |
+
+| Propriété calculée | Type | Sens |
+|---|---|---|
+| `available` | `bool` | Le point est observé : `unavailability is None`. |
+
+Un point de `C_k`, ou un élément de `K`, observé sur la sortie (`0010`
+D4.12, D7.3, D7.4).
+
+#### Champs
+
+- `distance_m` — mètres — l'abscisse où le cumul projeté est lu : `b_k` d'un
+  point de score, `s_w` d'un lieu, `b_K` de l'arrivée.
+- `score_index` — sans unité — `k` d'un point de score (et de l'arrivée).
+- `passage_index` — sans unité — rang du lieu dans
+  `PassageMatchResult.passages`.
+- `unavailability` — sans unité — le motif d'observation (`0010` D0).
+- `times_s` — secondes — `T_k`, cumulé depuis `t*_0` sous chacune des onze
+  horloges, dans l'ordre de `CLOCKS`.
+
+Propriété calculée (jamais stockée) : `available`.
+
+#### Invariants
+
+- `distance_m` finie et `>= 0` ;
+- au moins un des deux indices est présent ; présents, ils sont `>= 0` ;
+- `times_s` présent **si et seulement si** `unavailability` est absent ;
+- `unavailability` absent ou dans `OBSERVATION_UNAVAILABILITY` (jamais
+  `model_error`, `zero_time`…) ;
+- `times_s` présent : tuple de `len(CLOCKS)` valeurs finies et `>= 0`.
+
+#### Producteur
+
+`observe_outing` (`mountain_perf.backtest.scoring`).
+
+#### Consommateurs
+
+`score_scenario` ; le rapport (`mperf match`, M4b-5).
+
+#### Non promis
+
+- le nom du lieu n'est pas porté : l'appelant a les passages ;
+- un `T_k` peut être nul sous une horloge (`comparable` le dira, M4b-1).
+
+---
+
+## `OutingObservation`
+
+*`mountain_perf.schemas.scoring` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `reference_length_m` | `float` | — |
+| `origin_m` | `float` | — |
+| `origin_s` | `float \| None` | — |
+| `segments` | `tuple[AdmittedSegment, ...]` | — |
+| `error_points` | `tuple[ObservedPoint, ...]` | — |
+| `members` | `tuple[TargetMember, ...]` | — |
+| `targets` | `tuple[ObservedPoint, ...]` | — |
+| `arrival_anchor_gap_m` | `float \| None` | — |
+
+Ce qu'une sortie observe, indépendamment de tout modèle (`0010` D4.8, D4.11,
+D4.12, D5.3, D5.4, D7.1, D7.3, D7.4).
+
+#### Champs
+
+- `reference_length_m` — mètres — `L`, longueur du tracé de référence.
+- `origin_m` — mètres — `b_0`, origine des cumulés.
+- `origin_s` — secondes depuis le premier enregistrement — `t*_0` ; absent si
+  le départ n'est pas daté.
+- `segments` — sans unité — les segments admis, dans l'ordre.
+- `error_points` — sans unité — les points de `C_k` (D7.3) : points de score
+  du préfixe et lieux intermédiaires, origine exclue, par abscisse croissante.
+- `members` — sans unité — `K` par défaut (`default_targets`, D7.4).
+- `targets` — sans unité — un élément observé par membre, dans le même ordre.
+- `arrival_anchor_gap_m` — mètres — `L − b_K` d'une arrivée ancrée (D4.8).
+
+#### Invariants
+
+- `L` finie et `> 0` ; `0 <= b_0 < L` ; `origin_s` absent, ou fini et
+  `>= 0` ;
+- `segments`, `error_points`, `members`, `targets` sont des tuples ;
+- `segments` : `index` strictement croissants ; `b_0 <= start_m` et
+  `end_m <= L` ;
+- `error_points` : exactement un des deux indices ; `score_index >= 1`
+  (origine exclue) ; `distance_m` non décroissantes, dans `[b_0 ; L]` ;
+- `members` et `targets` : même longueur, `>= 1` ; le dernier membre est
+  `arrival`, et lui seul ; pour un membre intermédiaire,
+  `targets[i].passage_index == members[i].occurrence_index` et `score_index`
+  absent ; pour l'arrivée, `score_index` présent et
+  `passage_index == occurrence_index` ;
+- `origin_s` absent ⇒ `error_points` vide et aucun élément de `targets`
+  disponible ;
+- `arrival_anchor_gap_m` absent, ou fini et `>= 0`.
+
+#### Producteur
+
+`observe_outing` (`mountain_perf.backtest.scoring`).
+
+#### Consommateurs
+
+Les prévisions et `score_scenario` ; la référence D8 (M4b-3) ; le rapport
+(M4b-5) ; les baselines (M4c).
+
+#### Non promis
+
+Le contrat ne vérifie pas que `score_index` de l'arrivée vaut `K`, ni les
+temps contre une partition, ni que les points sont ceux du préfixe : ce sont les
+tests du producteur.
+
+---
+
+## `ModelForecast`
+
+*`mountain_perf.schemas.scoring` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `scenario` | `Scenario` | — |
+| `source` | `SourceRef` | — |
+| `curve_ref` | `str` | — |
+| `parameters` | `ParameterSet` | — |
+| `engine_version` | `str` | — |
+| `generated_at` | `datetime` | — |
+| `segment_s` | `tuple[float \| None, ...]` | — |
+| `point_s` | `tuple[float \| None, ...]` | — |
+| `target_s` | `tuple[float \| None, ...]` | — |
+
+La prévision d'un modèle dans un scénario (`0010` D3, D7.1 ; décision 1 de
+rdw).
+
+#### Champs
+
+- `scenario` — sans unité — usage ou contrôle.
+- `source` — sans unité — le tracé du profil projeté : la référence en usage, la
+  trace en contrôle.
+- `curve_ref` — sans unité — la référence de la courbe.
+- `parameters` — sans unité — les paramètres du modèle.
+- `engine_version` — sans unité — la version du moteur.
+- `generated_at` — date — l'instant de la prévision, avec fuseau.
+- `segment_s` — secondes — `p_i`, une projection par segment admis.
+- `point_s` — secondes — `P_k`, un cumulé par point de `C_k` (usage).
+- `target_s` — secondes — `P_k`, un cumulé par élément de `K` (usage).
+
+#### Invariants
+
+- `curve_ref` et `engine_version` non vides ; `generated_at` avec fuseau ;
+- `segment_s`, `point_s`, `target_s` sont des tuples ;
+- `scenario == CONTROL` ⇒ `point_s` et `target_s` vides.
+
+#### Producteur
+
+`usage_forecast` et `control_forecast` (`mountain_perf.backtest.scoring`).
+
+#### Consommateurs
+
+`score_scenario` ; la prévision conservée (M4b-4) ; les baselines (M4c).
+
+#### Non promis
+
+- **les valeurs ne sont pas validées** : ce sont des sorties de modèle, jugées
+  par D7.1 dans les scores (`None`, non finies ou `<= 0` y deviennent
+  « erreur du modèle ») ;
+- les longueurs ne sont pas recoupées avec une observation : ce sont les
+  préconditions de `score_scenario`.
+
+---
+
+## `ClockScores`
+
+*`mountain_perf.schemas.scoring` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `clock` | `Clock` | — |
+| `support` | `SupportMetrics` | — |
+| `diagnostic` | `PositiveTimeDiagnostic \| None` | — |
+| `passage_errors` | `PassageErrors \| None` | — |
+| `usage_target` | `UsageTarget \| None` | — |
+
+Les scores d'un scénario sous une horloge (`0010` D5.5, D7).
+
+#### Champs
+
+- `clock` — sans unité — l'horloge des temps observés.
+- `support` — sans unité — les métriques du support (D7.1, D7.2).
+- `diagnostic` — sans unité — le sous-support à temps positifs (D5.5), quand le
+  support a un temps nul.
+- `passage_errors` — sans unité — les erreurs aux passages `C_k` (D7.3), en
+  usage.
+- `usage_target` — sans unité — la cible d'usage `q_usage` (D7.4), en usage.
+
+#### Invariants
+
+- `diagnostic` présent **si et seulement si**
+  `support.dispersion.unavailability is ZERO_TIME` ; présent,
+  `len(diagnostic.mask) == support.segment_count` ;
+- `passage_errors` et `usage_target` tous deux présents ou tous deux absents.
+
+#### Producteur
+
+`score_scenario` (`mountain_perf.backtest.scoring`).
+
+#### Consommateurs
+
+`ScenarioScores` ; le rapport (`mperf match`, M4b-5).
+
+#### Non promis
+
+Le contrat ne recalcule pas les objets de M4b-1 et ne les recoupe pas avec
+l'observation.
+
+---
+
+## `ScenarioScores`
+
+*`mountain_perf.schemas.scoring` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `scenario` | `Scenario` | — |
+| `forecast` | `ModelForecast` | — |
+| `envelope` | `LogRatioEnvelope \| None` | — |
+| `class_envelopes` | `tuple[LogRatioEnvelope \| None, ...]` | — |
+| `clocks` | `tuple[ClockScores, ...]` | — |
+
+Les scores d'un scénario sous les onze horloges, et ses enveloppes (`0010`
+D5.4, D7).
+
+#### Champs
+
+- `scenario` — sans unité — usage ou contrôle.
+- `forecast` — sans unité — la prévision scorée.
+- `envelope` — sans unité — l'enveloppe de `L` du support (D5.4).
+- `class_envelopes` — sans unité — l'enveloppe de `E_R` de chaque classe, dans
+  l'ordre de `RegimeClass` (montée, plat, descente, mixte).
+- `clocks` — sans unité — les scores sous chaque horloge, dans l'ordre de
+  `CLOCKS`.
+
+#### Invariants
+
+- `forecast.scenario == scenario` ; `class_envelopes` et `clocks` sont des
+  tuples ;
+- `tuple(c.clock for c in clocks) == CLOCKS` ;
+- sous toutes les horloges, le même `support.segment_count`, égal à
+  `len(forecast.segment_s)`, les mêmes effectifs de classe et le même
+  `support.model_error` ;
+- `passage_errors` présent sous chaque horloge **si et seulement si**
+  `scenario == USAGE` ; en usage, `len(errors_s) == len(forecast.point_s)` et
+  `len(usage_target.comparable) == len(forecast.target_s)` ;
+- `envelope` absente **si et seulement si** `segment_count == 0` ;
+  `class_envelopes` a quatre éléments, chacun absent si et seulement si
+  l'effectif de sa classe est nul ;
+- une enveloppe présente de motif `model_error` ⇒ `support.model_error` ;
+  `support.model_error` ⇒ toute enveloppe présente a un motif.
+
+#### Producteur
+
+`score_scenario` (`mountain_perf.backtest.scoring`).
+
+#### Consommateurs
+
+`OutingScores` ; le rapport (`mperf match`, M4b-5) ; les baselines (M4c).
+
+#### Non promis
+
+Les enveloppes ne sont pas recalculées par le contrat ; elles valent à `P`
+fixé (D5.4).
+
+---
+
+## `OutingScores`
+
+*`mountain_perf.schemas.scoring` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `observation` | `OutingObservation` | — |
+| `control` | `ScenarioScores` | — |
+| `usage` | `ScenarioScores \| None` | — |
+
+Les scores d'un modèle sur une sortie, dans ses scénarios (`0010` D3, D7).
+
+#### Champs
+
+- `observation` — sans unité — ce que la sortie observe, indépendamment du
+  modèle.
+- `control` — sans unité — les scores du scénario contrôle.
+- `usage` — sans unité — les scores du scénario usage ; absent pour une sortie
+  sans référence (D3).
+
+#### Invariants
+
+- `control.scenario == CONTROL` ; `usage` absent ou
+  `usage.scenario == USAGE` ;
+- pour chaque scénario présent,
+  `len(forecast.segment_s) == len(observation.segments)` ;
+- en usage, `len(point_s) == len(observation.error_points)` et
+  `len(target_s) == len(observation.targets)`.
+
+#### Producteur
+
+`score_outing` et `v0_scores` (`mountain_perf.backtest.scoring`).
+
+#### Consommateurs
+
+`mperf match` ; le rapport (M4b-5).
+
+#### Non promis
+
+- `usage` absent ne dit pas pourquoi (sortie sans référence : l'appelant le
+  sait) ;
+- aucune métrique n'y est agrégée sur plusieurs sorties.
