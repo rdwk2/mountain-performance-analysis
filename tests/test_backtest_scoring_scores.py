@@ -130,7 +130,7 @@ def _check_clock(actual: ClockScores, expected: K, gap_m: float | None) -> None:
                 close(w, e)
                 for w, e in zip(target.weights, expected.target.weights, strict=True)
             )
-        assert target.arrival_anchor_gap_m == gap_m
+        assert close(target.arrival_anchor_gap_m, gap_m)
 
 
 def _check_envelopes(actual: ScenarioScores, expected: U) -> None:
@@ -158,7 +158,7 @@ def test_usage_scores_under_the_elapsed_and_central_moving_clocks(name: str) -> 
     usage = outing.usage
     assert usage is not None
     assert expected.usage.moving is not None
-    gap_m = outing.observation.arrival_anchor_gap_m
+    gap_m = expected.gap_m  # l'écart publié, contre l'oracle du § 7.3 (choix 7)
     _check_clock(usage.clocks[ELAPSED], expected.usage.elapsed, gap_m)
     _check_clock(usage.clocks[MOVING_C], expected.usage.moving, gap_m)
 
