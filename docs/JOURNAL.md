@@ -16,6 +16,32 @@ Backtest (à partir de M4) : métrique avant → après.
 
 ---
 
+### 2026-10-01 · M4b-2 — Backtest : scores de v0 brut sur une sortie
+Brief M4b-2 rév. 2, sept précisions de la relecture du plan (P1 à P7). Adaptateur du
+moteur M3 : `ProjectedTimeline` (cumul par `accumulate`, `time_at` au corps de
+`_time_at`, précondition `[0 ; L]`), `project` réécrit dessus au bit (contre une copie
+figée des formules de M3). Contrats à trois étages (`schemas/scoring.py`) :
+observation d'une sortie sous les onze horloges, prévision d'un modèle dans un
+scénario, scores par scénario et horloge. `observe_outing`, `usage_forecast`,
+`control_forecast`, `score_scenario` (fonctions de M4b-1, diagnostic de D5.5,
+enveloppes sur les dix sommes), `score_outing`, `report_clocks`, `v0_scores` ;
+`mperf match --curve` et `--no-reference` (sections 11 à 13).
+Conclusion : `just check` vert, 2 777 tests (2 365 avant). Valeurs du § 7.3
+reproduites à `1e−9` relatif sur les treize cas, sans écart ; textes du § 7.5 au
+caractère près ; sans `--curve`, sortie de `main` octet pour octet. Contre-épreuves :
+les 38 mutations du § 8.2, les 4 de la précision 2 et 9 rejeux contrat neutralisé,
+toutes rouges sur le test désigné (l'échange de `a` et `b` arrêté par la précondition
+de M4b-1 sur onze cas, par une valeur sur Arrivée hors préfixe). La campagne a trouvé
+un test 6 trop faible (écart d'arrivée comparé à lui-même), corrigé. Écart au brief :
+le test de réemploi de M4b-1 interdisait l'import de `backtest/metrics.py` que le § 6
+prescrit ; élargi à `backtest/scoring.py`, avec l'accord de rdw, dans un commit à part.
+Rangé dans `src/mountain_perf/model/engine.py`, `src/mountain_perf/schemas/scoring.py`,
+`src/mountain_perf/backtest/scoring.py`, `src/mountain_perf/cli.py`,
+`tests/test_model_timeline.py`, `tests/test_schemas_scoring.py`,
+`tests/test_backtest_scoring_*.py`, `tests/test_cli_match_scores.py`,
+`tests/fixtures/scoring.py`, `tests/fixtures/scoring_values.py`,
+`tests/fixtures/scores_*.txt`, `BACKLOG.md` (six lignes), branche `m4b/scores-v0`.
+
 ### 2026-09-28 · M4b-1 — Backtest : métriques D7, définitions
 Les métriques de `0010` D7 en fonctions pures sur des vecteurs et des statuts (brief
 M4b-1 rév. 2, cinq précisions de la relecture du plan). Contrats `MetricValue`,
