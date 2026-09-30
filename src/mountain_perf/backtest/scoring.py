@@ -13,22 +13,56 @@ D3 ; les scores appellent les fonctions pures de M4b-1 sur les vecteurs assembl�
 est un statut** (choix 11) : jugée par les fonctions de M4b-1, jamais une exception.
 """
 
+import math
+from collections.abc import Sequence
+from datetime import UTC, datetime
+
 from mountain_perf.backtest.clocks import clock_duration_s
-from mountain_perf.backtest.metrics import default_targets
+from mountain_perf.backtest.geometry import trace_route
+from mountain_perf.backtest.metrics import (
+    default_targets,
+    is_invalid_model_output,
+    log_ratio_envelope,
+    passage_errors,
+    positive_time_diagnostic,
+    support_metrics,
+    usage_target,
+)
+from mountain_perf.gpx import PROFILE_PARAMETER_SPECS, build_profile
+from mountain_perf.model import (
+    ENGINE_VERSION,
+    PROJECTION_PARAMETER_SPECS,
+    ProjectedTimeline,
+    projected_timeline,
+)
 from mountain_perf.schemas import (
     CLOCKS,
     AdmittedSegment,
+    Clock,
+    ClockKind,
     ClockPartition,
+    ClockScores,
+    LogRatioEnvelope,
     MatchResult,
+    ModelForecast,
     ObservedPoint,
     OutingObservation,
+    OutingScores,
+    PaceCurve,
+    ParameterSet,
     PassageMatchResult,
     PassageObservation,
     PassageRole,
     PassageStatus,
     PointStatus,
+    RecordedTrace,
+    RegimeClass,
+    RouteProfile,
+    Scenario,
+    ScenarioScores,
     ScorePointObservation,
     ScoreSegmentObservation,
+    SourceRef,
     TargetMember,
     Unavailability,
 )
@@ -216,4 +250,327 @@ def observe_outing(
             _target(match, passages, partition, member) for member in members
         ),
         arrival_anchor_gap_m=gap_m,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Prévisions (brief M4b-2, § 6.4)
+# ---------------------------------------------------------------------------
+
+
+def usage_forecast(
+    observation: OutingObservation,
+    timeline: ProjectedTimeline,
+    *,
+    source: SourceRef,
+    curve_ref: str,
+    parameters: ParameterSet,
+    generated_at: datetime,
+    engine_version: str = ENGINE_VERSION,
+) -> ModelForecast:
+    """La prévision d'usage : la chronologie du profil de **référence** (``0010`` D3 ;
+    choix 3 et 4).
+
+    ``p_i = P(b_{i+1}) − P(b_i)`` sur chaque segment admis ; ``P_k = P(x_k) − P(b_0)``
+    en chaque point de ``C_k`` et chaque élément de ``K`` (``b_k``, ``s_w`` ou
+    ``b_K``). Les champs de provenance sont publiés tels que reçus.
+
+    Précondition : ``timeline.length_m == observation.reference_length_m``, sinon
+    ``ValueError`` (une chronologie d'un autre tracé).
+    """
+    if timeline.length_m != observation.reference_length_m:
+        raise ValueError(
+            f"usage_forecast : la chronologie a la longueur {timeline.length_m}, "
+            f"l'observation L = {observation.reference_length_m} : un autre tracé."
+        )
+    origin_s = timeline.time_at(observation.origin_m)
+    return ModelForecast(
+        scenario=Scenario.USAGE,
+        source=source,
+        curve_ref=curve_ref,
+        parameters=parameters,
+        engine_version=engine_version,
+        generated_at=generated_at,
+        segment_s=tuple(
+            timeline.time_at(segment.end_m) - timeline.time_at(segment.start_m)
+            for segment in observation.segments
+        ),
+        point_s=tuple(
+            timeline.time_at(point.distance_m) - origin_s
+            for point in observation.error_points
+        ),
+        target_s=tuple(
+            timeline.time_at(target.distance_m) - origin_s
+            for target in observation.targets
+        ),
+    )
+
+
+def control_forecast(
+    observation: OutingObservation,
+    timeline: ProjectedTimeline,
+    *,
+    source: SourceRef,
+    curve_ref: str,
+    parameters: ParameterSet,
+    generated_at: datetime,
+    engine_version: str = ENGINE_VERSION,
+) -> ModelForecast:
+    """La prévision de contrôle : la chronologie du profil de la **trace** (``0010``
+    D3, « correspondance » ; choix 4).
+
+    ``p_i = P_c(d_r(π_{i+1})) − P_c(d_r(π_i))`` sur chaque segment admis ; ni point
+    de ``C_k`` ni élément de ``K`` (``C_k`` et ``q_usage`` en usage seulement). Une
+    abscisse réalisée hors de ``[0 ; L_c]`` lève ``ValueError`` (``time_at``).
+    """
+    return ModelForecast(
+        scenario=Scenario.CONTROL,
+        source=source,
+        curve_ref=curve_ref,
+        parameters=parameters,
+        engine_version=engine_version,
+        generated_at=generated_at,
+        segment_s=tuple(
+            timeline.time_at(segment.realized_end_m)
+            - timeline.time_at(segment.realized_start_m)
+            for segment in observation.segments
+        ),
+        point_s=(),
+        target_s=(),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Scores (brief M4b-2, § 6.5)
+# ---------------------------------------------------------------------------
+
+
+def _require_forecast(
+    observation: OutingObservation,
+    forecast: ModelForecast,
+    base: ModelForecast | None,
+) -> None:
+    """Préconditions de ``score_scenario`` (choix 11) : des longueurs qui ne sont pas
+    celles de l'observation sont une erreur d'appel, jamais un statut."""
+    if len(forecast.segment_s) != len(observation.segments):
+        raise ValueError(
+            f"score_scenario : {len(forecast.segment_s)} projections pour "
+            f"{len(observation.segments)} segments admis."
+        )
+    if forecast.scenario is not Scenario.USAGE:
+        return
+    if len(forecast.point_s) != len(observation.error_points):
+        raise ValueError(
+            f"score_scenario : {len(forecast.point_s)} cumulés pour "
+            f"{len(observation.error_points)} points de C_k."
+        )
+    if len(forecast.target_s) != len(observation.targets):
+        raise ValueError(
+            f"score_scenario : {len(forecast.target_s)} cumulés pour "
+            f"{len(observation.targets)} éléments de K."
+        )
+    if base is None:
+        return
+    if base.scenario is not Scenario.USAGE:
+        raise ValueError(
+            "score_scenario : la base de q_usage est une prévision d'usage, reçu "
+            f"{base.scenario}."
+        )
+    if len(base.target_s) != len(observation.targets):
+        raise ValueError(
+            f"score_scenario : la base a {len(base.target_s)} cumulés pour "
+            f"{len(observation.targets)} éléments de K."
+        )
+
+
+def _observed_times(
+    points: Sequence[ObservedPoint], clock_index: int
+) -> tuple[float | None, ...]:
+    """``T_k`` sous une horloge, ``None`` pour un point indisponible."""
+    return tuple(
+        None if point.times_s is None else point.times_s[clock_index]
+        for point in points
+    )
+
+
+def _projected_total(
+    projected_s: Sequence[float | None], members: Sequence[int]
+) -> float | None:
+    """``P`` d'un sous-ensemble : ``fsum`` de ses ``p_i`` ; absent si **un** ``p_i``
+    du support est invalide — l'erreur du modèle vaut pour la performance (``0010``
+    D7.1 ; choix 9)."""
+    outputs: list[float] = []
+    for projected in projected_s:
+        if projected is None or is_invalid_model_output(projected):
+            return None
+        outputs.append(projected)
+    return math.fsum(outputs[i] for i in members)
+
+
+def _envelope(
+    projected_s: Sequence[float | None],
+    segments: Sequence[AdmittedSegment],
+    members: Sequence[int],
+) -> LogRatioEnvelope | None:
+    """L'enveloppe d'un sous-ensemble (``0010`` D5.4 ; choix 9) : ``a`` et ``b`` le
+    minimum et le maximum des **dix** sommes ``fsum`` de ses temps sous les horloges
+    ``M_θ`` et ``M_θ + U_θ`` ; aucune pour un sous-ensemble vide."""
+    if not members:
+        return None
+    sums = [
+        math.fsum(segments[i].times_s[k] for i in members)
+        for k, clock in enumerate(CLOCKS)
+        if clock.kind is not ClockKind.ELAPSED
+    ]
+    return log_ratio_envelope(
+        _projected_total(projected_s, members), min(sums), max(sums)
+    )
+
+
+def score_scenario(
+    observation: OutingObservation,
+    forecast: ModelForecast,
+    *,
+    base: ModelForecast | None = None,
+) -> ScenarioScores:
+    """Les scores d'une prévision sous les onze horloges, et ses enveloppes (``0010``
+    D5.4, D5.5, D7 ; brief M4b-2, § 6.5).
+
+    Sous chaque horloge de ``CLOCKS``, avec ``t`` les temps des segments admis et
+    leurs classes (celles de la référence, D3) : ``support_metrics`` ; le diagnostic
+    de D5.5 si et seulement si le motif vectoriel du support est ``zero_time``
+    (choix 8) ; en usage, ``passage_errors`` sur les points de ``C_k`` et
+    ``usage_target`` sur ``K``, de base ``base`` — la prévision elle-même si elle est
+    absente (choix 10). Puis l'enveloppe du support et celle de chaque classe
+    (choix 9).
+
+    Préconditions (``ValueError``) : ``len(segment_s) == len(segments)`` ; en usage,
+    ``len(point_s) == len(error_points)``, ``len(target_s) == len(targets)``, et une
+    ``base`` présente est une prévision d'usage à ``len(targets)`` cumulés. Une
+    sortie de modèle invalide reste un statut, jugé par les fonctions de M4b-1 (D7.1).
+    """
+    _require_forecast(observation, forecast, base)
+    usage = forecast.scenario is Scenario.USAGE
+    base_s = (forecast if base is None else base).target_s
+    segments = observation.segments
+    classes = tuple(segment.regime_class for segment in segments)
+    point_motifs = tuple(point.unavailability for point in observation.error_points)
+    target_motifs = tuple(target.unavailability for target in observation.targets)
+    clocks: list[ClockScores] = []
+    for i, clock in enumerate(CLOCKS):
+        observed_s = tuple(segment.times_s[i] for segment in segments)
+        support = support_metrics(forecast.segment_s, observed_s, classes)
+        diagnostic = None
+        if support.dispersion.unavailability is Unavailability.ZERO_TIME:
+            diagnostic = positive_time_diagnostic(
+                forecast.segment_s, observed_s, classes
+            )
+        errors, target = None, None
+        if usage:
+            errors = passage_errors(
+                forecast.point_s,
+                _observed_times(observation.error_points, i),
+                point_motifs,
+            )
+            target = usage_target(
+                forecast.target_s,
+                base_s,
+                _observed_times(observation.targets, i),
+                target_motifs,
+                arrival_anchor_gap_m=observation.arrival_anchor_gap_m,
+            )
+        clocks.append(ClockScores(clock, support, diagnostic, errors, target))
+    return ScenarioScores(
+        scenario=forecast.scenario,
+        forecast=forecast,
+        envelope=_envelope(forecast.segment_s, segments, range(len(segments))),
+        class_envelopes=tuple(
+            _envelope(
+                forecast.segment_s,
+                segments,
+                [i for i, regime in enumerate(classes) if regime is regime_class],
+            )
+            for regime_class in RegimeClass
+        ),
+        clocks=tuple(clocks),
+    )
+
+
+def score_outing(
+    observation: OutingObservation,
+    control: ScenarioScores,
+    usage: ScenarioScores | None = None,
+) -> OutingScores:
+    """Les scores d'une sortie : le contrat, sans calcul (``0010`` D3)."""
+    return OutingScores(observation, control, usage)
+
+
+# ---------------------------------------------------------------------------
+# Horloges du rapport et assemblage de v0 (brief M4b-2, § 6.6)
+# ---------------------------------------------------------------------------
+
+
+def report_clocks(match: MatchResult) -> tuple[Clock, ...]:
+    """Les horloges du rapport (``0010`` D5.4 ; choix 12) : l'écoulé, ``M`` sous
+    ``θ_bas`` et ``M + U`` sous ``θ_haut``, lus dans le ``MatchResult`` ; l'écoulé
+    seul si aucun segment n'est admis. Aucun extrême segment par segment."""
+    low, high = match.low_convention_index, match.high_convention_index
+    if low is None or high is None:
+        return (CLOCKS[0],)
+    return (
+        CLOCKS[0],
+        Clock(ClockKind.MOVING, low),
+        Clock(ClockKind.MOVING_OR_UNDETERMINED, high),
+    )
+
+
+def v0_scores(
+    reference: RouteProfile | None,
+    trace: RecordedTrace,
+    match: MatchResult,
+    passages: PassageMatchResult,
+    partition: ClockPartition,
+    curve: PaceCurve,
+    *,
+    curve_ref: str,
+    generated_at: datetime | None = None,
+) -> OutingScores:
+    """Les scores de **v0 brut** sur une sortie (``0010`` D3, D9.1 effort 1 ; brief
+    M4b-2, § 6.6).
+
+    v0 aux paramètres par défaut (``PROJECTION_PARAMETER_SPECS``, choix 5) ; contrôle
+    sur le profil de la trace (``trace_route`` puis ``build_profile`` aux défauts de
+    ``0008``, choix 4) ; usage sur ``reference`` si elle est présente — absente, la
+    sortie n'a pas de scénario d'usage (sortie sans référence, D3). ``generated_at``
+    absent : maintenant, en UTC.
+    """
+    at = datetime.now(UTC) if generated_at is None else generated_at
+    parameters = ParameterSet(PROJECTION_PARAMETER_SPECS)
+    observation = observe_outing(match, passages, partition)
+    realized = build_profile(
+        trace_route(trace, trace.sources[0].identifier),
+        ParameterSet(PROFILE_PARAMETER_SPECS),
+    )
+    control = control_forecast(
+        observation,
+        projected_timeline(realized, curve, parameters),
+        source=realized.source,
+        curve_ref=curve_ref,
+        parameters=parameters,
+        generated_at=at,
+    )
+    usage = None
+    if reference is not None:
+        usage = usage_forecast(
+            observation,
+            projected_timeline(reference, curve, parameters),
+            source=reference.source,
+            curve_ref=curve_ref,
+            parameters=parameters,
+            generated_at=at,
+        )
+    return score_outing(
+        observation,
+        score_scenario(observation, control),
+        None if usage is None else score_scenario(observation, usage),
     )

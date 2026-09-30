@@ -82,7 +82,15 @@ from mountain_perf.backtest.passages import (
     windows_overlap,
     within_tie,
 )
-from mountain_perf.backtest.scoring import observe_outing
+from mountain_perf.backtest.scoring import (
+    control_forecast,
+    observe_outing,
+    report_clocks,
+    score_outing,
+    score_scenario,
+    usage_forecast,
+    v0_scores,
+)
 from mountain_perf.backtest.segments import (
     H2_SPACING_M,
     LENGTH_RATIO_BOUNDS,
@@ -154,6 +162,7 @@ __all__ = [
     "comparable_prefix",
     "compensation",
     "confirm",
+    "control_forecast",
     "convention_extremes",
     "cumulative_s",
     "default_targets",
@@ -197,8 +206,11 @@ __all__ = [
     "reference_geometry",
     "regime_class",
     "regime_lengths",
+    "report_clocks",
     "retain_outings",
     "score_grid",
+    "score_outing",
+    "score_scenario",
     "sensitivity_range_s",
     "snaps_to_point",
     "stop_episodes",
@@ -208,7 +220,9 @@ __all__ = [
     "time_weighted_deviation",
     "trace_route",
     "trace_totals",
+    "usage_forecast",
     "usage_target",
+    "v0_scores",
     "window_measures",
     "windows_overlap",
     "within_tie",

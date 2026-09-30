@@ -14,7 +14,9 @@ pas.
 - :func:`match_case`, :func:`curve_read`, :func:`trace_profile` : le cas, la courbe
   commitée et le profil de la trace (choix 4 du brief) ;
 - :class:`Chain`, :func:`run_chain`, :func:`chain` : la chaîne de M4a sur un cas ;
-  :func:`observation` : ``observe_outing`` sur elle ;
+  :func:`observation` : ``observe_outing`` sur elle ; :func:`run_scores`,
+  :func:`scores` : ``v0_scores`` sur elle ;
+- :func:`straight_line` : le cas de régression Ligne droite à 2,9 s (§ 7.2) ;
 - :func:`close` : la tolérance relative ``1e−9·max(1, |x|)`` du § 7.0.
 
 Utilisées par ``tests/test_model_timeline.py`` et les ``tests/test_*scoring*.py``.
@@ -27,8 +29,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from fixtures import passages, segments
-from fixtures.matching import MatchCase
-from fixtures.segments import reference_profile
+from fixtures.matching import MatchCase, TracePath
+from fixtures.passages import EAST
+from fixtures.segments import named_route, reference_profile
 from mountain_perf.backtest import (
     build_series,
     clock_partition,
@@ -36,6 +39,7 @@ from mountain_perf.backtest import (
     observe_outing,
     observe_passages,
     trace_route,
+    v0_scores,
 )
 from mountain_perf.gpx import PROFILE_PARAMETER_SPECS, build_profile
 from mountain_perf.model import PROJECTION_PARAMETER_SPECS, CurveReadResult, read_curve
@@ -43,6 +47,7 @@ from mountain_perf.schemas import (
     ClockPartition,
     MatchResult,
     OutingObservation,
+    OutingScores,
     ParameterSet,
     PassageMatchResult,
     RecordedTrace,
@@ -154,3 +159,34 @@ def observation(name: str) -> OutingObservation:
     """``observe_outing`` sur la chaîne d'un cas du § 7.2."""
     c = chain(name)
     return observe_outing(c.match, c.passages, c.partition)
+
+
+def run_scores(c: Chain, *, with_reference: bool = True) -> OutingScores:
+    """``v0_scores`` sur une chaîne, avec la courbe commitée et ``GENERATED_AT`` ;
+    sans référence : ``reference=None`` (§ 7.0)."""
+    read = curve_read()
+    return v0_scores(
+        c.profile if with_reference else None,
+        c.case.trace,
+        c.match,
+        c.passages,
+        c.partition,
+        read.curve,
+        curve_ref=read.curve_ref,
+        generated_at=GENERATED_AT,
+    )
+
+
+@functools.cache
+def scores(name: str) -> OutingScores:
+    """Les scores de v0 brut d'un cas du § 7.2, calculés une fois."""
+    return run_scores(chain(name), with_reference=SCORING_CASES[name].with_reference)
+
+
+def straight_line(speed_ms: float) -> MatchCase:
+    """Cas de régression Ligne droite à 2,9 s (§ 7.2 ; B2 de la passe 1) : référence
+    ``EAST`` sans lieu, trace de ``(−30, 0)`` à ``(1040, 0)`` à ``speed_ms``, un
+    enregistrement toutes les 2,9 s, passée **par les objets** (le GPX tronquerait
+    les instants à la seconde)."""
+    path = TracePath((-30.0, 0.0)).to((1040.0, 0.0), speed_ms=speed_ms, step_s=2.9)
+    return MatchCase(named_route(EAST, ()), path.trace())
