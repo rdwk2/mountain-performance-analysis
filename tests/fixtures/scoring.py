@@ -12,7 +12,10 @@ pas.
 
 - :data:`SCORING_CASES` : les treize cas par leur nom du § 7.2 ;
 - :func:`match_case`, :func:`curve_read`, :func:`trace_profile` : le cas, la courbe
-  commitée et le profil de la trace (choix 4 du brief).
+  commitée et le profil de la trace (choix 4 du brief) ;
+- :class:`Chain`, :func:`run_chain`, :func:`chain` : la chaîne de M4a sur un cas ;
+  :func:`observation` : ``observe_outing`` sur elle ;
+- :func:`close` : la tolérance relative ``1e−9·max(1, |x|)`` du § 7.0.
 
 Utilisées par ``tests/test_model_timeline.py`` et les ``tests/test_*scoring*.py``.
 """
@@ -25,10 +28,38 @@ from pathlib import Path
 
 from fixtures import passages, segments
 from fixtures.matching import MatchCase
-from mountain_perf.backtest import trace_route
+from fixtures.segments import reference_profile
+from mountain_perf.backtest import (
+    build_series,
+    clock_partition,
+    match_trace,
+    observe_outing,
+    observe_passages,
+    trace_route,
+)
 from mountain_perf.gpx import PROFILE_PARAMETER_SPECS, build_profile
 from mountain_perf.model import PROJECTION_PARAMETER_SPECS, CurveReadResult, read_curve
-from mountain_perf.schemas import ParameterSet, RecordedTrace, RouteProfile
+from mountain_perf.schemas import (
+    ClockPartition,
+    MatchResult,
+    OutingObservation,
+    ParameterSet,
+    PassageMatchResult,
+    RecordedTrace,
+    RouteProfile,
+)
+
+RELATIVE_TOLERANCE = 1e-9
+"""La tolérance relative du § 7.0 : ``1e−9·max(1, |x|)``, ``x`` la valeur attendue."""
+
+
+def close(actual: float | None, expected: float | None) -> bool:
+    """``actual`` vaut ``expected`` à ``1e−9·max(1, |expected|)`` près (§ 7.0) ;
+    deux absences sont égales."""
+    if actual is None or expected is None:
+        return actual is None and expected is None
+    return abs(actual - expected) <= RELATIVE_TOLERANCE * max(1.0, abs(expected))
+
 
 FIXTURES = Path(__file__).parent
 CURVE_PATH = FIXTURES / "courbe_synthetique.csv"
@@ -86,3 +117,40 @@ def trace_profile(trace: RecordedTrace) -> RouteProfile:
         trace_route(trace, trace.sources[0].identifier),
         ParameterSet(PROFILE_PARAMETER_SPECS),
     )
+
+
+@dataclass(frozen=True)
+class Chain:
+    """La chaîne de M4a sur un cas (§ 7.0) : profil de référence, partition,
+    ``MatchResult`` et ``PassageMatchResult``."""
+
+    case: MatchCase
+    profile: RouteProfile
+    partition: ClockPartition
+    match: MatchResult
+    passages: PassageMatchResult
+
+
+def run_chain(case: MatchCase) -> Chain:
+    """``reference_profile``, la géométrie du cas, ``build_series``,
+    ``clock_partition``, ``match_trace`` avec les paramètres du cas, puis
+    ``observe_passages`` : les fonctions de M4a, appelées telles quelles."""
+    profile, geometry, trace = reference_profile(case), case.geometry, case.trace
+    series = build_series(trace)
+    partition = clock_partition(trace, series)
+    match = match_trace(geometry, profile, trace, series, partition, case.parameters)
+    observed = observe_passages(match, geometry, profile, trace, series, partition)
+    return Chain(case, profile, partition, match, observed)
+
+
+@functools.cache
+def chain(name: str) -> Chain:
+    """La chaîne de M4a d'un cas du § 7.2, calculée une fois."""
+    return run_chain(match_case(name))
+
+
+@functools.cache
+def observation(name: str) -> OutingObservation:
+    """``observe_outing`` sur la chaîne d'un cas du § 7.2."""
+    c = chain(name)
+    return observe_outing(c.match, c.passages, c.partition)

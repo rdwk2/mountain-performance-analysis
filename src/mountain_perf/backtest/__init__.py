@@ -82,6 +82,7 @@ from mountain_perf.backtest.passages import (
     windows_overlap,
     within_tie,
 )
+from mountain_perf.backtest.scoring import observe_outing
 from mountain_perf.backtest.segments import (
     H2_SPACING_M,
     LENGTH_RATIO_BOUNDS,
@@ -180,6 +181,7 @@ __all__ = [
     "match_trace",
     "near_passage",
     "observe_coverage",
+    "observe_outing",
     "observe_passages",
     "observe_segment",
     "observed_in_prefix",
