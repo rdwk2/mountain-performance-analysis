@@ -13,14 +13,29 @@ quels.
 import io
 import sys
 from collections.abc import Callable
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
 from fixtures import passages as p
-from fixtures.matching import MATCH_REFERENCE_GPX, MATCH_TRACE_GPX, MatchCase
-from fixtures.segments import named_gpx_texts
-from mountain_perf.cli import NO_REFERENCE_ERROR, main
+from fixtures.matching import MATCH_REFERENCE_GPX, MATCH_TRACE_GPX, MatchCase, TracePath
+from fixtures.scoring import observation, scores
+from fixtures.segments import named_gpx_texts, named_route
+from mountain_perf.backtest import log_ratio_envelope, score_scenario
+from mountain_perf.cli import (
+    METRIC_UNAVAILABILITY_LABELS,
+    NO_REFERENCE_ERROR,
+    _envelope,
+    _print_scenario,
+    main,
+)
+from mountain_perf.schemas import (
+    CLOCKS,
+    AdmittedSegment,
+    LogRatioEnvelope,
+    Unavailability,
+)
 
 FIXTURES = Path(__file__).parent / "fixtures"
 REFERENCE = FIXTURES / MATCH_REFERENCE_GPX
@@ -203,8 +218,9 @@ def test_missing_curve_is_an_input_error(
 def test_scores_are_utf8_under_a_cp1252_stdout(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Comme les tests de M4b-0 : ``−``, ``θ``, ``—``, ``∞`` sous une sortie
-    redirigée en cp1252 — pas d'``UnicodeEncodeError``."""
+    """Comme les tests de M4b-0 : ``−``, ``θ`` et ``—`` sous une sortie redirigée en
+    cp1252 — pas d'``UnicodeEncodeError`` (la paire commitée n'a pas de ``∞`` : son
+    écriture est tenue par ``test_envelope_text``)."""
     raw = io.BytesIO()
     stream = io.TextIOWrapper(raw, encoding="cp1252", errors="strict")
     monkeypatch.setattr(sys, "stdout", stream)
@@ -216,3 +232,115 @@ def test_scores_are_utf8_under_a_cp1252_stdout(
         in text
     )
     assert f"{INDENT}arrivée ancrée, L − b_K 25.00 m" in text
+
+
+# ---------------------------------------------------------------------------
+# Correctifs de la relecture de la PR #15
+# ---------------------------------------------------------------------------
+
+
+def test_unavailability_labels_of_section_6_7() -> None:
+    """§ 6.7 : la table des libellés des valeurs indisponibles, au mot près ;
+    ``absent``, ``ambigu`` et ``tangente indéfinie`` ne sont dans aucun texte
+    attendu."""
+    assert dict(METRIC_UNAVAILABILITY_LABELS) == {
+        Unavailability.INSUFFICIENT_SUPPORT: "support insuffisant",
+        Unavailability.ZERO_TIME: "temps nul",
+        Unavailability.MODEL_ERROR: "erreur du modèle",
+        Unavailability.ABSENT: "absent",
+        Unavailability.AMBIGUOUS: "ambigu",
+        Unavailability.UNDEFINED_TANGENT: "tangente indéfinie",
+    }
+
+
+@pytest.mark.parametrize(
+    ("envelope", "text"),
+    [
+        (
+            log_ratio_envelope(100.0, 0.0, 200.0),
+            "[−0.693147 ; +∞], min |L| 0.000000 (temps nul)",
+        ),
+        (
+            log_ratio_envelope(100.0, 0.0, 50.0),
+            "[+0.693147 ; +∞], min |L| 0.693147 (temps nul)",
+        ),
+        (log_ratio_envelope(100.0, 0.0, 0.0), "temps nul"),
+        (log_ratio_envelope(None, 1.0, 2.0), "erreur du modèle"),
+        (None, "non évalué"),
+    ],
+    ids=["a=0<b, L<0", "a=0<b, L>0", "a=b=0", "erreur du modèle", "classe absente"],
+)
+def test_envelope_text(envelope: LogRatioEnvelope | None, text: str) -> None:
+    """§ 6.7 : ``a = 0 < b`` — ``upper`` s'écrit ``+∞``, suivi du motif
+    ``(temps nul)`` ; sans valeur, le libellé du motif seul ; une classe absente,
+    ``non évalué``. Aucun texte attendu n'a d'enveloppe à motif : la mise en forme
+    est lue directement."""
+    assert _envelope(envelope) == text
+
+
+def test_several_zero_time_segments_are_separated_by_a_comma(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """§ 6.7 : ``temps nuls`` liste les indices des segments de temps nul, séparés
+    par ``, ``. Aucun cas n'en a plus d'un : Passages, temps sous ``M θ3`` mis à zéro
+    sur les segments 0 et 2 (le 4 l'est déjà), scores recalculés, puis la mise en
+    forme lue directement."""
+    usage = scores("Passages").usage
+    assert usage is not None
+    observed = observation("Passages")
+
+    def zeroed(segment: AdmittedSegment) -> AdmittedSegment:
+        if segment.index not in (0, 2):
+            return segment
+        times_s = list(segment.times_s)
+        times_s[3] = 0.0
+        return replace(segment, times_s=tuple(times_s))
+
+    zero = replace(observed, segments=tuple(zeroed(s) for s in observed.segments))
+    scenario = score_scenario(zero, usage.forecast)
+    capsys.readouterr()
+    _print_scenario("usage", scenario, zero, (CLOCKS[0], CLOCKS[3], CLOCKS[6]))
+    lines = capsys.readouterr().out.splitlines()
+    assert f"{INDENT}temps nuls      —                   k 0, k 2, k 4       —" in lines
+
+
+def test_a_place_name_longer_than_24_characters_is_written_in_full(
+    capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    """§ 6.7, gabarits des points 5 et 6 : un nom de plus de 24 caractères est écrit
+    en entier, sans troncature, et la colonne se décale — Passages, le lieu B
+    renommé (28 caractères)."""
+    reference, trace = _pair(tmp_path, p.passages)
+    name = "Col du Très Long Nom De Lieu"
+    text = reference.read_text(encoding="utf-8")
+    reference.write_text(
+        text.replace("<name>B</name>", f"<name>{name}</name>"), encoding="utf-8"
+    )
+    lines = _run(capsys, reference, trace, "--curve", CURVE)
+    assert f"{INDENT}  {name}     250.40 m   −166.5" in lines
+    assert f"{INDENT}  {name}     250.40 m   poids 0.098762   disponible" in lines
+
+
+def _short_line() -> MatchCase:
+    """Une ligne droite de 200 m sans lieu, parcourue de −30 à 230 m à 1 m/s."""
+    path = TracePath((-30.0, 0.0)).to((230.0, 0.0), speed_ms=1.0)
+    return MatchCase(named_route(((0.0, 0.0), (200.0, 0.0)), ()), path.trace())
+
+
+def test_singular_forms(capsys: pytest.CaptureFixture[str], tmp_path: Path) -> None:
+    """§ 6.7 : pluriels par ``_count``, singulier jusqu'à 1 — une ligne droite de
+    200 m (un segment admis, un point de score, aucun lieu) ; Deux arrêts (un lieu
+    et l'arrivée)."""
+    reference, trace = _pair(tmp_path, _short_line)
+    lines = _run(capsys, reference, trace, "--curve", CURVE)
+    assert (
+        "usage        reference.gpx ; 1 segment admis : montée 0, plat 1 "
+        "(trop peu représenté), descente 0, mixte 0"
+    ) in lines
+    assert (
+        "C_k          1 point du préfixe (1 point de score, 0 lieu), origine exclue ; "
+        "secondes"
+    ) in lines
+    reference, trace = _pair(tmp_path, p.two_stops)
+    lines = _run(capsys, reference, trace, "--curve", CURVE)
+    assert "K            2 éléments (1 lieu et l'arrivée) — 2 passages sur 2" in lines
