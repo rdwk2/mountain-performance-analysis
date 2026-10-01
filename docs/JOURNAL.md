@@ -16,6 +16,21 @@ Backtest (à partir de M4) : métrique avant → après.
 
 ---
 
+### 2026-10-01 · docs — README à jour
+Mission documentaire hors jalons, plan approuvé avec sept précisions. Le README
+décrit l'état réel : ce qu'est le projet, « Pourquoi » court (livré : v0 sans
+dégradation ; prévu : dégradation et profondeur de descente, M6a), installation
+(`uv sync --locked`, `just check`), `mperf profile`, `project` et `match` avec
+leurs options et défauts, un exemple exécuté depuis la racine sur les fixtures
+synthétiques (`match --curve` en extrait marqué), liens vers ROADMAP, JOURNAL,
+BACKLOG et les dix décisions. Sorties du README rejouées et comparées, liens,
+options et défauts vérifiés contre `cli.py` et les `ParameterSpec`, aucune fuite.
+Trois écarts relevés hors périmètre, non corrigés : `CLAUDE.md` omet
+`mperf project` et cite `just backtest`, absent du `justfile` ; la commande de fin
+du M3 dans `ROADMAP.md` n'a pas `--curve`.
+Conclusion : `just check` vert, 2 796 tests. Rangé dans `README.md`, branche
+`docs/readme`.
+
 ### 2026-10-01 · M4b-2 — Backtest : scores de v0 brut sur une sortie
 Brief M4b-2 rév. 2, sept précisions de la relecture du plan (P1 à P7). Adaptateur du
 moteur M3 : `ProjectedTimeline` (cumul par `accumulate`, `time_at` au corps de
