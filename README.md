@@ -30,7 +30,7 @@ modèles de référence (vitesse constante, Naismith, Tobler :
 
 ## Installation
 
-Prérequis : [`uv`](https://docs.astral.sh/uv/) et `git` ; Python 3.12 ou plus.
+Prérequis : [`uv`](https://docs.astral.sh/uv/) et `git` ; Python 3.12 ou plus (uv l'installe au besoin).
 
 ```bash
 git clone git@github.com:rdwk2/mountain-performance-analysis.git
@@ -144,7 +144,7 @@ le passage (vides sur la première ligne).
 
 ### `mperf match` — une trace réalisée face à un tracé
 
-L'outil du backtest, selon le protocole
+L'outil d'appariement du backtest, selon le protocole
 [`0010`](docs/decisions/0010-protocole-de-backtest.md) : apparie une trace
 réalisée (GPX horodaté) à un tracé de référence. Le rapport donne les points de
 score (sections 1 à 4), puis les segments, la couverture, le préfixe comparable,
