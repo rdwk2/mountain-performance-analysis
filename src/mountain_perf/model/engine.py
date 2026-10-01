@@ -19,8 +19,7 @@ absent. Ce n'est pas non plus un modèle validé : la mesure de son erreur est l
 from __future__ import annotations
 
 from bisect import bisect_right
-from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from itertools import accumulate
 from typing import Final
@@ -38,6 +37,13 @@ from mountain_perf.schemas import (
     ResolvedPoint,
     Route,
     RouteProfile,
+)
+from mountain_perf.validation import (
+    ContractError,
+    require_all_finite,
+    require_immutable_sequence,
+    require_increasing,
+    require_min_length,
 )
 
 ENGINE_VERSION: Final = "projection-v0"
@@ -152,24 +158,116 @@ def route_endpoints(route: Route) -> tuple[NamedPoint, NamedPoint]:
     )
 
 
-def _time_at(
-    grid_m: Sequence[float],
-    cumulative_s: Sequence[float],
-    pace_s_per_m: Sequence[float],
-    at_m: float,
-) -> float:
-    """Temps cumulé à l'abscisse ``at_m``, exact aux points de la grille.
+@dataclass(frozen=True)
+class ProjectedTimeline:
+    """La chronologie projetée d'un profil : le cumul ``P(s)`` à toute abscisse de
+    ``[0 ; L]`` (``0010`` D16, « accès aux temps fins et aux cumuls v0 aux abscisses
+    exactes »).
 
-    Fonction **pure de l'abscisse** : deux passages de même abscisse en reçoivent
-    le même bit, et le dernier passage reçoit exactement le cumul final — ce que
-    ``Projection`` exige en égalité stricte.
+    Générique : une allure par intervalle de la grille, quelle qu'en soit l'origine —
+    v0 par :func:`projected_timeline`, les baselines de M4c (D9.1) par la classe
+    elle-même.
+
+    Champs
+    ------
+    - ``grid_m`` — mètres — la grille fine du profil (``distance_m``).
+    - ``pace_s_per_m`` — secondes par mètre — une allure par intervalle
+      ``[g_i ; g_{i+1}]``.
+    - ``cumulative_s`` — secondes — le cumul à chaque nœud, **calculé** à la
+      construction, jamais passé : ``accumulate`` des ``l_i · a_i`` avec
+      ``l_i = g_{i+1} − g_i``, les mêmes opérations, dans le même ordre, que
+      ``project_with_diagnostics`` de M3.
+
+    Propriété calculée (jamais stockée) : ``length_m``.
+
+    Invariants
+    ----------
+    - ``grid_m`` et ``pace_s_per_m`` sont des tuples ;
+    - ``grid_m`` : au moins deux valeurs, finies, strictement croissantes,
+      ``grid_m[0] == 0`` ;
+    - ``len(pace_s_per_m) == len(grid_m) − 1``, allures finies et ``> 0``.
+
+    Non promis
+    ----------
+    - une allure non finie ou ``<= 0`` est refusée à la construction : une baseline
+      qui en produirait lèverait au lieu d'un statut « erreur du modèle » (D7.1) ;
+    - :meth:`time_at` ne prolonge pas au-delà de ``L``.
     """
-    i = min(max(bisect_right(grid_m, at_m) - 1, 0), len(grid_m) - 2)
-    if at_m == grid_m[i]:
-        return cumulative_s[i]
-    if at_m == grid_m[i + 1]:
-        return cumulative_s[i + 1]
-    return cumulative_s[i] + (at_m - grid_m[i]) * pace_s_per_m[i]
+
+    grid_m: tuple[float, ...]
+    pace_s_per_m: tuple[float, ...]
+    cumulative_s: tuple[float, ...] = field(init=False)
+
+    def __post_init__(self) -> None:
+        require_immutable_sequence(self.grid_m, "grid_m")
+        require_immutable_sequence(self.pace_s_per_m, "pace_s_per_m")
+        require_min_length(self.grid_m, 2, "grid_m")
+        require_all_finite(self.grid_m, "grid_m")
+        if self.grid_m[0] != 0:
+            raise ContractError(f"grid_m[0] doit valoir 0, reçu {self.grid_m[0]}.")
+        require_increasing(self.grid_m, "grid_m", strict=True)
+        if len(self.pace_s_per_m) != len(self.grid_m) - 1:
+            raise ContractError(
+                f"pace_s_per_m doit porter {len(self.grid_m) - 1} allures (une par "
+                f"intervalle), reçu {len(self.pace_s_per_m)}."
+            )
+        require_all_finite(self.pace_s_per_m, "pace_s_per_m")
+        for i, pace in enumerate(self.pace_s_per_m):
+            if pace <= 0:
+                raise ContractError(f"pace_s_per_m[{i}] doit être > 0, reçu {pace}.")
+        grid_m = self.grid_m
+        lengths_m = tuple(grid_m[i + 1] - grid_m[i] for i in range(len(grid_m) - 1))
+        cumulative_s = tuple(
+            accumulate(
+                (
+                    length_m * pace
+                    for length_m, pace in zip(lengths_m, self.pace_s_per_m, strict=True)
+                ),
+                initial=0.0,
+            )
+        )
+        object.__setattr__(self, "cumulative_s", cumulative_s)
+
+    @property
+    def length_m(self) -> float:
+        """``L`` (m) : ``grid_m[-1]``."""
+        return self.grid_m[-1]
+
+    def time_at(self, at_m: float) -> float:
+        """Le cumul ``P(at_m)`` (s), exact aux points de la grille.
+
+        Fonction **pure de l'abscisse** : deux passages de même abscisse en reçoivent
+        le même bit, et le dernier passage reçoit exactement le cumul final — ce que
+        ``Projection`` exige en égalité stricte. Le corps est celui de ``_time_at`` de
+        M3, inchangé ; les deux retours aux nœuds rendent les bits de la formule et
+        restent pour la lisibilité.
+
+        Précondition : ``0 <= at_m <= L``, sinon ``ValueError``.
+        """
+        if not 0 <= at_m <= self.length_m:
+            raise ValueError(
+                f"time_at : l'abscisse {at_m} doit être dans [0 ; {self.length_m}]."
+            )
+        grid_m, cumulative_s = self.grid_m, self.cumulative_s
+        i = min(max(bisect_right(grid_m, at_m) - 1, 0), len(grid_m) - 2)
+        if at_m == grid_m[i]:
+            return cumulative_s[i]
+        if at_m == grid_m[i + 1]:
+            return cumulative_s[i + 1]
+        return cumulative_s[i] + (at_m - grid_m[i]) * self.pace_s_per_m[i]
+
+
+def projected_timeline(
+    profile: RouteProfile, curve: PaceCurve, parameters: ParameterSet
+) -> ProjectedTimeline:
+    """La chronologie de v0 sur un profil : l'allure de la courbe à la pente de chaque
+    intervalle, divisée par l'effort — les allures de M3, au bit."""
+    model = PaceModel(curve)
+    effort = parameters["effort"]
+    return ProjectedTimeline(
+        tuple(profile.distance_m),
+        tuple(model.pace_s_per_m(g) / effort for g in profile.grade),
+    )
 
 
 def _still(point: ResolvedPoint, at_s: float) -> Passage:
@@ -221,20 +319,12 @@ def project_with_diagnostics(
     grid_m = profile.distance_m
     elevation_m = profile.elevation_m
     grade = profile.grade
-    effort = parameters["effort"]
     # Allure effective par intervalle : constante sur l'intervalle, donc le temps
     # y est linéaire en abscisse.
-    pace_s_per_m = tuple(model.pace_s_per_m(g) / effort for g in grade)
+    timeline = projected_timeline(profile, curve, parameters)
+    pace_s_per_m = timeline.pace_s_per_m
+    cumulative_s = timeline.cumulative_s
     lengths_m = tuple(grid_m[i + 1] - grid_m[i] for i in range(len(grid_m) - 1))
-    cumulative_s = tuple(
-        accumulate(
-            (
-                length_m * pace
-                for length_m, pace in zip(lengths_m, pace_s_per_m, strict=True)
-            ),
-            initial=0.0,
-        )
-    )
     start_point, finish_point = endpoints
     passages = (
         _still(
@@ -249,9 +339,7 @@ def project_with_diagnostics(
             cumulative_s[0],
         ),
         *(
-            _still(
-                point, _time_at(grid_m, cumulative_s, pace_s_per_m, point.distance_m)
-            )
+            _still(point, timeline.time_at(point.distance_m))
             for point in profile.resolved_points
         ),
         _still(

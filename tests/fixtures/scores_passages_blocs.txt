@@ -1,0 +1,20 @@
+C_k          5 points du préfixe (3 points de score, 2 lieux), origine exclue ; secondes
+                             écoulé              M θ3                (M+U) θ1
+             max |C_k|       620.0               503.0               528.0
+             max C_k         −166.5              −149.5              −166.5
+             min C_k         −620.0              −503.0              −528.0
+             sous l'écoulé
+               point 1                      250.00 m   −166.7
+               B                            250.40 m   −166.5
+               A                            375.00 m   −363.0
+               point 2                      500.00 m   −453.3
+               point 3                      750.00 m   −620.0
+K            4 éléments (3 lieux et l'arrivée) — 2 passages sur 4
+                             écoulé              M θ3                (M+U) θ1
+             q_usage         support insuffisant support insuffisant support insuffisant
+             q | préfixe     2.540134            1.906940            2.098817
+             comparables     2 sur 4             2 sur 4             2 sur 4
+               B                            250.40 m   poids 0.098762   disponible
+               A                            375.00 m   poids 0.147906   disponible
+               C                            900.00 m   poids 0.354974   support insuffisant
+               arrivée                     1010.00 m   poids 0.398359   support insuffisant

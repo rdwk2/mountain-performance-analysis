@@ -4,7 +4,8 @@ plan).
 ``backtest/metrics.py`` n'importe aucun module de ``mountain_perf.backtest`` ; parmi
 les modules du projet, seulement ``mountain_perf.schemas`` et
 ``mountain_perf.validation``, que le § 6 permet. Aucun module de ``src/`` ne l'importe,
-hors l'export de ``backtest/__init__.py``. Lecture de son arbre syntaxique, comme
+hors l'export de ``backtest/__init__.py`` et ``backtest/scoring.py``, son consommateur
+(§ 6 du brief M4b-2). Lecture de son arbre syntaxique, comme
 ``test_backtest_passages_reuse.py``.
 
 Et les valeurs publiées par ``support_metrics`` sont, **au bit**, celles des fonctions
@@ -105,11 +106,13 @@ def test_metrics_imports_only_schemas_and_validation_from_the_project() -> None:
 def test_no_module_imports_metrics_but_the_backtest_package() -> None:
     """§ 6 : l'export de ``backtest/__init__.py`` est la seule importation permise de
     ``backtest/metrics.py``, ni par son nom de module, ni par ses noms depuis le
-    paquet ``backtest``."""
+    paquet ``backtest`` — avec, depuis M4b-2, ``backtest/scoring.py``, qui assemble les
+    vecteurs et appelle ses fonctions (§ 6 du brief M4b-2)."""
     defined = _defined_names(METRICS)
     importers = []
+    allowed = (PACKAGE / "__init__.py", PACKAGE / "metrics.py", PACKAGE / "scoring.py")
     for path in sorted(SOURCE.rglob("*.py")):
-        if path in (PACKAGE / "__init__.py", PACKAGE / "metrics.py"):
+        if path in allowed:
             continue
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for module, names in _imported_modules(tree, _package(path)).items():

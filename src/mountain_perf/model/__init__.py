@@ -12,9 +12,11 @@ from mountain_perf.model.engine import (
     ENGINE_VERSION,
     MODEL_PARAMETER_SPECS,
     PROJECTION_PARAMETER_SPECS,
+    ProjectedTimeline,
     ProjectionDiagnostics,
     project,
     project_with_diagnostics,
+    projected_timeline,
     route_endpoints,
 )
 from mountain_perf.model.pace import MAX_SAFE_GRADE, PaceModel
@@ -29,10 +31,12 @@ __all__ = [
     "CurveReadResult",
     "DiscardedBin",
     "PaceModel",
+    "ProjectedTimeline",
     "ProjectionDiagnostics",
     "curve_reference",
     "project",
     "project_with_diagnostics",
+    "projected_timeline",
     "read_curve",
     "route_endpoints",
 ]

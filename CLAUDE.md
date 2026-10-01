@@ -103,6 +103,7 @@ uv run mperf profile tests/fixtures/mini_11.gpx  # compte-rendu GPX (M2), --csv 
 uv run mperf match tests/fixtures/appariement_reference.gpx tests/fixtures/appariement_trace_x01.gpx  # points de score (M4a-2a)
 # mperf match, sections 5 à 9 (M4a-2b) : segments, couverture, préfixe, horloges, épisodes
 # mperf match, section 10 (M4a-3) : passages nommés, événements, attribution des arrêts
+uv run mperf match tests/fixtures/appariement_reference.gpx tests/fixtures/appariement_trace_x01.gpx --curve tests/fixtures/courbe_synthetique.csv  # scores de v0 brut, sections 11 à 13 (M4b-2)
 ```
 
 ---
@@ -128,13 +129,17 @@ src/mountain_perf/     le code de la bibliothèque
                        PassageObservation, EpisodeAttribution, PassageMatchResult (M4a-3)
     metrics.py         MetricValue, ClassMetrics, SupportMetrics, PositiveTimeDiagnostic,
                        LogRatioEnvelope, PassageErrors, TargetMember, UsageTarget (M4b-1)
+    scoring.py         Scenario, AdmittedSegment, ObservedPoint, OutingObservation,
+                       ModelForecast, ClockScores, ScenarioScores, OutingScores :
+                       observation, prévision, scores d'une sortie (M4b-2)
     _dictionary.py     rendu du dictionnaire de données depuis les docstrings
   gpx/                 lecture GPX, profil, grille de pente (M2)
     geo.py             haversine 2D, polyligne dédoublonnée, projection point-segment
     reader.py          read_gpx, GpxReadResult, GpxError
     trace_reader.py    read_trace, TraceError : trace réalisée horodatée (M4a)
     profile.py         paramètres, grille, lissage, passages et diagnostics de calcul
-  model/               le moteur de projection (M3, puis M6a, M7)
+  model/               le moteur de projection (M3, puis M6a, M7) ; ProjectedTimeline,
+                       la chronologie projetée d'un profil (M4b-2)
   backtest/            évaluation contre des performances réelles (M4)
     calendar.py        jour civil à Paris, origine o_j, disponibilité (M4a)
     manifest.py        load_manifest, ManifestReadResult, ManifestError (M4a)
@@ -148,11 +153,14 @@ src/mountain_perf/     le code de la bibliothèque
     sensitivity.py     les 19 configurations de sensibilité, déclarées (M4a-2b)
     metrics.py         seuil, prédicats, métriques du support, diagnostic, enveloppes, C_k,
                        K par défaut, q_usage : métriques D7, fonctions pures (M4b-1)
+    scoring.py         observe_outing, usage_forecast, control_forecast, score_scenario,
+                       score_outing, report_clocks, v0_scores : scores de v0 brut (M4b-2)
   ingest/              acquisition et normalisation Garmin (M6b)
   ui/                  interface — appelle la bibliothèque, ne calcule rien (M5)
   cli.py               mperf profile <fichier.gpx>, compte-rendu ou CSV sur stdout ;
                        mperf match <référence.gpx> <trace.gpx>, points de score (M4a-2a),
-                       segments, couverture et horloges (M4a-2b), passages (M4a-3)
+                       segments, couverture et horloges (M4a-2b), passages (M4a-3) ;
+                       --curve, --no-reference : scores de v0 brut (M4b-2)
 tests/
   strategies.py        stratégies Hypothesis des contrats, réutilisées par tous les jalons
   fixtures/            données synthétiques minuscules, commitées

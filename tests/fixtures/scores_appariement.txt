@@ -1,0 +1,106 @@
+v0 brut      courbe courbe_synthetique.csv   sha256 6767dd38…
+             effort 1.00, moteur projection-v0 ; horloges du rapport : écoulé, M θ1, (M+U) θ1
+usage        appariement_reference.gpx ; 3 segments admis : montée 0, plat 3, descente 0, mixte 0
+             enveloppe       support [−0.693147 ; −0.485508], min |L| 0.485508
+                             montée non évalué
+                             plat [−0.693147 ; −0.485508], min |L| 0.485508
+                             descente non évalué
+                             mixte non évalué
+                             écoulé              M θ1                (M+U) θ1
+             L               −0.693147           −0.485508           −0.693147
+             A               +0.000000           temps nul           +0.000000
+             W               +0.000000           temps nul           +0.000000
+             B               +0.000000           temps nul           +0.000000
+             C_comp          +0.000000           temps nul           +0.000000
+             montée E_R      support insuffisant support insuffisant support insuffisant
+             montée D_R      support insuffisant support insuffisant support insuffisant
+             montée E_R−L    support insuffisant support insuffisant support insuffisant
+             plat E_R        −0.693147           temps nul           −0.693147
+             plat D_R        +0.000000           temps nul           +0.000000
+             plat E_R−L      +0.000000           temps nul           +0.000000
+             descente E_R    support insuffisant support insuffisant support insuffisant
+             descente D_R    support insuffisant support insuffisant support insuffisant
+             descente E_R−L  support insuffisant support insuffisant support insuffisant
+             mixte E_R       support insuffisant support insuffisant support insuffisant
+             mixte D_R       support insuffisant support insuffisant support insuffisant
+             mixte E_R−L     support insuffisant support insuffisant support insuffisant
+             diagnostic      sous-support à temps positifs, ni cible ni garde-fou
+             segments        —                   2 sur 3             —
+             temps nuls      —                   k 2                 —
+             L               —                   −0.495979           —
+             A               —                   +0.024274           —
+             W               —                   +0.024274           —
+             B               —                   +0.000000           —
+             C_comp          —                   +0.000000           —
+             montée E_R      —                   support insuffisant —
+             montée D_R      —                   support insuffisant —
+             montée E_R−L    —                   support insuffisant —
+             plat E_R        —                   −0.495979           —
+             plat D_R        —                   +0.024274           —
+             plat E_R−L      —                   +0.000000           —
+             descente E_R    —                   support insuffisant —
+             descente D_R    —                   support insuffisant —
+             descente E_R−L  —                   support insuffisant —
+             mixte E_R       —                   support insuffisant —
+             mixte D_R       —                   support insuffisant —
+             mixte E_R−L     —                   support insuffisant —
+C_k          3 points du préfixe (3 points de score, 0 lieu), origine exclue ; secondes
+                             écoulé              M θ1                (M+U) θ1
+             max |C_k|       160.0               101.7               160.0
+             max C_k         −75.0               −45.0               −75.0
+             min C_k         −160.0              −101.7              −160.0
+             sous l'écoulé
+               point 1                      250.00 m   −75.0
+               point 2                      500.00 m   −158.3
+               point 3                      505.00 m   −160.0
+K            1 élément (l'arrivée) — 1 passage sur 1
+                             écoulé              M θ1                (M+U) θ1
+             q_usage         1.000000            0.625000            1.000000
+             q | préfixe     1.000000            0.625000            1.000000
+             comparables     1 sur 1             1 sur 1             1 sur 1
+               arrivée                      505.00 m   poids 1.000000   disponible
+             arrivée ancrée, L − b_K 25.00 m
+contrôle     appariement_trace_x01.gpx ; 3 segments admis : montée 0, plat 3, descente 0, mixte 0
+             enveloppe       support [−0.692722 ; −0.485083], min |L| 0.485083
+                             montée non évalué
+                             plat [−0.692722 ; −0.485083], min |L| 0.485083
+                             descente non évalué
+                             mixte non évalué
+                             écoulé              M θ1                (M+U) θ1
+             L               −0.692722           −0.485083           −0.692722
+             A               +0.000001           temps nul           +0.000001
+             W               +0.000001           temps nul           +0.000001
+             B               +0.000000           temps nul           +0.000000
+             C_comp          +0.000000           temps nul           +0.000000
+             montée E_R      support insuffisant support insuffisant support insuffisant
+             montée D_R      support insuffisant support insuffisant support insuffisant
+             montée E_R−L    support insuffisant support insuffisant support insuffisant
+             plat E_R        −0.692722           temps nul           −0.692722
+             plat D_R        +0.000001           temps nul           +0.000001
+             plat E_R−L      +0.000000           temps nul           +0.000000
+             descente E_R    support insuffisant support insuffisant support insuffisant
+             descente D_R    support insuffisant support insuffisant support insuffisant
+             descente E_R−L  support insuffisant support insuffisant support insuffisant
+             mixte E_R       support insuffisant support insuffisant support insuffisant
+             mixte D_R       support insuffisant support insuffisant support insuffisant
+             mixte E_R−L     support insuffisant support insuffisant support insuffisant
+             diagnostic      sous-support à temps positifs, ni cible ni garde-fou
+             segments        —                   2 sur 3             —
+             temps nuls      —                   k 2                 —
+             L               —                   −0.495554           —
+             A               —                   +0.024273           —
+             W               —                   +0.024273           —
+             B               —                   +0.000000           —
+             C_comp          —                   +0.000000           —
+             montée E_R      —                   support insuffisant —
+             montée D_R      —                   support insuffisant —
+             montée E_R−L    —                   support insuffisant —
+             plat E_R        —                   −0.495554           —
+             plat D_R        —                   +0.024273           —
+             plat E_R−L      —                   +0.000000           —
+             descente E_R    —                   support insuffisant —
+             descente D_R    —                   support insuffisant —
+             descente E_R−L  —                   support insuffisant —
+             mixte E_R       —                   support insuffisant —
+             mixte D_R       —                   support insuffisant —
+             mixte E_R−L     —                   support insuffisant —
