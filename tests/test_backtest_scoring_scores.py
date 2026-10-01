@@ -421,3 +421,26 @@ def test_preconditions_of_score_scenario() -> None:
         score_scenario(observed, replace(forecast, segment_s=forecast.segment_s[:-1]))
     with raises_value_error("3 projections pour 4 segments admis"):
         score_scenario(observed, replace(control, segment_s=control.segment_s[:-1]))
+
+
+# ---------------------------------------------------------------------------
+# Correctifs de la relecture de la PR #15
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("invalid_at", range(5))
+def test_an_invalid_projection_puts_every_class_in_model_error(invalid_at: int) -> None:
+    """Choix 9 (``0010`` D7.1 : l'erreur du modèle vaut pour la performance) : un
+    ``p_i`` invalide met en ``model_error`` toutes les enveloppes présentes, celles
+    des classes qui ne contiennent pas le segment ``i`` comprises. Régimes (mixte 1,
+    plat 1, descente 3) a quatre enveloppes ; Passages, une seule classe, ne
+    distingue pas le sous-ensemble du support."""
+    usage = scores("Régimes").usage
+    assert usage is not None
+    segment_s = list(usage.forecast.segment_s)
+    segment_s[invalid_at] = None
+    bad = replace(usage.forecast, segment_s=tuple(segment_s))
+    scored = score_scenario(observation("Régimes"), bad)
+    present = [e for e in (scored.envelope, *scored.class_envelopes) if e is not None]
+    assert len(present) == 4  # le support, le plat, la descente, le mixte
+    assert [e.unavailability for e in present] == [MODEL_ERROR] * 4
