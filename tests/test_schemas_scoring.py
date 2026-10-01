@@ -732,3 +732,21 @@ def test_reference_length_at_its_limit() -> None:
         targets=(_arrival(distance_m=0.5),),
     )
     assert observation.reference_length_m == 0.5
+
+
+def test_scenario_scores_envelope_motifs_are_checked_after_an_absent_class() -> None:
+    """``0010`` D7.1 : le contrôle des motifs vaut pour chaque enveloppe présente, y
+    compris placée après une classe absente (le plat suit la montée, absente)."""
+    flagged = _scenario(CONTROL, segment_s=(None,))
+    with_values = log_ratio_envelope(100.0, 80.0, 80.0)
+    _raises(
+        flagged,
+        "toute enveloppe présente a un motif",
+        class_envelopes=(None, with_values, None, None),
+    )
+    model_error = log_ratio_envelope(None, 80.0, 80.0)
+    _raises(
+        _scenario(CONTROL),
+        r"exige support\.model_error",
+        class_envelopes=(None, model_error, None, None),
+    )
