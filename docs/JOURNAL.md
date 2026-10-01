@@ -41,6 +41,12 @@ Rangé dans `src/mountain_perf/model/engine.py`, `src/mountain_perf/schemas/scor
 `tests/test_backtest_scoring_*.py`, `tests/test_cli_match_scores.py`,
 `tests/fixtures/scoring.py`, `tests/fixtures/scoring_values.py`,
 `tests/fixtures/scores_*.txt`, `BACKLOG.md` (six lignes), branche `m4b/scores-v0`.
+Après la double relecture de la PR #15 et le balayage mécanique des modules touchés,
+sept correctifs de tests (R1 à R7, `CORRECTIFS_PR-15.md`) tiennent des règles écrites
+qu'aucun test ne tenait (portée de l'erreur du modèle sur toutes les classes,
+`ProjectedTimeline` gelée, ordre à abscisse égale, deux limites de contrat, mise en
+forme du § 6.7, noms importés) ; aucun changement de `src/`, `just check` vert,
+2 796 tests.
 
 ### 2026-09-28 · M4b-1 — Backtest : métriques D7, définitions
 Les métriques de `0010` D7 en fonctions pures sur des vecteurs et des statuts (brief
