@@ -716,3 +716,19 @@ def test_outing_scores_lengths_follow_the_observation() -> None:
         OutingScores(observation, control, _scenario(USAGE, point_s=()))
     with pytest.raises(ContractError, match="usage : 2 cumulés pour 1 éléments de K"):
         OutingScores(observation, control, _scenario(USAGE, target_s=(1.0, 2.0)))
+
+
+# ---------------------------------------------------------------------------
+# Correctifs de la relecture de la PR #15
+# ---------------------------------------------------------------------------
+
+
+def test_reference_length_at_its_limit() -> None:
+    """``reference_length_m > 0`` strict : un tracé de 0,5 m est valide."""
+    observation = _observation(
+        reference_length_m=0.5,
+        segments=(),
+        error_points=(),
+        targets=(_arrival(distance_m=0.5),),
+    )
+    assert observation.reference_length_m == 0.5
