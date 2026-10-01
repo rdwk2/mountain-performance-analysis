@@ -83,9 +83,10 @@ def test_scoring_contracts_import_neither_backtest_nor_model() -> None:
 
 def test_backtest_scoring_imports_only_what_section_6_lists() -> None:
     """§ 6 : ``backtest/scoring.py`` importe ``mountain_perf.schemas``,
-    ``backtest/clocks.py``, ``backtest/geometry.py``, ``backtest/metrics.py``,
-    ``mountain_perf.gpx`` et ``mountain_perf.model`` (``mountain_perf.validation``
-    permis)."""
+    ``backtest/clocks.py`` (``clock_duration_s``), ``backtest/geometry.py``
+    (``trace_route``), ``backtest/metrics.py``, ``mountain_perf.gpx`` et
+    ``mountain_perf.model`` (``mountain_perf.validation`` permis) ; de ``clocks``,
+    ``geometry``, ``gpx`` et ``model``, seulement les noms que le § 6 liste."""
     imported = _imports("backtest/scoring.py")
     project = {name for name in imported if name.startswith("mountain_perf")}
     assert project <= {
@@ -104,6 +105,8 @@ def test_backtest_scoring_imports_only_what_section_6_lists() -> None:
         "ENGINE_VERSION",
     }
     assert imported["mountain_perf.gpx"] == {"build_profile", "PROFILE_PARAMETER_SPECS"}
+    assert imported["mountain_perf.backtest.clocks"] == {"clock_duration_s"}
+    assert imported["mountain_perf.backtest.geometry"] == {"trace_route"}
 
 
 def test_no_module_imports_backtest_scoring_but_the_package_and_the_command() -> None:
