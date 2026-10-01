@@ -13,10 +13,16 @@ SCRIPT = ROOT / "scripts" / "readme_figure.py"
 FIGURE = ROOT / "docs" / "img" / "chaine.svg"
 
 NUMBER = re.compile(r"\d+(?:\.\d+)?")
-"""Les nombres du SVG, comparés à 0,1 près : un écart de libm entre Windows et la CI
-ne doit pas faire échouer le test ; le texte autour, lui, est comparé exactement."""
+"""Les nombres du SVG, comparés à une unité de leur dernière décimale affichée : un
+écart de libm entre Windows et la CI ne doit pas faire échouer le test ; le texte
+autour, lui, est comparé exactement."""
 
-TOLERANCE = 0.1
+
+def _unit(number: str) -> float:
+    """Une unité de la dernière décimale : ``0.108`` → 0,001, ``123.4`` → 0,1, un
+    entier → 1."""
+    _, _, decimals = number.partition(".")
+    return 10.0 ** -len(decimals)
 
 
 def _script() -> ModuleType:
@@ -42,13 +48,15 @@ def test_committed_figure_is_up_to_date(regenerated: str) -> None:
     committed = "\n".join(FIGURE.read_text(encoding="utf-8").splitlines())
     fresh = "\n".join(regenerated.splitlines())
     assert NUMBER.split(committed) == NUMBER.split(fresh), stale
-    committed_numbers = [float(n) for n in NUMBER.findall(committed)]
-    fresh_numbers = [float(n) for n in NUMBER.findall(fresh)]
+    committed_numbers = NUMBER.findall(committed)
+    fresh_numbers = NUMBER.findall(fresh)
     assert len(committed_numbers) == len(fresh_numbers), stale
+    # La tolérance se lit sur le nombre commité ; la marge relative absorbe l'arrondi
+    # binaire de la soustraction (0.109 − 0.108 n'est pas exactement 0.001).
     drift = [
         (a, b)
         for a, b in zip(committed_numbers, fresh_numbers, strict=True)
-        if abs(a - b) > TOLERANCE
+        if abs(float(a) - float(b)) > _unit(a) * (1 + 1e-9)
     ]
     assert not drift, f"{stale} Écarts : {drift[:5]}"
 
