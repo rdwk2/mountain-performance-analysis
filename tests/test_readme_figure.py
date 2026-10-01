@@ -63,3 +63,11 @@ def test_render_is_deterministic_and_lf_only(regenerated: str) -> None:
 def test_figure_leaks_no_path(regenerated: str) -> None:
     for fragment in (tempfile.gettempdir(), str(ROOT), "Users", "Temp", ":\\"):
         assert fragment not in regenerated, fragment
+
+
+def test_readme_shows_the_figure() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    image = re.search(r"!\[([^\]]+)\]\(docs/img/chaine\.svg\)", readme)
+    assert image is not None, "README.md doit afficher docs/img/chaine.svg."
+    assert image.group(1).strip()
+    assert image.start() < readme.index("## Pourquoi")
