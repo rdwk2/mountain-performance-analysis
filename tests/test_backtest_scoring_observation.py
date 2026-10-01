@@ -9,6 +9,7 @@ l'ordre, temps nuls) et les valeurs de l'oracle du § 7.3, à la tolérance rela
 """
 
 import math
+from dataclasses import replace
 
 import pytest
 from hypothesis import given, settings
@@ -288,3 +289,29 @@ def test_observation_properties_on_drawn_cases(case: MatchCase) -> None:
 def test_constructed_cases_are_the_twelve_constructors() -> None:
     assert len(CONSTRUCTED) == 12
     assert set(VALUES) == set(CONSTRUCTED)
+
+
+# ---------------------------------------------------------------------------
+# Correctifs de la relecture de la PR #15
+# ---------------------------------------------------------------------------
+
+
+def test_score_point_then_places_in_passage_order_at_equal_abscissa() -> None:
+    """Choix 6 : à abscisse égale, le point de score avant le lieu, puis les lieux
+    dans l'ordre des passages. Aucun des treize cas n'a d'égalité : ici, les deux
+    lieux intermédiaires de Passages (B, rang 0, et A, rang 1) ramenés en ``b_1``."""
+    c = chain("Passages")
+    b_1 = c.match.points[1].effective_m
+    places = tuple(
+        replace(x, point=replace(x.point, distance_m=b_1)) if rank < 2 else x
+        for rank, x in enumerate(c.passages.passages)
+    )
+    observed = observe_outing(
+        c.match, replace(c.passages, passages=places), c.partition
+    )
+    tied = [p for p in observed.error_points if p.distance_m == b_1]
+    assert [(p.score_index, p.passage_index) for p in tied] == [
+        (1, None),
+        (None, 0),
+        (None, 1),
+    ]
