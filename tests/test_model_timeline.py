@@ -14,6 +14,7 @@ chaque intervalle des profils des treize cas.
 import math
 from bisect import bisect_right
 from collections.abc import Sequence
+from dataclasses import FrozenInstanceError
 from datetime import UTC, datetime
 from itertools import accumulate, pairwise
 
@@ -383,3 +384,28 @@ def test_project_date_defaults_to_now() -> None:
         endpoints=route_endpoints(route),
     )
     assert before <= projection.generated_at <= datetime.now(UTC)
+
+
+# ---------------------------------------------------------------------------
+# Correctifs de la relecture de la PR #15
+# ---------------------------------------------------------------------------
+
+
+def test_projected_timeline_is_frozen() -> None:
+    """§ 6.1 : ``@dataclass(frozen=True)`` — une chronologie ne change pas après sa
+    construction ; ses allures changées, ``time_at`` mêlerait les nouvelles allures
+    à l'ancien cumul. Le ``type: ignore`` porte sur l'affectation interdite, objet du
+    test."""
+    timeline = ProjectedTimeline((0.0, 1.0), (1.0,))
+    with pytest.raises(FrozenInstanceError):
+        timeline.pace_s_per_m = (2.0,)  # type: ignore[misc]
+
+
+def test_cumulative_is_never_passed() -> None:
+    """§ 6.1 : ``cumulative_s`` est calculé à la construction (``field(init=False)``),
+    jamais passé, ni par position ni par nom. Les ``type: ignore`` portent sur les
+    appels interdits, objets du test."""
+    with pytest.raises(TypeError):
+        ProjectedTimeline((0.0, 1.0), (1.0,), (0.0, 99.0))  # type: ignore[call-arg]
+    with pytest.raises(TypeError):
+        ProjectedTimeline((0.0, 1.0), (1.0,), cumulative_s=(0.0, 99.0))  # type: ignore[call-arg]
