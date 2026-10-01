@@ -16,6 +16,21 @@ Backtest (à partir de M4) : métrique avant → après.
 
 ---
 
+### 2026-10-02 · docs — Figure de la chaîne dans le README
+Mission documentaire hors jalons. `scripts/readme_figure.py` écrit un tracé GPX
+inventé (montée 3,5 km vers « Col », descente 3,2 km vers « Refuge », plat jusqu'à
+8 km, pentes ≤ 15 %) et une trace synthétique (vitesse de la courbe ×1.10 au-dessus
+de +5 %, ×0.85 sous −5 %, sans arrêt) dans un dossier temporaire, puis exécute la
+chaîne de `main` comme `mperf match --curve` ; `render_svg`, pure, dessine le
+résultat. Valeurs (usage, horloge écoulé) : v0 1:10:30, réalisé 1:10:38, écart
+−8 s (−0.2 %) ; `L` −0.002, `A` 0.108, `B` 0.108, `E_R` montée +0.094, descente
+−0.159 ; `C_comp` ≈ 0.004 (régimes homogènes), remplacé dans l'encadré par `A` et
+`B`. Contre-épreuves : facteur 1.10 → 1.12 sans régénérer, image retirée du README,
+chemin absolu dans le SVG — chacune rougit son test.
+Conclusion : `just check` vert (2 800 tests). Script de 708 lignes, presque tout du
+dessin. Rangé dans `scripts/readme_figure.py`, `docs/img/chaine.svg`, `justfile`
+(`just figure`), `tests/test_readme_figure.py`, `README.md`, branche `docs/figure`.
+
 ### 2026-10-01 · docs — README à jour
 Mission documentaire hors jalons, plan approuvé avec sept précisions. Le README
 décrit l'état réel : ce qu'est le projet, « Pourquoi » court (livré : v0 sans

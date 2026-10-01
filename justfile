@@ -29,3 +29,7 @@ fmt:
 # Régénère docs/DICTIONNAIRE_DONNEES.md depuis les docstrings des schémas
 dictionary:
     uv run python scripts/data_dictionary.py
+
+# Régénère docs/img/chaine.svg, la figure du README (données synthétiques)
+figure:
+    uv run python scripts/readme_figure.py
