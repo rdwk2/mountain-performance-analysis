@@ -82,6 +82,13 @@ from mountain_perf.backtest.passages import (
     windows_overlap,
     within_tie,
 )
+from mountain_perf.backtest.repeatability import (
+    JACOBI_MAX_SWEEPS,
+    JACOBI_OFF_DIAGONAL_TOLERANCE,
+    MAX_ITERATIONS,
+    contraction_rate,
+    two_way_fit,
+)
 from mountain_perf.backtest.scoring import (
     control_forecast,
     observe_outing,
@@ -130,8 +137,11 @@ __all__ = [
     "CLOCK_HALF_WINDOW_S",
     "DOMAIN_MIN_DPLUS_PER_KM",
     "H2_SPACING_M",
+    "JACOBI_MAX_SWEEPS",
+    "JACOBI_OFF_DIAGONAL_TOLERANCE",
     "LENGTH_RATIO_BOUNDS",
     "MATCHING_PARAMETER_SPECS",
+    "MAX_ITERATIONS",
     "MAX_STEP_S",
     "ORIGIN_LAG",
     "PARIS",
@@ -162,6 +172,7 @@ __all__ = [
     "comparable_prefix",
     "compensation",
     "confirm",
+    "contraction_rate",
     "control_forecast",
     "convention_extremes",
     "cumulative_s",
@@ -220,6 +231,7 @@ __all__ = [
     "time_weighted_deviation",
     "trace_route",
     "trace_totals",
+    "two_way_fit",
     "usage_forecast",
     "usage_target",
     "v0_scores",
