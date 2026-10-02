@@ -100,6 +100,15 @@ from mountain_perf.schemas.reference import (
     ReferencePerformance,
     TimingConvention,
 )
+from mountain_perf.schemas.repeatability import (
+    ClassFit,
+    ClassScore,
+    ClockReference,
+    FoldScores,
+    RepeatabilityDay,
+    RepeatabilityReference,
+    TwoWayFit,
+)
 from mountain_perf.schemas.route import (
     POINT_KIND_DESCRIPTIONS,
     NamedPoint,
@@ -201,6 +210,13 @@ DOCUMENTED_TYPES: tuple[type, ...] = (
     ClockScores,
     ScenarioScores,
     OutingScores,
+    TwoWayFit,
+    RepeatabilityDay,
+    ClassFit,
+    ClassScore,
+    FoldScores,
+    ClockReference,
+    RepeatabilityReference,
 )
 """Types publiés dans le dictionnaire, dans l'ordre de lecture."""
 

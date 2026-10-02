@@ -76,6 +76,13 @@
 - `ClockScores`
 - `ScenarioScores`
 - `OutingScores`
+- `TwoWayFit`
+- `RepeatabilityDay`
+- `ClassFit`
+- `ClassScore`
+- `FoldScores`
+- `ClockReference`
+- `RepeatabilityReference`
 
 ---
 
@@ -3781,3 +3788,385 @@ Les scores d'un modèle sur une sortie, dans ses scénarios (`0010` D3, D7).
 - `usage` absent ne dit pas pourquoi (sortie sans référence : l'appelant le
   sait) ;
 - aucune métrique n'y est agrégée sur plusieurs sorties.
+
+---
+
+## `TwoWayFit`
+
+*`mountain_perf.schemas.repeatability` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `segment_effects` | `tuple[tuple[int, float], ...]` | — |
+| `day_effects` | `tuple[tuple[int, float], ...]` | — |
+| `iterations` | `int` | — |
+| `residuals` | `tuple[float, float, float, float]` | — |
+| `certified` | `bool` | — |
+
+L'ajustement additif `y_uk = a_k + c_u` d'une composante connexe (`0010`
+D8.1 à D8.3).
+
+#### Champs
+
+- `segment_effects` — log-secondes — les `(k, a_k)`.
+- `day_effects` — log-secondes — les `(u, c_u)` ; `u` est le rang que
+  l'appelant donne au jour.
+- `iterations` — sans unité — le nombre d'itérations faites.
+- `residuals` — log-secondes — les critères de D8.3 à la dernière itération,
+  dans cet ordre : moyenne de résidus par segment (maximum des valeurs absolues),
+  par jour (idem), `|Σ c_u|`, incrément maximal des ajustés.
+- `certified` — sans unité — les quatre critères sont sous le seuil.
+
+#### Invariants
+
+- les trois séquences sont des tuples ; `iterations >= 1` ;
+- `segment_effects` et `day_effects` non vides, clés strictement croissantes,
+  valeurs finies ;
+- `residuals` a quatre valeurs, chacune `>= 0` et non `nan` ; finie, sauf
+  `residuals[3]`, qui peut valoir `inf` quand `iterations == 1` (pas
+  d'incrément à la première itération) ;
+- `certified` **si et seulement si** les quatre valeurs sont
+  `< CERTIFICATION_TOLERANCE`.
+
+#### Producteur
+
+`two_way_fit` (`mountain_perf.backtest.repeatability`).
+
+#### Consommateurs
+
+`repeatability_reference` (`mountain_perf.backtest.repeatability`).
+
+#### Non promis
+
+La certification borne les équations normales et la stabilité de l'itération, pas
+l'erreur sur `a_k` ni sur une prévision (précision de D8.3) ; non certifié,
+l'ajustement publie le dernier état, sans valeur de preuve.
+
+---
+
+## `RepeatabilityDay`
+
+*`mountain_perf.schemas.repeatability` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `performance` | `Performance` | — |
+| `reference` | `SourceRef` | — |
+| `segments` | `tuple[AdmittedSegment, ...] \| None` | — |
+
+Un jour du jeu de répétabilité d'un parcours, et ses segments admis (`0010`
+D0, D8.1).
+
+#### Champs
+
+- `performance` — sans unité — le jour (date civile, sorties).
+- `reference` — sans unité — la référence du parcours, celle dont la grille de
+  score a donné les segments.
+- `segments` — sans unité — les segments admis de la sortie du jour
+  (`OutingObservation.segments` de M4b-2), sous les onze horloges ; `None`
+  pour un jour multi-sorties.
+
+#### Invariants
+
+- `performance` est une `Performance`, `reference` un `SourceRef` ;
+- `segments` absent **si et seulement si** `performance.is_multi_outing` ;
+- présent : un tuple (vide permis), d'indices strictement croissants.
+
+#### Producteur
+
+L'appelant (M4b-5, depuis l'observation de la sortie du jour par
+`observe_outing` contre la référence du parcours).
+
+#### Consommateurs
+
+`repeatability_reference` (`mountain_perf.backtest.repeatability`).
+
+#### Non promis
+
+Le contrat ne vérifie pas que les segments viennent de `reference` ni leur
+cohérence d'un jour à l'autre : `repeatability_reference` vérifie la seconde
+(préconditions).
+
+---
+
+## `ClassFit`
+
+*`mountain_perf.schemas.repeatability` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `regime_class` | `RegimeClass` | — |
+| `unavailability` | `Unavailability \| None` | — |
+| `left_count` | `int` | — |
+| `seen_count` | `int` | — |
+| `training_days` | `int` | — |
+| `training_segments` | `int` | — |
+| `training_cells` | `int` | — |
+| `zero_cells` | `tuple[tuple[date, int], ...]` | — |
+| `iterations` | `int \| None` | — |
+| `residuals` | `tuple[float, float, float, float] \| None` | — |
+| `contraction` | `float \| None` | — |
+| `contraction_unavailability` | `Unavailability \| None` | — |
+
+L'ajustement d'un pli et d'une classe (`0010` D8.2, D8.3).
+
+#### Champs
+
+- `regime_class` — sans unité — la classe.
+- `unavailability` — sans unité — `None` : ajustement certifié, prévisions
+  disponibles sur `S_jR` ; sinon le motif.
+- `left_count` — sans unité — le nombre de cellules du jour retiré dans la
+  classe.
+- `seen_count` — sans unité — `|S_jR|`, celles qu'au moins un jour
+  d'apprentissage observe.
+- `training_days`, `training_segments`, `training_cells` — sans unité — les
+  effectifs de la composante ajustée (`0` sans composante).
+- `zero_cells` — sans unité — les cellules nulles de la composante,
+  `(date du jour, k)`, triées.
+- `iterations` — sans unité — celles de `two_way_fit`, quand il a tourné.
+- `residuals` — log-secondes — ceux de `two_way_fit`, quand il a tourné.
+- `contraction` — sans unité — `μ₂` de la composante.
+- `contraction_unavailability` — sans unité — `non_convergence` quand le calcul
+  de `μ₂` n'est pas certifié.
+
+« Avec composante » : `unavailability` n'est ni `insufficient_support` ni
+`unidentified_reference`.
+
+#### Invariants
+
+- `zero_cells` est un tuple ; `unavailability` absent ou dans
+  `FIT_UNAVAILABILITY` ;
+- `0 <= seen_count <= left_count` ;
+- `insufficient_support` **si et seulement si** `seen_count == 0` ;
+- avec composante : `training_days >= 1`, `training_segments >= 1`,
+  `training_cells >= max(training_days, training_segments)` ; sans composante :
+  les trois effectifs nuls et `zero_cells` vide ;
+- `zero_time` **si et seulement si** `zero_cells` non vide ;
+- `iterations` et `residuals` présents **si et seulement si**
+  `unavailability` est `None`, `non_convergence` ou `model_error` ;
+  `iterations >= 1` ;
+- `contraction` présente ⇒ avec composante, et dans `[0 ; 1]` ;
+  `contraction_unavailability` absent ou `non_convergence` ; avec composante,
+  **exactement un** de `contraction` et `contraction_unavailability` ; sans
+  composante, ni l'un ni l'autre ;
+- `training_days == 1` ⇒ `contraction` absente ou `0.0`.
+
+#### Producteur
+
+`repeatability_reference` (`mountain_perf.backtest.repeatability`).
+
+#### Consommateurs
+
+Le rapport D15 (M4b-5) ; les seuils d'admission (M4c).
+
+#### Non promis
+
+`μ₂` est publié pour toute composante, motif `temps nul` compris (il ne dépend
+que du plan) ; il ne change aucun statut et ne mesure pas l'incertitude de `F`.
+
+---
+
+## `ClassScore`
+
+*`mountain_perf.schemas.repeatability` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `regime_class` | `RegimeClass` | — |
+| `segment_count` | `int` | — |
+| `log_ratio` | `MetricValue` | — |
+| `dispersion` | `MetricValue` | — |
+| `contributes` | `bool` | — |
+
+Les scores d'une classe pour le jour retiré (`0010` D8.4, D5.5, D7.2, D7.5).
+
+#### Champs
+
+- `regime_class` — sans unité — la classe.
+- `segment_count` — sans unité — `|S_jR|`.
+- `log_ratio` — sans unité — `E_R` du jour retiré, **signé**.
+- `dispersion` — sans unité — `D_R` du jour retiré.
+- `contributes` — sans unité — la valeur entre dans `F`.
+
+#### Invariants
+
+- `segment_count >= 0` ; `log_ratio.count == dispersion.count ==
+  segment_count` ;
+- les deux valeurs présentes, ou les deux absentes avec le même motif ;
+- `segment_count == 0` ⇒ motif `insufficient_support` ;
+- `dispersion` présente : `>= 0`, et `== 0.0` si `segment_count == 1` ;
+- `contributes` **si et seulement si** `log_ratio` présent et
+  `segment_count >= MIN_CONTRIBUTING_SEGMENTS`.
+
+#### Producteur
+
+`repeatability_reference` (`mountain_perf.backtest.repeatability`).
+
+#### Consommateurs
+
+Le rapport (M4b-5) ; les seuils d'admission (M4c).
+
+#### Non promis
+
+Une valeur absente ne dit pas à elle seule si sa cause est le jour retiré (temps
+nul sur `S_j`) ou l'ajustement : le `ClassFit` de même rang le dit ;
+`contributes` ne fait pas de la classe une cible ni un garde-fou de la
+performance (D7.5, D10.2).
+
+---
+
+## `FoldScores`
+
+*`mountain_perf.schemas.repeatability` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `day` | `date` | — |
+| `support_count` | `int` | — |
+| `predicted_count` | `int` | — |
+| `fits` | `tuple[ClassFit, ...]` | — |
+| `forecast_s` | `tuple[tuple[int, float], ...]` | — |
+| `level` | `MetricValue` | — |
+| `classes` | `tuple[ClassScore, ...]` | — |
+
+Un pli sous une horloge : ajustements, prévisions et scores du jour retiré
+(`0010` D8.2 à D8.4, D5.5).
+
+#### Champs
+
+- `day` — date civile — le jour retiré.
+- `support_count` — sans unité — `|S_j|`.
+- `predicted_count` — sans unité — `|P_j|`.
+- `fits` — sans unité — les ajustements des quatre classes, dans l'ordre de
+  `RegimeClass`.
+- `forecast_s` — secondes — les `(k, p_jk)` sur `P_j`.
+- `level` — sans unité — `L` du jour retiré, **signé**.
+- `classes` — sans unité — les scores des quatre classes, dans l'ordre de
+  `RegimeClass`.
+
+#### Invariants
+
+- `fits`, `forecast_s`, `classes` sont des tuples ; clés de `forecast_s`
+  strictement croissantes, prévisions finies et `> 0` ;
+- `len(forecast_s) == predicted_count` ;
+- `fits` et `classes` : les quatre classes, dans l'ordre de `RegimeClass` ;
+- `support_count == Σ seen_count` des quatre `fits` ;
+- `predicted_count == Σ seen_count` des `fits` sans motif ;
+- `classes[i].segment_count == fits[i].seen_count` ;
+  `level.count == support_count` ;
+- `level` présent ⇒ `predicted_count == support_count` (`|L|` strict).
+
+#### Producteur
+
+`repeatability_reference` (`mountain_perf.backtest.repeatability`).
+
+#### Consommateurs
+
+Le rapport (M4b-5) ; les seuils d'admission (M4c).
+
+#### Non promis
+
+`level` absent ne porte qu'un motif, le premier dans l'ordre de
+`repeatability_reference` (support vide, total nul, première classe en échec) :
+les autres causes sont dans `fits` ; `forecast_s` ne couvre que `P_j`, sans
+prévision pour une classe en échec ; le contrat ne recalcule ni `L` ni les
+scores de classe.
+
+---
+
+## `ClockReference`
+
+*`mountain_perf.schemas.repeatability` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `clock` | `Clock` | — |
+| `folds` | `tuple[FoldScores, ...]` | — |
+| `level` | `MetricValue` | — |
+| `log_ratios` | `tuple[MetricValue, ...]` | — |
+| `dispersions` | `tuple[MetricValue, ...]` | — |
+
+La référence sous une horloge : les plis et les `F` (`0010` D8.4).
+
+#### Champs
+
+- `clock` — sans unité — l'horloge des temps.
+- `folds` — sans unité — les plis, dans l'ordre des jours.
+- `level` — sans unité — `F_|L|`.
+- `log_ratios` — sans unité — les `F_|E_R|` des quatre classes, dans l'ordre de
+  `RegimeClass`.
+- `dispersions` — sans unité — les `F_D_R` des quatre classes, dans le même
+  ordre.
+
+#### Invariants
+
+- `folds`, `log_ratios`, `dispersions` sont des tuples ; quatre
+  `log_ratios`, quatre `dispersions` ;
+- chaque `F` (le niveau et les huit valeurs de classe) : absent ⇒ motif
+  `insufficient_support` et effectif `<= 1` ; présent ⇒ effectif `>= 2` et
+  valeur `>= 0` ;
+- `level.count` = le nombre de plis dont `level` est présent ;
+- `log_ratios[i].count == dispersions[i].count` = le nombre de plis où
+  `classes[i].contributes`.
+
+#### Producteur
+
+`repeatability_reference` (`mountain_perf.backtest.repeatability`).
+
+#### Consommateurs
+
+Le rapport (M4b-5) ; les seuils de D10.3 et D10.4 (M4c).
+
+#### Non promis
+
+Un `F` absent ne dit pas pourquoi chaque jour manque : les causes sont dans les
+plis.
+
+---
+
+## `RepeatabilityReference`
+
+*`mountain_perf.schemas.repeatability` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `reference` | `SourceRef` | — |
+| `days` | `tuple[date, ...]` | — |
+| `multi_outing_days` | `tuple[date, ...]` | — |
+| `single_contrast` | `bool` | — |
+| `clocks` | `tuple[ClockReference, ...]` | — |
+
+La référence prédictive de répétabilité d'un parcours (`0010` D8).
+
+#### Champs
+
+- `reference` — sans unité — la référence du parcours.
+- `days` — dates civiles — les jours éligibles, croissants.
+- `multi_outing_days` — dates civiles — les jours multi-sorties exclus,
+  croissants.
+- `single_contrast` — sans unité — « un seul contraste » (précision de D8.4).
+- `clocks` — sans unité — la référence sous chaque horloge, dans l'ordre de
+  `CLOCKS`.
+
+#### Invariants
+
+- `days`, `multi_outing_days` et `clocks` sont des tuples ; `days` et
+  `multi_outing_days` strictement croissants et disjoints ;
+- `tuple(c.clock for c in clocks) == CLOCKS` ;
+- pour chaque horloge, `tuple(f.day for f in folds) == days` ;
+- `single_contrast` ⇒ `len(days) >= 2` ;
+- pour chaque pli et chaque classe, `fits[i].contraction` est le même sous les
+  onze horloges.
+
+#### Producteur
+
+`repeatability_reference` (`mountain_perf.backtest.repeatability`).
+
+#### Consommateurs
+
+Le rapport (M4b-5) ; les seuils d'admission (M4c).
+
+#### Non promis
+
+Aucune valeur n'est agrégée sur plusieurs parcours ; le contrat ne recalcule ni
+`F` ni les plis.
