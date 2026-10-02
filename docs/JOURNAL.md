@@ -16,6 +16,26 @@ Backtest (à partir de M4) : métrique avant → après.
 
 ---
 
+### 2026-10-02 · M4b-3 — Backtest : référence prédictive de répétabilité
+Référence D8 d'un parcours sous les onze horloges, en bibliothèque (aucune commande) :
+contrats (`TwoWayFit`, `RepeatabilityDay`, `ClassFit`, `ClassScore`, `FoldScores`,
+`ClockReference`, `RepeatabilityReference`), `two_way_fit` (moyennes alternées
+certifiées par D8.3, Python pur), `contraction_rate` (`μ₂` par Jacobi),
+`repeatability_reference` (plis, quatre classes, cellules nulles, `|L|` strict, temps
+nul du jour retiré propagé sur `S_j`, `F` par moyenne des plis). Précisions de D8.1 à
+D8.4 ajoutées à `0010`, mot pour mot. Test des exemples du README contre les sorties
+réelles de `mperf` (quatre exemples, verts sur le README de `main`). Seize cas
+synthétiques : les 555 valeurs de l'oracle reproduites (écart maximal 4,3e−8, plan
+Lent), itérations exactes. 55 contre-épreuves jouées une à une, contrats actifs puis
+neutralisés : toutes rouges ; deux écarts signalés dans la PR (« limite exclue » ne
+rougit pas le test 5 ; « prévision non finie gardée » rougit par la `ContractError` de
+`MetricValue`, pas par une valeur).
+Conclusion : `just check` vert (3 125 tests, contre 2 800). Environ 6 000 lignes, dont
+1 334 de valeurs d'oracle recopiées par script. Rangé dans
+`src/mountain_perf/schemas/repeatability.py`, `src/mountain_perf/backtest/repeatability.py`,
+`tests/fixtures/repeatability*.py`, `tests/test_*repeatability*.py`,
+`tests/test_readme_examples.py`, `0010` D8 ; branche `m4b/repetabilite`.
+
 ### 2026-10-02 · docs — Figure de la chaîne dans le README
 Mission documentaire hors jalons. `scripts/readme_figure.py` écrit un tracé GPX
 inventé (montée 3,5 km vers « Col », descente 3,2 km vers « Refuge », plat jusqu'à

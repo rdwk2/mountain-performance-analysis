@@ -98,8 +98,9 @@ just test       # pytest seul
 just lint       # ruff
 just fmt        # formatage
 just dictionary # régénère docs/DICTIONNAIRE_DONNEES.md depuis les docstrings
-just backtest   # (à partir de M4) erreur du modèle sur le jeu de référence
+just backtest   # erreur du modèle sur le jeu de référence (M4b-5 ; pas encore dans le justfile)
 uv run mperf profile tests/fixtures/mini_11.gpx  # compte-rendu GPX (M2), --csv pour la grille
+uv run mperf project tests/fixtures/mini_11.gpx --curve tests/fixtures/courbe_synthetique.csv  # temps de passage (M3)
 uv run mperf match tests/fixtures/appariement_reference.gpx tests/fixtures/appariement_trace_x01.gpx  # points de score (M4a-2a)
 # mperf match, sections 5 à 9 (M4a-2b) : segments, couverture, préfixe, horloges, épisodes
 # mperf match, section 10 (M4a-3) : passages nommés, événements, attribution des arrêts
@@ -132,6 +133,9 @@ src/mountain_perf/     le code de la bibliothèque
     scoring.py         Scenario, AdmittedSegment, ObservedPoint, OutingObservation,
                        ModelForecast, ClockScores, ScenarioScores, OutingScores :
                        observation, prévision, scores d'une sortie (M4b-2)
+    repeatability.py   TwoWayFit, RepeatabilityDay, ClassFit, ClassScore, FoldScores,
+                       ClockReference, RepeatabilityReference : référence de
+                       répétabilité (M4b-3)
     _dictionary.py     rendu du dictionnaire de données depuis les docstrings
   gpx/                 lecture GPX, profil, grille de pente (M2)
     geo.py             haversine 2D, polyligne dédoublonnée, projection point-segment
@@ -155,6 +159,8 @@ src/mountain_perf/     le code de la bibliothèque
                        K par défaut, q_usage : métriques D7, fonctions pures (M4b-1)
     scoring.py         observe_outing, usage_forecast, control_forecast, score_scenario,
                        score_outing, report_clocks, v0_scores : scores de v0 brut (M4b-2)
+    repeatability.py   two_way_fit, contraction_rate, repeatability_reference : référence
+                       D8 d'un parcours (M4b-3)
   ingest/              acquisition et normalisation Garmin (M6b)
   ui/                  interface — appelle la bibliothèque, ne calcule rien (M5)
   cli.py               mperf profile <fichier.gpx>, compte-rendu ou CSV sur stdout ;
