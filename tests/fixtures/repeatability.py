@@ -13,14 +13,33 @@ onze temps d'une cellule.
   des trois tests nommés du § 8.1, test 4 ;
 - :func:`log_cells`, :func:`plan_cells` : les cellules d'une classe d'un cas, clés
   ``(u, k)`` avec ``u`` le rang du jour dans le cas (§ 7.1) ;
-- :func:`close` : la tolérance ``1e−6·max(1, |x|)`` du § 7.0.
+- :func:`close` : la tolérance ``1e−6·max(1, |x|)`` du § 7.0 ;
+- :func:`build_day`, :func:`days_of` : les ``RepeatabilityDay`` du § 7.0, construits
+  en **appelant** ``outing_at`` et ``source`` de ``fixtures.outings`` ;
+- :data:`CASE_NAMES`, :func:`case_days`, :func:`case_max_iterations` : les seize cas
+  (Lent limité compris) ; :func:`case_reference` : leur ``RepeatabilityReference``,
+  mise en cache — pour les tests sans remplacement de fonction seulement.
 
 Utilisées par les ``tests/test_*repeatability*.py``.
 """
 
+import functools
 import math
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
+from datetime import date, datetime, timedelta
+
+from fixtures.outings import PARIS_SUMMER, outing_at, source
+from mountain_perf.backtest import MAX_ITERATIONS, repeatability_reference
+from mountain_perf.schemas import (
+    CLOCKS,
+    AdmittedSegment,
+    Performance,
+    RegimeClass,
+    RepeatabilityDay,
+    RepeatabilityReference,
+    SourceRef,
+)
 
 A, F, D, X = "ascent", "flat", "descent", "mixed"
 
@@ -435,3 +454,108 @@ def log_cells(
         (u, k): math.log(specs[u].cells[k][1][clock])
         for u, k in plan_cells(specs, regime, without=without)
     }
+
+
+# ---------------------------------------------------------------------------
+# Construction des jours (§ 7.0)
+# ---------------------------------------------------------------------------
+
+REFERENCE = source("gpx", "parcours.gpx", "7")
+"""La référence du parcours de tous les cas (§ 7.0)."""
+
+OTHER_REFERENCE = source("gpx", "autre.gpx", "8")
+"""L'autre référence, pour les préconditions (§ 7.0, test 7)."""
+
+SEGMENT_M = 250.0
+"""Le segment ``k`` a pour bornes nominales ``[250·k ; 250·(k + 1)]``."""
+
+ANCHORED_TIMES: Times = (150.0,) * len(CLOCKS)
+"""Un segment ancré a un temps de 150 s sous les onze horloges."""
+
+
+def cell_segment(k: int, regime: str, times: Times) -> AdmittedSegment:
+    """Une cellule : bornes effectives et réalisées égales aux nominales."""
+    low, high = SEGMENT_M * k, SEGMENT_M * (k + 1)
+    return AdmittedSegment(
+        k, low, high, low, high, low, high, RegimeClass(regime), tuple(times)
+    )
+
+
+def anchored_segment(
+    k: int,
+    regime: str = A,
+    *,
+    nominal: tuple[float, float] | None = None,
+    effective: tuple[float, float] | None = None,
+) -> AdmittedSegment:
+    """Un bord ancré (§ 7.0) : en montée, 150 s sous les onze horloges, bornes
+    effectives et réalisées ``[5 ; 250]`` si ``k == 0``, sinon
+    ``[250·k ; 250·(k + 1) − 5]`` ; présent dans les segments, jamais cellule.
+    ``regime``, ``nominal`` et ``effective`` : les jeux du test 7."""
+    low, high = nominal or (SEGMENT_M * k, SEGMENT_M * (k + 1))
+    if effective is None:
+        effective = (5.0, SEGMENT_M) if k == 0 else (low, high - 5.0)
+    start, end = effective
+    return AdmittedSegment(
+        k, low, high, start, end, start, end, RegimeClass(regime), ANCHORED_TIMES
+    )
+
+
+def performance(spec: DaySpec) -> Performance:
+    """La performance du jour : une sortie ``s-<date>`` à 9 h (UTC+2), d'une heure ;
+    un jour multi-sorties a en plus ``s2-<date>``, deux heures plus tard, de 30 min."""
+    civil_date = date.fromisoformat(spec.date)
+    start = datetime(
+        civil_date.year, civil_date.month, civil_date.day, 9, 0, tzinfo=PARIS_SUMMER
+    )
+    outings = [outing_at(f"s-{spec.date}", start, 3600.0)]
+    if spec.multi:
+        outings.append(outing_at(f"s2-{spec.date}", start + timedelta(hours=2), 1800.0))
+    return Performance(civil_date, tuple(outings))
+
+
+def segments_of(spec: DaySpec) -> tuple[AdmittedSegment, ...]:
+    """Les segments du jour : cellules et segments ancrés, par indice croissant."""
+    segments = {
+        k: cell_segment(k, regime, times) for k, (regime, times) in spec.cells.items()
+    }
+    segments.update({k: anchored_segment(k) for k in spec.anchored})
+    return tuple(segments[k] for k in sorted(segments))
+
+
+def build_day(spec: DaySpec, reference: SourceRef = REFERENCE) -> RepeatabilityDay:
+    """Le ``RepeatabilityDay`` d'un jour du § 7.2 ; ``segments`` absent pour un jour
+    multi-sorties."""
+    segments = None if spec.multi else segments_of(spec)
+    return RepeatabilityDay(performance(spec), reference, segments)
+
+
+def days_of(specs: Sequence[DaySpec]) -> list[RepeatabilityDay]:
+    return [build_day(spec) for spec in specs]
+
+
+LENT_LIMITE = "Lent limité"
+CASE_NAMES: tuple[str, ...] = (*CASES, LENT_LIMITE)
+"""Les seize cas du § 7.2 : les quinze de :data:`CASES`, et Lent limité."""
+
+
+def case_specs(name: str) -> list[DaySpec]:
+    return LENT if name == LENT_LIMITE else CASES[name]
+
+
+def case_max_iterations(name: str) -> int:
+    """``max_iterations`` du cas : 70 pour Lent limité, la règle sinon."""
+    return LENT_LIMITE_MAX_ITERATIONS if name == LENT_LIMITE else MAX_ITERATIONS
+
+
+def case_days(name: str) -> list[RepeatabilityDay]:
+    return days_of(case_specs(name))
+
+
+@functools.cache
+def case_reference(name: str) -> RepeatabilityReference:
+    """La référence d'un des seize cas, mise en cache : pour les tests **sans**
+    remplacement de fonction (précision 2 de la relecture du plan)."""
+    return repeatability_reference(
+        REFERENCE, case_days(name), max_iterations=case_max_iterations(name)
+    )

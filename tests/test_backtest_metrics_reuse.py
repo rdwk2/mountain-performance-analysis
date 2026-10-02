@@ -107,10 +107,17 @@ def test_no_module_imports_metrics_but_the_backtest_package() -> None:
     """§ 6 : l'export de ``backtest/__init__.py`` est la seule importation permise de
     ``backtest/metrics.py``, ni par son nom de module, ni par ses noms depuis le
     paquet ``backtest`` — avec, depuis M4b-2, ``backtest/scoring.py``, qui assemble les
-    vecteurs et appelle ses fonctions (§ 6 du brief M4b-2)."""
+    vecteurs et appelle ses fonctions (§ 6 du brief M4b-2) — et, depuis M4b-3,
+    ``backtest/repeatability.py``, qui appelle ``support_metrics`` sur les prévisions
+    d'un pli (§ 6 du brief M4b-3)."""
     defined = _defined_names(METRICS)
     importers = []
-    allowed = (PACKAGE / "__init__.py", PACKAGE / "metrics.py", PACKAGE / "scoring.py")
+    allowed = (
+        PACKAGE / "__init__.py",
+        PACKAGE / "metrics.py",
+        PACKAGE / "scoring.py",
+        PACKAGE / "repeatability.py",
+    )
     for path in sorted(SOURCE.rglob("*.py")):
         if path in allowed:
             continue

@@ -6,12 +6,35 @@ certifié par D8.3, et ``contraction_rate``, le diagnostic de conditionnement ``
 puis la référence d'un parcours sous les onze horloges.
 
 Python pur (décision 1 de rdw du brief M4b-3) : toute somme passe par ``math.fsum``.
+Ce module n'importe, de ``mountain_perf.backtest``, que ``support_metrics`` (M4b-1),
+qui note les prévisions d'un pli.
 """
 
 import math
-from collections.abc import Collection, Iterable, Mapping
+from collections.abc import Collection, Iterable, Mapping, Sequence
+from datetime import date
 
-from mountain_perf.schemas import CERTIFICATION_TOLERANCE, TwoWayFit
+from mountain_perf.backtest.metrics import support_metrics
+from mountain_perf.schemas import (
+    CERTIFICATION_TOLERANCE,
+    CLOCKS,
+    MIN_CONTRIBUTING_SEGMENTS,
+    AdmittedSegment,
+    ClassFit,
+    ClassMetrics,
+    ClassScore,
+    Clock,
+    ClockReference,
+    FoldScores,
+    MetricValue,
+    RegimeClass,
+    RepeatabilityDay,
+    RepeatabilityReference,
+    SourceRef,
+    SupportMetrics,
+    TwoWayFit,
+    Unavailability,
+)
 
 MAX_ITERATIONS = 10_000
 """La limite d'itérations des moyennes alternées de ``0010`` D8.3, la dernière
@@ -28,6 +51,16 @@ JACOBI_OFF_DIAGONAL_TOLERANCE = 1e-24
 cette valeur, les valeurs propres sont la diagonale (choix 4 du brief M4b-3)."""
 
 Cell = tuple[int, int]
+
+_INSUFFICIENT = Unavailability.INSUFFICIENT_SUPPORT
+_UNIDENTIFIED = Unavailability.UNIDENTIFIED_REFERENCE
+_ZERO_TIME = Unavailability.ZERO_TIME
+_NON_CONVERGENCE = Unavailability.NON_CONVERGENCE
+_MODEL_ERROR = Unavailability.MODEL_ERROR
+
+_FAILURES = frozenset({_UNIDENTIFIED, _ZERO_TIME, _NON_CONVERGENCE, _MODEL_ERROR})
+"""Les motifs d'un ajustement « en échec » : ses segments vus ne sont pas prévus
+(brief M4b-3, § 6.1) ; ``insufficient_support`` n'en est pas un."""
 
 
 def _components(cells: Iterable[Cell]) -> list[frozenset[Cell]]:
@@ -258,3 +291,374 @@ def contraction_rate(
         return None
     second = sorted(eigenvalues, reverse=True)[1]
     return min(1.0, max(0.0, second))
+
+
+# ---------------------------------------------------------------------------
+# Référence d'un parcours (brief M4b-3, § 6.4)
+# ---------------------------------------------------------------------------
+
+
+def _is_cell(segment: AdmittedSegment) -> bool:
+    """Une cellule : un segment admis dont les bornes effectives sont les bornes
+    nominales, à l'égalité exacte (précision de ``0010`` D8.1, choix 1 du brief) ; un
+    bord ancré n'en est jamais une."""
+    return (
+        segment.start_m == segment.nominal_start_m
+        and segment.end_m == segment.nominal_end_m
+    )
+
+
+def _require_days(
+    reference: SourceRef, days: Sequence[RepeatabilityDay], max_iterations: int
+) -> None:
+    """Préconditions de ``repeatability_reference`` (choix 5 du brief) :
+    ``ValueError``, message citant la date ou l'indice."""
+    if max_iterations < 1:
+        raise ValueError(
+            "repeatability_reference : max_iterations doit être >= 1, reçu "
+            f"{max_iterations}."
+        )
+    dates: set[date] = set()
+    for day in days:
+        civil_date = day.performance.civil_date
+        if civil_date in dates:
+            raise ValueError(
+                f"repeatability_reference : deux jours à la date {civil_date}."
+            )
+        dates.add(civil_date)
+    for day in days:
+        if day.reference != reference:
+            raise ValueError(
+                f"repeatability_reference : le jour {day.performance.civil_date} a "
+                "une autre référence que celle du parcours."
+            )
+    bounds: dict[int, tuple[float, float]] = {}
+    classes: dict[int, RegimeClass] = {}
+    for day in sorted(days, key=lambda day: day.performance.civil_date):
+        for segment in day.segments or ():
+            k = segment.index
+            nominal = (segment.nominal_start_m, segment.nominal_end_m)
+            if bounds.setdefault(k, nominal) != nominal:
+                raise ValueError(
+                    f"repeatability_reference : l'indice {k} a deux couples de bornes "
+                    f"nominales, {bounds[k]} et {nominal} (le "
+                    f"{day.performance.civil_date})."
+                )
+            if not _is_cell(segment):
+                continue
+            regime = segment.regime_class
+            if classes.setdefault(k, regime) != regime:
+                raise ValueError(
+                    f"repeatability_reference : l'indice {k} a deux classes sur ses "
+                    f"cellules, {classes[k]} et {regime} (le "
+                    f"{day.performance.civil_date})."
+                )
+
+
+def _single_contrast(cells: Sequence[Mapping[int, AdmittedSegment]]) -> bool:
+    """« Un seul contraste » (précision de ``0010`` D8.4) : exactement deux jours
+    éligibles ont au moins un indice de cellule en commun avec un autre jour
+    éligible."""
+    sharing = 0
+    for u, own in enumerate(cells):
+        others = {k for v, day in enumerate(cells) if v != u for k in day}
+        if own.keys() & others:
+            sharing += 1
+    return sharing == 2
+
+
+def _forecast_s(effect: float) -> float:
+    """``p_jk = exp(a_k)`` (``0010`` D8.4) ; un débordement de ``math.exp`` (au-delà
+    de ``a_k ≈ 709,78``) vaut une prévision non finie (§ 6.4, étape 4.7)."""
+    try:
+        return math.exp(effect)
+    except OverflowError:
+        return math.inf
+
+
+def _without_component(
+    regime: RegimeClass, motif: Unavailability, left_count: int, seen_count: int
+) -> ClassFit:
+    return ClassFit(
+        regime, motif, left_count, seen_count, 0, 0, 0, (), None, None, None, None
+    )
+
+
+def _class_fit(
+    regime: RegimeClass,
+    fold: int,
+    clock_index: int,
+    dates: Sequence[date],
+    cells: Sequence[Mapping[int, AdmittedSegment]],
+    max_iterations: int,
+) -> tuple[ClassFit, tuple[int, ...], dict[int, float]]:
+    """L'ajustement d'un pli et d'une classe (§ 6.4, étape 4 ; ``0010`` D8.2, D8.3) :
+    le ``ClassFit``, ``S_jR`` et les prévisions ``p_jk`` retenues (aucune en
+    échec)."""
+    training = {
+        (u, k): segment
+        for u, day in enumerate(cells)
+        if u != fold
+        for k, segment in day.items()
+        if segment.regime_class is regime
+    }
+    left = sorted(
+        k for k, segment in cells[fold].items() if segment.regime_class is regime
+    )
+    training_segments = {k for _, k in training}
+    seen = tuple(k for k in left if k in training_segments)
+    if not seen:
+        return _without_component(regime, _INSUFFICIENT, len(left), 0), seen, {}
+    meeting = [
+        component
+        for component in _components(training)
+        if any(k in seen for _, k in component)
+    ]
+    if len(meeting) > 1:
+        fit_failed = _without_component(regime, _UNIDENTIFIED, len(left), len(seen))
+        return fit_failed, seen, {}
+    component = meeting[0]
+    contraction = contraction_rate(component)
+    times_s = {cell: training[cell].times_s[clock_index] for cell in component}
+    zero_cells = tuple(
+        sorted((dates[u], k) for (u, k), time_s in times_s.items() if time_s == 0.0)
+    )
+    fit: TwoWayFit | None = None
+    forecasts: dict[int, float] = {}
+    motif: Unavailability | None
+    if zero_cells:
+        motif = _ZERO_TIME
+    else:
+        fit = two_way_fit(
+            {cell: math.log(time_s) for cell, time_s in times_s.items()},
+            max_iterations,
+        )
+        if not fit.certified:
+            motif = _NON_CONVERGENCE
+        else:
+            effects = dict(fit.segment_effects)
+            forecasts = {k: _forecast_s(effects[k]) for k in seen}
+            invalid = any(not (math.isfinite(p) and p > 0) for p in forecasts.values())
+            motif = _MODEL_ERROR if invalid else None
+    class_fit = ClassFit(
+        regime_class=regime,
+        unavailability=motif,
+        left_count=len(left),
+        seen_count=len(seen),
+        training_days=len({u for u, _ in component}),
+        training_segments=len({k for _, k in component}),
+        training_cells=len(component),
+        zero_cells=zero_cells,
+        iterations=None if fit is None else fit.iterations,
+        residuals=None if fit is None else fit.residuals,
+        contraction=contraction,
+        contraction_unavailability=(
+            None if contraction is not None else _NON_CONVERGENCE
+        ),
+    )
+    return class_fit, seen, forecasts if motif is None else {}
+
+
+def _level(
+    support: Sequence[int],
+    predicted: Sequence[int],
+    times_s: Mapping[int, float],
+    fits: Sequence[ClassFit],
+    metrics: SupportMetrics | None,
+) -> MetricValue:
+    """``L`` du jour retiré, effectif ``|S_j|``, par priorité (précision de ``0010``
+    D8.4) : ``S_j`` vide ; total nul sur ``S_j`` ; ``P_j ≠ S_j``, le motif du premier
+    ajustement en échec dans l'ordre de ``RegimeClass`` (``|L|`` strict, décision 5) ;
+    sinon ``L`` de ``support_metrics`` sur ``P_j = S_j``, signé."""
+    n = len(support)
+    if n == 0:
+        return MetricValue(None, _INSUFFICIENT, 0)
+    if math.fsum(times_s[k] for k in support) == 0.0:
+        return MetricValue(None, _ZERO_TIME, n)
+    if predicted != support or metrics is None:
+        failure = next(
+            fit.unavailability for fit in fits if fit.unavailability in _FAILURES
+        )
+        return MetricValue(None, failure, n)
+    return MetricValue(metrics.log_ratio.value, None, n)
+
+
+def _class_score(
+    fit: ClassFit,
+    zero_on_support: bool,
+    class_metrics: Mapping[RegimeClass, ClassMetrics],
+) -> ClassScore:
+    """Les scores d'une classe, effectif ``|S_jR|`` (précision de ``0010`` D8.4) :
+    aucun segment vu ; un temps nul du jour retiré sur ``S_j``, pour toutes les
+    classes (D5.5, décision 6) ; le motif de l'ajustement ; sinon ``E_R`` (signé) et
+    ``D_R`` de ``support_metrics`` ; contribue avec au moins trois segments (D7.5)."""
+    regime, n = fit.regime_class, fit.seen_count
+    motif: Unavailability | None
+    if n == 0:
+        motif = _INSUFFICIENT
+    elif zero_on_support:
+        motif = _ZERO_TIME
+    else:
+        motif = fit.unavailability
+    if motif is None:
+        computed = class_metrics[regime]
+        contributes = computed.log_ratio.available and n >= MIN_CONTRIBUTING_SEGMENTS
+        return ClassScore(
+            regime, n, computed.log_ratio, computed.dispersion, contributes
+        )
+    absent = MetricValue(None, motif, n)
+    return ClassScore(regime, n, absent, absent, False)
+
+
+def _fold_scores(
+    fold: int,
+    clock_index: int,
+    dates: Sequence[date],
+    cells: Sequence[Mapping[int, AdmittedSegment]],
+    max_iterations: int,
+) -> FoldScores:
+    """Le pli ``j`` sous une horloge (§ 6.4, étapes 4 et 5)."""
+    left_day = cells[fold]
+    fits: list[ClassFit] = []
+    support: list[int] = []
+    forecasts: dict[int, float] = {}
+    for regime in RegimeClass:
+        fit, seen, predicted_s = _class_fit(
+            regime, fold, clock_index, dates, cells, max_iterations
+        )
+        fits.append(fit)
+        support.extend(seen)
+        forecasts.update(predicted_s)
+    support.sort()
+    predicted = sorted(forecasts)
+    times_s = {k: left_day[k].times_s[clock_index] for k in support}
+    metrics = (
+        support_metrics(
+            [forecasts[k] for k in predicted],
+            [times_s[k] for k in predicted],
+            [left_day[k].regime_class for k in predicted],
+        )
+        if predicted
+        else None
+    )
+    class_metrics = (
+        {} if metrics is None else {item.regime_class: item for item in metrics.classes}
+    )
+    zero_on_support = any(times_s[k] == 0.0 for k in support)
+    return FoldScores(
+        day=dates[fold],
+        support_count=len(support),
+        predicted_count=len(predicted),
+        fits=tuple(fits),
+        forecast_s=tuple((k, forecasts[k]) for k in predicted),
+        level=_level(support, predicted, times_s, fits, metrics),
+        classes=tuple(
+            _class_score(fit, zero_on_support, class_metrics) for fit in fits
+        ),
+    )
+
+
+def _mean_over_days(values: Sequence[float]) -> MetricValue:
+    """``F_q`` : moyenne arithmétique à poids égal par jour, effectif ``m_q`` ;
+    ``m_q <= 1`` → ``support insuffisant`` (précision de ``0010`` D8.4)."""
+    m = len(values)
+    if m <= 1:
+        return MetricValue(None, _INSUFFICIENT, m)
+    return MetricValue(math.fsum(values) / m, None, m)
+
+
+def _clock_reference(
+    clock: Clock,
+    clock_index: int,
+    dates: Sequence[date],
+    cells: Sequence[Mapping[int, AdmittedSegment]],
+    max_iterations: int,
+) -> ClockReference:
+    """La référence sous une horloge (§ 6.4, étape 6) : les plis, ``F_|L|`` sur les
+    plis où ``L`` est présent, ``F_|E_R|`` et ``F_D_R`` sur ceux où la classe
+    contribue."""
+    folds = tuple(
+        _fold_scores(j, clock_index, dates, cells, max_iterations)
+        for j in range(len(dates))
+    )
+    level = _mean_over_days(
+        [abs(value) for fold in folds if (value := fold.level.value) is not None]
+    )
+    log_ratios: list[MetricValue] = []
+    dispersions: list[MetricValue] = []
+    for i in range(len(RegimeClass)):
+        scores = [fold.classes[i] for fold in folds if fold.classes[i].contributes]
+        log_ratios.append(
+            _mean_over_days(
+                [abs(v) for score in scores if (v := score.log_ratio.value) is not None]
+            )
+        )
+        dispersions.append(
+            _mean_over_days(
+                [v for score in scores if (v := score.dispersion.value) is not None]
+            )
+        )
+    return ClockReference(clock, folds, level, tuple(log_ratios), tuple(dispersions))
+
+
+def repeatability_reference(
+    reference: SourceRef,
+    days: Sequence[RepeatabilityDay],
+    *,
+    max_iterations: int = MAX_ITERATIONS,
+) -> RepeatabilityReference:
+    """La référence prédictive de répétabilité d'un parcours sous les onze horloges
+    (``0010`` D8 et ses précisions de M4b-3 ; brief M4b-3, § 6.4).
+
+    ``days`` : les jours du jeu de répétabilité du parcours, dans n'importe quel ordre,
+    jours multi-sorties compris (exclus et publiés). ``max_iterations`` : la limite de
+    ``two_way_fit`` (paramètre des tests ; la règle est la valeur par défaut).
+
+    Les jours éligibles sont triés par date, le rang ``u`` d'un jour est sa position ;
+    ses cellules sont ses segments de bornes effectives nominales. Pour chaque horloge,
+    chaque pli ``j`` et chaque classe ``R`` (montée, plat, descente, mixte) :
+    ``S_jR``, les cellules de ``R`` du jour retiré vues à l'apprentissage — vide,
+    ``support insuffisant`` ; dans plusieurs composantes du graphe de toutes les
+    cellules d'apprentissage, ``référence non identifiée`` ; sinon la composante qui
+    les contient, son ``μ₂`` (``contraction_rate``), puis une cellule nulle,
+    ``temps nul`` ; un ajustement non certifié (``two_way_fit``),
+    ``non-convergence`` ; une prévision ``exp(a_k)`` non finie ou nulle,
+    ``erreur du modèle``. Puis les scores du pli par ``support_metrics`` sur ``P_j``
+    (``L`` et ``E_R`` signés), et ``F`` sur les plis.
+
+    Préconditions (``ValueError``, message citant la date ou l'indice) :
+    ``max_iterations >= 1`` ; dates distinctes (multi-sorties compris) ; tous les
+    jours sous ``reference`` ; un indice, un seul couple de bornes nominales (tous les
+    segments, bords ancrés compris) et une seule classe sur ses cellules.
+
+    Non promis : elle ne lit ni GPX ni manifeste et ne constitue pas les jours
+    (M4b-5) ; elle ne vérifie pas que les segments viennent de ``reference`` ; aucune
+    mention « un seul contraste » n'est écrite dans un texte (M4b-5) ; une prévision
+    **finie** hors de ``[1e−6 ; 1e12]`` sort du domaine de ``support_metrics`` (brief
+    M4b-1, choix 12), qui peut alors lever : seule une prévision non finie ou nulle
+    donne ``erreur du modèle``.
+    """
+    _require_days(reference, days, max_iterations)
+    eligible = sorted(
+        (day for day in days if not day.performance.is_multi_outing),
+        key=lambda day: day.performance.civil_date,
+    )
+    multi_outing_days = tuple(
+        sorted(
+            day.performance.civil_date
+            for day in days
+            if day.performance.is_multi_outing
+        )
+    )
+    dates = tuple(day.performance.civil_date for day in eligible)
+    cells = [
+        {segment.index: segment for segment in day.segments or () if _is_cell(segment)}
+        for day in eligible
+    ]
+    clocks = tuple(
+        _clock_reference(clock, h, dates, cells, max_iterations)
+        for h, clock in enumerate(CLOCKS)
+    )
+    return RepeatabilityReference(
+        reference, dates, multi_outing_days, _single_contrast(cells), clocks
+    )

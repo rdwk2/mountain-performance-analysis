@@ -87,6 +87,7 @@ from mountain_perf.backtest.repeatability import (
     JACOBI_OFF_DIAGONAL_TOLERANCE,
     MAX_ITERATIONS,
     contraction_rate,
+    repeatability_reference,
     two_way_fit,
 )
 from mountain_perf.backtest.scoring import (
@@ -217,6 +218,7 @@ __all__ = [
     "reference_geometry",
     "regime_class",
     "regime_lengths",
+    "repeatability_reference",
     "report_clocks",
     "retain_outings",
     "score_grid",
