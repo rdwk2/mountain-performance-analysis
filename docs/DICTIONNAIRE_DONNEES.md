@@ -3934,8 +3934,8 @@ L'ajustement d'un pli et d'une classe (`0010` D8.2, D8.3).
 
 #### Invariants
 
-- `zero_cells` est un tuple ; `unavailability` absent ou dans
-  `FIT_UNAVAILABILITY` ;
+- `zero_cells` et `residuals` (présent) sont des tuples ;
+  `unavailability` absent ou dans `FIT_UNAVAILABILITY` ;
 - `0 <= seen_count <= left_count` ;
 - `insufficient_support` **si et seulement si** `seen_count == 0` ;
 - avec composante : `training_days >= 1`, `training_segments >= 1`,

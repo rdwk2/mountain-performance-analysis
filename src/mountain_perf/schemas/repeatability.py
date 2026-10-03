@@ -266,8 +266,8 @@ class ClassFit:
 
     Invariants
     ----------
-    - ``zero_cells`` est un tuple ; ``unavailability`` absent ou dans
-      ``FIT_UNAVAILABILITY`` ;
+    - ``zero_cells`` et ``residuals`` (présent) sont des tuples ;
+      ``unavailability`` absent ou dans ``FIT_UNAVAILABILITY`` ;
     - ``0 <= seen_count <= left_count`` ;
     - ``insufficient_support`` **si et seulement si** ``seen_count == 0`` ;
     - avec composante : ``training_days >= 1``, ``training_segments >= 1``,
@@ -312,6 +312,8 @@ class ClassFit:
 
     def __post_init__(self) -> None:
         require_immutable_sequence(self.zero_cells, "zero_cells")
+        if self.residuals is not None:
+            require_immutable_sequence(self.residuals, "residuals")
         motif = self.unavailability
         if motif is not None and motif not in FIT_UNAVAILABILITY:
             raise ContractError(f"motif d'ajustement hors de la liste : {motif}.")

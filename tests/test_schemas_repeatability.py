@@ -802,3 +802,15 @@ def test_repeatability_reference_common_contraction() -> None:
     clocks[5] = replace(clocks[5], folds=(clocks[5].folds[0], replace(fold, fits=fits)))
     with pytest.raises(ContractError, match="est le même sous les onze horloges"):
         _reference(clocks=tuple(clocks))
+
+
+# ---------------------------------------------------------------------------
+# Correctifs de la relecture de la PR #18
+# ---------------------------------------------------------------------------
+
+
+def test_class_fit_residuals_tuple() -> None:
+    """§ 6.1 : « tuple » veut dire ``tuple``, vérifié par ``require_immutable_sequence``
+    — ``residuals`` aussi, quand il est présent (relecture C, B1)."""
+    with pytest.raises(ContractError, match="residuals doit être une séquence"):
+        _class_fit(residuals=list(ZEROS4))
