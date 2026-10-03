@@ -21,10 +21,14 @@ import pytest
 
 from fixtures.repeatability import (
     CASE_NAMES,
+    COMPLET,
     REFERENCE,
+    build_day,
     case_days,
     case_max_iterations,
     case_reference,
+    case_specs,
+    days_of,
 )
 from mountain_perf.backtest import repeatability_reference, support_metrics
 from mountain_perf.schemas import (
@@ -175,3 +179,73 @@ def test_contraction_is_common_to_the_eleven_clocks(name: str) -> None:
                 for clock_reference in reference.clocks
             ]
             assert values == [values[0]] * len(CLOCKS)
+
+
+# ---------------------------------------------------------------------------
+# Correctifs de la relecture de la PR #18
+# ---------------------------------------------------------------------------
+
+
+def _distinct_times(elapsed: float) -> tuple[float, ...]:
+    """Onze temps tous différents : l'écoulé, puis ``écoulé − 1`` à ``écoulé − 10``."""
+    return (elapsed, *(elapsed - i for i in range(1, 11)))
+
+
+def _swap_clock_times(
+    days: list[RepeatabilityDay], i: int, j: int
+) -> list[RepeatabilityDay]:
+    swapped = []
+    for day_ in days:
+        assert day_.segments is not None
+        segments = []
+        for segment in day_.segments:
+            times = list(segment.times_s)
+            times[i], times[j] = times[j], times[i]
+            segments.append(replace(segment, times_s=tuple(times)))
+        swapped.append(replace(day_, segments=tuple(segments)))
+    return swapped
+
+
+@pytest.mark.parametrize(("i", "j"), [(1, 5), (2, 4), (6, 7), (6, 9), (3, 8)])
+def test_each_clock_reads_its_own_times(i: int, j: int) -> None:
+    """``0010`` D8, onze horloges : chacune lit ses propres temps. Dans les données du
+    § 7.2, ``M θ1 = M θ5``, ``M θ2 = M θ4`` et ``(M+U) θ1, θ2, θ4, θ5`` valent
+    l'écoulé ; ici, Complet avec onze temps distincts : échanger dans l'entrée les temps
+    de deux horloges échange leurs ``ClockReference``."""
+    specs = [
+        replace(
+            s, cells={k: (c, _distinct_times(t[0])) for k, (c, t) in s.cells.items()}
+        )
+        for s in COMPLET
+    ]
+    original = repeatability_reference(REFERENCE, days_of(specs))
+    swapped = repeatability_reference(
+        REFERENCE, _swap_clock_times(days_of(specs), i, j)
+    )
+    for a, b in ((i, j), (j, i)):
+        assert swapped.clocks[a] == replace(original.clocks[b], clock=CLOCKS[a])
+
+
+@pytest.mark.parametrize("name", CASE_NAMES)
+def test_fold_forecasts_ignore_the_left_out_day(name: str) -> None:
+    """D8.1, D8.4 : le gabarit d'un pli s'apprend sur les **autres** jours. Multiplier
+    par 1,37 les temps du jour retiré ne change ni ses ajustements ni ses prévisions,
+    sous les onze horloges, sur les seize cas."""
+    specs = case_specs(name)
+    limit = case_max_iterations(name)
+    base = repeatability_reference(REFERENCE, case_days(name), max_iterations=limit)
+    eligible = sorted(
+        (n for n, spec in enumerate(specs) if not spec.multi),
+        key=lambda n: specs[n].date,
+    )
+    for j, n in enumerate(eligible):
+        cells = {
+            k: (c, tuple(1.37 * t for t in times))
+            for k, (c, times) in specs[n].cells.items()
+        }
+        scaled = replace(specs[n], cells=cells)
+        days = [build_day(scaled if m == n else spec) for m, spec in enumerate(specs)]
+        changed = repeatability_reference(REFERENCE, days, max_iterations=limit)
+        for clock, expected in zip(changed.clocks, base.clocks, strict=True):
+            assert clock.folds[j].fits == expected.folds[j].fits
+            assert clock.folds[j].forecast_s == expected.folds[j].forecast_s
