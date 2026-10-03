@@ -81,7 +81,7 @@ Le modèle le plus simple qui marche de bout en bout.
 - `v = pace(pente) × effort`. **Zéro fatigue, zéro altitude, zéro chaleur.**
 - sortie : tableau de temps de passage (CSV/JSON)
 
-**Fini quand** : `mperf project route.gpx --effort 0.92` sort un tableau de passages.
+**Fini quand** : `mperf project route.gpx --curve courbe.csv --effort 0.92` sort un tableau de passages.
 C'est déjà un outil utilisable.
 
 ---

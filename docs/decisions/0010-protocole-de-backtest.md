@@ -539,6 +539,14 @@ pas repondérés. **Cellules** = segments de bornes nominales : un segment de bo
 ancré n'entre pas dans le gabarit et reste hors support. Une performance
 `jour multi-sorties` en est exclue. Le problème se sépare par régime. Pour chaque
 jour `j`, retrait de **toutes** ses lignes (pli).
+*(précision, M4b-3)* Les jours sont les performances du jeu de répétabilité du
+parcours, ordonnées par date ; une performance `jour multi-sorties` est exclue et
+publiée comme telle. Une cellule `(u, k)` est un segment admis dont les bornes
+effectives sont les bornes nominales, identifié par son indice `k` dans la grille
+de score de la référence du parcours : tous les jours ont la même référence, et un
+même indice y a les mêmes bornes nominales et, pour ses cellules, la même classe,
+sinon l'entrée est refusée. Le problème se sépare en quatre sous-problèmes
+indépendants, un par classe de D6 : montée, plat, descente et mixte.
 
 **D8.2 Identification par pli et par régime.** Graphe biparti (jours
 d'apprentissage × segments du régime observés). Contrainte de centrage
@@ -546,6 +554,14 @@ d'apprentissage × segments du régime observés). Contrainte de centrage
 qui sont observés à l'apprentissage relèvent de **plusieurs** composantes : régime
 `R` **indisponible** pour ce pli (`référence non identifiée`). Les segments du
 jour retiré non observés à l'apprentissage sont hors support.
+*(précision, M4b-3)* Pour le pli `j` et la classe `R`, `S_jR` désigne les segments
+de `R` observés par le jour retiré et par au moins un jour d'apprentissage. `S_jR`
+vide : la classe est indisponible pour ce pli (`support insuffisant`). Le graphe se
+construit sur toutes les cellules d'apprentissage de `R`, nulles comprises. Si
+`S_jR` rencontre plusieurs composantes : `référence non identifiée`. Sinon
+l'ajustement porte sur la seule composante qui contient `S_jR`, avec toutes ses
+cellules ; les autres composantes sont ignorées, et le centrage porte sur les jours
+de cette composante.
 
 **D8.3 Résolution et certification.** Résolution directe ou itérative. Résidus
 `e_uk = y_uk − a_k − c_{uR}`. Certification exigée :
@@ -558,12 +574,48 @@ contraintes de centrage à `1e−8` ; en itératif, en plus,
 conditionnement. **Cellule nulle** : une cellule de temps nul requise dans un
 ajustement rend cet ajustement (pli et régime) indisponible, motif `temps nul` ;
 jamais de suppression de la cellule ni de remplacement par un epsilon.
+*(précision, M4b-3)* La résolution est itérative, par moyennes alternées :
+`c_u = 0` au départ ; à chaque itération, `a_k` reçoit la moyenne des `y_uk − c_u`
+sur les jours qui observent `k`, puis `c_u` la moyenne des `y_uk − a_k` sur les
+segments de `u`, puis `c_u ← c_u − m` et `a_k ← a_k + m`, où `m` est la moyenne des
+`c_u`. Les critères sont évalués après ce centrage : les moyennes de résidus, la
+**somme** des `c_u`, et l'incrément des ajustés `a_k + c_u` des cellules d'une
+itération à la suivante (d'où au moins deux itérations). La limite est de 10 000
+itérations, la dernière comprise. La certification contrôle les équations normales
+et la stabilité de l'itération ; elle ne garantit pas une erreur de `1e−8` sur les
+paramètres ni sur les prévisions, qu'un plan mal relié peut amplifier. Une cellule
+nulle de la composante ajustée rend l'ajustement indisponible, que le jour retiré
+observe ou non son segment. Une prévision `exp(a_k)` non finie ou nulle donne
+`erreur du modèle` pour le pli et la classe. Le diagnostic de conditionnement est
+`μ₂`, la seconde valeur propre de `S = D_j^(−1/2) N D_s^(−1) Nᵀ D_j^(−1/2)` sur la
+composante ajustée (`N` : incidence jours × segments des cellules ; `D_j`, `D_s` :
+leurs degrés), `0` pour un seul jour : c'est le facteur asymptotique de contraction
+de l'erreur des moyennes alternées, `0` pour un plan complet, proche de `1` pour
+des jours mal reliés. Il ne dépend que du plan d'observation et vaut pour les onze
+horloges ; il ne mesure pas l'incertitude de `F` et ne change aucun statut. Un
+calcul de `μ₂` non certifié le publie indisponible (`non-convergence`), jamais `0`.
 
 **D8.4 Scores.** `p_jk = exp(a_k)` sur l'intersection des supports ; `|L|`,
 `|E_R|`, `D_R` du jour retiré. `F_q` = moyenne sur les **jours où la métrique `q`
 est calculable**, avec son propre effectif `m_q`. `m_q ≤ 1` → `F_q` indisponible ;
 `m = 2` avec support commun non vide → mention « un seul contraste » ; un régime vu
 par le seul jour retiré → indisponible.
+*(précision, M4b-3)* `S_j` est l'union des `S_jR` ; `P_j` la partie de `S_j` que
+prévoient les ajustements disponibles (certifiés, de prévisions finies et non
+nulles). `|L|` du jour retiré : `S_j` vide, `support insuffisant` ; total observé
+nul sur `S_j`, `temps nul` ; `P_j ≠ S_j`, indisponible, avec le motif de la
+première classe en échec dans l'ordre montée, plat, descente, mixte ; sinon `L` sur
+`S_j` (D5.5). `E_R` et `D_R` : aucun segment de `R` dans `S_j`,
+`support insuffisant` ; un temps nul du jour retiré sur `S_j`, `temps nul` pour
+toutes les classes de `S_j`, quel que soit le sort des ajustements (D5.5) ; classe
+en échec, son motif ; sinon sur ses segments. Une valeur de régime ne contribue à
+`F` que si sa classe a au moins 3 segments dans `S_j` (D7.5, D10.2) ; les valeurs
+des classes trop peu représentées restent publiées. `F_q` est la moyenne
+arithmétique, à poids égal par jour, des `|L|`, des `|E_R|` et des `D_R`
+contributifs ; `m_q ≤ 1` donne `support insuffisant` (moins de deux jours
+contributifs), les causes par jour restant publiées. « Un seul contraste » :
+exactement deux jours éligibles ont au moins une cellule en commun avec un autre
+jour éligible.
 
 **D8.5 Nom.** « Référence prédictive de répétabilité », pas « plancher ». Les
 références de niveau contiennent la progression de la période ; on ne les remplace
