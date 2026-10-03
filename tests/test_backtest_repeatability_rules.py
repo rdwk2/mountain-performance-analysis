@@ -12,6 +12,7 @@ remplacée, est calculée par ``repeatability_reference`` directement, sans le c
 des cas (précision 2 de la relecture du plan).
 """
 
+import math
 from collections.abc import Callable, Mapping
 from dataclasses import replace
 
@@ -24,6 +25,9 @@ from fixtures.repeatability import (
     OTHER_REFERENCE,
     REFERENCE,
     VARIANTES,
+    A,
+    D,
+    X,
     anchored_segment,
     build_day,
     cell_segment,
@@ -273,3 +277,149 @@ def test_uncertified_contraction(monkeypatch: pytest.MonkeyPatch) -> None:
                 )
                 assert restored == expected_fit
     assert with_component > 0
+
+
+# ---------------------------------------------------------------------------
+# Correctifs de la relecture de la PR #18
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("k", "effective"),
+    [(2, (500.0, 745.0)), (1, (255.0, 500.0))],
+    ids=["bord de fin", "bord de début, k > 0"],
+)
+def test_an_anchored_edge_is_never_a_cell(
+    k: int, effective: tuple[float, float]
+) -> None:
+    """Choix 1 : une cellule exige **les deux** bornes nominales (D8.1, D4.2). Un bord
+    ancré qui remplace la cellule ``k`` du second jour de Deux jours donne la même
+    référence que ce jour privé du segment ``k``."""
+    first, second = DEUX_JOURS
+    kept = tuple(s for s in segments_of(second) if s.index != k)
+    edge = anchored_segment(k, effective=effective)
+    with_edge = tuple(sorted((*kept, edge), key=lambda s: s.index))
+    day_with = replace(build_day(second), segments=with_edge)
+    day_without = replace(build_day(second), segments=kept)
+    assert repeatability_reference(
+        REFERENCE, [build_day(first), day_with]
+    ) == repeatability_reference(REFERENCE, [build_day(first), day_without])
+
+
+def test_an_end_edge_alone_gives_no_support() -> None:
+    """Choix 1 : un bord ancré de fin (``[250 ; 495]``) n'est pas la cellule ``1`` :
+    aucun support, aucun contraste."""
+    specs = [day("2026-01-01", {1: (A, tm(100))}), day("2026-01-02", {}, anchored={1})]
+    reference = repeatability_reference(REFERENCE, days_of(specs))
+    assert reference.single_contrast is False
+    for clock in reference.clocks:
+        counts = tuple((f.support_count, f.predicted_count) for f in clock.folds)
+        assert counts == ((0, 0), (0, 0))
+
+
+def test_the_date_is_checked_before_the_reference() -> None:
+    """Choix 5, ordre des préconditions (point soumis 4 du plan) : deux jours à la même
+    date **et** sous deux références lèvent l'erreur de date."""
+    days = [build_day(DEUX_JOURS[0]), build_day(DEUX_JOURS[0], OTHER_REFERENCE)]
+    with pytest.raises(ValueError, match="deux jours à la date 2026-05-20") as raised:
+        repeatability_reference(REFERENCE, days)
+    assert raised.type is ValueError
+
+
+def test_a_class_conflict_after_an_anchored_start_is_refused() -> None:
+    """Choix 5 : le contrôle des bornes et des classes continue après un bord ancré de
+    départ (« un indice, une seule classe sur ses cellules »)."""
+    first = day("2026-08-01", {1: (A, tm(200)), 2: (A, tm(210))}, anchored={0})
+    second = day("2026-08-02", {1: (D, tm(120)), 2: (A, tm(212))})
+    with pytest.raises(ValueError, match="l'indice 1 a deux classes") as raised:
+        repeatability_reference(REFERENCE, days_of([first, second]))
+    assert raised.type is ValueError
+
+
+def test_one_iteration_is_accepted_by_the_reference() -> None:
+    """Choix 5, ``max_iterations >= 1`` : la limite 1 est permise ; aucun ajustement
+    n'est alors certifié (l'incrément vaut ``inf`` à la première itération)."""
+    reference = repeatability_reference(REFERENCE, days_of(COMPLET), max_iterations=1)
+    fits = [
+        fit
+        for clock in reference.clocks
+        for fold in clock.folds
+        for fit in fold.fits
+        if fit.iterations is not None
+    ]
+    assert fits
+    assert all(fit.iterations == 1 for fit in fits)
+    assert all(fit.unavailability is Unavailability.NON_CONVERGENCE for fit in fits)
+
+
+def test_multi_outing_days_are_published_sorted() -> None:
+    """§ 6.4 étape 1, choix 2 : deux jours multi-sorties donnés à rebours sont publiés
+    triés, et la référence ne dépend pas de l'ordre d'entrée."""
+    late = day("2026-05-24", {0: (A, tm(280))}, multi=True)
+    early = day("2026-05-22", {0: (A, tm(280))}, multi=True)
+    days = [*days_of(DEUX_JOURS), build_day(late), build_day(early)]
+    reference = repeatability_reference(REFERENCE, days)
+    assert [str(d) for d in reference.multi_outing_days] == ["2026-05-22", "2026-05-24"]
+    assert reference == repeatability_reference(REFERENCE, days[::-1])
+
+
+def test_the_published_reference_is_the_one_received() -> None:
+    """§ 6.4 étape 7 : ``RepeatabilityReference.reference`` est la référence reçue."""
+    reference = repeatability_reference(REFERENCE, days_of(DEUX_JOURS))
+    assert reference.reference == REFERENCE
+
+
+def test_a_mixed_class_of_three_segments_contributes() -> None:
+    """Décisions 7 et 8 : le mixte est un sous-problème comme les autres et contribue à
+    ``F`` avec trois segments. Deux jours, trois segments mixtes chacun, 100 puis
+    120 s : sous l'écoulé, ``F`` de ``|E_R|`` du mixte vaut ``ln 1,2``, effectif 2."""
+    days = days_of(
+        [
+            day("2026-01-01", {k: (X, tm(100)) for k in range(3)}),
+            day("2026-01-02", {k: (X, tm(120)) for k in range(3)}),
+        ]
+    )
+    reference = repeatability_reference(REFERENCE, days)
+    for clock in reference.clocks:
+        assert (clock.log_ratios[3].count, clock.dispersions[3].count) == (2, 2)
+        assert all(fold.classes[3].contributes for fold in clock.folds)
+    value = reference.clocks[0].log_ratios[3].value
+    assert value == pytest.approx(math.log(1.2), abs=1e-12)
+
+
+def test_an_interleaved_other_component_is_ignored() -> None:
+    """§ 6.4 étape 4.2, « sinon la composante qui les contient » : une autre composante
+    d'apprentissage, datée **entre** deux jours de la composante rencontrée, est
+    ignorée. Montée ; le pli du 2026-08-04 s'ajuste sur deux jours, deux segments,
+    quatre cellules."""
+    specs = [
+        day("2026-08-01", {0: (A, tm(200)), 1: (A, tm(210))}),
+        day("2026-08-02", {5: (A, tm(300)), 6: (A, tm(310))}),
+        day("2026-08-03", {0: (A, tm(205)), 1: (A, tm(214))}),
+        day("2026-08-04", {0: (A, tm(207)), 1: (A, tm(212))}),
+    ]
+    fold = repeatability_reference(REFERENCE, days_of(specs)).clocks[0].folds[3]
+    fit = fold.fits[0]
+    assert fit.unavailability is None
+    assert (fit.training_days, fit.training_segments, fit.training_cells) == (2, 2, 4)
+    assert fold.level.value is not None
+
+
+def test_forecasts_below_one_second_are_valid() -> None:
+    """§ 6.4 étape 4.7, prévision « finie et ``> 0`` » : une prévision de 0,2 s n'est
+    pas une erreur du modèle (Complet, temps divisés par 1 000)."""
+    specs = [
+        day(
+            spec.date,
+            {
+                k: (c, tuple(t / 1000 for t in times))
+                for k, (c, times) in spec.cells.items()
+            },
+        )
+        for spec in COMPLET
+    ]
+    elapsed = repeatability_reference(REFERENCE, days_of(specs)).clocks[0]
+    for fold in elapsed.folds:
+        assert fold.level.value is not None
+        assert fold.forecast_s
+        assert all(0 < p < 1 for _, p in fold.forecast_s)
