@@ -35,6 +35,12 @@ Conclusion : `just check` vert (3 125 tests, contre 2 800). Environ 6 000 lignes
 `src/mountain_perf/schemas/repeatability.py`, `src/mountain_perf/backtest/repeatability.py`,
 `tests/fixtures/repeatability*.py`, `tests/test_*repeatability*.py`,
 `tests/test_readme_examples.py`, `0010` D8 ; branche `m4b/repetabilite`.
+Correctifs de la relecture (deux relectures C et le balayage de mutation de la conception) :
+le contrat de `ClassFit` vérifie que `residuals` est un tuple (§ 6.1) ; quinze règles
+écrites reçoivent un test (bords ancrés de fin, critères après le centrage, constantes,
+résidus publiés, ordre des préconditions, horloges distinctes, jours multi-sorties triés,
+référence publiée, mixte contributif, composantes entremêlées, bord ancré de départ,
+prévisions sous une seconde, limite de Jacobi, une itération, indépendance du jour retiré).
 
 ### 2026-10-02 · docs — Figure de la chaîne dans le README
 Mission documentaire hors jalons. `scripts/readme_figure.py` écrit un tracé GPX
