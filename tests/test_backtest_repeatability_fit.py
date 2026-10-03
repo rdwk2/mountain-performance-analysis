@@ -12,6 +12,7 @@ Les préconditions exigent ``ValueError`` **exactement** : ``ContractError`` en 
 sous-classe et passerait pour une mauvaise raison.
 """
 
+import inspect
 import math
 import random
 
@@ -22,13 +23,21 @@ from hypothesis import strategies as st
 from fixtures.repeatability import (
     COMPLET,
     LENT,
+    LENT_LIMITE_MAX_ITERATIONS,
     VARIANTES,
     A,
     close,
     log_cells,
     plan_cells,
 )
-from mountain_perf.backtest import contraction_rate, two_way_fit
+from mountain_perf.backtest import (
+    JACOBI_MAX_SWEEPS,
+    JACOBI_OFF_DIAGONAL_TOLERANCE,
+    MAX_ITERATIONS,
+    contraction_rate,
+    repeatability_reference,
+    two_way_fit,
+)
 
 E, M1 = 0, 1
 """Indices de l'écoulé et de ``M θ1`` dans ``CLOCKS`` (§ 7.0)."""
@@ -231,3 +240,99 @@ def test_contraction_rate_properties(
     complete = contraction_rate({(u, k) for u in days for k in segments})
     assert complete is not None
     assert abs(complete) <= 1e-12
+
+
+# ---------------------------------------------------------------------------
+# Correctifs de la relecture de la PR #18
+# ---------------------------------------------------------------------------
+
+
+SIX_CELLS = {
+    (0, 0): 81,
+    (1, 0): 184,
+    (1, 3): 371,
+    (2, 1): 125,
+    (2, 2): 104,
+    (2, 3): 351,
+}
+TEN_CELLS = {
+    (0, 0): 203,
+    (1, 0): 331,
+    (2, 0): 63,
+    (3, 0): 361,
+    (3, 1): 249,
+    (3, 2): 346,
+    (4, 0): 388,
+    (4, 1): 479,
+    (4, 2): 70,
+    (5, 0): 253,
+}
+
+
+def test_criteria_are_evaluated_after_the_centering() -> None:
+    """Choix 3, § 6.2 étape 2.4 : les critères sont évalués **après** le centrage. Sur
+    ces deux plans (temps en secondes, ``y = ln t``), les évaluer avant donne une
+    itération de plus (49 au lieu de 48 ; 24 au lieu de 23, donc non certifié à 23) ;
+    comptes de la conception et de la relecture C, chacune par sa propre écriture du
+    § 6.2."""
+    six = two_way_fit({cell: math.log(t) for cell, t in SIX_CELLS.items()})
+    assert (six.certified, six.iterations) == (True, 48)
+    ten = two_way_fit({cell: math.log(t) for cell, t in TEN_CELLS.items()}, 23)
+    assert (ten.certified, ten.iterations) == (True, 23)
+
+
+def test_backtest_constants_and_defaults() -> None:
+    """Décision 1 de rdw (10 000 itérations, la dernière comprise), choix 4 (50
+    balayages, ``off <= 1e−24``) ; ce sont les valeurs par défaut des trois
+    fonctions."""
+    assert MAX_ITERATIONS == 10_000
+    assert JACOBI_MAX_SWEEPS == 50
+    assert JACOBI_OFF_DIAGONAL_TOLERANCE == 1e-24
+    for function in (two_way_fit, repeatability_reference):
+        default = inspect.signature(function).parameters["max_iterations"].default
+        assert default == 10_000
+    assert inspect.signature(contraction_rate).parameters["max_sweeps"].default == 50
+
+
+@pytest.mark.parametrize("limit", [10_000, LENT_LIMITE_MAX_ITERATIONS])
+def test_residuals_are_the_criteria_of_the_published_state(limit: int) -> None:
+    """§ 6.1 ``TwoWayFit.residuals`` : les critères de D8.3 **à la dernière itération**,
+    dans l'ordre (moyennes de résidus par segment, par jour, ``|Σ c_u|``, incrément
+    maximal), recalculés ici sur les effets publiés et sur ceux de l'itération d'avant —
+    pli ``2026-10-01`` de Lent sous ``E``, certifié (91) et non certifié (70)."""
+    log_times = log_cells(LENT, 0, A, without=0)
+    fit = two_way_fit(log_times, limit)
+    a, c = dict(fit.segment_effects), dict(fit.day_effects)
+    e = {(u, k): (y - a[k]) - c[u] for (u, k), y in log_times.items()}
+    by_segment = max(
+        abs(
+            math.fsum(v for (_, j), v in e.items() if j == k)
+            / [j for _, j in e].count(k)
+        )
+        for k in a
+    )
+    by_day = max(
+        abs(
+            math.fsum(v for (w, _), v in e.items() if w == u)
+            / [w for w, _ in e].count(u)
+        )
+        for u in c
+    )
+    before = two_way_fit(log_times, fit.iterations - 1)
+    pa, pc = dict(before.segment_effects), dict(before.day_effects)
+    increment = max(abs((a[k] + c[u]) - (pa[k] + pc[u])) for u, k in log_times)
+    expected = (by_segment, by_day, abs(math.fsum(c.values())), increment)
+    assert fit.residuals == expected
+    assert fit.certified is (limit == 10_000)
+
+
+def test_the_jacobi_sweep_limit_is_counted() -> None:
+    """Choix 4 : « au plus ``max_sweeps`` balayages, sinon ``None`` », contrôle avant
+    chaque balayage et après le dernier. Trois jours en chaîne : trois balayages ; deux
+    jours : un (comptes exacts, opérations IEEE correctement arrondies)."""
+    chain = [(0, 0), (0, 1), (1, 1), (1, 2), (2, 2), (2, 3)]
+    assert contraction_rate(chain, max_sweeps=2) is None
+    assert contraction_rate(chain, max_sweeps=3) == pytest.approx(0.75, abs=1e-12)
+    two = [(0, 0), (0, 1), (1, 1), (1, 2)]
+    assert contraction_rate(two, max_sweeps=0) is None
+    assert contraction_rate(two, max_sweeps=1) == pytest.approx(0.5, abs=1e-12)
