@@ -136,6 +136,8 @@ src/mountain_perf/     le code de la bibliothèque
     repeatability.py   TwoWayFit, RepeatabilityDay, ClassFit, ClassScore, FoldScores,
                        ClockReference, RepeatabilityReference : référence de
                        répétabilité (M4b-3)
+    registry.py        EventKind, ModelKind, Declaration, Result, Failure, RegistryEvent,
+                       RegistryLog, TrialCounts… : registre des expériences (M4b-4)
     _dictionary.py     rendu du dictionnaire de données depuis les docstrings
   gpx/                 lecture GPX, profil, grille de pente (M2)
     geo.py             haversine 2D, polyligne dédoublonnée, projection point-segment
@@ -161,6 +163,8 @@ src/mountain_perf/     le code de la bibliothèque
                        score_outing, report_clocks, v0_scores : scores de v0 brut (M4b-2)
     repeatability.py   two_way_fit, contraction_rate, repeatability_reference : référence
                        D8 d'un parcours (M4b-3)
+    codec.py           écriture canonique des contrats en JSON, documents (M4b-4)
+    registry.py        journal, documents, ajout, relecture, comptage des essais (M4b-4)
   ingest/              acquisition et normalisation Garmin (M6b)
   ui/                  interface — appelle la bibliothèque, ne calcule rien (M5)
   cli.py               mperf profile <fichier.gpx>, compte-rendu ou CSV sur stdout ;

@@ -83,6 +83,29 @@
 - `FoldScores`
 - `ClockReference`
 - `RepeatabilityReference`
+- `EventKind`
+- `ModelKind`
+- `ExperimentMetric`
+- `ReferenceSource`
+- `FailureKind`
+- `DeclaredPerformance`
+- `Exclusion`
+- `DeclaredModel`
+- `DeclaredEffect`
+- `DeclaredUsageTarget`
+- `FrozenReference`
+- `ExperimentDeclaration`
+- `Declaration`
+- `ModelResult`
+- `OutingResult`
+- `RepeatabilityRecord`
+- `Result`
+- `Failure`
+- `RegistryEvent`
+- `RegistryLog`
+- `OutingOutcome`
+- `ExperimentTrials`
+- `TrialCounts`
 
 ---
 
@@ -4170,3 +4193,1004 @@ Le rapport (M4b-5) ; les seuils d'admission (M4c).
 
 Aucune valeur n'est agrégée sur plusieurs parcours ; le contrat ne recalcule ni
 `F` ni les plis.
+
+---
+
+## `EventKind`
+
+*`mountain_perf.schemas.registry` · énumération*
+
+| Membre | Valeur | Description |
+|---|---|---|
+| `DECLARATION` | `declaration` | Déclaration : ce qui est évalué, avec quoi, sur quoi, figé avant le calcul ; compte pour un essai, corrections comprises. |
+| `RESULT` | `result` | Résultat : ce qu'une exécution a produit pour une déclaration, sortie par sortie, documents cités par empreinte. |
+| `FAILURE` | `failure` | Échec : erreur technique ou non-évaluabilité d'une déclaration, avec son motif. |
+
+Type d'un événement du registre (`0010` D14).
+
+#### Champs
+
+Valeurs décrites dans `EVENT_KIND_DESCRIPTIONS`.
+
+#### Invariants
+
+Énumération fermée ; un événement porte le contenu de son type, et lui seul.
+
+#### Producteur
+
+Les ajouts du registre (`mountain_perf.backtest.registry`).
+
+#### Consommateurs
+
+`RegistryEvent`, `RegistryLog` ; le comptage des essais.
+
+#### Non promis
+
+Le type ne dit pas si l'événement est en vigueur : c'est `RegistryLog` qui sait
+s'il a été corrigé.
+
+---
+
+## `ModelKind`
+
+*`mountain_perf.schemas.registry` · énumération*
+
+| Membre | Valeur | Description |
+|---|---|---|
+| `V0_RAW` | `v0_raw` | v0 brut : la courbe, effort 1, sans calage (D9.1). |
+| `V0_RECALIBRATED` | `v0_recalibrated` | v0 + effort recalé : le comparateur, base (0) de toute expérience (D9.1, D10.1). |
+| `CONSTANT_SPEED` | `constant_speed` | Vitesse constante : baseline (D9.1). |
+| `NAISMITH` | `naismith` | Naismith : baseline, 5 km/h + 1 h par 600 m de D+ (D9.1). |
+| `TOBLER` | `tobler` | Tobler : baseline (D9.1). |
+| `CANDIDATE` | `candidate` | Candidat (1) : la base plus l'effet testé (D10.1). |
+
+Nature d'un modèle évalué (`0010` D9.1, D10.1).
+
+#### Champs
+
+Valeurs décrites dans `MODEL_KIND_DESCRIPTIONS`.
+
+#### Invariants
+
+Énumération fermée : les cinq modèles de D9.1 et le candidat de D10.1.
+
+#### Producteur
+
+L'appelant d'une déclaration (M4b-5 pour v0 brut, M4c pour les autres).
+
+#### Consommateurs
+
+`DeclaredModel`, `ExperimentDeclaration`, `ModelResult`, `OutingOutcome` ;
+l'accord d'un résultat avec sa déclaration (`CURVE_MODELS`).
+
+#### Non promis
+
+La nature ne dit ni la version ni les paramètres : ils sont dans la déclaration du
+modèle.
+
+---
+
+## `ExperimentMetric`
+
+*`mountain_perf.schemas.registry` · énumération*
+
+| Membre | Valeur | Description |
+|---|---|---|
+| `LEVEL` | `level` | \|L\| : niveau sur tout le support ; garde-fou, jamais une cible (D10.1). |
+| `ASCENT_LEVEL` | `ascent_level` | \|E_montée\| : niveau de la classe montée. |
+| `FLAT_LEVEL` | `flat_level` | \|E_plat\| : niveau de la classe plat. |
+| `DESCENT_LEVEL` | `descent_level` | \|E_descente\| : niveau de la classe descente. |
+| `ASCENT_DISPERSION` | `ascent_dispersion` | D_montée : dispersion de la classe montée. |
+| `FLAT_DISPERSION` | `flat_dispersion` | D_plat : dispersion de la classe plat. |
+| `DESCENT_DISPERSION` | `descent_dispersion` | D_descente : dispersion de la classe descente. |
+| `USAGE` | `usage` | q_usage : cible d'usage aux passages de K (D7.4) ; seuil fixe, sans référence figée (D10.3). |
+
+Métrique d'une expérience : cible ou référence figée (`0010` D10.1, D10.3).
+
+#### Champs
+
+Valeurs décrites dans `EXPERIMENT_METRIC_DESCRIPTIONS`.
+
+#### Invariants
+
+Énumération fermée : `|L|`, `|E_R|` et `D_R` pour montée, plat, descente,
+`q_usage`, dans cet ordre (celui du comptage des essais).
+
+#### Producteur
+
+L'appelant d'une déclaration d'expérience (M4c).
+
+#### Consommateurs
+
+`ExperimentDeclaration`, `FrozenReference`, `ExperimentTrials`.
+
+#### Non promis
+
+`|L|` est un membre parce qu'une référence figée peut le porter (garde-fou de
+D10.4) ; ce n'est jamais une cible. Mixte n'a pas de membre (D6).
+
+---
+
+## `ReferenceSource`
+
+*`mountain_perf.schemas.registry` · énumération*
+
+| Membre | Valeur | Description |
+|---|---|---|
+| `LOCAL` | `local` | Locale : la référence D8 du parcours (D10.3, 1). |
+| `BORROWED` | `borrowed` | Empruntée : moyenne à poids égal des références disponibles de ses donneurs, figée avec eux (D10.3, 2). |
+
+Source d'une référence figée (`0010` D10.3).
+
+#### Champs
+
+Valeurs décrites dans `REFERENCE_SOURCE_DESCRIPTIONS`.
+
+#### Invariants
+
+Énumération fermée : locale ou empruntée ; le seuil fixe n'a pas de référence.
+
+#### Producteur
+
+L'appelant d'une déclaration d'expérience (M4c).
+
+#### Consommateurs
+
+`FrozenReference` ; les seuils de D10.3 et D10.4 (M4c).
+
+#### Non promis
+
+L'ordre local → emprunté → fixe n'est pas appliqué ici (M4c).
+
+---
+
+## `FailureKind`
+
+*`mountain_perf.schemas.registry` · énumération*
+
+| Membre | Valeur | Description |
+|---|---|---|
+| `TECHNICAL` | `technical` | Erreur technique : l'exécution n'a pas abouti. |
+| `NOT_EVALUABLE` | `not_evaluable` | Non-évaluabilité : l'expérience déclarée ne peut pas être évaluée. |
+
+Nature d'un ÉCHEC (`0010` D14).
+
+#### Champs
+
+Valeurs décrites dans `FAILURE_KIND_DESCRIPTIONS`.
+
+#### Invariants
+
+Énumération fermée.
+
+#### Producteur
+
+L'appelant de `append_failure` (M4b-5).
+
+#### Consommateurs
+
+`Failure` ; le rapport (M4b-5).
+
+#### Non promis
+
+La nature ne dit pas quelle sortie a manqué : le motif le dit.
+
+---
+
+## `DeclaredPerformance`
+
+*`mountain_perf.schemas.registry` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `performance` | `Performance` | — |
+| `origin` | `datetime` | — |
+
+Une performance déclarée et son origine `o_j` (`0010` D0, D2.5, D14).
+
+#### Champs
+
+- `performance` — sans unité — la performance telle que le manifeste la décrit
+  (M4a, telle quelle) : sorties, fichiers, rôles, instants de disponibilité, jeu,
+  étiquette.
+- `origin` — instant — `o_j`, *aware*, stocké en UTC.
+
+#### Invariants
+
+- `origin` porte un fuseau ; il est normalisé en UTC à la construction ;
+- `origin` précède **strictement** le départ de la première sortie.
+
+#### Producteur
+
+`declared_performance` (`mountain_perf.backtest.registry`).
+
+#### Consommateurs
+
+`Declaration` ; le test d'éligibilité à J−7 (M4c).
+
+#### Non promis
+
+L'origine n'est pas recalculée depuis le jour civil : c'est
+`declared_performance` qui applique D2.5.
+
+---
+
+## `Exclusion`
+
+*`mountain_perf.schemas.registry` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `outing_id` | `str` | — |
+| `reason` | `str` | — |
+
+Une sortie écartée, et pourquoi (`0010` D0, D10.1, D14).
+
+#### Champs
+
+- `outing_id` — sans unité — l'identifiant de la sortie.
+- `reason` — sans unité — le motif, en clair.
+
+#### Invariants
+
+`outing_id` et `reason` non vides.
+
+#### Producteur
+
+L'appelant d'une déclaration ou d'un résultat (M4b-5).
+
+#### Consommateurs
+
+`Declaration.exclusions` (sorties écartées d'une règle) ; `Result.unscored`
+(sorties déclarées non scorées) ; le rapport (M4b-5).
+
+#### Non promis
+
+Le motif ne nomme pas de chemin de fichier (règle 1) : c'est à l'appelant d'y
+veiller.
+
+---
+
+## `DeclaredModel`
+
+*`mountain_perf.schemas.registry` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `kind` | `ModelKind` | — |
+| `engine_version` | `str` | — |
+| `parameters` | `ParameterSet \| None` | — |
+| `estimation_rule` | `str \| None` | — |
+
+Un modèle évalué, déclaré avant l'exécution (`0010` D9, D14).
+
+#### Champs
+
+- `kind` — sans unité — la nature du modèle.
+- `engine_version` — sans unité — la version que ses prévisions recopient.
+- `parameters` — sans unité — les paramètres fixés avant l'exécution.
+- `estimation_rule` — sans unité — la règle d'estimation des paramètres appris,
+  en clair.
+
+#### Invariants
+
+- `engine_version` non vide ; `estimation_rule` absente ou non vide ;
+- **au moins un** de `parameters` et `estimation_rule` présent (les deux sont
+  permis : v0 + effort recalé a des paramètres de départ et une règle).
+
+#### Producteur
+
+L'appelant d'une déclaration (M4b-5, M4c).
+
+#### Consommateurs
+
+`Declaration` ; l'accord d'un résultat avec sa déclaration (version, paramètres
+des modèles sans règle).
+
+#### Non promis
+
+La règle n'est pas exécutée ni vérifiée : elle est déclarée.
+
+---
+
+## `DeclaredEffect`
+
+*`mountain_perf.schemas.registry` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `name` | `str` | — |
+| `description` | `str` | — |
+| `parameters` | `ParameterSet \| None` | — |
+| `estimation_rule` | `str \| None` | — |
+
+L'effet testé par une expérience (`0010` D10.1, D9.3).
+
+#### Champs
+
+- `name` — sans unité — le nom de l'effet.
+- `description` — sans unité — ce qu'il fait, en clair.
+- `parameters` — sans unité — ses paramètres fixés.
+- `estimation_rule` — sans unité — sa règle d'estimation, en clair.
+
+#### Invariants
+
+- `name` et `description` non vides ; `estimation_rule` absente ou non vide ;
+- au moins un de `parameters` et `estimation_rule` présent.
+
+#### Producteur
+
+L'appelant d'une déclaration d'expérience (M4c).
+
+#### Consommateurs
+
+`ExperimentDeclaration` ; le comptage des essais, par nom.
+
+#### Non promis
+
+Deux effets de même nom sont le même effet pour le comptage des essais.
+
+---
+
+## `DeclaredUsageTarget`
+
+*`mountain_perf.schemas.registry` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `route_id` | `str` | — |
+| `members` | `tuple[TargetMember, ...]` | — |
+| `weights` | `tuple[float, ...] \| None` | — |
+
+`K` et ses poids, déclarés pour un parcours (`0010` D7.4, D10.1).
+
+#### Champs
+
+- `route_id` — sans unité — le parcours.
+- `members` — sans unité — les éléments de `K`, dans l'ordre du parcours.
+- `weights` — sans unité — les `w_k` ; absents : les poids par défaut de D7.4
+  (proportionnels au temps projeté par la base).
+
+#### Invariants
+
+- `route_id` non vide ; `members` est un tuple, `weights` aussi s'il est
+  présent ;
+- `members` non vide ; le dernier élément est l'arrivée, et lui seul ;
+- les `occurrence_index` présents sont **strictement** croissants ;
+- `weights` présents : un poids par élément, chacun fini et `>= 0`, de somme 1
+  à `WEIGHT_SUM_TOLERANCE` près — la règle de `UsageTarget` (M4b-1), écrite de
+  même, pour que des poids acceptés ici le soient par `usage_target` en M4c.
+
+#### Producteur
+
+L'appelant d'une déclaration d'expérience de cible `q_usage` (M4c).
+
+#### Consommateurs
+
+`ExperimentDeclaration` ; `usage_target` (M4c).
+
+#### Non promis
+
+« Départ exclu » et `P_k^(0) > 0` (D7.4) ne sont pas vérifiés : ils demandent
+les rôles des lieux et la prévision de la base (M4c).
+
+---
+
+## `FrozenReference`
+
+*`mountain_perf.schemas.registry` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `metric` | `ExperimentMetric` | — |
+| `clock` | `Clock` | — |
+| `source` | `ReferenceSource` | — |
+| `route_id` | `str \| None` | — |
+| `value` | `MetricValue` | — |
+| `donors` | `tuple[str, ...]` | — |
+
+Une valeur de référence figée et sa source (`0010` D10.3).
+
+#### Champs
+
+- `metric` — sans unité — la métrique.
+- `clock` — sans unité — l'horloge.
+- `source` — sans unité — locale ou empruntée.
+- `route_id` — sans unité — le parcours d'une référence locale.
+- `value` — sans unité — `F` et son effectif `m_q`, ou son motif (M4b-1).
+- `donors` — sans unité — les parcours donneurs d'une référence empruntée.
+
+#### Invariants
+
+- `donors` est un tuple de noms non vides ; `route_id` absent ou non vide ;
+- `metric` n'est pas `USAGE` (`q_usage` a un seuil fixe, D10.3) ;
+- locale : `route_id` présent, `donors` vide ;
+- empruntée : `route_id` absent, `donors` non vide, de noms distincts.
+
+#### Producteur
+
+L'appelant d'une déclaration d'expérience (M4c), depuis les références D8.
+
+#### Consommateurs
+
+`ExperimentDeclaration` ; les seuils de D10.3 et D10.4 (M4c).
+
+#### Non promis
+
+La valeur n'est pas recalculée, ni depuis D8, ni comme moyenne des donneurs.
+
+---
+
+## `ExperimentDeclaration`
+
+*`mountain_perf.schemas.registry` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `effect` | `DeclaredEffect` | — |
+| `target` | `ExperimentMetric` | — |
+| `clock` | `Clock` | — |
+| `scenario` | `Scenario` | — |
+| `base` | `ModelKind` | — |
+| `candidate` | `ModelKind` | — |
+| `usage_targets` | `tuple[DeclaredUsageTarget, ...]` | — |
+| `frozen_references` | `tuple[FrozenReference, ...]` | — |
+| `analysis_date` | `date \| None` | — |
+
+La partie « expérience » d'une déclaration (`0010` D10.1, D10.3, D10.7).
+
+#### Champs
+
+- `effect` — sans unité — l'effet testé.
+- `target` — sans unité — la cible `q`.
+- `clock` — sans unité — l'horloge de la cible.
+- `scenario` — sans unité — le scénario de l'expérience : celui de ses scores, de
+  son calage et de la projection qui classe les performances comparables (D9.2,
+  D10.3).
+- `base` — sans unité — le modèle de base `(0)`.
+- `candidate` — sans unité — le candidat `(1)`.
+- `usage_targets` — sans unité — `K` et ses poids, par parcours ; vide : le
+  `K` par défaut.
+- `frozen_references` — sans unité — les références figées et leur source.
+- `analysis_date` — date civile — la date d'analyse fixée d'avance (D10.7) ;
+  absente pour une admission exploratoire.
+
+#### Invariants
+
+- `usage_targets` et `frozen_references` sont des tuples ;
+- `target` n'est pas `LEVEL` (`|L|` n'est pas une cible) ;
+- `base` vaut `V0_RECALIBRATED` ; `candidate` vaut `CANDIDATE` ;
+- `usage_targets` non vide ⇒ `target` vaut `USAGE` ;
+- `target` vaut `USAGE` ⇒ `scenario` vaut `USAGE` (`q_usage` ne se
+  calcule qu'en usage, D7.4) ;
+- les parcours des `usage_targets` sont distincts ;
+- les clés `(metric, clock, source, route_id)` des références figées sont
+  distinctes ;
+- chaque donneur d'une référence empruntée a une référence locale de même
+  `metric`, de même `clock`, pour ce parcours, disponible.
+
+#### Producteur
+
+L'appelant d'une déclaration d'expérience (M4c).
+
+#### Consommateurs
+
+`Declaration` ; le comptage des essais (effet × cible) ; l'admission (M4c).
+
+#### Non promis
+
+Les règles de D10 (évaluabilité, seuils, garde-fous, ordre local → emprunté →
+fixe) ne sont pas appliquées ici (M4c) ; la date d'analyse n'est comparée ni à
+l'instant de la déclaration ni aux origines (M4c).
+
+---
+
+## `Declaration`
+
+*`mountain_perf.schemas.registry` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `commit` | `str` | — |
+| `tree_modified` | `bool` | — |
+| `protocol_record` | `str` | — |
+| `athlete_ref` | `str` | — |
+| `matching` | `ParameterSet` | — |
+| `clocks` | `tuple[Clock, ...]` | — |
+| `curve_ref` | `str` | — |
+| `curve` | `ArtifactRef` | — |
+| `curve_metadata` | `ArtifactRef` | — |
+| `manifest` | `SourceRef` | — |
+| `performances` | `tuple[DeclaredPerformance, ...]` | — |
+| `exclusions` | `tuple[Exclusion, ...]` | — |
+| `models` | `tuple[DeclaredModel, ...]` | — |
+| `experiment` | `ExperimentDeclaration \| None` | — |
+
+| Propriété calculée | Type | Sens |
+|---|---|---|
+| `outing_ids` | `tuple[str, ...]` | Les identifiants des sorties des performances, dans l'ordre. |
+| `route_ids` | `frozenset[str]` | Les parcours (`route_id` non `None`) des sorties des performances. |
+| `artifacts` | `tuple[ArtifactRef, ...]` | Tous les fichiers déclarés (D2.6) : la courbe, son compagnon, puis, sortie par sortie, ses traces, ses doublons et sa référence si elle en a une. |
+
+Le contenu d'une DÉCLARATION (`0010` D14, D2.6, D10.1).
+
+#### Champs
+
+- `commit` — sans unité — le commit du code exécuté.
+- `tree_modified` — sans unité — l'arbre de travail portait des modifications
+  non commitées.
+- `protocol_record` — sans unité — le decision record du protocole (`"0010"`).
+- `athlete_ref` — sans unité — l'athlète du manifeste et de la courbe.
+- `matching` — sans unité — les paramètres de l'appariement (`Δ`, `ε`,
+  `r_c`).
+- `clocks` — sans unité — les horloges de l'exécution.
+- `curve_ref` — sans unité — la référence de la courbe.
+- `curve` — sans unité — le CSV de la courbe.
+- `curve_metadata` — sans unité — son compagnon `.meta.json`.
+- `manifest` — sans unité — le manifeste lu, cité par son empreinte, sans rôle.
+- `performances` — sans unité — les performances évaluées.
+- `exclusions` — sans unité — les sorties écartées, avec leur motif.
+- `models` — sans unité — les modèles évalués.
+- `experiment` — sans unité — l'expérience ; absente sans effet testé.
+
+Propriétés calculées (jamais stockées) : `outing_ids`, `route_ids`,
+`artifacts`.
+
+#### Invariants
+
+1. `protocol_record`, `athlete_ref`, `curve_ref` non vides ; `clocks`,
+   `performances`, `exclusions`, `models` sont des tuples ;
+2. `commit` : 40 caractères hexadécimaux **minuscules** ;
+3. `clocks` non vide ; chaque horloge est dans `CLOCKS` ; leurs rangs dans
+   `CLOCKS` sont strictement croissants (sous-suite, sans doublon) ;
+4. `curve` et `curve_metadata` ont le rôle `FORECAST_INPUT` ; `curve_ref`
+   vaut `"<nom du CSV>#<12 premiers caractères de son sha256>"` ;
+5. jours civils des performances strictement croissants ; chaque sortie a
+   l'`athlete_ref` déclaré ; identifiants de sortie distincts sur toutes les
+   performances ;
+6. `exclusions` : identifiants distincts ;
+7. `models` non vide, de natures distinctes ;
+8. `experiment` présente : sa base puis son candidat sont des natures de
+   `models` ; son horloge et celle de chaque référence figée sont dans
+   `clocks` ; le parcours de chaque `K` est dans `route_ids`.
+
+#### Producteur
+
+L'appelant de `append_declaration` (M4b-5, M4c).
+
+#### Consommateurs
+
+`RegistryEvent` ; l'accord d'un résultat avec sa déclaration ; le comptage des
+essais ; le test d'éligibilité à J−7 (M4c).
+
+#### Non promis
+
+- les fichiers ne sont pas relus (empreintes de leur lecture) ;
+- `matching` n'est pas recoupé avec `MATCHING_PARAMETER_SPECS` ;
+- une exclusion peut nommer une sortie des performances (exclue d'une règle, pas
+  du registre) ;
+- l'éligibilité à J−7 (D2.6) n'est pas évaluée (M4c).
+
+---
+
+## `ModelResult`
+
+*`mountain_perf.schemas.registry` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `model` | `ModelKind` | — |
+| `control` | `str` | — |
+| `usage` | `str \| None` | — |
+
+Les documents des scores d'un modèle sur une sortie (`0010` D14).
+
+#### Champs
+
+- `model` — sans unité — la nature du modèle.
+- `control` — sans unité — le `sha256` du document `ScenarioScores` du
+  contrôle, prévision comprise.
+- `usage` — sans unité — celui de l'usage ; absent sans référence (D3).
+
+#### Invariants
+
+`control` et `usage` présent sont des `sha256`.
+
+#### Producteur
+
+`append_result` (`mountain_perf.backtest.registry`).
+
+#### Consommateurs
+
+`OutingResult` ; la relecture et la vérification du registre ;
+`load_outcomes`.
+
+#### Non promis
+
+Le contrat ne lit pas les documents.
+
+---
+
+## `OutingResult`
+
+*`mountain_perf.schemas.registry` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `outing_id` | `str` | — |
+| `coverage` | `Coverage` | — |
+| `observation` | `str` | — |
+| `models` | `tuple[ModelResult, ...]` | — |
+
+Une sortie scorée d'un RÉSULTAT (`0010` D14, D4.11).
+
+#### Champs
+
+- `outing_id` — sans unité — la sortie.
+- `coverage` — sans unité — sa couverture (D4.11).
+- `observation` — sans unité — le `sha256` du document `OutingObservation`.
+- `models` — sans unité — les documents de chaque modèle.
+
+#### Invariants
+
+- `outing_id` non vide ; `observation` est un `sha256` ; `models` est un
+  tuple ;
+- `models` non vide, de modèles distincts ;
+- `usage` présent pour tous les modèles ou pour aucun.
+
+#### Producteur
+
+`append_result` (`mountain_perf.backtest.registry`).
+
+#### Consommateurs
+
+`Result` ; la relecture et la vérification du registre ; `load_outcomes`.
+
+#### Non promis
+
+Le contrat ne lit pas les documents ; rien ne relie la couverture à
+l'observation.
+
+---
+
+## `RepeatabilityRecord`
+
+*`mountain_perf.schemas.registry` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `route_id` | `str` | — |
+| `reference` | `str` | — |
+
+Une référence D8 d'un RÉSULTAT (`0010` D8, D14).
+
+#### Champs
+
+- `route_id` — sans unité — le parcours.
+- `reference` — sans unité — le `sha256` du document
+  `RepeatabilityReference`.
+
+#### Invariants
+
+`route_id` non vide ; `reference` est un `sha256`.
+
+#### Producteur
+
+`append_result` (`mountain_perf.backtest.registry`).
+
+#### Consommateurs
+
+`Result` ; la relecture et la vérification du registre ; `load_references`.
+
+#### Non promis
+
+Le contrat ne lit pas le document.
+
+---
+
+## `Result`
+
+*`mountain_perf.schemas.registry` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `outings` | `tuple[OutingResult, ...]` | — |
+| `unscored` | `tuple[Exclusion, ...]` | — |
+| `references` | `tuple[RepeatabilityRecord, ...]` | — |
+
+Le contenu d'un RÉSULTAT (`0010` D14, D0).
+
+#### Champs
+
+- `outings` — sans unité — les sorties scorées.
+- `unscored` — sans unité — les sorties déclarées non scorées, avec leur motif.
+- `references` — sans unité — les références D8 des parcours.
+
+#### Invariants
+
+- `outings`, `unscored` et `references` sont des tuples ;
+- les identifiants de `outings` et de `unscored`, pris ensemble, sont
+  distincts ;
+- les parcours de `references` sont distincts.
+
+#### Producteur
+
+`append_result` (`mountain_perf.backtest.registry`).
+
+#### Consommateurs
+
+`RegistryEvent` ; la relecture, la vérification et la lecture des documents du
+registre ; le rapport (M4b-5).
+
+#### Non promis
+
+- l'accord avec la déclaration est vérifié par le registre, pas par le contrat ;
+- gains, dommages et verdict (M4c) n'y sont pas encore : une version du format
+  les ajoutera ;
+- l'ordre des sorties est celui de l'appelant.
+
+---
+
+## `Failure`
+
+*`mountain_perf.schemas.registry` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `kind` | `FailureKind` | — |
+| `reason` | `str` | — |
+
+Le contenu d'un ÉCHEC (`0010` D14).
+
+#### Champs
+
+- `kind` — sans unité — erreur technique ou non-évaluabilité.
+- `reason` — sans unité — le motif, en clair.
+
+#### Invariants
+
+`reason` non vide.
+
+#### Producteur
+
+L'appelant de `append_failure` (M4b-5).
+
+#### Consommateurs
+
+`RegistryEvent` ; le rapport (M4b-5).
+
+#### Non promis
+
+Le motif ne nomme pas de chemin de fichier (règle 1) : c'est à l'appelant d'y
+veiller.
+
+---
+
+## `RegistryEvent`
+
+*`mountain_perf.schemas.registry` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `format_version` | `int` | — |
+| `number` | `int` | — |
+| `kind` | `EventKind` | — |
+| `recorded_at` | `datetime` | — |
+| `previous_hash` | `str \| None` | — |
+| `answers` | `int \| None` | — |
+| `corrects` | `int \| None` | — |
+| `correction_reason` | `str \| None` | — |
+| `declaration` | `Declaration \| None` | — |
+| `result` | `Result \| None` | — |
+| `failure` | `Failure \| None` | — |
+
+Un événement du registre, une ligne du journal (`0010` D14).
+
+#### Champs
+
+- `format_version` — sans unité — la version du format.
+- `number` — sans unité — son rang dans le journal, à partir de 1 (identifiant
+  et lien).
+- `kind` — sans unité — déclaration, résultat ou échec.
+- `recorded_at` — instant — l'instant d'enregistrement, *aware*, stocké en UTC.
+- `previous_hash` — sans unité — le `sha256` de la ligne précédente.
+- `answers` — sans unité — le numéro de la déclaration à laquelle répond un
+  résultat ou un échec.
+- `corrects` — sans unité — le numéro de l'événement corrigé.
+- `correction_reason` — sans unité — le motif de la correction.
+- `declaration`, `result`, `failure` — sans unité — le contenu, selon le
+  type.
+
+#### Invariants
+
+1. `recorded_at` porte un fuseau, normalisé en UTC ; `previous_hash` présent :
+   un `sha256` ; `correction_reason` présent : non vide ;
+2. `format_version == REGISTRY_FORMAT_VERSION` ;
+3. `number >= 1` ;
+4. `previous_hash` absent **si et seulement si** `number == 1` ;
+5. le contenu présent est celui du type, et lui seul ;
+6. `answers` présent **si et seulement si** le type est résultat ou échec, et
+   alors `1 <= answers < number` ;
+7. `corrects` absent, ou `1 <= corrects < number` ;
+8. `correction_reason` présent **si et seulement si** `corrects` l'est.
+
+#### Producteur
+
+Les ajouts du registre (`mountain_perf.backtest.registry`).
+
+#### Consommateurs
+
+`RegistryLog` ; la relecture du registre ; le comptage des essais.
+
+#### Non promis
+
+Les liens vers les autres événements (type de la cible, correction unique…) sont
+des invariants du journal (`RegistryLog`).
+
+---
+
+## `RegistryLog`
+
+*`mountain_perf.schemas.registry` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `events` | `tuple[RegistryEvent, ...]` | — |
+
+Le journal relu, ses liens vérifiés (`0010` D14).
+
+#### Champs
+
+- `events` — sans unité — les événements, dans l'ordre du journal.
+
+#### Invariants
+
+`events` est un tuple ; `events[i].number == i + 1` ; les `recorded_at` ne
+décroissent pas (égaux permis) ; puis, événement par événement, dans l'ordre du
+journal :
+
+1. un événement qui répond (`answers`) vise une déclaration ;
+2. une réponse qui n'est pas une correction est la **seule** de sa déclaration ;
+3. une correction vise un événement du même type ; une réponse qui corrige vise
+   une réponse à la même déclaration ;
+4. un événement est corrigé au plus une fois.
+
+Méthodes : `event(number)` (`IndexError` hors de `[1 ; len(events)]`),
+`corrected_by(number)`, `in_force(number)`, `answer(declaration)`.
+
+#### Producteur
+
+`read_registry` et `verify_registry` (`mountain_perf.backtest.registry`) ;
+les ajouts, qui vérifient le journal augmenté avant d'écrire.
+
+#### Consommateurs
+
+`load_outcomes`, `load_references`, `count_trials` ; le rapport (M4b-5) ;
+l'admission (M4c).
+
+#### Non promis
+
+La chaîne des empreintes et les documents sont vérifiés par la relecture des
+fichiers, pas par le contrat.
+
+---
+
+## `OutingOutcome`
+
+*`mountain_perf.schemas.registry` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `outing_id` | `str` | — |
+| `coverage` | `Coverage` | — |
+| `scores` | `tuple[tuple[ModelKind, OutingScores], ...]` | — |
+
+Ce qu'une exécution a produit pour une sortie (`0010` D14, D7.1).
+
+#### Champs
+
+- `outing_id` — sans unité — la sortie.
+- `coverage` — sans unité — sa couverture (D4.11).
+- `scores` — sans unité — les scores de chaque modèle, couples
+  `(modèle, scores)`.
+
+#### Invariants
+
+- `outing_id` non vide ; `scores` est un tuple de couples (tuples) ;
+- `scores` non vide, de modèles distincts ;
+- **la même observation** (`==`) pour tous les modèles (D7.1 : le support ne
+  dépend que de l'observation).
+
+#### Producteur
+
+L'appelant de `append_result` (M4b-5) ; `load_outcomes`.
+
+#### Consommateurs
+
+`append_result`, qui en écrit les documents ; le rapport (M4b-5).
+
+#### Non promis
+
+Rien ne relie la couverture à l'observation.
+
+---
+
+## `ExperimentTrials`
+
+*`mountain_perf.schemas.registry` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `effect` | `str` | — |
+| `target` | `ExperimentMetric` | — |
+| `count` | `int` | — |
+
+Le nombre d'essais d'un couple effet × cible (`0010` D14 ; décision 4 de
+rdw).
+
+#### Champs
+
+- `effect` — sans unité — le nom de l'effet.
+- `target` — sans unité — la cible.
+- `count` — sans unité — les DÉCLARATIONS de ce couple, corrections comprises.
+
+#### Invariants
+
+`effect` non vide ; `count >= 1`.
+
+#### Producteur
+
+`count_trials` (`mountain_perf.backtest.registry`).
+
+#### Consommateurs
+
+`TrialCounts` ; le rapport (M4b-5) ; l'admission (M4c).
+
+#### Non promis
+
+Le comptage ne dit pas quels essais ont produit un candidat ; l'horloge n'entre
+pas dans la clé.
+
+---
+
+## `TrialCounts`
+
+*`mountain_perf.schemas.registry` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `declarations` | `int` | — |
+| `corrections` | `int` | — |
+| `without_effect` | `int` | — |
+| `by_experiment` | `tuple[ExperimentTrials, ...]` | — |
+
+Le comptage des essais d'un registre (`0010` D14 ; décision 4 de rdw).
+
+#### Champs
+
+- `declarations` — sans unité — les DÉCLARATIONS, corrections comprises.
+- `corrections` — sans unité — celles qui en corrigent une autre.
+- `without_effect` — sans unité — celles sans expérience (exécutions sans effet
+  testé).
+- `by_experiment` — sans unité — les autres, par couple effet × cible.
+
+#### Invariants
+
+- `by_experiment` est un tuple ;
+- les trois comptes `>= 0` ; `corrections <= declarations` ;
+- `declarations == without_effect + Σ count` ;
+- `by_experiment` ordonné par effet puis par rang de la cible dans
+  `ExperimentMetric`, sans doublon (clés strictement croissantes).
+
+#### Producteur
+
+`count_trials` (`mountain_perf.backtest.registry`).
+
+#### Consommateurs
+
+Le rapport (M4b-5) ; l'admission (M4c).
+
+#### Non promis
+
+Chaque DÉCLARATION compte pour un essai, corrections comprises : la règle ne peut
+que surestimer le nombre d'essais ; un ÉCHEC ne compte pas.
