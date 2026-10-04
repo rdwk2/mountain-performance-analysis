@@ -1361,3 +1361,34 @@ def test_declaration_artifacts_keep_every_file_of_an_outing() -> None:
     ]
     assert declared.artifacts[5] == second
     assert declared.artifacts[6] == duplicate
+
+
+# ---------------------------------------------------------------------------
+# Correctifs de la relecture de la PR #19
+# ---------------------------------------------------------------------------
+
+
+def test_usage_target_zero_weight_is_accepted() -> None:
+    """§ 6.1, ``DeclaredUsageTarget`` : un poids est ``>= 0`` ; un poids nul, à la
+    limite, est accepté."""
+    target = replace(TARGET, weights=(0.0, 0.5, 0.5))
+    assert target.weights == (0.0, 0.5, 0.5)
+
+
+def test_origin_precedes_the_first_outing_of_a_multi_outing_day() -> None:
+    """§ 6.1, ``DeclaredPerformance`` : l'origine précède strictement le départ de la
+    **première** sortie ; placée entre les départs des deux sorties d'un jour, elle est
+    refusée."""
+    first = _outing("q-2026-05-20-a", DAY1)
+    second = _outing(
+        "q-2026-05-20-b",
+        DAY1,
+        start_time=first.start_time + timedelta(hours=4),
+        end_time=first.start_time + timedelta(hours=5),
+    )
+    performance = Performance(DAY1, (first, second))
+    with pytest.raises(
+        ContractError,
+        match=re.escape("doit précéder strictement le départ de la première sortie"),
+    ):
+        DeclaredPerformance(performance, first.start_time + timedelta(hours=1))

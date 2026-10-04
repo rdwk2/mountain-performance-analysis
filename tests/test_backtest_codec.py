@@ -349,3 +349,26 @@ def test_utc_offset_of_the_sample_is_kept() -> None:
     assert b'"instant":"2026-10-03T15:00:00+02:00"' in canonical_bytes(
         encode_contract(SAMPLE)
     )
+
+
+# ---------------------------------------------------------------------------
+# Correctifs de la relecture de la PR #19
+# ---------------------------------------------------------------------------
+
+
+def test_non_text_date_and_member_are_refused_at_reading() -> None:
+    """§ 6.2, relecture : une date, ou un membre d'énumération, relus d'une donnée
+    non texte sont refusés en ``CodecError``, le chemin en tête du message."""
+    with pytest.raises(CodecError, match=re.escape("valeur : date attendue (texte)")):
+        decode_value(date, 1)
+    with pytest.raises(CodecError, match=re.escape("valeur : texte attendu")):
+        decode_value(Scenario, 1)
+
+
+def test_integer_out_of_the_float_range_is_refused() -> None:
+    """§ 6.2 : un entier s'écrit dans un champ flottant par ``float(value)`` ; hors du
+    domaine des flottants, l'écriture le refuse en ``CodecError``."""
+    with pytest.raises(
+        CodecError, match=re.escape("valeur : entier hors du domaine des flottants")
+    ):
+        encode_value(10**400, float)

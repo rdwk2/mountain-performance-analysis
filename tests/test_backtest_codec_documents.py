@@ -89,3 +89,33 @@ def test_non_canonical_document_is_refused() -> None:
 def test_only_document_types_are_written() -> None:
     with pytest.raises(TypeError, match="OutingScores n'est pas un type de document"):
         encode_document(scoring.scores("Régimes"))
+
+
+# ---------------------------------------------------------------------------
+# Correctifs de la relecture de la PR #19
+# ---------------------------------------------------------------------------
+
+
+def test_document_with_a_z_offset_is_not_canonical() -> None:
+    """§ 6.2 : la forme canonique se juge sur la réécriture du contrat relu, pas sur
+    celle du JSON lu ; un instant écrit ``Z`` au lieu de ``+00:00`` (JSON canonique,
+    lisible par ``fromisoformat``) est refusé."""
+    scores = encode_document(scoring.scores("Régimes").control)
+    assert scores.count(b'+00:00"') >= 1
+    with pytest.raises(
+        CodecError, match=re.escape("document d'écriture non canonique")
+    ):
+        decode_document(scores.replace(b'+00:00"', b'Z"', 1), ScenarioScores)
+
+
+def test_type_is_checked_before_format() -> None:
+    """§ 6.2, ``decode_document`` : le type se vérifie avant le format."""
+    with pytest.raises(
+        CodecError,
+        match=re.escape(
+            "document de type 'OutingObservation', 'ScenarioScores' attendu"
+        ),
+    ):
+        decode_document(
+            DOCUMENT.replace(b'"format":1', b'"format":2', 1), ScenarioScores
+        )
