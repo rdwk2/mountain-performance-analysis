@@ -11,7 +11,7 @@ voisines.
 import re
 from collections.abc import Callable
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -36,6 +36,7 @@ from fixtures.registry import (
 )
 from fixtures.repeatability import case_reference
 from mountain_perf.backtest import (
+    CURVE_MODELS,
     DOCUMENT_SUFFIX,
     DOCUMENTS_DIR,
     EVENTS_FILE,
@@ -48,6 +49,7 @@ from mountain_perf.backtest import (
     encode_document,
     read_registry,
 )
+from mountain_perf.backtest import registry as registry_module
 from mountain_perf.model.engine import ENGINE_VERSION, PROJECTION_PARAMETER_SPECS
 from mountain_perf.schemas import (
     DeclaredModel,
@@ -57,6 +59,7 @@ from mountain_perf.schemas import (
     OutingScores,
     ParameterSet,
     Performance,
+    RegistryLog,
     ScenarioScores,
     SourceRef,
 )
@@ -466,3 +469,189 @@ def test_declaration_with_an_experiment_is_accepted(tmp_path: Path) -> None:
     declared = declaration(models=CALIBRATED_MODELS, experiment=dated)
     event = append_declaration(root, declared, recorded_at=at(0))
     assert read_registry(root).events == (event,)
+
+
+# ---------------------------------------------------------------------------
+# Correctifs de la relecture de la PR #19
+# ---------------------------------------------------------------------------
+
+
+def test_control_names_the_first_of_two_traces(tmp_path: Path) -> None:
+    """Précision de D14, § 6.3 : une sortie en deux tronçons projette sur toute sa
+    trace, et sa prévision de contrôle nomme son **premier** fichier ; nommer le second
+    est refusé."""
+    first = Q20.traces[0]
+    second = replace(
+        first,
+        source=replace(first.source, identifier="q20-b.gpx", content_hash="9" * 64),
+    )
+    q20 = replace(Q20, traces=(first, second))
+    performances = tuple(
+        declared_performance(Performance(outing.start_time.date(), (outing,)))
+        for outing in (q20, Q27, P03)
+    )
+    root = _declared(tmp_path, performances=performances)
+    scores = outcome(Q20_ID).scores[0][1]
+    on_second = replace(scores, control=_on(scores.control, second.source))
+    _refused(
+        root,
+        "ajout refusé : 'q-2026-05-20', v0_raw, control : la prévision ne nomme pas la "
+        "première trace déclarée de la sortie",
+        lambda: append_result(root, 1, _replaced(_scored(Q20_ID, on_second))),
+    )
+    assert append_result(root, 1, outcomes()).number == 2
+
+
+def test_every_outing_of_a_multi_outing_day_has_a_fate(tmp_path: Path) -> None:
+    """D0, § 6.1 (``outing_ids`` : les sorties des performances) : la seconde sortie
+    d'un jour à deux sorties est scorée ou écartée avec un motif."""
+    later = replace(
+        Q20,
+        outing_id="q-2026-05-20-b",
+        start_time=Q20.start_time + timedelta(hours=4),
+        end_time=Q20.end_time + timedelta(hours=4),
+    )
+    day = declared_performance(Performance(Q20.start_time.date(), (Q20, later)))
+    others = tuple(
+        declared_performance(Performance(outing.start_time.date(), (outing,)))
+        for outing in (Q27, P03)
+    )
+    root = _declared(tmp_path, performances=(day, *others))
+    _refused(
+        root,
+        "ajout refusé : la sortie déclarée 'q-2026-05-20-b' n'est ni scorée ni "
+        "écartée avec un motif",
+        lambda: append_result(root, 1, outcomes()),
+    )
+    unscored = (Exclusion("q-2026-05-20-b", "trace illisible"),)
+    assert append_result(root, 1, outcomes(), unscored=unscored).number == 2
+
+
+def test_d8_day_of_a_multi_outing_day_on_two_routes(tmp_path: Path) -> None:
+    """§ 6.3, accord par les documents, 2 : un jour d'une référence D8 est celui d'une
+    performance déclarée dont **une** sortie a ce parcours ; un jour à deux sorties sur
+    deux parcours compte pour chacun."""
+    earlier = replace(
+        P03,
+        outing_id="p-2026-05-20",
+        start_time=Q20.start_time - timedelta(hours=4),
+        end_time=Q20.start_time - timedelta(hours=3),
+    )
+    day = declared_performance(Performance(Q20.start_time.date(), (earlier, Q20)))
+    others = tuple(
+        declared_performance(Performance(outing.start_time.date(), (outing,)))
+        for outing in (Q27, P03)
+    )
+    root = _declared(tmp_path, performances=(day, *others))
+    unscored = (Exclusion("p-2026-05-20", "trace illisible"),)
+    event = append_result(
+        root, 1, outcomes(), unscored=unscored, references=references()
+    )
+    assert event.number == 2
+
+
+def test_altered_document_is_left_as_is(tmp_path: Path) -> None:
+    """§ 6.3, étape 7, et § 7.4 : rien n'est écrit au refus d'un document altéré — le
+    document altéré non plus."""
+    root = _declared(tmp_path)
+    observation = outcome(Q20_ID).scores[0][1].observation
+    sha = content_hash(encode_document(observation))
+    path = root / DOCUMENTS_DIR / f"{sha}{DOCUMENT_SUFFIX}"
+    path.parent.mkdir()
+    path.write_bytes(b"{}")
+    _refused(
+        root,
+        "document altéré (empreinte différente) ; rien n'est écrit",
+        lambda: append_result(root, 1, outcomes(), references=references()),
+    )
+    assert path.read_bytes() == b"{}"
+
+
+def test_trace_before_models(tmp_path: Path) -> None:
+    """§ 6.3, accord sans documents, 3 : la trace d'une sortie scorée se vérifie avant
+    ses modèles."""
+    untraced = replace(P03, traces=())
+    performances = tuple(
+        declared_performance(Performance(outing.start_time.date(), (outing,)))
+        for outing in (Q20, Q27, untraced)
+    )
+    root = _declared(tmp_path, performances=performances)
+    p03 = outcome(P03_ID)
+    naismith = replace(p03, scores=((ModelKind.NAISMITH, p03.scores[0][1]),))
+    _refused(
+        root,
+        "ajout refusé : 'p-2026-06-03', une sortie scorée a au moins une trace",
+        lambda: append_result(root, 1, _replaced(naismith)),
+    )
+
+
+def test_declared_model_before_usage(tmp_path: Path) -> None:
+    """§ 6.3, accord sans documents, 3 : un modèle non déclaré se signale avant un usage
+    absent."""
+    root = _declared(tmp_path)
+    scores = outcome(Q20_ID).scores[0][1]
+    without_usage = replace(scores, usage=None)
+    naismith = replace(outcome(Q20_ID), scores=((ModelKind.NAISMITH, without_usage),))
+    _refused(
+        root,
+        "ajout refusé : modèle non déclaré, naismith",
+        lambda: append_result(root, 1, _replaced(naismith)),
+    )
+
+
+def test_engine_version_before_source(tmp_path: Path) -> None:
+    """§ 6.3, accord par les documents, 1 : la version d'une prévision se vérifie avant
+    le fichier qu'elle nomme."""
+    root = _declared(
+        tmp_path, models=(replace(V0_RAW, engine_version="projection-v1"),)
+    )
+    regimes = scoring.scores("Régimes")
+    _refused(
+        root,
+        "ajout refusé : 'q-2026-05-20', v0_raw, control : version du moteur différente "
+        "de la déclaration",
+        lambda: append_result(root, 1, _replaced(_scored(Q20_ID, regimes))),
+    )
+
+
+def test_line_in_memory_before_the_extended_log(tmp_path: Path) -> None:
+    """§ 6.3, étapes 4 et 5 : la ligne s'écrit en mémoire (étape 4) avant le contrôle du
+    journal augmenté (étape 5)."""
+    root = registry_root(tmp_path)
+    append_declaration(root, declaration(), recorded_at=at(5))
+    dated = experiment(analysis_date=datetime(2026, 12, 1, tzinfo=UTC))
+    declared = declaration(models=CALIBRATED_MODELS, experiment=dated)
+    _refused(
+        root,
+        "ajout refusé : declaration.experiment.analysis_date : ",
+        lambda: append_declaration(root, declared, recorded_at=at(4)),
+    )
+
+
+def test_curve_models_are_exact() -> None:
+    """§ 6.3, précision de D14 : les modèles qui projettent avec la courbe sont v0 brut,
+    v0 + effort recalé et le candidat."""
+    assert (
+        frozenset({ModelKind.V0_RAW, ModelKind.V0_RECALIBRATED, ModelKind.CANDIDATE})
+        == CURVE_MODELS
+    )
+
+
+def test_lock_removed_by_hand_does_not_mask_a_refusal(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Point soumis 7 du plan : le verrou se retire par ``unlink(missing_ok=True)`` ; un
+    verrou effacé à la main pendant l'ajout ne masque pas le refus."""
+    root = registry_root(tmp_path)
+    append_declaration(root, declaration(), recorded_at=at(5))
+    read = registry_module.read_registry
+
+    def read_and_remove_the_lock(path: Path) -> RegistryLog:
+        (path / LOCK_FILE).unlink()
+        return read(path)
+
+    monkeypatch.setattr(registry_module, "read_registry", read_and_remove_the_lock)
+    with pytest.raises(
+        RegistryError, match=re.escape("précède celui de l'événement 1")
+    ):
+        append_declaration(root, declaration(), recorded_at=at(4))

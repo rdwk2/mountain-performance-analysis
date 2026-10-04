@@ -130,3 +130,39 @@ def test_failure_added_and_read_back(tmp_path: Path) -> None:
         RegistryError, match=re.escape("l'événement 2 n'est pas un résultat")
     ):
         load_outcomes(root, log, 2)
+
+
+# ---------------------------------------------------------------------------
+# Correctifs de la relecture de la PR #19
+# ---------------------------------------------------------------------------
+
+
+def test_failure_keeps_the_given_instant(tmp_path: Path) -> None:
+    """§ 6.3, étape 4 : l'instant donné à ``append_failure`` est celui de l'ÉCHEC écrit
+    et relu."""
+    root = registry_root(tmp_path)
+    append_declaration(root, declaration(), recorded_at=at(0))
+    event = append_failure(root, 1, FAILURE, recorded_at=at(1))
+    assert event.recorded_at == at(1)
+    assert read_registry(root).event(2) == event
+
+
+def test_result_answering_a_result_is_refused(tmp_path: Path) -> None:
+    """§ 6.3, étapes 5 et 6 : le journal augmenté se contrôle avant l'accord ; un
+    RÉSULTAT qui répond à un résultat est une ``RegistryError``, pas une erreur
+    interne."""
+    root = filled(tmp_path)
+    _refused(
+        root,
+        "evenements.jsonl : l'événement 3 répond à l'événement 2, qui n'est pas une "
+        "déclaration",
+        lambda: append_result(root, 2, outcomes(), recorded_at=at(2)),
+    )
+
+
+def test_answer_out_of_bounds_is_none(tmp_path: Path) -> None:
+    """Point soumis 6 du plan : ``answer(n)`` rend ``None`` pour un numéro sans réponse
+    en vigueur, hors bornes compris."""
+    log = read_registry(filled(tmp_path))
+    assert log.answer(0) is None
+    assert log.answer(3) is None
