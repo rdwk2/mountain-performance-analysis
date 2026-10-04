@@ -35,12 +35,24 @@ tableau du brief signalés dans la PR (« ligne écrite avant les documents » p
 contrôle des documents présents ne rougit que le test 7 — la variante placée au début de
 l'étape 7 rougit les tests 7 et 9 ; « avant-dernière empreinte », contrats neutralisés,
 rougit les tests 7 et 11, le test 10 échouant déjà sous la seule neutralisation).
-Conclusion : `just check` vert (3 524 tests, contre 3 209). Environ 7 800 lignes, dont
+Conclusion : `just check` vert (3 524 tests, contre 3 163). Environ 7 800 lignes, dont
 1 024 de dictionnaire régénéré, 3 000 de code et 3 750 de tests. Rangé dans
 `src/mountain_perf/schemas/registry.py`, `src/mountain_perf/backtest/codec.py`,
 `src/mountain_perf/backtest/registry.py`, `tests/fixtures/registry.py`,
 `tests/test_schemas_registry.py`, `tests/test_backtest_codec*.py`,
 `tests/test_backtest_registry*.py`, `0010` D14 et D2.6 ; branche `m4b/registre`.
+Correctifs de la relecture (deux relectures C et le balayage de mutation de la conception),
+sans changement de `src/` : trente-deux règles écrites reçoivent un test — la première de
+deux traces nommée par le contrôle, les jours à deux sorties (sort de chaque sortie, jour
+d'une référence D8 sur deux parcours, origine avant la première sortie), la forme
+canonique jugée sur la réécriture de l'objet relu, les noms prescrits sur disque et les
+modèles qui recopient la courbe, les messages sans chemin absolu, neuf ordres de contrôle,
+l'écriture d'un document par un temporaire, le document altéré laissé tel quel, les
+corrections de déclarations seules, deux effets de même nom, l'ordre des références D8,
+l'instant d'un échec, le poids nul, un résultat aux documents neufs, les liens relus, les
+données non textes relues, un entier hors du domaine des flottants, et les points soumis 6
+à 8 du plan (réponse hors bornes, verrou effacé à la main, messages de `load_outcomes`) ;
+3 556 tests. Deux lignes de backlog.
 
 ### 2026-10-02 · M4b-3 — Backtest : référence prédictive de répétabilité
 Référence D8 d'un parcours sous les onze horloges, en bibliothèque (aucune commande) :
