@@ -165,6 +165,12 @@ que si toutes ses **entrées** étaient disponibles à `o_j` ; les observations
 d'évaluation, postérieures par nature, n'entrent pas dans ce test. Des fichiers
 qui décrivent la même sortie (tronçons, doublons) sont réunis en une sortie par le
 manifeste, jamais comptés deux fois.
+*(précision, M4b-4)* La courbe est déclarée par l'exécution qui l'utilise, pas par le
+manifeste : la DÉCLARATION (D14) porte le CSV et son compagnon de provenance, avec leurs
+empreintes ; leur instant de disponibilité est l'instant d'estimation de la provenance
+(`generated_at`), et leur rôle, entrée de prévision. Par exception, le manifeste est cité
+par son empreinte seule, sans instant de disponibilité ni rôle : il décrit à la fois des
+entrées et des observations.
 
 ### D3 — Scénarios
 
@@ -812,6 +818,24 @@ Les prévisions de v0 brut sont conservées dès M4b, celles des modèles calés
 M4c. Une erreur se corrige par un nouvel événement lié. Toute exécution de
 `just backtest` est enregistrée, effet testé ou non. Stocké sous `MPA_DATA_DIR` ;
 résumé dans `docs/JOURNAL.md`. Sert au comptage des essais.
+*(précision, M4b-4)* Le registre est un journal, une ligne par événement en écriture
+canonique, et des documents nommés par leur empreinte `sha256` : observations, scores avec
+leurs prévisions, références D8. Chaque événement porte un numéro, son rang dans le
+journal à partir de 1, et l'empreinte de la ligne précédente ; un RÉSULTAT ou un ÉCHEC
+nomme la DÉCLARATION à laquelle il répond. Une DÉCLARATION fige ses performances telles
+que le manifeste les décrit (sorties, fichiers, empreintes, instants de disponibilité,
+rôles, jeux, étiquettes), leurs origines, la courbe et les modèles ; pour une expérience,
+aussi son scénario (D9.2, D10.3) et sa date d'analyse (D10.7). Un RÉSULTAT rend compte de
+chaque sortie de ces performances : scorée, ou non scorée avec son motif ; ses prévisions
+nomment un fichier déclaré de leur sortie (la référence en usage, la première trace en
+contrôle), recopient la version et les paramètres fixés de la déclaration, et sa courbe
+pour les modèles qui projettent avec elle.
+*(précision, M4b-4)* Une correction est un événement neuf du même type, qui nomme
+l'événement corrigé et son motif ; un événement est corrigé au plus une fois, et une
+déclaration reçoit au plus une réponse qui n'en corrige pas une autre. Toute modification
+d'une déclaration est une DÉCLARATION neuve. Chaque DÉCLARATION compte pour un essai,
+corrections comprises : la règle ne peut que surestimer le nombre d'essais. Les essais se
+comptent par effet et par cible ; les exécutions sans effet testé, à part.
 
 ### D15 — Rapport de `just backtest`
 

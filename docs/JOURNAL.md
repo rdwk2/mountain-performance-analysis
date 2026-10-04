@@ -16,6 +16,44 @@ Backtest (à partir de M4) : métrique avant → après.
 
 ---
 
+### 2026-10-04 · M4b-4 — Backtest : registre des expériences
+Registre D14 en bibliothèque (aucune commande) : contrats de la déclaration complète
+(dont la partie « expérience » que M4c remplira, son scénario et sa date d'analyse), du
+résultat, de l'échec, du journal et du comptage des essais (`schemas/registry.py`) ;
+écriture canonique des contrats en JSON d'après leurs annotations, stricte (écrit, donc
+relu : types voisins et textes non UTF-8 refusés à l'écriture comme à la relecture), et
+documents `{type, format, data}` (`backtest/codec.py`) ; registre sur disque — journal
+`evenements.jsonl` chaîné par empreintes, documents nommés par leur `sha256`, verrou,
+relecture et vérification, ajout qui contrôle tout avant d'écrire, lecture des documents,
+comptage des essais, `declared_performance`, `curve_artifacts` (`backtest/registry.py`).
+Précisions de `0010` D14 et D2.6 ajoutées, mot pour mot. Valeurs du § 7 reproduites du
+premier coup : `SAMPLE` au bit, première ligne du journal (5 474 octets, `5c6dedde…`),
+huit documents, `TrialCounts`, empreinte de forme des 44 contrats stockés (`4e2f2b55…`).
+113 contre-épreuves jouées une à une (110 du § 8.2, trois de `Declaration.artifacts`),
+contrats actifs puis, hors règles de contrat, neutralisés : toutes rouges ; deux écarts au
+tableau du brief signalés dans la PR (« ligne écrite avant les documents » placée après le
+contrôle des documents présents ne rougit que le test 7 — la variante placée au début de
+l'étape 7 rougit les tests 7 et 9 ; « avant-dernière empreinte », contrats neutralisés,
+rougit les tests 7 et 11, le test 10 échouant déjà sous la seule neutralisation).
+Conclusion : `just check` vert (3 524 tests, contre 3 163). Environ 7 800 lignes, dont
+1 024 de dictionnaire régénéré, 3 000 de code et 3 750 de tests. Rangé dans
+`src/mountain_perf/schemas/registry.py`, `src/mountain_perf/backtest/codec.py`,
+`src/mountain_perf/backtest/registry.py`, `tests/fixtures/registry.py`,
+`tests/test_schemas_registry.py`, `tests/test_backtest_codec*.py`,
+`tests/test_backtest_registry*.py`, `0010` D14 et D2.6 ; branche `m4b/registre`.
+Correctifs de la relecture (deux relectures C et le balayage de mutation de la conception),
+sans changement de `src/` : trente-deux règles écrites reçoivent un test — la première de
+deux traces nommée par le contrôle, les jours à deux sorties (sort de chaque sortie, jour
+d'une référence D8 sur deux parcours, origine avant la première sortie), la forme
+canonique jugée sur la réécriture de l'objet relu, les noms prescrits sur disque et les
+modèles qui recopient la courbe, les messages sans chemin absolu, neuf ordres de contrôle,
+l'écriture d'un document par un temporaire, le document altéré laissé tel quel, les
+corrections de déclarations seules, deux effets de même nom, l'ordre des références D8,
+l'instant d'un échec, le poids nul, un résultat aux documents neufs, les liens relus, les
+données non textes relues, un entier hors du domaine des flottants, et les points soumis 6
+à 8 du plan (réponse hors bornes, verrou effacé à la main, messages de `load_outcomes`) ;
+3 556 tests. Deux lignes de backlog.
+
 ### 2026-10-02 · M4b-3 — Backtest : référence prédictive de répétabilité
 Référence D8 d'un parcours sous les onze horloges, en bibliothèque (aucune commande) :
 contrats (`TwoWayFit`, `RepeatabilityDay`, `ClassFit`, `ClassScore`, `FoldScores`,
