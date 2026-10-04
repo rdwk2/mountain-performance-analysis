@@ -15,9 +15,13 @@ from typing import Any
 import pytest
 from hypothesis import given
 
-from fixtures import scoring
+from fixtures import registry, scoring
 from fixtures.outings import ATHLETE, PARIS_SUMMER, source
-from mountain_perf.backtest import MATCHING_PARAMETER_SPECS, origin
+from mountain_perf.backtest import (
+    MATCHING_PARAMETER_SPECS,
+    declared_performance,
+    origin,
+)
 from mountain_perf.model.curve_io import curve_reference
 from mountain_perf.model.engine import ENGINE_VERSION, PROJECTION_PARAMETER_SPECS
 from mountain_perf.schemas import (
@@ -1302,3 +1306,58 @@ def test_trial_counts_same_effect_in_metric_order_is_accepted() -> None:
     dispersion = ExperimentTrials("arrêts", M.DESCENT_DISPERSION, 1)
     counts = replace(COUNTS, declarations=5, by_experiment=(STOPS, dispersion, SLOPE))
     assert counts.by_experiment[1] is dispersion
+
+
+# ---------------------------------------------------------------------------
+# Declaration.artifacts (D2.6)
+# ---------------------------------------------------------------------------
+
+
+def test_declaration_values_of_the_fixture() -> None:
+    """§ 7.2, D2.6 : sorties, parcours et fichiers déclarés de ``declaration()`` ; la
+    courbe et son compagnon, puis, sortie par sortie, sa trace et sa référence (la
+    référence partagée apparaît une fois par sortie)."""
+    declared = registry.declaration()
+    assert declared.outing_ids == ("q-2026-05-20", "q-2026-05-27", "p-2026-06-03")
+    assert declared.route_ids == frozenset({"r1", "r2"})
+    assert [
+        (file.source.identifier, file.role.value) for file in declared.artifacts
+    ] == [
+        ("courbe_synthetique.csv", "forecast_input"),
+        ("courbe_synthetique.meta.json", "forecast_input"),
+        ("q20.gpx", "evaluation_observation"),
+        ("parcours.gpx", "forecast_input"),
+        ("q27.gpx", "evaluation_observation"),
+        ("parcours.gpx", "forecast_input"),
+        ("p03.gpx", "evaluation_observation"),
+    ]
+
+
+def test_declaration_artifacts_keep_every_file_of_an_outing() -> None:
+    """D2.6, décision 5 : une sortie en deux tronçons, avec un doublon ; ``artifacts``
+    garde tous ses fichiers, dans l'ordre traces, doublons, référence."""
+    q27 = registry.Q27
+    observed = ArtifactRole.EVALUATION_OBSERVATION
+    second = ArtifactRef(source("gpx", "q27-b.gpx", "9"), q27.end_time, observed)
+    duplicate = ArtifactRef(
+        source("gpx", "q27-montre.gpx", "a"), q27.end_time, observed
+    )
+    split = replace(q27, traces=(*q27.traces, second), duplicates=(duplicate,))
+    performances = tuple(
+        declared_performance(Performance(outing.start_time.date(), (outing,)))
+        for outing in (registry.Q20, split, registry.P03)
+    )
+    declared = registry.declaration(performances=performances)
+    assert [file.source.identifier for file in declared.artifacts] == [
+        "courbe_synthetique.csv",
+        "courbe_synthetique.meta.json",
+        "q20.gpx",
+        "parcours.gpx",
+        "q27.gpx",
+        "q27-b.gpx",
+        "q27-montre.gpx",
+        "parcours.gpx",
+        "p03.gpx",
+    ]
+    assert declared.artifacts[5] == second
+    assert declared.artifacts[6] == duplicate

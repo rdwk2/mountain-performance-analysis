@@ -11,11 +11,13 @@ mêmes octets.
 import json
 import math
 from dataclasses import replace
+from datetime import date
 
 import pytest
 from hypothesis import given, settings
 
 from fixtures import scoring
+from fixtures.registry import CALIBRATED_MODELS, declaration, experiment
 from fixtures.repeatability import case_reference
 from mountain_perf.backtest import canonical_bytes, decode_contract, encode_contract
 from mountain_perf.schemas import Performance
@@ -68,3 +70,13 @@ def test_performances_round_trip(performance: Performance) -> None:
     """D14 : une déclaration fige ses performances telles que le manifeste les
     décrit ; au moins 150 tirages."""
     assert _round_trip(performance) == performance
+
+
+def test_declaration_with_an_experiment_round_trips() -> None:
+    """D14, D10.7 : la déclaration du § 7.2, avec une expérience, sa date d'analyse et
+    les modèles calés."""
+    declared = declaration(
+        models=CALIBRATED_MODELS,
+        experiment=experiment(analysis_date=date(2026, 12, 1)),
+    )
+    assert _round_trip(declared) == declared
