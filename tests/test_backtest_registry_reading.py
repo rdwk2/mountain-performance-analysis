@@ -13,7 +13,14 @@ from pathlib import Path
 
 import pytest
 
-from fixtures.registry import at, declaration, registry_root
+from fixtures.registry import (
+    CALIBRATED_MODELS,
+    at,
+    declaration,
+    experiment,
+    outcomes,
+    registry_root,
+)
 from mountain_perf.backtest import (
     DOCUMENT_SUFFIX,
     DOCUMENTS_DIR,
@@ -21,11 +28,13 @@ from mountain_perf.backtest import (
     RegistryError,
     append_declaration,
     append_failure,
+    append_result,
     content_hash,
+    load_outcomes,
     read_registry,
     verify_registry,
 )
-from mountain_perf.schemas import Failure, FailureKind, RegistryEvent, Result
+from mountain_perf.schemas import Failure, FailureKind, ModelKind, RegistryEvent, Result
 from test_backtest_registry import (
     filled,
     journal_lines,
@@ -308,3 +317,140 @@ def test_declaration_alone_reads_back(tmp_path: Path) -> None:
     root = registry_root(tmp_path)
     append_declaration(root, declaration(), recorded_at=at(0))
     assert verify_registry(root) == read_registry(root)
+
+
+# ---------------------------------------------------------------------------
+# Correctifs de la relecture de la PR #19
+# ---------------------------------------------------------------------------
+
+
+def test_links_are_checked_at_reading(tmp_path: Path) -> None:
+    """§ 6.3, relecture, étape 4 : les liens du journal relu ; leur ``ContractError``
+    devient une ``RegistryError`` préfixée de « evenements.jsonl : »."""
+    root = filled(tmp_path)
+    rewrite_last(
+        root,
+        lambda event: replace(event, corrects=1, correction_reason="erreur de saisie"),
+    )
+    _refused(
+        root,
+        re.escape(
+            "evenements.jsonl : l'événement 2 (result) corrige l'événement 1 "
+            "(declaration)"
+        ),
+    )
+
+
+def test_line_with_a_z_offset_is_not_canonical(tmp_path: Path) -> None:
+    """§ 6.3, relecture : la forme canonique se juge sur la réécriture de l'événement
+    relu, pas sur celle du JSON lu ; un instant écrit ``Z`` au lieu de ``+00:00`` (JSON
+    canonique, lisible par ``fromisoformat``) est refusé."""
+    root = registry_root(tmp_path)
+    append_declaration(root, declaration(), recorded_at=at(0))
+    data = (root / EVENTS_FILE).read_bytes()
+    assert data.count(b'+00:00"') > 1
+    _write_journal(root, data.replace(b'+00:00"', b'Z"', 1))
+    _refused(root, re.escape("evenements.jsonl, ligne 1 : écriture non canonique"))
+
+
+def test_messages_start_with_the_path_in_the_registry(tmp_path: Path) -> None:
+    """§ 6.3, règle 1 : les messages nomment les fichiers par leur chemin dans le
+    registre, jamais par un chemin absolu — le message **commence** par ce chemin."""
+    root = filled(tmp_path)
+    data = (root / EVENTS_FILE).read_bytes()
+    _write_journal(root, data[:-1])
+    _refused(root, "^" + re.escape("evenements.jsonl, ligne 2 : ligne tronquée"))
+    _write_journal(root, data)
+    observation = _result(read_registry(root).events[1]).outings[0].observation
+    name = f"documents/{observation}.json"
+    (root / name).unlink()
+    _refused(root, "^" + re.escape(f"{name} : document introuvable"))
+
+
+def test_links_before_documents_at_reading(tmp_path: Path) -> None:
+    """§ 6.3, relecture : les liens du journal (étape 4) se vérifient avant les
+    documents des résultats (étape 5)."""
+    root = filled(tmp_path)
+    observation = _result(read_registry(root).events[1]).outings[0].observation
+    (root / f"documents/{observation}.json").unlink()
+    rewrite_last(
+        root,
+        lambda event: replace(event, corrects=1, correction_reason="erreur de saisie"),
+    )
+    _refused(
+        root,
+        re.escape("evenements.jsonl : l'événement 2 (result) corrige l'événement 1"),
+    )
+
+
+def test_agreement_before_documents_at_reading(tmp_path: Path) -> None:
+    """§ 6.3, relecture, étape 5 : pour un résultat, l'accord sans documents se vérifie
+    avant ses documents."""
+    root = filled(tmp_path)
+    control = _result(read_registry(root).events[1]).outings[0].models[0].control
+    (root / f"documents/{control}.json").unlink()
+
+    def drop_p03(event: RegistryEvent) -> RegistryEvent:
+        result = _result(event)
+        return _with_result(event, replace(result, outings=result.outings[:2]))
+
+    rewrite_last(root, drop_p03)
+    _refused(
+        root,
+        re.escape(
+            "evenements.jsonl, ligne 2 : la sortie déclarée 'p-2026-06-03' n'est ni "
+            "scorée ni écartée avec un motif"
+        ),
+    )
+
+
+def test_load_outcomes_messages_name_the_line(tmp_path: Path) -> None:
+    """Point soumis 8 du plan : ``load_outcomes`` relit les documents avec les messages
+    de ``verify_registry``, préfixés de la ligne du résultat."""
+    root = filled(tmp_path)
+
+    def swap(event: RegistryEvent) -> RegistryEvent:
+        result = _result(event)
+        q20, q27, p03 = result.outings
+        q20 = replace(q20, observation=q27.observation)
+        return _with_result(event, replace(result, outings=(q20, q27, p03)))
+
+    rewrite_last(root, swap)
+    log = read_registry(root)
+    with pytest.raises(
+        RegistryError,
+        match=re.escape("evenements.jsonl, ligne 2 : 'q-2026-05-20', ")
+        + ".*segments admis",
+    ):
+        load_outcomes(root, log, 2)
+
+
+def test_forecasts_are_checked_model_by_model(tmp_path: Path) -> None:
+    """§ 6.3, accord par les documents : les prévisions d'une sortie se recoupent
+    modèle par modèle — celles du premier avant le décodage des documents du second."""
+    root = registry_root(tmp_path)
+    declared = declaration(models=CALIBRATED_MODELS, experiment=experiment())
+    append_declaration(root, declared, recorded_at=at(0))
+    two_models = tuple(
+        replace(o, scores=(*o.scores, (ModelKind.V0_RECALIBRATED, o.scores[0][1])))
+        for o in outcomes()
+    )
+    append_result(root, 1, two_models, recorded_at=at(1))
+
+    def swap(event: RegistryEvent) -> RegistryEvent:
+        result = _result(event)
+        q20, q27, p03 = result.outings
+        v0_raw, recalibrated = q20.models
+        v0_raw = replace(v0_raw, control=p03.models[0].control)
+        recalibrated = replace(recalibrated, control=q20.observation)
+        q20 = replace(q20, models=(v0_raw, recalibrated))
+        return _with_result(event, replace(result, outings=(q20, q27, p03)))
+
+    rewrite_last(root, swap)
+    _verify_refused(
+        root,
+        re.escape(
+            "evenements.jsonl, ligne 2 : 'q-2026-05-20', v0_raw, control : la "
+            "prévision ne nomme pas la première trace déclarée de la sortie"
+        ),
+    )

@@ -21,6 +21,7 @@ from fixtures.registry import (
     references,
     registry_root,
 )
+from fixtures.repeatability import case_reference
 from mountain_perf.backtest import (
     DOCUMENTS_DIR,
     EVENTS_FILE,
@@ -151,3 +152,20 @@ def test_filled_registry_reads_back_its_documents(tmp_path: Path) -> None:
     assert load_outcomes(root, log, 2) == outcomes()
     assert load_references(root, log, 2) == references()
     assert log.answer(1) == log.event(2)
+
+
+# ---------------------------------------------------------------------------
+# Correctifs de la relecture de la PR #19
+# ---------------------------------------------------------------------------
+
+
+def test_d8_references_keep_the_caller_order(tmp_path: Path) -> None:
+    """§ 6.3, étape 0 : les références D8 sont citées dans l'ordre de l'appelant, et
+    relues dans cet ordre."""
+    root = registry_root(tmp_path)
+    append_declaration(root, declaration(), recorded_at=at(0))
+    pairs = (("r1", case_reference("Deux jours")), ("r2", case_reference("Vide")))
+    event = append_result(root, 1, outcomes(), references=pairs, recorded_at=at(1))
+    assert event.result is not None
+    assert [record.route_id for record in event.result.references] == ["r1", "r2"]
+    assert load_references(root, read_registry(root), 2) == pairs

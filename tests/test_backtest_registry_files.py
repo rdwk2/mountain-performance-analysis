@@ -8,6 +8,7 @@ fichiers qui remonte sans rien écrire.
 """
 
 import os
+import re
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -24,10 +25,13 @@ from mountain_perf.backtest import (
     DOCUMENT_SUFFIX,
     DOCUMENTS_DIR,
     EVENTS_FILE,
+    RegistryError,
     append_declaration,
     append_result,
     content_hash,
+    load_outcomes,
     read_registry,
+    verify_registry,
 )
 from mountain_perf.schemas import Exclusion
 from test_backtest_registry import filled, journal_lines, snapshot
@@ -139,3 +143,66 @@ def test_documents_as_a_file_is_an_os_error(tmp_path: Path) -> None:
     after = snapshot(root)
     assert after.journal == before.journal
     assert not after.locked
+
+
+# ---------------------------------------------------------------------------
+# Correctifs de la relecture de la PR #19
+# ---------------------------------------------------------------------------
+
+
+def test_new_documents_in_a_registry_that_has_documents(tmp_path: Path) -> None:
+    """§ 6.3, étape 7 : le dossier des documents est créé au besoin ; un résultat dont
+    des documents sont neufs s'ajoute à un registre qui en a déjà."""
+    root = registry_root(tmp_path)
+    append_declaration(root, declaration(), recorded_at=at(0))
+    first, *others = outcomes()
+    unscored = tuple(Exclusion(o.outing_id, "trace illisible") for o in others)
+    append_result(root, 1, (first,), unscored=unscored, recorded_at=at(1))
+    event = append_result(
+        root,
+        1,
+        outcomes(),
+        references=references(),
+        recorded_at=at(2),
+        corrects=2,
+        correction_reason="erreur de saisie",
+    )
+    log = verify_registry(root)
+    assert log.answer(1) == event
+    assert load_outcomes(root, log, 3) == outcomes()
+
+
+def test_registry_file_names_are_the_prescribed_ones(tmp_path: Path) -> None:
+    """§ 6.3 : les noms sur disque sont prescrits — ``evenements.jsonl``,
+    ``documents/<sha256>.json``, ``verrou`` ; les autres tests les écrivent avec les
+    constantes du module."""
+    root = filled(tmp_path)
+    assert (root / "evenements.jsonl").is_file()
+    assert (root / "documents").is_dir()
+    names = [path.name for path in (root / "documents").iterdir()]
+    assert len(names) == 8
+    assert all(re.fullmatch(r"[0-9a-f]{64}\.json", name) for name in names)
+    (root / "verrou").write_bytes(b"")
+    with pytest.raises(RegistryError, match=re.escape("registre verrouillé")):
+        append_declaration(root, declaration(), recorded_at=at(2))
+
+
+def test_a_document_is_published_only_once_written(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """§ 6.3, étape 7 : un document s'écrit dans un temporaire, ``flush``,
+    ``os.fsync``, puis ``os.replace`` vers son nom ; une panne avant le remplacement ne
+    laisse ni document sous son nom, ni ligne, ni verrou."""
+    root = registry_root(tmp_path)
+    append_declaration(root, declaration(), recorded_at=at(0))
+    journal = (root / EVENTS_FILE).read_bytes()
+
+    def failing_fsync(descriptor: int) -> None:
+        raise OSError(f"panne simulée ({descriptor})")
+
+    monkeypatch.setattr(os, "fsync", failing_fsync)
+    with pytest.raises(OSError, match="panne simulée"):
+        append_result(root, 1, outcomes(), references=references(), recorded_at=at(1))
+    assert (root / EVENTS_FILE).read_bytes() == journal
+    assert not list((root / DOCUMENTS_DIR).glob(f"*{DOCUMENT_SUFFIX}"))
+    assert not (root / "verrou").exists()
