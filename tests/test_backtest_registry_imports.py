@@ -120,8 +120,9 @@ def test_no_new_dependency() -> None:
 
 def test_no_module_imports_codec_or_registry_but_the_backtest_package() -> None:
     """§ 6 : seuls ``backtest/__init__.py`` (export) et le registre (qui importe le
-    codec) les importent — et, depuis M4b-5, l'exécution, qui écrit au registre
-    (§ 6.0 du brief M4b-5)."""
+    codec) les importent — et, depuis M4b-5, l'exécution, qui écrit au registre, et
+    ``cli.py``, qui lit le nombre d'événements avant tout écrit (§ 6.0 du brief
+    M4b-5)."""
     defined = _defined_names(
         ast.parse(CODEC_MODULE.read_text(encoding="utf-8"))
     ) | _defined_names(ast.parse(REGISTRY_MODULE.read_text(encoding="utf-8")))
@@ -143,6 +144,7 @@ def test_no_module_imports_codec_or_registry_but_the_backtest_package() -> None:
     assert importers == [
         ("backtest/execution.py", "mountain_perf.backtest.registry"),
         ("backtest/registry.py", "mountain_perf.backtest.codec"),
+        ("cli.py", "mountain_perf.backtest.registry"),
     ]
 
 
