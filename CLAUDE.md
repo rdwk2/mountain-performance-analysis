@@ -98,7 +98,7 @@ just test       # pytest seul
 just lint       # ruff
 just fmt        # formatage
 just dictionary # régénère docs/DICTIONNAIRE_DONNEES.md depuis les docstrings
-just backtest   # erreur du modèle sur le jeu de référence (M4b-5 ; pas encore dans le justfile)
+just backtest courbe.csv  # backtest enregistré de v0 brut, rapport D15 (M4b-5) ; MPA_DATA_DIR/reference/
 uv run mperf profile tests/fixtures/mini_11.gpx  # compte-rendu GPX (M2), --csv pour la grille
 uv run mperf project tests/fixtures/mini_11.gpx --curve tests/fixtures/courbe_synthetique.csv  # temps de passage (M3)
 uv run mperf match tests/fixtures/appariement_reference.gpx tests/fixtures/appariement_trace_x01.gpx  # points de score (M4a-2a)
@@ -165,12 +165,15 @@ src/mountain_perf/     le code de la bibliothèque
                        D8 d'un parcours (M4b-3)
     codec.py           écriture canonique des contrats en JSON, documents (M4b-4)
     registry.py        journal, documents, ajout, relecture, comptage des essais (M4b-4)
+    execution.py       git, domaine, déclaration, exécution enregistrée de just backtest (M4b-5)
+    report.py          valeurs du rapport D15, fonctions pures (M4b-5)
   ingest/              acquisition et normalisation Garmin (M6b)
   ui/                  interface — appelle la bibliothèque, ne calcule rien (M5)
   cli.py               mperf profile <fichier.gpx>, compte-rendu ou CSV sur stdout ;
                        mperf match <référence.gpx> <trace.gpx>, points de score (M4a-2a),
                        segments, couverture et horloges (M4a-2b), passages (M4a-3) ;
-                       --curve, --no-reference : scores de v0 brut (M4b-2)
+                       --curve, --no-reference : scores de v0 brut (M4b-2) ;
+                       mperf backtest <manifeste.json> --curve : backtest enregistré, rapport D15 (M4b-5)
 tests/
   strategies.py        stratégies Hypothesis des contrats, réutilisées par tous les jalons
   fixtures/            données synthétiques minuscules, commitées
@@ -189,6 +192,8 @@ $MPA_DATA_DIR/
   processed/    prêt à l'analyse — régénérable
   routes/       GPX personnels
   reference/    performances réelles (jeu de backtest)
+  registre/     registre des expériences (0010 D14), écrit par just backtest seul
+  rapports/     rapports D15 de just backtest, jamais réécrits
 ```
 
 ---

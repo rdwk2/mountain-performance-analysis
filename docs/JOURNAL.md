@@ -16,6 +16,46 @@ Backtest (à partir de M4) : métrique avant → après.
 
 ---
 
+### 2026-10-05 · M4b-5 — Backtest : just backtest v0 et rapport D15
+`just backtest <courbe.csv>` (`mperf backtest`) : l'exécution enregistrée de v0 brut sur
+le manifeste — état git du code exécuté (arbre modifié refusé), domaine des sorties
+(profil de domaine lu comme un tracé, traces refusées comprises), DÉCLARATION avant tout
+calcul, chaîne de `mperf match --curve` sortie par sortie (prévisions datées de la
+DÉCLARATION), référence D8 de chaque parcours de répétabilité, RÉSULTAT ou ÉCHEC (« non
+évaluable », ou technique : exception ou interruption au clavier, motif sans chemin, son
+empreinte publiée) (`backtest/execution.py`) ; les valeurs du rapport D15 en fonctions
+pures — agrégats à poids égal par performance, séparés par jeu, référence D8 à côté de
+v0, sous-classes de descente au seuil réglable (0,80 par défaut), diagnostic de
+géométrie, âge de la courbe (`backtest/report.py`) ; la commande, son rapport complet
+écrit une fois sous `MPA_DATA_DIR/rapports/` et sa synthèse avec le sceau du registre
+(`cli.py` : le détail d'une sortie reprend les sections de `mperf match` par un paramètre
+`out`, sortie de `mperf match` inchangée) ; le registre durci (`line_hash`, lignes forgées
+relues en erreur, décalages horaires en secondes entières, recoupement des références D8
+par l'accord). Huit précisions de `0010` (D2.1, D2.6, D3, D6, D8.1, deux pour D14, D15)
+et le signe du « Pourquoi » corrigé (`L` est `ln` de l'effort qui aurait collé). Valeurs
+du § 7 reproduites du premier coup ; synthèse du monde au caractère près, rapport de
+2 020 lignes et ses huit extraits. Les 87 contre-épreuves du § 8.2, jouées une à une
+sans cache de bytecode sur des copies du dépôt, rougissent toutes un test nommé — 85 avec
+exactement les numéros du brief, deux avec un numéro de plus (la troisième horloge
+toujours égale à l'écoulé rougit aussi le test 8 ; le seuil des descentes ignoré, aussi
+le test 9). Un cas de test ajouté hors du § 8.1, à la relecture du plan : l'âge de la
+courbe toujours signé (`+0`, `−7`).
+Manifeste réel (décision Q6) : la date de disponibilité du préparé du Queyras y est
+conventionnelle — « un préparé est disponible 7 jours avant la première sortie de son
+parcours » (rdw, 2026-10-01 et 2026-10-03) —, celle du préparé de Q1 est son
+téléchargement, postérieur à ses sorties ; le format 1 du manifeste ne le marque pas, et
+ni l'une ni l'autre ne fonde d'éligibilité avant M4c.
+Conclusion : `just check` vert (3 661 tests, contre 3 556). Environ 5 860 lignes : 2 220
+de `src/` (dont 904 dans `cli.py`) et 3 640 de tests et de fixtures. Rangé dans
+`src/mountain_perf/backtest/execution.py`, `src/mountain_perf/backtest/report.py`,
+`src/mountain_perf/backtest/registry.py`, `src/mountain_perf/backtest/codec.py`,
+`src/mountain_perf/cli.py`, `justfile`, `tests/fixtures/backtest_*`,
+`tests/test_backtest_execution*.py`, `tests/test_backtest_report.py`,
+`tests/test_cli_backtest.py`, `tests/test_readme_backtest.py`,
+`tests/test_backtest_registry_hardening.py`, `0010`, `README.md` ; branche
+`m4b/backtest`. Le contrôle réel (`just backtest` sur le manifeste, par rdw) et son
+résumé suivront.
+
 ### 2026-10-04 · M4b-4 — Backtest : registre des expériences
 Registre D14 en bibliothèque (aucune commande) : contrats de la déclaration complète
 (dont la partie « expérience » que M4c remplira, son scénario et sa date d'analyse), du
