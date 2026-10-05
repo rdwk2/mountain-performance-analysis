@@ -164,7 +164,7 @@ def test_d8_references_keep_the_caller_order(tmp_path: Path) -> None:
     relues dans cet ordre."""
     root = registry_root(tmp_path)
     append_declaration(root, declaration(), recorded_at=at(0))
-    pairs = (("r1", case_reference("Deux jours")), ("r2", case_reference("Vide")))
+    pairs = (references()[0], ("r2", case_reference("Vide")))
     event = append_result(root, 1, outcomes(), references=pairs, recorded_at=at(1))
     assert event.result is not None
     assert [record.route_id for record in event.result.references] == ["r1", "r2"]

@@ -208,7 +208,12 @@ def outcomes() -> tuple[OutingOutcome, ...]:
 
 
 def references() -> tuple[tuple[str, RepeatabilityReference], ...]:
-    return (("r1", case_reference("Deux jours")),)
+    """La référence D8 du parcours ``r1`` : le cas « Deux jours » de M4b-3, son fichier
+    remplacé par la référence déclarée des sorties de ``r1`` (précision de D14,
+    M4b-5)."""
+    reference = case_reference("Deux jours")
+    source = REFERENCE_R1.artifact.source
+    return (("r1", dataclasses.replace(reference, reference=source)),)
 
 
 def experiment(**changes: object) -> ExperimentDeclaration:

@@ -24,7 +24,7 @@ import math
 import types
 import typing
 from collections.abc import Mapping
-from datetime import date, datetime
+from datetime import UTC, date, datetime, timedelta
 from enum import StrEnum
 
 from mountain_perf.schemas import (
@@ -151,8 +151,17 @@ def encode_value(value: object, annotation: object, path: str = "") -> object:
     if annotation is datetime:
         if not isinstance(value, datetime):
             raise _error(path, f"instant attendu, reçu {_kind(value)}")
-        if value.utcoffset() is None:
+        offset = value.utcoffset()
+        if offset is None:
             raise _error(path, "instant sans fuseau")
+        # Un décalage à fraction de seconde se relit sans elle sous certaines versions
+        # de Python, à l'identique sous d'autres : refusé quelle que soit la version.
+        if offset % timedelta(seconds=1):
+            raise _error(
+                path,
+                "instant dont le décalage horaire n'est pas un nombre entier de "
+                "secondes",
+            )
         return value.isoformat()
     if annotation is date:
         if type(value) is not date:
@@ -305,6 +314,10 @@ def _decode_instant(data: object, path: str) -> datetime:
         raise _error(path, f"instant illisible {data!r}") from None
     if instant.utcoffset() is None:
         raise _error(path, f"instant sans fuseau {data!r}")
+    try:
+        instant.astimezone(UTC)
+    except OverflowError:
+        raise _error(path, f"instant hors du domaine des dates {data!r}") from None
     return instant
 
 
@@ -406,7 +419,8 @@ def decode_document[T](data: bytes, expected: type[T]) -> T:
     """
     try:
         envelope = json.loads(data.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError):
+    except ValueError:
+        # UnicodeDecodeError, JSONDecodeError, et l'entier de plus de 4 300 chiffres.
         raise CodecError("document illisible : JSON en UTF-8 attendu") from None
     if not isinstance(envelope, dict) or set(envelope) != {"type", "format", "data"}:
         raise CodecError("document : objet {type, format, data} attendu")

@@ -41,6 +41,7 @@ from mountain_perf.schemas import (
     REGISTRY_FORMAT_VERSION,
     ArtifactRef,
     ArtifactRole,
+    DataSet,
     Declaration,
     DeclaredModel,
     DeclaredPerformance,
@@ -118,6 +119,13 @@ def _line(event: RegistryEvent) -> bytes:
     return canonical_bytes(encode_contract(event))
 
 
+def line_hash(event: RegistryEvent) -> str:
+    """L'empreinte ``sha256`` de la ligne canonique d'un événement, sans fin de ligne :
+    celle que porte l'événement suivant (``previous_hash``) ; celle de la dernière
+    ligne du journal scelle le registre (``0010`` D14 et sa précision de M4b-5)."""
+    return content_hash(_line(event))
+
+
 # ---------------------------------------------------------------------------
 # Relecture
 # ---------------------------------------------------------------------------
@@ -167,7 +175,8 @@ def _read_events(data: bytes) -> tuple[RegistryEvent, ...]:
         prefix = _line_prefix(number)
         try:
             raw = json.loads(line.decode("utf-8"))
-        except (UnicodeDecodeError, json.JSONDecodeError):
+        except ValueError:
+            # UnicodeDecodeError, JSONDecodeError, entier de plus de 4 300 chiffres.
             raise RegistryError(f"{prefix}JSON illisible") from None
         try:
             event = decode_contract(RegistryEvent, raw)
@@ -336,7 +345,9 @@ def _agree_documents(
 ) -> None:
     """L'accord par les documents (``0010`` D14, D2.6) : les scores de chaque sortie se
     reconstruisent, leurs prévisions recopient la déclaration de leur modèle et nomment
-    un fichier déclaré de leur sortie ; les jours des références D8 sont déclarés."""
+    un fichier déclaré de leur sortie ; les jours des références D8 sont déclarés, puis
+    leur fichier est recoupé avec la référence déclarée des sorties de répétabilité de
+    leur parcours (précision de D14, M4b-5)."""
     outings = _declared_outings(declaration)
     models = {model.kind: model for model in declaration.models}
     for scored in result.outings:
@@ -348,6 +359,7 @@ def _agree_documents(
             read, record.reference, RepeatabilityReference, document_prefix
         )
         _check_reference_days(declaration, record.route_id, reference, prefix)
+        _check_reference_outings(declaration, record.route_id, reference, prefix)
 
 
 def _check_forecasts(
@@ -409,6 +421,37 @@ def _check_reference_days(
                 f"{prefix}la référence de {route_id!r} porte un jour non déclaré "
                 f"sur ce parcours, {day.isoformat()}"
             )
+
+
+def _check_reference_outings(
+    declaration: Declaration,
+    route_id: str,
+    reference: RepeatabilityReference,
+    prefix: str,
+) -> None:
+    """Le recoupement d'une référence D8 (précision de D14, M4b-5 ; décisions Q11 et
+    Q14) : à chacun de ses jours, multi-sorties compris, chaque sortie déclarée du jeu
+    de répétabilité sur son parcours a une référence déclarée de même empreinte que le
+    fichier de la référence D8. Seule l'empreinte compte, pas le nom ; une sortie d'un
+    autre parcours, d'un autre jeu ou d'un autre jour n'y est pas tenue."""
+    days = {*reference.days, *reference.multi_outing_days}
+    expected = reference.reference.content_hash
+    for declared in declaration.performances:
+        if declared.performance.civil_date not in days:
+            continue
+        for outing in declared.performance.outings:
+            held = outing.dataset is DataSet.REPEATABILITY
+            if not held or outing.route_id != route_id:
+                continue
+            declared_reference = outing.reference
+            if (
+                declared_reference is None
+                or declared_reference.artifact.source.content_hash != expected
+            ):
+                raise RegistryError(
+                    f"{prefix}la référence de {route_id!r} ne nomme pas la référence "
+                    f"déclarée de la sortie {outing.outing_id!r} (empreinte différente)"
+                )
 
 
 # ---------------------------------------------------------------------------
@@ -551,7 +594,7 @@ def _append(
     _create(root)
     with _locked(root):
         log = read_registry(root)
-        previous = content_hash(_line(log.events[-1])) if log.events else None
+        previous = line_hash(log.events[-1]) if log.events else None
         try:
             event = RegistryEvent(
                 format_version=REGISTRY_FORMAT_VERSION,
