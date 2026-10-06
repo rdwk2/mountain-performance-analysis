@@ -71,6 +71,11 @@ impair de secondes, `E_R − L` quand `L` manque, les motifs d'une performance s
 l'instant des ÉCHECs, un parcours de répétabilité d'une seule sortie, le premier jour du
 domaine, un motif inconnu refusé par `aggregate`, les onze objets gelés ; 3 699 tests.
 Deux lignes de backlog.
+Complément du balayage de mutation de `cli.py` sur la tête des correctifs, sans changement
+de `src/` : quatre tests — la DÉCLARATION de la commande porte un arbre propre, l'erreur
+publiée reste celle du rapport non écrit quand le fichier commencé ne peut pas être
+retiré, une sortie scorée sans jeu ni étiquette, une sortie non scorée en tête d'un jour
+multi-sorties ; 3 703 tests. Une ligne de backlog.
 
 ### 2026-10-04 · M4b-4 — Backtest : registre des expériences
 Registre D14 en bibliothèque (aucune commande) : contrats de la déclaration complète
