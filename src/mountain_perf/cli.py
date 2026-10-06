@@ -6,6 +6,7 @@ manquerait dans ``src/``.
 """
 
 import argparse
+import contextlib
 import csv
 import io
 import math
@@ -13,23 +14,57 @@ import os
 import sys
 from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
+from datetime import date
 from pathlib import Path
 from typing import TextIO
 
+import mountain_perf
 from mountain_perf.backtest import (
     MATCHING_PARAMETER_SPECS,
+    NO_REFERENCE,
+    NOT_SCORED,
+    PARIS,
+    REPORT_PARAMETER_SPECS,
+    UNDERREPRESENTED,
+    Aggregate,
+    AggregateRow,
+    BacktestError,
+    BacktestRun,
+    ClockRole,
+    DescentSubclass,
+    ManifestError,
+    OutingRun,
     ReferenceGeometry,
+    ReportMetric,
+    ScoredPerformance,
     TraceSeries,
+    aggregate_table,
     build_series,
+    civil_date,
     clock_partition,
+    curve_age_days,
+    descent_fractions,
+    descent_subclasses,
     dplus_per_km,
+    failure_reason,
+    geometry_diagnostic,
+    git_state,
     match_trace,
     observe_passages,
+    origins_before_curve,
+    prepare_backtest,
     reference_geometry,
     report_clocks,
+    route_comparisons,
+    run_backtest,
+    scored_performances,
     stop_episodes,
+    subclass_metrics,
+    third_clock_is_elapsed,
     v0_scores,
 )
+from mountain_perf.backtest.registry import RegistryError, read_registry
+from mountain_perf.config import ConfigError, data_dir
 from mountain_perf.gpx import (
     PROFILE_PARAMETER_SPECS,
     GpxError,
@@ -58,11 +93,13 @@ from mountain_perf.schemas import (
     ClockKind,
     ClockScores,
     ClockTotals,
+    DataSet,
     EpisodeOutcome,
     LogRatioEnvelope,
     MatchResult,
     MetricValue,
     ObservedPoint,
+    OutingLabel,
     OutingObservation,
     OutingScores,
     ParameterSet,
@@ -74,7 +111,9 @@ from mountain_perf.schemas import (
     RecordedTrace,
     Regime,
     RegimeClass,
+    RepeatabilityReference,
     RouteProfile,
+    Scenario,
     ScenarioScores,
     ScorePointObservation,
     SegmentExclusion,
@@ -378,15 +417,21 @@ def _print_match_report(
     series: TraceSeries,
     parameters: ParameterSet,
     points: Sequence[ScorePointObservation],
+    *,
+    out: TextIO | None = None,
 ) -> None:
     """Sections 1 à 4 du rapport d'appariement (§ 5a.9 du brief M4a-2a)."""
     source = profile.source
-    print(f"référence    {source.identifier}   sha256 {source.content_hash[:8]}…")
+    print(
+        f"référence    {source.identifier}   sha256 {source.content_hash[:8]}…",
+        file=out,
+    )
     print(
         f"             L {_number(geometry.length_m)} m, "
-        f"D+/km {_number(dplus_per_km(profile))} m/km"
+        f"D+/km {_number(dplus_per_km(profile))} m/km",
+        file=out,
     )
-    print(f"trace        {trace.sources[0].identifier}")
+    print(f"trace        {trace.sources[0].identifier}", file=out)
     records = _count(len(trace.time_s), "enregistrement", "enregistrements")
     dropped = _count(
         trace.dropped_same_instant_count,
@@ -397,7 +442,8 @@ def _print_match_report(
         f"             {records}, {dropped}, "
         f"écoulé {format_duration(trace.elapsed_s)}, "
         f"{_count(len(series.blocks), 'bloc', 'blocs')}, "
-        f"{_count(sum(series.gap_after), 'trou', 'trous')}"
+        f"{_count(sum(series.gap_after), 'trou', 'trous')}",
+        file=out,
     )
     departure, arrival = points[0], points[-1]
     line = f"départ       {POINT_STATUS_LABELS[departure.status]}"
@@ -406,7 +452,7 @@ def _print_match_report(
             f" — b_0 {departure.effective_m:.2f} m, "
             f"durée avant départ {format_duration(departure.time_s)}"
         )
-    print(line)
+    print(line, file=out)
     line = f"arrivée      {POINT_STATUS_LABELS[arrival.status]}"
     if arrival.time_s is not None:
         line += (
@@ -416,25 +462,27 @@ def _print_match_report(
         if arrival.status is PointStatus.ANCHORED:
             # L − b_K est l'opposé du décalage d'ancrage que porte le contrat.
             line += f", L − b_K {0.0 - arrival.anchoring_offset_m:.2f} m"
-    print(line)
+    print(line, file=out)
     print(
         f"points       Δ {parameters['score_step_m']:g} m, "
         f"ε {parameters['lateral_tolerance_m']:g} m, "
-        f"r_c {parameters['cluster_radius_m']:g} m — {len(points)} points"
+        f"r_c {parameters['cluster_radius_m']:g} m — {len(points)} points",
+        file=out,
     )
     counts = Counter(point.status for point in points)
     print(
         "             "
         + ", ".join(
             f"{label} {counts[status]}" for status, label in POINT_STATUS_LABELS.items()
-        )
+        ),
+        file=out,
     )
     ambiguous = [
         f"k = {point.index} (s_k = {_number(point.nominal_m)} m)"
         for point in points
         if point.status is PointStatus.AMBIGUOUS
     ]
-    print(f"             ambigus : {', '.join(ambiguous) or 'aucun'}")
+    print(f"             ambigus : {', '.join(ambiguous) or 'aucun'}", file=out)
 
 
 def _durations(totals: ClockTotals | AdmittedTotals) -> str:
@@ -445,7 +493,9 @@ def _durations(totals: ClockTotals | AdmittedTotals) -> str:
     )
 
 
-def _print_segment_report(result: MatchResult, episodes: Sequence[StopEpisode]) -> None:
+def _print_segment_report(
+    result: MatchResult, episodes: Sequence[StopEpisode], *, out: TextIO | None = None
+) -> None:
     """Sections 5 à 9 du rapport d'appariement (§ 5b.11 du brief M4a-2b) : segments,
     couverture, préfixe, horloges, épisodes sous ``θ_c``. Seuls des comptes et des
     mises en forme : longueurs, temps et totaux sont lus dans le ``MatchResult``."""
@@ -461,16 +511,19 @@ def _print_segment_report(result: MatchResult, episodes: Sequence[StopEpisode]) 
         f"{label} {counts[exclusion]} ({excluded_m[exclusion]:.2f} m)"
         for exclusion, label in SEGMENT_EXCLUSION_LABELS.items()
     ]
-    print(f"segments     {counts[None]} admis sur {len(segments)}")
-    print(f"             {', '.join(motifs[:2])}")
-    print(f"             {', '.join(motifs[2:])}")
-    print(f"             ancrage exclu {coverage.anchoring_excluded_m:.2f} m")
+    print(f"segments     {counts[None]} admis sur {len(segments)}", file=out)
+    print(f"             {', '.join(motifs[:2])}", file=out)
+    print(f"             {', '.join(motifs[2:])}", file=out)
+    print(f"             ancrage exclu {coverage.anchoring_excluded_m:.2f} m", file=out)
     regimes = ", ".join(
         f"{label} {_coverage_percent(coverage.regime_fraction(regime))}"
         for regime, label in REGIME_LABELS.items()
     )
-    print(f"couverture   {_coverage_percent(coverage.fraction)} — {regimes}")
-    print(f"             écoulé admis {format_duration(coverage.admitted_elapsed_s)}")
+    print(f"couverture   {_coverage_percent(coverage.fraction)} — {regimes}", file=out)
+    print(
+        f"             écoulé admis {format_duration(coverage.admitted_elapsed_s)}",
+        file=out,
+    )
     excluded_s = {
         SegmentExclusion.GAP: coverage.excluded_gap_s,
         SegmentExclusion.LENGTH_RATIO: coverage.excluded_length_ratio_s,
@@ -480,42 +533,48 @@ def _print_segment_report(result: MatchResult, episodes: Sequence[StopEpisode]) 
         f"{SEGMENT_EXCLUSION_LABELS[exclusion]} {format_duration(duration_s)}"
         for exclusion, duration_s in excluded_s.items()
     )
-    print(f"             temps exclus : {times}")
+    print(f"             temps exclus : {times}", file=out)
     unknown = _count(counts[SegmentExclusion.UNOBSERVED_BOUND], "segment", "segments")
-    print(f"             durées inconnues : {unknown}")
+    print(f"             durées inconnues : {unknown}", file=out)
     end_s = coverage.prefix_end_s
     print(
         "préfixe      "
         f"{_count(coverage.prefix_segment_count, 'segment', 'segments')}, "
         f"b_m {coverage.prefix_end_m:.2f} m, "
         f"t*_m {'non daté' if end_s is None else format_duration(end_s)}, "
-        f"dernier passage {coverage.prefix_last_passage or 'aucun'}"
+        f"dernier passage {coverage.prefix_last_passage or 'aucun'}",
+        file=out,
     )
-    print("horloges     M / S / U de la trace, puis du support admis")
+    print("horloges     M / S / U de la trace, puis du support admis", file=out)
     for k, (trace, admitted) in enumerate(
         zip(result.trace_totals, result.admitted_totals, strict=True)
     ):
         print(
             f"             θ{k + 1}  trace {_durations(trace)}"
-            f"   admis {_durations(admitted)}"
+            f"   admis {_durations(admitted)}",
+            file=out,
         )
     low, high = result.low_convention_index, result.high_convention_index
     interval = result.admitted_sensitivity_range_s
     if low is None or high is None or interval is None:
-        print("             θ_bas, θ_haut, I_sens,A : aucun segment admis")
+        print("             θ_bas, θ_haut, I_sens,A : aucun segment admis", file=out)
     else:
         print(
             f"             θ_bas θ{low + 1}, θ_haut θ{high + 1}, I_sens,A "
-            f"[{format_duration(interval[0])} ; {format_duration(interval[1])}]"
+            f"[{format_duration(interval[0])} ; {format_duration(interval[1])}]",
+            file=out,
         )
     stopped_s = result.trace_totals[CENTRAL_CONVENTION_INDEX].stopped_s
     print(
         f"épisodes     sous θ_c : {_count(len(episodes), 'épisode', 'épisodes')}, "
-        f"{format_duration(stopped_s)}"
+        f"{format_duration(stopped_s)}",
+        file=out,
     )
 
 
-def _print_passage_report(result: PassageMatchResult) -> None:
+def _print_passage_report(
+    result: PassageMatchResult, *, out: TextIO | None = None
+) -> None:
     """Section 10 du rapport d'appariement (§ 6.10 du brief M4a-3) : passages nommés
     et épisodes sous ``θ_c``. Seuls des comptes et des mises en forme : statuts,
     instants et attributions sont lus dans le ``PassageMatchResult``."""
@@ -527,7 +586,8 @@ def _print_passage_report(result: PassageMatchResult) -> None:
     comparables = sum(passage.comparable for passage in passages)
     print(
         f"passages     {_count(len(passages), 'occurrence', 'occurrences')} — "
-        f"{statuses} ; comparables {comparables}"
+        f"{statuses} ; comparables {comparables}",
+        file=out,
     )
     for passage in passages:
         line = (
@@ -557,20 +617,22 @@ def _print_passage_report(result: PassageMatchResult) -> None:
         else:
             motive = PASSAGE_UNAVAILABILITY_LABELS[passage.unavailability]
             end = f"indisponible ({motive})"
-        print(f"{line} ; {end}")
+        print(f"{line} ; {end}", file=out)
     outcomes = Counter(attribution.outcome for attribution in result.episodes)
     print(
         "             épisodes θ_c : "
         f"attribués {outcomes[EpisodeOutcome.ATTRIBUTED]}, "
         f"sans candidate {outcomes[EpisodeOutcome.NO_CANDIDATE]}, "
-        f"non attribués {outcomes[EpisodeOutcome.TIE]}"
+        f"non attribués {outcomes[EpisodeOutcome.TIE]}",
+        file=out,
     )
     for attribution in result.episodes:
         if attribution.outcome is EpisodeOutcome.TIE:
             episode = attribution.episode
             print(
                 f"             non attribué [{format_duration(episode.start_s)} ; "
-                f"{format_duration(episode.end_s)}]"
+                f"{format_duration(episode.end_s)}]",
+                file=out,
             )
 
 
@@ -686,6 +748,8 @@ def _print_scenario(
     scenario: ScenarioScores,
     observation: OutingObservation,
     clocks: Sequence[Clock],
+    *,
+    out: TextIO | None = None,
 ) -> None:
     """Points 1 à 4 de la section 12 (§ 6.7 du brief M4b-2) : tracé projeté et
     effectifs, enveloppes, métriques sous les horloges du rapport, diagnostic."""
@@ -697,19 +761,26 @@ def _print_scenario(
         + (" (trop peu représenté)" if regime.underrepresented else "")
         for regime in support.classes
     )
-    print(f"{label:<13}{scenario.forecast.source.identifier} ; {segments} : {classes}")
-    print(f"{_INDENT}{'enveloppe':<16}support {_envelope(scenario.envelope)}")
+    print(
+        f"{label:<13}{scenario.forecast.source.identifier} ; {segments} : {classes}",
+        file=out,
+    )
+    print(f"{_INDENT}{'enveloppe':<16}support {_envelope(scenario.envelope)}", file=out)
     for regime, envelope in zip(RegimeClass, scenario.class_envelopes, strict=True):
-        print(f"{_INDENT}{'':<16}{REGIME_CLASS_LABELS[regime]} {_envelope(envelope)}")
-    print(_row("", [_clock_label(clock) for clock in clocks]))
+        print(
+            f"{_INDENT}{'':<16}{REGIME_CLASS_LABELS[regime]} {_envelope(envelope)}",
+            file=out,
+        )
+    print(_row("", [_clock_label(clock) for clock in clocks]), file=out)
     for row_label, cells in _support_rows([s.support for s in shown]):
-        print(_row(row_label, cells))
+        print(_row(row_label, cells), file=out)
     diagnostics = [s.diagnostic for s in shown]
     if all(diagnostic is None for diagnostic in diagnostics):
         return
     print(
         f"{_INDENT}{'diagnostic':<16}sous-support à temps positifs, "
-        "ni cible ni garde-fou"
+        "ni cible ni garde-fou",
+        file=out,
     )
     kept, zero = [], []
     for diagnostic in diagnostics:
@@ -726,11 +797,11 @@ def _print_scenario(
                 if not positive
             )
         )
-    print(_row("segments", kept))
-    print(_row("temps nuls", zero))
+    print(_row("segments", kept), file=out)
+    print(_row("temps nuls", zero), file=out)
     metrics = [None if d is None else d.metrics for d in diagnostics]
     for row_label, cells in _support_rows(metrics):
-        print(_row(row_label, cells))
+        print(_row(row_label, cells), file=out)
 
 
 def _point_name(point: ObservedPoint, passages: PassageMatchResult) -> str:
@@ -745,6 +816,8 @@ def _print_passage_errors(
     observation: OutingObservation,
     passages: PassageMatchResult,
     clocks: Sequence[Clock],
+    *,
+    out: TextIO | None = None,
 ) -> None:
     """Point 5 de la section 12 : ``C_k`` (``0010`` D7.3)."""
     points = observation.error_points
@@ -752,23 +825,28 @@ def _print_passage_errors(
     print(
         f"{'C_k':<13}{_count(len(points), 'point', 'points')} du préfixe "
         f"({_count(scored, 'point de score', 'points de score')}, "
-        f"{_count(len(points) - scored, 'lieu', 'lieux')}), origine exclue ; secondes"
+        f"{_count(len(points) - scored, 'lieu', 'lieux')}), origine exclue ; secondes",
+        file=out,
     )
-    print(_row("", [_clock_label(clock) for clock in clocks]))
+    print(_row("", [_clock_label(clock) for clock in clocks]), file=out)
     errors = [s.passage_errors for s in _shown(scenario, clocks)]
     present = [e for e in errors if e is not None]
-    print(_row("max |C_k|", [_cell(e.max_abs_error_s, _abs_seconds) for e in present]))
-    print(_row("max C_k", [_cell(e.max_error_s, _seconds) for e in present]))
-    print(_row("min C_k", [_cell(e.min_error_s, _seconds) for e in present]))
+    print(
+        _row("max |C_k|", [_cell(e.max_abs_error_s, _abs_seconds) for e in present]),
+        file=out,
+    )
+    print(_row("max C_k", [_cell(e.max_error_s, _seconds) for e in present]), file=out)
+    print(_row("min C_k", [_cell(e.min_error_s, _seconds) for e in present]), file=out)
     if not points:
         return
-    print(f"{_INDENT}sous l'écoulé")
+    print(f"{_INDENT}sous l'écoulé", file=out)
     elapsed = scenario.clocks[0].passage_errors
     assert elapsed is not None  # contrat de ScenarioScores, en usage
     for point, error in zip(points, elapsed.errors_s, strict=True):
         print(
             f"{_INDENT}  {_point_name(point, passages):<24}{point.distance_m:>11.2f} m"
-            f"   {_cell(error, _seconds)}"
+            f"   {_cell(error, _seconds)}",
+            file=out,
         )
 
 
@@ -777,6 +855,8 @@ def _print_targets(
     observation: OutingObservation,
     passages: PassageMatchResult,
     clocks: Sequence[Clock],
+    *,
+    out: TextIO | None = None,
 ) -> None:
     """Point 6 de la section 12 : ``K`` et la cible d'usage (``0010`` D7.4)."""
     targets, members = observation.targets, observation.members
@@ -789,18 +869,23 @@ def _print_targets(
     available = _count(elapsed.available_count, "passage", "passages")
     print(
         f"{'K':<13}{_count(len(targets), 'élément', 'éléments')} ({of_k}) — "
-        f"{available} sur {elapsed.target_count}"
+        f"{available} sur {elapsed.target_count}",
+        file=out,
     )
-    print(_row("", [_clock_label(clock) for clock in clocks]))
+    print(_row("", [_clock_label(clock) for clock in clocks]), file=out)
     shown = [s.usage_target for s in _shown(scenario, clocks)]
     present = [t for t in shown if t is not None]
-    print(_row("q_usage", [_cell(t.q_usage, _plain) for t in present]))
-    print(_row("q | préfixe", [_cell(t.q_usage_prefix, _plain) for t in present]))
+    print(_row("q_usage", [_cell(t.q_usage, _plain) for t in present]), file=out)
+    print(
+        _row("q | préfixe", [_cell(t.q_usage_prefix, _plain) for t in present]),
+        file=out,
+    )
     print(
         _row(
             "comparables",
             [f"{sum(t.comparable)} sur {len(t.comparable)}" for t in present],
-        )
+        ),
+        file=out,
     )
     for k, (member, target) in enumerate(zip(members, targets, strict=True)):
         name = "arrivée"
@@ -813,11 +898,12 @@ def _print_targets(
             state = METRIC_UNAVAILABILITY_LABELS[target.unavailability]
         print(
             f"{_INDENT}  {name:<24}{target.distance_m:>11.2f} m   poids {weight}"
-            f"   {state}"
+            f"   {state}",
+            file=out,
         )
     gap_m = observation.arrival_anchor_gap_m
     if gap_m is not None:
-        print(f"{_INDENT}arrivée ancrée, L − b_K {gap_m:.2f} m")
+        print(f"{_INDENT}arrivée ancrée, L − b_K {gap_m:.2f} m", file=out)
 
 
 def _print_v0_report(
@@ -825,6 +911,8 @@ def _print_v0_report(
     outing: OutingScores,
     passages: PassageMatchResult,
     clocks: Sequence[Clock],
+    *,
+    out: TextIO | None = None,
 ) -> None:
     """Sections 11 à 13 du rapport d'appariement (§ 6.7 du brief M4b-2) : v0 brut,
     usage, contrôle, sous les horloges du rapport. Seules des mises en forme : les
@@ -832,23 +920,712 @@ def _print_v0_report(
     source = read_result.source
     forecast = outing.control.forecast
     print(
-        f"{'v0 brut':<13}courbe {source.identifier}   sha256 {source.content_hash[:8]}…"
+        f"{'v0 brut':<13}courbe {source.identifier}   "
+        f"sha256 {source.content_hash[:8]}…",
+        file=out,
     )
     shown = ", ".join(_clock_label(clock) for clock in clocks)
     if len(clocks) == 1:
         shown += " (aucun segment admis)"
     print(
         f"{_INDENT}effort {forecast.parameters['effort']:.2f}, moteur "
-        f"{forecast.engine_version} ; horloges du rapport : {shown}"
+        f"{forecast.engine_version} ; horloges du rapport : {shown}",
+        file=out,
     )
     observation = outing.observation
     if outing.usage is None:
-        print(f"{'usage':<13}sans référence : scénario contrôle seul (0010 D3)")
+        print(
+            f"{'usage':<13}sans référence : scénario contrôle seul (0010 D3)", file=out
+        )
     else:
-        _print_scenario("usage", outing.usage, observation, clocks)
-        _print_passage_errors(outing.usage, observation, passages, clocks)
-        _print_targets(outing.usage, observation, passages, clocks)
-    _print_scenario("contrôle", outing.control, observation, clocks)
+        _print_scenario("usage", outing.usage, observation, clocks, out=out)
+        _print_passage_errors(outing.usage, observation, passages, clocks, out=out)
+        _print_targets(outing.usage, observation, passages, clocks, out=out)
+    _print_scenario("contrôle", outing.control, observation, clocks, out=out)
+
+
+# ---------------------------------------------------------------------------
+# mperf backtest : synthèse et rapport D15 (§ 6.3 du brief M4b-5)
+# ---------------------------------------------------------------------------
+
+DATA_SET_LABELS: Mapping[DataSet, str] = {
+    DataSet.REPEATABILITY: "répétabilité",
+    DataSet.DEVELOPMENT: "développement",
+    DataSet.CONFIRMATION: "confirmation",
+}
+"""Libellés d'affichage des jeux (``0010`` D2.3)."""
+
+OUTING_LABEL_LABELS: Mapping[OutingLabel, str] = {
+    OutingLabel.RACE: "course",
+    OutingLabel.TRAINING: "entraînement",
+}
+"""Libellés d'affichage des étiquettes d'une sortie."""
+
+MISSING_LABELS: Mapping[str, str] = {
+    Unavailability.ABSENT.value: "absent",
+    Unavailability.AMBIGUOUS.value: "ambigu",
+    Unavailability.UNDEFINED_TANGENT.value: "tangente indéfinie",
+    Unavailability.GAP.value: "trou",
+    Unavailability.INTERIOR_DEVIATION.value: "écart intérieur",
+    Unavailability.INSUFFICIENT_SUPPORT.value: "support insuffisant",
+    Unavailability.ZERO_TIME.value: "temps nul",
+    Unavailability.UNIDENTIFIED_REFERENCE.value: "référence non identifiée",
+    Unavailability.NON_CONVERGENCE.value: "non-convergence",
+    Unavailability.MODEL_ERROR.value: "erreur du modèle",
+    Unavailability.NOT_CALIBRATED.value: "non calé",
+    Unavailability.MULTI_OUTING_DAY.value: "jour multi-sorties",
+    UNDERREPRESENTED: "trop peu représenté",
+    NOT_SCORED: "non scorée",
+    NO_REFERENCE: "sans référence",
+}
+"""Libellés d'affichage des motifs d'une valeur manquante, dans l'ordre de
+``MISSING_ORDER`` : ceux de ``mperf match``, les autres noms de ``0010`` D0, puis ceux
+du rapport (§ 6.3 du brief M4b-5). Invariables : ``2 non scorée``."""
+
+SUBCLASS_LABELS: Mapping[DescentSubclass, tuple[str, str]] = {
+    DescentSubclass.ROLLING: ("roulante", "roulantes"),
+    DescentSubclass.STEEP: ("raide", "raides"),
+    DescentSubclass.UNDECIDED: ("non départagée", "non départagées"),
+}
+"""Libellés d'affichage des sous-classes de descente, singulier et pluriel (``0010``
+D6)."""
+
+REPORT_METRIC_LABELS: Mapping[ReportMetric, str] = {
+    ReportMetric.LEVEL: "L",
+    ReportMetric.ABS_LEVEL: "|L|",
+    ReportMetric.DISPERSION: "A",
+    ReportMetric.WITHIN: "W",
+    ReportMetric.BETWEEN: "B",
+    ReportMetric.COMPENSATION: "C_comp",
+    ReportMetric.SHAPE: "E_R−L",
+    ReportMetric.ABS_CLASS_LEVEL: "|E_R|",
+    ReportMetric.CLASS_DISPERSION: "D_R",
+    ReportMetric.MAX_ABS_PASSAGE_ERROR: "max |C_k|",
+    ReportMetric.USAGE_TARGET: "q_usage",
+}
+"""Libellés d'affichage des métriques agrégées ; une métrique de classe est précédée
+du libellé de sa classe (``montée E_R−L``)."""
+
+CLOCK_ROLE_LABELS: Mapping[ClockRole, str] = {
+    ClockRole.ELAPSED: "écoulé",
+    ClockRole.LOW: "M sous θ_bas de chaque performance",
+    ClockRole.HIGH: "M + U sous θ_haut de chaque performance",
+}
+"""Libellés d'affichage des horloges d'une table d'agrégats (``0010`` D5.4)."""
+
+SCENARIO_LABELS: Mapping[Scenario, str] = {
+    Scenario.USAGE: "usage",
+    Scenario.CONTROL: "contrôle",
+}
+"""Libellés d'affichage des scénarios (``0010`` D3)."""
+
+LEGEND = (
+    "lecture de la compensation : sur des régimes homogènes, C_comp et W restent "
+    "proches de 0 même quand des erreurs de signe opposé se compensent dans le total ; "
+    "ce qui montre un total juste qui cache des erreurs est l'écart entre A (grand) et "
+    "|L| (proche de 0), et B quand l'écart vient des régimes. C_comp ne mesure que la "
+    "compensation entre l'écart d'un segment à son régime et l'écart de ce régime au "
+    "global.",
+    "scores rétrospectifs (0010 D2.2) ; répétabilité : scores d'« apprentissage » "
+    "(D2.3)",
+    "âge de la courbe : jours du jour J (ou de o_j) depuis son estimation ; négatif, "
+    "elle est postérieure au jour",
+    "F (0010 D8) se calcule pli par pli, sur les segments du jour retiré qu'un autre "
+    "jour observe ; v0, sur le support admis de chaque jour : mêmes jours, supports "
+    "différents",
+    "temps nul sous un M θ : un segment admis sans temps en mouvement sous ce seuil, "
+    "souvent le dernier d'une trace arrêtée à l'arrivée (fenêtre de 0010 D5.2) ; D8 ne "
+    "l'ajuste pas (cellule nulle, choix M02) : |L| du pli et F indisponibles",
+    "v0 + effort recalé, vitesse constante, Naismith, Tobler : non implémentée dans ce "
+    "lot (M4c)",
+    "calage des modèles (0010 D9) : non implémentée dans ce lot (M4c)",
+    "gains, garde-fous, admission d'un effet (0010 D10) : non implémentée dans ce lot "
+    "(M4c)",
+    "fourchettes (0010 D11) : non implémentée dans ce lot (M4d)",
+    "dérive de longue course (0010 D12) : non implémentée dans ce lot (M4d)",
+    "sensibilité (0010 D13) : non implémentée dans ce lot (M4d)",
+)
+"""La légende du rapport (§ 6.3, point 8, et § 7.4 du brief M4b-5) : la lecture de la
+compensation, les scores rétrospectifs, l'âge de la courbe, les supports de F et de
+v0, le temps nul sous un ``M θ``, puis les six rubriques des lots futurs (D15)."""
+
+REPORTS_DIR = "rapports"
+"""Le dossier des rapports D15 sous ``MPA_DATA_DIR``, jamais réécrits."""
+
+REGISTRY_DIR = "registre"
+"""Le dossier du registre des expériences sous ``MPA_DATA_DIR`` (``0010`` D14)."""
+
+BACKTEST_CURVE_ERROR = (
+    "Erreur : --curve est obligatoire : la courbe est une entrée déclarée de "
+    "l'exécution (0010 D2.6)."
+)
+"""Le message de ``mperf backtest`` sans ``--curve`` (§ 6.3 du brief M4b-5)."""
+
+MODIFIED_TREE_ERROR = (
+    "Erreur : l'arbre de travail porte des modifications non commitées : just "
+    "backtest enregistre le commit du code exécuté (0010 D14). Committer d'abord ; "
+    "rien n'est écrit."
+)
+"""Le refus d'un arbre de travail modifié (décision Q7 du brief M4b-5)."""
+
+REPORT_EXISTS_ERROR = (
+    "Erreur : le rapport {name} existe déjà : il n'est jamais réécrit. Un registre "
+    "neuf à côté d'anciens rapports ? Déplacer ces rapports ; rien n'est écrit."
+)
+"""Le refus d'un rapport prévu déjà présent (§ 6.3, étape 4, du brief M4b-5)."""
+
+REPORT_NOT_WRITTEN_ERROR = (
+    "Erreur : RÉSULTAT enregistré (événement {number} ; dernière ligne sha256 {seal}) "
+    "; rapport {name} non écrit : {reason}"
+)
+"""L'erreur d'un rapport qui ne se calcule ou ne s'écrit pas après le RÉSULTAT : elle
+publie le sceau (décisions Q15 et Q17 du brief M4b-5)."""
+
+
+def _report_name(number: int) -> str:
+    """``rapports/backtest-0002.txt`` : le rapport du RÉSULTAT ``number``."""
+    return f"{REPORTS_DIR}/backtest-{number:04d}.txt"
+
+
+def _age(days: int) -> str:
+    """Un âge de la courbe, toujours signé : ``+16``, ``−49``, ``+0``."""
+    return f"{days:+d}".replace("-", "−")
+
+
+def _label(value: MetricValue, formatted: Callable[[float], str]) -> str:
+    """Une ``MetricValue`` mise en forme, ou le libellé de son motif (tous ceux de
+    ``0010`` D0)."""
+    if value.value is not None:
+        return formatted(value.value)
+    assert value.unavailability is not None  # contrat de MetricValue
+    return MISSING_LABELS[value.unavailability.value]
+
+
+def _metric_format(metric: ReportMetric) -> Callable[[float], str]:
+    """Biais signés (``L``, ``E_R − L``) à six décimales signées ; ``max |C_k|`` en
+    secondes ; les autres valeurs absolues à six décimales sans signe."""
+    if metric in (ReportMetric.LEVEL, ReportMetric.SHAPE):
+        return _log
+    if metric is ReportMetric.MAX_ABS_PASSAGE_ERROR:
+        return _abs_seconds
+    return _plain
+
+
+def _metric_label(metric: ReportMetric, regime: RegimeClass | None) -> str:
+    label = REPORT_METRIC_LABELS[metric]
+    return label if regime is None else f"{REGIME_CLASS_LABELS[regime]} {label}"
+
+
+def _aggregate_cell(value: Aggregate, formatted: Callable[[float], str]) -> str:
+    """``+0.025018 (5)``, ``— (0)`` sans valeur."""
+    shown = "—" if value.value is None else formatted(value.value)
+    return f"{shown} ({value.count})"
+
+
+def _missing(value: Aggregate) -> str:
+    """``1 jour multi-sorties, 2 non scorée`` : les motifs comptés."""
+    return ", ".join(f"{n} {MISSING_LABELS[motif]}" for motif, n in value.missing)
+
+
+def _aggregate_lines(rows: Sequence[AggregateRow], *, with_missing: bool) -> list[str]:
+    """L'en-tête des jeux, puis une ligne par métrique et, si demandé, la ligne de
+    ses manquants jeu par jeu."""
+    lines = [_row("", [DATA_SET_LABELS[dataset] for dataset in DataSet])]
+    for row in rows:
+        formatted = _metric_format(row.metric)
+        lines.append(
+            _row(
+                _metric_label(row.metric, row.regime_class),
+                [_aggregate_cell(value, formatted) for value in row.by_set],
+            )
+        )
+        missing = [
+            f"{DATA_SET_LABELS[dataset]} {_missing(value)}"
+            for dataset, value in zip(DataSet, row.by_set, strict=True)
+            if value.missing
+        ]
+        if with_missing and missing:
+            lines.append(f"{_INDENT}{'  manquants':<16}{' ; '.join(missing)}")
+    return lines
+
+
+def _performance_lines(run: BacktestRun) -> list[str]:
+    """Le tableau ``performances`` : une ligne par sortie déclarée, colonnes de
+    largeur fixe (§ 6.3 du brief M4b-5)."""
+    scored = {outing.outing.outing_id: outing for outing in run.outings}
+    unscored = {exclusion.outing_id: exclusion.reason for exclusion in run.unscored}
+    header = (
+        f"{'jour':<12}{'sortie':<28}{'jeu':<15}{'étiquette':<14}{'couverture':<12}"
+        f"{'préfixe':<11}{'L':<12}q_usage"
+    )
+    lines = [f"{'performances':<13}{header}"]
+    for declared in run.preparation.declaration.performances:
+        performance = declared.performance
+        for outing in performance.outings:
+            dataset = "—" if outing.dataset is None else DATA_SET_LABELS[outing.dataset]
+            label = "—" if outing.label is None else OUTING_LABEL_LABELS[outing.label]
+            start = (
+                f"{_INDENT}{performance.civil_date.isoformat():<12}"
+                f"{outing.outing_id:<28}{dataset:<15}{label:<14}"
+            )
+            if outing.outing_id in unscored:
+                line = f"{start}non scorée : {unscored[outing.outing_id]}"
+                if performance.is_multi_outing:
+                    line += " (jour multi-sorties)"
+                lines.append(line)
+                continue
+            run_ = scored[outing.outing_id]
+            coverage = run_.match.coverage
+            usage = run_.scores.usage
+            scenario = run_.scores.control if usage is None else usage
+            level = _label(scenario.clocks[0].support.log_ratio, _log)
+            if usage is None:
+                target = "sans référence"
+            else:
+                elapsed = usage.clocks[0].usage_target
+                target = "—" if elapsed is None else _label(elapsed.q_usage, _plain)
+            if performance.is_multi_outing:
+                target += " (jour multi-sorties)"
+            share = _coverage_percent(coverage.fraction)
+            prefix = f"{coverage.prefix_end_m / 1000:.2f} km"
+            lines.append(f"{start}{share:<12}{prefix:<11}{level:<12}{target}")
+    return lines
+
+
+def _comparison_lines(
+    run: BacktestRun, entries: Sequence[ScoredPerformance]
+) -> list[str]:
+    """La référence de répétabilité dans la synthèse : par parcours, ses ``F`` sous
+    l'écoulé à côté de v0 sur ses jours ; une largeur par parcours. Sans parcours de
+    répétabilité, aucune ligne (comme « écartée » sans exclusion)."""
+    comparisons = route_comparisons(entries, run.references)
+    if not comparisons:
+        return []
+    lines = [f"{'référence':<13}répétabilité (0010 D8)"]
+    for comparison in comparisons:
+        days = _count(comparison.days, "jour", "jours")
+        single = ", un seul contraste" if comparison.single_contrast else ""
+        lines.append(
+            f"{_INDENT}{comparison.route_id} — {days}{single} ; écoulé, usage : F du "
+            "parcours, v0 sur ses jours"
+        )
+        cells = [
+            (
+                _metric_label(metric, regime),
+                f"F {_label(f, _plain)} (m {f.count})",
+                f"v0 {_aggregate_cell(v0, _plain)}",
+            )
+            for metric, regime, f, v0 in comparison.rows
+        ]
+        width = max(20, max(len(f) for _, f, _ in cells) + 2)
+        lines += [
+            (_INDENT + f"{label:<16}{f:<{width}}{v0}").rstrip()
+            for label, f, v0 in cells
+        ]
+    return lines
+
+
+def _summary(run: BacktestRun, threshold: float, report_name: str) -> list[str]:
+    """La synthèse (§ 6.3 et § 7.3 du brief M4b-5) : provenance, numéros et sceau du
+    registre, sorties écartées, une ligne par sortie déclarée, agrégats d'usage sous
+    l'écoulé, référence de répétabilité, diagnostics, nom du rapport."""
+    preparation = run.preparation
+    declaration = preparation.declaration
+    matching = declaration.matching
+    lines = [
+        f"{'backtest':<13}v0 brut, protocole {declaration.protocol_record} — commit "
+        f"{declaration.commit[:12]} ; Δ {matching['score_step_m']:g} m, "
+        f"ε {matching['lateral_tolerance_m']:g} m, "
+        f"r_c {matching['cluster_radius_m']:g} m",
+        f"{'registre':<13}déclaration {run.declaration_event.number}, résultat "
+        f"{run.result_event.number} ; dernière ligne sha256 {run.seal}",
+        f"{_INDENT}à recopier au JOURNAL : l'empreinte de la dernière ligne scelle le "
+        "registre",
+    ]
+    read = preparation.manifest
+    present = {outing.outing_id for outing in read.outings}
+    others = {entry.outing_id for entry in read.refused} - present
+    performances = declaration.performances
+    lines.append(
+        f"{'manifeste':<13}{read.source.identifier}   "
+        f"sha256 {read.source.content_hash[:8]}… — "
+        f"{_count(len(read.outings) + len(others), 'sortie', 'sorties')}, "
+        f"{_count(len(performances), 'performance', 'performances')}"
+    )
+    curve = declaration.curve
+    available_at = curve.available_at
+    ages = [
+        curve_age_days(available_at, p.performance.civil_date) for p in performances
+    ]
+    later = origins_before_curve(available_at, [p.origin for p in performances])
+    lines += [
+        f"{'courbe':<13}{curve.source.identifier}   "
+        f"sha256 {curve.source.content_hash[:8]}… — "
+        f"estimée le {civil_date(available_at).isoformat()}",
+        f"{_INDENT}âge au jour J : de {_age(min(ages))} à {_age(max(ages))} jours ; "
+        f"postérieure à l'origine de {_count(later, 'performance', 'performances')} "
+        f"sur {len(performances)}",
+        f"{_INDENT}mouvement historique non harmonisé ; biais d'opérateur de pente "
+        "(0009, 0010 D6)",
+    ]
+    lines += [
+        f"{'écartée':<13}{exclusion.outing_id} — {exclusion.reason}"
+        for exclusion in declaration.exclusions
+    ]
+    lines += _performance_lines(run)
+    entries = scored_performances(run)
+    lines.append(
+        f"{'agrégats':<13}usage, écoulé ; moyenne à poids égal par performance "
+        "(effectif) ; détail et motifs : rapport complet"
+    )
+    usage = aggregate_table(entries, Scenario.USAGE, ClockRole.ELAPSED)
+    lines += _aggregate_lines(usage, with_missing=False)
+    lines += _comparison_lines(run, entries)
+    lines += [
+        f"{'diagnostics':<13}descentes roulantes et raides au seuil {threshold:.2f} ; "
+        "géométrie usage − contrôle : rapport complet",
+        f"{'rapport':<13}{report_name}",
+    ]
+    return lines
+
+
+def _fold_causes(reference: RepeatabilityReference) -> list[str]:
+    """Les causes d'un ``|L|`` de pli indisponible, par horloge (décision Q4) : les
+    motifs comptés, puis les cellules nulles des ajustements de ses plis ; des
+    horloges consécutives de même texte partagent la ligne."""
+    texts: list[tuple[str, str]] = []
+    for clock in reference.clocks:
+        folds = clock.folds
+        motifs = Counter(
+            fold.level.unavailability for fold in folds if fold.level.value is None
+        )
+        if not motifs:
+            continue
+        counted = ", ".join(
+            f"{motifs[motif]} {MISSING_LABELS[motif.value]}"
+            for motif in Unavailability
+            if motifs[motif]
+        )
+        unavailable = sum(motifs.values())
+        text = (
+            f"|L| indisponible sur {_count(unavailable, 'pli', 'plis')} sur "
+            f"{len(folds)} : {counted}"
+        )
+        zeros: dict[tuple[int, int], set[date]] = {}
+        order = {regime: r for r, regime in enumerate(RegimeClass)}
+        for fold in folds:
+            for fit in fold.fits:
+                for day, k in fit.zero_cells:
+                    zeros.setdefault((order[fit.regime_class], k), set()).add(day)
+        if zeros:
+            cells = ", ".join(
+                f"{REGIME_CLASS_LABELS[list(RegimeClass)[r]]} k {k} "
+                f"({', '.join(day.isoformat() for day in sorted(days))})"
+                for (r, k), days in sorted(zeros.items())
+            )
+            text += f" ; cellules nulles : {cells}"
+        texts.append((_clock_label(clock.clock), text))
+    lines: list[str] = []
+    while texts:
+        labels = [texts[0][0]]
+        text = texts[0][1]
+        texts = texts[1:]
+        while texts and texts[0][1] == text:
+            labels.append(texts[0][0])
+            texts = texts[1:]
+        lines.append(f"{_INDENT}{', '.join(labels)} : {text}")
+    return lines
+
+
+def _fold_lines(reference: RepeatabilityReference) -> list[str]:
+    """Sous l'écoulé, chaque pli et ses quatre classes : état de l'ajustement,
+    effectifs d'apprentissage, ``μ₂``, scores du jour retiré."""
+    lines: list[str] = []
+    for fold in reference.clocks[0].folds:
+        lines.append(
+            f"{_INDENT}pli {fold.day.isoformat()} (écoulé) : support "
+            f"{fold.support_count}, prévu {fold.predicted_count}, "
+            f"L {_label(fold.level, _log)}"
+        )
+        for fit, score in zip(fold.fits, fold.classes, strict=True):
+            state = (
+                "disponible"
+                if fit.unavailability is None
+                else MISSING_LABELS[fit.unavailability.value]
+            )
+            if fit.contraction is not None:
+                contraction = _plain(fit.contraction)
+            elif fit.contraction_unavailability is not None:
+                contraction = MISSING_LABELS[fit.contraction_unavailability.value]
+            else:
+                contraction = "—"
+            outside = "" if score.contributes else " (hors de F)"
+            lines.append(
+                f"{_INDENT}  {REGIME_CLASS_LABELS[fit.regime_class]:<10}{state} ; "
+                f"apprentissage {_count(fit.training_days, 'jour', 'jours')}, "
+                f"{_count(fit.training_segments, 'segment', 'segments')}, "
+                f"{_count(fit.training_cells, 'cellule', 'cellules')} ; "
+                f"μ₂ {contraction} ; jour retiré "
+                f"{_count(score.segment_count, 'segment', 'segments')}, "
+                f"E_R {_label(score.log_ratio, _log)}, "
+                f"D_R {_label(score.dispersion, _plain)}{outside}"
+            )
+    return lines
+
+
+def _reference_lines(route_id: str, reference: RepeatabilityReference) -> list[str]:
+    """La référence D8 d'un parcours, entière (décision Q4) : ses jours, les ``F``
+    sous les onze horloges (une largeur commune aux deux tableaux), les causes d'un
+    ``|L|`` de pli indisponible, puis les plis sous l'écoulé."""
+    days = (
+        "jours " + ", ".join(day.isoformat() for day in reference.days)
+        if reference.days
+        else "aucun jour"
+    )
+    head = f"{'référence':<13}{route_id} — {days}"
+    if reference.multi_outing_days:
+        multi = ", ".join(day.isoformat() for day in reference.multi_outing_days)
+        head += f" ; jours multi-sorties écartés {multi}"
+    if reference.single_contrast:
+        head += " ; un seul contraste"
+
+    def cell(value: MetricValue) -> str:
+        return f"{_label(value, _plain)} (m {value.count})"
+
+    levels = [
+        ["|L|", *(f"{REGIME_CLASS_LABELS[r]} |E_R|" for r in RegimeClass)],
+        *(
+            [_clock_label(c.clock), cell(c.level), *(cell(v) for v in c.log_ratios)]
+            for c in reference.clocks
+        ),
+    ]
+    dispersions = [
+        [f"{REGIME_CLASS_LABELS[r]} D_R" for r in RegimeClass],
+        *(
+            [_clock_label(c.clock), *(cell(v) for v in c.dispersions)]
+            for c in reference.clocks
+        ),
+    ]
+    values = [*levels[0], *dispersions[0]]
+    values += [text for row in (*levels[1:], *dispersions[1:]) for text in row[1:]]
+    width = max(20, max(len(text) for text in values) + 2)
+
+    def table(header: list[str], rows: Sequence[list[str]]) -> list[str]:
+        lines = [
+            (_INDENT + " " * 16 + "".join(f"{h:<{width}}" for h in header)).rstrip()
+        ]
+        lines += [
+            (
+                _INDENT + f"{row[0]:<16}" + "".join(f"{c:<{width}}" for c in row[1:])
+            ).rstrip()
+            for row in rows
+        ]
+        return lines
+
+    return [
+        head,
+        *table(levels[0], levels[1:]),
+        *table(dispersions[0], dispersions[1:]),
+        *_fold_causes(reference),
+        *_fold_lines(reference),
+    ]
+
+
+def _outing_scenario(outing: OutingRun) -> tuple[str, ScenarioScores]:
+    """Le scénario du rapport d'une sortie : l'usage, le contrôle sans référence."""
+    usage = outing.scores.usage
+    if usage is None:
+        return SCENARIO_LABELS[Scenario.CONTROL], outing.scores.control
+    return SCENARIO_LABELS[Scenario.USAGE], usage
+
+
+def _subclass_count(count: int, subclass: DescentSubclass, under: bool) -> str:
+    """``3 roulantes``, ``1 raide (trop peu représentée)``, ``2 raides (trop peu
+    représentées)``, ``0 raide``."""
+    text = _count(count, *SUBCLASS_LABELS[subclass])
+    if under:
+        text += " (trop peu représentée)" if count <= 1 else " (trop peu représentées)"
+    return text
+
+
+def _descent_lines(run: BacktestRun, threshold: float) -> list[str]:
+    """Les sous-classes de descente de chaque sortie scorée, puis leur total
+    (précision de D6, M4b-5 ; diagnostic, ni cible ni garde-fou)."""
+    lines = [
+        f"{'descentes':<13}roulantes et raides au seuil {threshold:.2f} (0010 D6) ; "
+        "diagnostic, ni cible ni garde-fou"
+    ]
+    totals: Counter[DescentSubclass] = Counter()
+    for outing in run.outings:
+        name, scenario = _outing_scenario(outing)
+        observation = outing.scores.observation
+        segments = observation.segments
+        fractions = descent_fractions(outing.profile, segments)
+        subclasses = descent_subclasses(segments, fractions, threshold)
+        counts = Counter(subclass for subclass in subclasses if subclass is not None)
+        totals.update(counts)
+        clocks = report_clocks(outing.match)
+        measured = [
+            subclass_metrics(observation, scenario, subclasses, clock)
+            for clock in clocks
+        ]
+        rolling, steep = measured[0]
+        lines.append(
+            f"{_INDENT}{outing.outing.outing_id}, {name} — "
+            + _subclass_count(
+                counts[DescentSubclass.ROLLING],
+                DescentSubclass.ROLLING,
+                rolling.underrepresented,
+            )
+            + ", "
+            + _subclass_count(
+                counts[DescentSubclass.STEEP],
+                DescentSubclass.STEEP,
+                steep.underrepresented,
+            )
+            + ", "
+            + _subclass_count(
+                counts[DescentSubclass.UNDECIDED], DescentSubclass.UNDECIDED, False
+            )
+        )
+        lines.append(_row("", [_clock_label(clock) for clock in clocks]))
+        for index, subclass in enumerate(
+            (DescentSubclass.ROLLING, DescentSubclass.STEEP)
+        ):
+            label = SUBCLASS_LABELS[subclass][0]
+            by_clock = [pair[index] for pair in measured]
+            lines += [
+                _row(f"{label} E_R", [_label(m.log_ratio, _log) for m in by_clock]),
+                _row(f"{label} D_R", [_label(m.dispersion, _plain) for m in by_clock]),
+                _row(f"{label} E_R−L", [_label(m.shape, _log) for m in by_clock]),
+            ]
+    lines.append(
+        f"{_INDENT}total : "
+        + ", ".join(
+            _count(totals[subclass], *SUBCLASS_LABELS[subclass])
+            for subclass in DescentSubclass
+        )
+    )
+    return lines
+
+
+def _geometry_lines(run: BacktestRun) -> list[str]:
+    """Le diagnostic de géométrie de chaque sortie scorée (précision de D3, M4b-5) :
+    ``G`` et ses quatre classes, ou « sans référence »."""
+    lines = [
+        f"{'géométrie':<13}usage − contrôle = ln(ΣP_usage / ΣP_contrôle) sur le "
+        "support admis (0010 D3), v0 brut"
+    ]
+    header = ["G", *(REGIME_CLASS_LABELS[regime] for regime in RegimeClass)]
+    rows: list[tuple[str, list[str] | None]] = []
+    for outing in run.outings:
+        diagnostic = geometry_diagnostic(outing.scores)
+        if diagnostic is None:
+            rows.append((outing.outing.outing_id, None))
+            continue
+        values = [diagnostic.total, *diagnostic.classes]
+        rows.append((outing.outing.outing_id, [_label(v, _log) for v in values]))
+    names = max([16, *(len(name) + 2 for name, _ in rows)])
+    cells = [*header, *(c for _, row in rows if row is not None for c in row)]
+    width = max(20, max(len(c) for c in cells) + 2)
+    lines.append(
+        (_INDENT + " " * names + "".join(f"{h:<{width}}" for h in header)).rstrip()
+    )
+    for name, row in rows:
+        shown = (
+            "sans référence" if row is None else "".join(f"{c:<{width}}" for c in row)
+        )
+        lines.append((_INDENT + f"{name:<{names}}" + shown).rstrip())
+    return lines
+
+
+def _detail_lines(run: BacktestRun, outing: OutingRun) -> list[str]:
+    """Le détail d'une sortie scorée : son en-tête, puis les sections 1 à 13 de
+    ``mperf match --curve``, écrites par leurs fonctions (au caractère près)."""
+    preparation = run.preparation
+    declared = next(
+        p
+        for p in preparation.declaration.performances
+        if outing.outing in p.performance.outings
+    )
+    performance = declared.performance
+    entry = outing.outing
+    dataset = "—" if entry.dataset is None else DATA_SET_LABELS[entry.dataset]
+    label = (
+        "sans étiquette" if entry.label is None else OUTING_LABEL_LABELS[entry.label]
+    )
+    available_at = preparation.declaration.curve.available_at
+    origin = declared.origin
+    at_day = curve_age_days(available_at, performance.civil_date)
+    at_origin = curve_age_days(available_at, civil_date(origin))
+    lines = [
+        f"{'performance':<13}{performance.civil_date.isoformat()} — "
+        f"{entry.outing_id} ; parcours {entry.route_id or '—'} ; jeu {dataset} ; "
+        f"{label}",
+        f"{_INDENT}origine o_j {origin.astimezone(PARIS):%Y-%m-%d %H:%M} (Paris) ; "
+        f"âge de la courbe {_age(at_day)} jours au jour J, {_age(at_origin)} à o_j",
+    ]
+    if performance.is_multi_outing:
+        lines.append(f"{_INDENT}jour multi-sorties : hors des agrégats (0010 D0)")
+    if third_clock_is_elapsed(outing.match):
+        lines.append(
+            f"{_INDENT}(M+U) θ_haut égale l'écoulé : aucun arrêt confirmé sur le "
+            "support admis"
+        )
+    buffer = io.StringIO()
+    _print_match_report(
+        outing.profile,
+        outing.geometry,
+        outing.trace,
+        outing.series,
+        preparation.declaration.matching,
+        outing.match.points,
+        out=buffer,
+    )
+    _print_segment_report(
+        outing.match,
+        stop_episodes(outing.partition, CENTRAL_CONVENTION_INDEX),
+        out=buffer,
+    )
+    _print_passage_report(outing.passages, out=buffer)
+    _print_v0_report(
+        preparation.curve,
+        outing.scores,
+        outing.passages,
+        report_clocks(outing.match),
+        out=buffer,
+    )
+    return lines + buffer.getvalue().splitlines()
+
+
+def _full_report(run: BacktestRun, summary: Sequence[str], threshold: float) -> str:
+    """Le rapport complet (§ 6.3 et § 7.4 du brief M4b-5) : la synthèse ; les six
+    tables d'agrégats ; la référence D8 de chaque parcours ; les descentes ; la
+    géométrie ; le détail de chaque sortie scorée ; les sorties non scorées ; la
+    légende. Aucune ligne vide, aucune espace en fin de ligne."""
+    lines = list(summary)
+    entries = scored_performances(run)
+    for scenario in (Scenario.USAGE, Scenario.CONTROL):
+        for role in ClockRole:
+            lines.append(
+                f"{'agrégats':<13}{SCENARIO_LABELS[scenario]}, "
+                f"{CLOCK_ROLE_LABELS[role]}"
+            )
+            table = aggregate_table(entries, scenario, role)
+            lines += _aggregate_lines(table, with_missing=True)
+    for route_id, reference in run.references:
+        lines += _reference_lines(route_id, reference)
+    lines += _descent_lines(run, threshold)
+    lines += _geometry_lines(run)
+    for outing in run.outings:
+        lines += _detail_lines(run, outing)
+    lines += [
+        f"{'non scorée':<13}{exclusion.outing_id} — {exclusion.reason}"
+        for exclusion in run.unscored
+    ]
+    lines.append(f"{'légende':<13}{LEGEND[0]}")
+    lines += [f"{_INDENT}{text}" for text in LEGEND[1:]]
+    return "\n".join(lines) + "\n"
 
 
 def _given(args: argparse.Namespace, options: dict[str, str]) -> dict[str, float]:
@@ -927,6 +1704,62 @@ def _run_match(args: argparse.Namespace) -> None:
     _print_v0_report(curve_read, outing, passages, report_clocks(result))
 
 
+def _run_backtest(args: argparse.Namespace) -> int:
+    """``mperf backtest`` (§ 6.3 du brief M4b-5), dans cet ordre : le seuil des
+    descentes ; ``MPA_DATA_DIR`` ; l'état git du paquet exécuté, un arbre modifié
+    refusé ; le nom du rapport prévu, refusé s'il existe ; la préparation et
+    l'exécution enregistrée ; la synthèse et le rapport calculés, puis le rapport
+    écrit (une erreur ou une interruption y publie le sceau, et retire le fichier
+    commencé) ; la synthèse."""
+    given = {}
+    if args.descent_threshold is not None:
+        given["descent_subclass_threshold"] = args.descent_threshold
+    threshold = ParameterSet(REPORT_PARAMETER_SPECS, given)[
+        "descent_subclass_threshold"
+    ]
+    data = data_dir()
+    state = git_state(Path(mountain_perf.__file__).resolve().parent)
+    if state.modified:
+        print(MODIFIED_TREE_ERROR, file=sys.stderr)
+        return 1
+    registry = data / REGISTRY_DIR
+    events = len(read_registry(registry).events) if registry.exists() else 0
+    planned = _report_name(events + 2)
+    if (data / planned).exists():
+        print(REPORT_EXISTS_ERROR.format(name=planned), file=sys.stderr)
+        return 1
+    preparation = prepare_backtest(
+        args.manifest, args.curve, commit=state.commit, tree_modified=False
+    )
+    run = run_backtest(preparation, registry)
+    name = _report_name(run.result_event.number)
+    created: Path | None = None
+    try:
+        summary = _summary(run, threshold, name)
+        text = _full_report(run, summary, threshold)
+        (data / REPORTS_DIR).mkdir(exist_ok=True)
+        with (data / name).open("x", encoding="utf-8", newline="\n") as report:
+            created = data / name
+            report.write(text)
+    except (Exception, KeyboardInterrupt) as error:
+        if created is not None:
+            # Un rapport interrompu pendant son écriture ne garde pas son nom : le
+            # message dit « non écrit » (décision Q17 ; relecture de la PR #20).
+            with contextlib.suppress(OSError):
+                created.unlink()
+        message = REPORT_NOT_WRITTEN_ERROR.format(
+            number=run.result_event.number,
+            seal=run.seal,
+            name=name,
+            reason=failure_reason(error),
+        )
+        print(message, file=sys.stderr)
+        return 1
+    for line in summary:
+        print(line)
+    return 0
+
+
 def _write_utf8() -> None:
     """Sorties standard en UTF-8, quel que soit l'encodage de la console.
 
@@ -987,6 +1820,24 @@ def main(argv: Sequence[str] | None = None) -> int:
         action="store_true",
         help="Sortie sans référence : la référence est la trace elle-même",
     )
+    backtest_parser = commands.add_parser(
+        "backtest", help="Exécution enregistrée du backtest de v0 brut et rapport D15"
+    )
+    backtest_parser.add_argument("manifest", type=Path, metavar="manifeste.json")
+    # --curve est exigé, mais pas par argparse (code 1, comme mperf project).
+    backtest_parser.add_argument(
+        "--curve",
+        type=Path,
+        metavar="courbe.csv",
+        help="Courbe allure↔pente, entrée déclarée de l'exécution (0010 D2.6)",
+    )
+    backtest_parser.add_argument(
+        "--descent-threshold",
+        dest="descent_threshold",
+        type=float,
+        metavar="F",
+        help="Seuil des descentes roulantes et raides (diagnostic de 0010 D6)",
+    )
     args = parser.parse_args(argv)
     if args.command == "project" and args.curve is None:
         print(project_parser.format_usage(), file=sys.stderr, end="")
@@ -996,7 +1847,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             file=sys.stderr,
         )
         return 1
+    if args.command == "backtest" and args.curve is None:
+        print(backtest_parser.format_usage(), file=sys.stderr, end="")
+        print(BACKTEST_CURVE_ERROR, file=sys.stderr)
+        return 1
     try:
+        if args.command == "backtest":
+            return _run_backtest(args)
         if args.command == "project":
             _run_project(args)
         elif args.command == "match":
@@ -1014,6 +1871,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         CurveError,
         ContractError,
         OSError,
+        ConfigError,
+        BacktestError,
+        ManifestError,
+        RegistryError,
     ) as error:
         print(f"Erreur : {error}", file=sys.stderr)
         return 1

@@ -68,6 +68,8 @@ def test_backtest_module_adds_no_dependency() -> None:
 
 
 def test_no_module_imports_repeatability_but_the_backtest_package() -> None:
+    """Depuis M4b-5, ``backtest/execution.py`` l'importe : il calcule la référence D8
+    de chaque parcours d'une exécution (§ 6.0 du brief M4b-5)."""
     defined = _defined_names(ast.parse(BACKTEST_MODULE.read_text(encoding="utf-8")))
     allowed = (SOURCE / "backtest" / "__init__.py", BACKTEST_MODULE)
     importers = []
@@ -81,7 +83,7 @@ def test_no_module_imports_repeatability_but_the_backtest_package() -> None:
             )
             if by_module or by_package:
                 importers.append(path.relative_to(SOURCE).as_posix())
-    assert importers == []
+    assert importers == ["backtest/execution.py"]
 
 
 def test_the_backtest_package_exports_repeatability() -> None:

@@ -58,17 +58,19 @@ Windows. `just check` enchaîne trois recettes :
 ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) lance `just check` sur
 une machine vierge à chaque push et à chaque pull request.
 
-`MPA_DATA_DIR`, le dossier des données personnelles hors du dépôt, est
-facultatif : aucune commande ne le lit encore ; il servira au backtest
-(manifeste). Pour le renseigner, copier [`.env.example`](.env.example) en `.env` ;
+`MPA_DATA_DIR`, le dossier des données personnelles hors du dépôt, sert au seul
+backtest enregistré (`just backtest` : manifeste, courbe, registre, rapports) ;
+les autres commandes ne le lisent pas.
+Pour le renseigner, copier [`.env.example`](.env.example) en `.env` ;
 `just` charge `.env` s'il existe. Sous Windows, écrire le chemin avec des barres
 obliques.
 
 ## Utilisation : `mperf`
 
-Trois sous-commandes, installées par `uv sync`. Les exemples ci-dessous ont été
+Quatre sous-commandes, installées par `uv sync`. Les exemples ci-dessous ont été
 exécutés depuis la racine du dépôt, sur des fixtures synthétiques commitées
-([`tests/fixtures/`](tests/fixtures/README.md)).
+([`tests/fixtures/`](tests/fixtures/README.md)) ; celui du backtest, sur le monde
+synthétique que les tests écrivent dans un dossier temporaire.
 
 ### `mperf profile` — le profil d'un GPX
 
@@ -221,6 +223,53 @@ usage        appariement_reference.gpx ; 3 segments admis : montée 0, plat 3, d
 | `--no-reference` | sortie sans référence : la référence doit être la trace elle-même (`0010` D3) | — |
 
 Le rayon de regroupement `r_c` n'a pas d'option : il reste à son défaut, 15 m.
+
+### `just backtest` — le backtest enregistré de v0 brut
+
+`just backtest <courbe.csv>` lance `mperf backtest` sur le manifeste
+`MPA_DATA_DIR/reference/manifeste.json` et la courbe nommée, du même dossier
+([`0010`](docs/decisions/0010-protocole-de-backtest.md), D14 et D15) : sorties
+retenues, domaine et performances ; appariement et scores de v0 brut de chaque sortie ;
+référence de répétabilité de chaque parcours. L'exécution est enregistrée dans
+`MPA_DATA_DIR/registre/` (une DÉCLARATION avant le calcul, puis un RÉSULTAT ou un
+ÉCHEC) ; le rapport complet est écrit dans `MPA_DATA_DIR/rapports/backtest-<n° du
+RÉSULTAT>.txt`, jamais réécrit ; la synthèse s'affiche, avec l'empreinte de la dernière
+ligne du registre, à recopier au journal. La commande refuse un arbre de travail
+modifié : elle enregistre le commit du code exécuté.
+
+```bash
+just backtest courbe.csv
+```
+
+Extrait de la synthèse, sur le monde synthétique des tests
+(`tests/fixtures/backtest_world.py`) : une ligne par sortie déclarée, puis les
+agrégats d'usage sous l'écoulé, à poids égal par performance et par jeu.
+
+```text
+performances jour        sortie                      jeu            étiquette     couverture  préfixe    L           q_usage
+             2026-06-03  a-2026-06-03                répétabilité   entraînement  100.00 %    4.26 km    +0.018701   0.032531
+             2026-06-04  b-2026-06-04                répétabilité   entraînement  100.00 %    3.64 km    +0.045858   0.044823
+             2026-06-06  a-2026-06-06                répétabilité   entraînement  100.00 %    4.26 km    −0.081382   0.081224
+             2026-06-08  b-2026-06-08                répétabilité   entraînement  100.00 %    3.64 km    +0.084860   0.081359
+             2026-06-10  a-2026-06-10                répétabilité   entraînement  88.26 %     2.75 km    +0.057051   support insuffisant
+             2026-06-12  a-2026-06-12                répétabilité   entraînement  100.00 %    4.26 km    −0.002133   0.014189 (jour multi-sorties)
+             2026-06-12  b-2026-06-12                répétabilité   entraînement  99.96 %     3.64 km    +0.015959   0.015832 (jour multi-sorties)
+             2026-06-12  libre-2026-06-12            développement  entraînement  100.00 %    2.62 km    +0.025011   sans référence (jour multi-sorties)
+             2026-06-14  a-2026-06-14                développement  course        100.00 %    4.26 km    +0.132283   0.136219
+             2026-06-15  libre-2026-06-15            développement  entraînement  100.00 %    2.63 km    +0.007733   sans référence
+             2026-06-16  c-2026-06-16                développement  entraînement  non scorée : trace refusée (c16.gpx) : c16.gpx, trkpt[0].time : instant manquant.
+             2026-06-20  a-2026-06-20                développement  entraînement  non scorée : sortie non tracée
+             2026-06-25  b-2026-06-25                confirmation   entraînement  99.96 %     3.64 km    +0.104660   0.099369
+             2026-06-27  a-2026-06-27                confirmation   entraînement  100.00 %    4.26 km    +0.066124   0.078102
+agrégats     usage, écoulé ; moyenne à poids égal par performance (effectif) ; détail et motifs : rapport complet
+                             répétabilité        développement       confirmation
+             L               +0.025018 (5)       +0.132283 (1)       +0.085392 (2)
+```
+
+| Option de `mperf backtest` | Rôle | Défaut |
+|---|---|---|
+| `--curve courbe.csv` | courbe allure↔pente, **obligatoire** : une entrée déclarée de l'exécution | — |
+| `--descent-threshold F` | seuil des descentes roulantes et raides (diagnostic de `0010` D6), dans [0,60 ; 1] | 0,80 |
 
 ## État et plan
 

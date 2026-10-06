@@ -117,6 +117,15 @@ de référence désignée ; à défaut, la trace réalisée — source fixée pa
 manifeste avant toute évaluation ; seuil inclusif. Les sorties de plat (≈ 14 D+/km
 sur la série observée) forment un diagnostic « hors domaine », hors de tout score
 principal ; les parcours de répétabilité mesurent 66 à 87 D+/km.
+*(précision, M4b-5)* Le profil de domaine se lit comme un tracé (lecture GPX, profil lissé
+de `0008` à ses paramètres par défaut) : le préparé, la trace de référence désignée ou, à
+défaut, les fichiers de trace de la sortie, même refusés par la lecture des traces (un
+fichier sans horodatage reste un tracé) ; une sortie en plusieurs fichiers a pour D+/km la
+somme de leurs D+ sur la somme de leurs longueurs. Sans fichier, ou si l'un ne se lit pas
+comme un tracé, le D+/km est inconnu, et la sortie hors domaine avec ce motif. Le motif
+d'une sortie retenue hors du domaine est le premier, dans l'ordre : sport, date, D+/km
+inconnu, D+/km sous le seuil. Une sortie du domaine dont la trace est refusée reste dans sa
+performance, non scorée, avec le motif du refus.
 
 **D2.2 Fenêtre de la courbe v0** : du 2026-05-20 00:00 au 2026-06-26 24:00
 (Europe/Paris), les deux jours inclus. La courbe a été produite en septembre
@@ -171,6 +180,10 @@ empreintes ; leur instant de disponibilité est l'instant d'estimation de la pro
 (`generated_at`), et leur rôle, entrée de prévision. Par exception, le manifeste est cité
 par son empreinte seule, sans instant de disponibilité ni rôle : il décrit à la fois des
 entrées et des observations.
+*(précision, M4b-5)* La courbe ne porte pas d'athlète (ni son CSV, ni son compagnon de
+provenance) : le refus d'une sortie ou d'un relevé d'un autre athlète se fait contre
+l'athlète du manifeste, que la DÉCLARATION fige ; qu'une courbe soit celle de cet athlète
+n'est vérifié par rien, jusqu'à ce que la courbe porte le sien (M6b).
 
 ### D3 — Scénarios
 
@@ -193,6 +206,13 @@ entrées et des observations.
   aucun calage, mêmes courbe, horloge et support. Les modèles calés (D9) sont
   scorés dans chaque scénario avec leur propre calage ; l'écart de leurs scores
   entre scénarios n'est pas lu comme un effet de géométrie.
+- *(précision, M4b-5)* Le diagnostic de géométrie d'une sortie à référence est
+  `G = ln(ΣP_usage / ΣP_contrôle)`, sommes des prévisions de v0 brut sur son support
+  admis, et `G_R` de même sur les segments de chaque classe : il ne dépend pas des temps
+  observés, et vaut `L_usage − L_contrôle` sous toute horloge où les deux sont
+  disponibles. Une prévision absente, non finie, nulle ou négative le rend indisponible
+  (`erreur du modèle`) ; une classe sans segment, `support insuffisant`. Publié par sortie
+  au rapport (D15) ; ni cible ni garde-fou.
 
 ### D4 — Appariement (M4a)
 
@@ -461,6 +481,16 @@ du score. Diagnostic seulement : descente roulante `−0,15 ≤ g < −0,05`, ra
 fractions. Régime absent = « non évalué ». Mixte, roulante et raide ne sont
 **jamais** des cibles ni des garde-fous, ni des dimensions d'apprentissage
 d'effets sans nouvelle préspécification.
+*(précision, M4b-5)* « Même règle » pour les descentes : seul un segment de classe
+descente reçoit une sous-classe — **roulante** si sa fraction roulante atteint le seuil,
+**raide** si sa fraction raide l'atteint, sinon **non départagée** (comptée, jamais
+scorée). Le seuil vaut 0,80, celui des segments purs ; une exécution peut en prendre un
+autre dans `[0,60 ; 1]`, que sa synthèse et son rapport publient — un réglage du
+diagnostic, sans effet sur les scores ni sur le registre (au-dessus de 0,5, un segment
+n'est jamais roulant et raide à la fois ; les fractions se lisent sur la grille fine,
+souvent par cinquièmes). Une sous-classe se mesure sur ses segments : `E_R` et `D_R` (D7.2), et
+`E_R − L` contre le `L` de la performance ; moins de 3 segments, elle est trop peu
+représentée (D7.5).
 
 ### D7 — Métriques (M4b)
 
@@ -553,6 +583,9 @@ de score de la référence du parcours : tous les jours ont la même référence
 même indice y a les mêmes bornes nominales et, pour ses cellules, la même classe,
 sinon l'entrée est refusée. Le problème se sépare en quatre sous-problèmes
 indépendants, un par classe de D6 : montée, plat, descente et mixte.
+*(précision, M4b-5)* Un jour dont la sortie n'est pas scorée (trace refusée ou absente)
+n'entre pas dans la référence ; l'exécution publie cette sortie parmi ses sorties non
+scorées. Un jour dont la sortie est scorée sans segment admis y entre, sans cellule.
 
 **D8.2 Identification par pli et par régime.** Graphe biparti (jours
 d'apprentissage × segments du régime observés). Contrainte de centrage
@@ -836,6 +869,25 @@ déclaration reçoit au plus une réponse qui n'en corrige pas une autre. Toute 
 d'une déclaration est une DÉCLARATION neuve. Chaque DÉCLARATION compte pour un essai,
 corrections comprises : la règle ne peut que surestimer le nombre d'essais. Les essais se
 comptent par effet et par cible ; les exécutions sans effet testé, à part.
+*(précision, M4b-5)* `just backtest` déclare le commit du code qu'il exécute et refuse,
+avant tout écrit, un arbre de travail dont des fichiers suivis sont modifiés ; en M4b, il
+déclare v0 brut seul (effort 1, paramètres par défaut), les onze horloges et
+l'appariement par défaut. Une exception, ou une interruption au clavier (Ctrl-C), pendant
+le calcul qui sépare la DÉCLARATION du RÉSULTAT devient un ÉCHEC technique, au motif sans
+chemin de fichier — une interruption hors du calcul, pendant l'ajout d'un événement au
+registre ou à l'instant qui le suit, est celle d'un processus tué ; une exécution sans
+performance dans le domaine, un ÉCHEC « non évaluable ». La référence D8 d'un parcours
+nomme le fichier de référence déclaré de chaque sortie du jeu de répétabilité de ce
+parcours, à chacun des jours de la référence, jours multi-sorties compris (même
+empreinte), ce que le registre vérifie.
+*(précision, M4b-5)* L'empreinte `sha256` de la dernière ligne du journal scelle le
+registre : `just backtest` la publie à chaque exécution — sa synthèse et son rapport, ou
+son message d'erreur quand l'exécution finit en ÉCHEC ou que le rapport ne s'écrit pas —,
+et le résumé d'exécution du `JOURNAL` la recopie ; une réécriture ou une suppression des
+dernières lignes se voit alors contre l'historique git. Un processus tué (fenêtre fermée,
+coupure) n'enregistre rien de plus : entre la DÉCLARATION et le RÉSULTAT, il laisse la
+DÉCLARATION sans réponse, qui compte pour un essai ; après le RÉSULTAT, un RÉSULTAT sans
+rapport ; dans les deux cas, l'empreinte de la dernière ligne n'est publiée nulle part.
 
 ### D15 — Rapport de `just backtest`
 
@@ -853,6 +905,26 @@ origines M4. Le rapport s'enrichit par lot : M4b livre les rubriques calculables
 avec v0 brut, M4c les modèles calés et l'admission, M4d fourchettes, dérive et
 sensibilité ; une rubrique d'un lot futur est « non implémentée dans ce lot »,
 jamais une erreur du modèle ni un échec de calage.
+*(précision, M4b-5)* Le rapport se calcule pendant l'exécution, sur ses objets en mémoire :
+le registre ne garde pas tout ce qu'il publie (totaux de la trace, événements aux passages,
+épisodes non attribués, fractions fines de D6), et un rapport passé ne se régénère pas
+depuis lui. Il s'écrit en entier dans `MPA_DATA_DIR/rapports/backtest-<n° du RÉSULTAT>.txt`,
+jamais réécrit ; sa synthèse s'affiche : provenance, numéros et sceau du registre, sorties
+écartées, une ligne par sortie déclarée, agrégats d'usage sous l'écoulé, et pour chaque
+parcours de répétabilité ses `F` à côté de la moyenne de v0 sur ses jours (supports
+différents : `F` pli par pli, v0 sur le support admis de chaque jour). Un agrégat est la
+moyenne arithmétique, à poids égal par performance, d'une métrique sur son propre effectif,
+séparée par jeu : biais signés (`L`, `E_R − L`) et valeurs absolues (`|L|`, `|E_R|`,
+`D_R`, `A`, `W`, `B`, `C_comp`, `max |C_k|`, `q_usage`), en usage et en contrôle, sous
+l'écoulé, `M` sous le `θ_bas` et `M + U` sous le `θ_haut` de chaque performance (D5.4). Une
+valeur de régime n'y entre que si sa classe a au moins 3 segments (D7.5) ; une valeur
+manquante est comptée par motif — statut de D0, classe trop peu représentée, sortie non
+scorée, sans référence, `jour multi-sorties` ; une performance de plusieurs sorties compte
+dans le jeu de chacune. La courbe postérieure aux origines est comptée (performances dont
+l'origine `o_j` ne suit pas strictement son instant de disponibilité). La référence de
+répétabilité se publie entière, causes d'un `|L|` de pli indisponible comprises (aucun
+diagnostic neuf) ; une troisième horloge égale à l'écoulé, faute d'arrêt confirmé sur le
+support, se signale d'une ligne.
 
 ### D16 — Découpage
 
@@ -905,8 +977,8 @@ saisie manuelle de points. Les cumulés restent la métrique d'**usage** (`q_usa
 
 **Le logarithme du rapport.** Il est symétrique (projeter deux fois trop long ou
 deux fois trop court coûte pareil), il s'agrège exactement en temps — `L` est le
-logarithme du rapport des totaux, donc exactement `−ln` de l'effort qui aurait
-collé —, et il se décompose : niveau `L`, biais de forme `E_R − L`, dispersion
+logarithme du rapport des totaux, donc exactement `ln` de l'effort qui aurait
+collé (`e* = e^L` ; signe corrigé en M4b-5) —, et il se décompose : niveau `L`, biais de forme `E_R − L`, dispersion
 `D_R`. L'erreur en % du total (B) confond niveau et forme ; l'erreur absolue des
 cumulés (A) porte l'autocorrélation décrite plus haut. `A = W + B − C_comp` est une
 identité descriptive, pas une décomposition causale ; `C_comp` est calculé par sa

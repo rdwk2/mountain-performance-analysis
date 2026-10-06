@@ -112,7 +112,9 @@ def test_backtest_scoring_imports_only_what_section_6_lists() -> None:
 def test_no_module_imports_backtest_scoring_but_the_package_and_the_command() -> None:
     """§ 8.1, test 13 : ``backtest/scoring.py`` n'est importé, par son nom de module
     ou par ses noms depuis le paquet ``backtest``, que par ``backtest/__init__.py``
-    et ``cli.py``."""
+    et ``cli.py`` — et, depuis M4b-5, par ``backtest/execution.py``, qui enchaîne la
+    chaîne de ``mperf match --curve`` sortie par sortie, et ``backtest/report.py``,
+    qui lit les horloges du rapport (§ 6.0 du brief M4b-5)."""
     scoring = SOURCE / "backtest" / "scoring.py"
     defined = _defined_names(ast.parse(scoring.read_text(encoding="utf-8")))
     importers = []
@@ -127,7 +129,12 @@ def test_no_module_imports_backtest_scoring_but_the_package_and_the_command() ->
             )
             if by_module or by_package:
                 importers.append(path.relative_to(SOURCE).as_posix())
-    assert set(importers) <= {"backtest/__init__.py", "cli.py"}
+    assert set(importers) <= {
+        "backtest/__init__.py",
+        "backtest/execution.py",
+        "backtest/report.py",
+        "cli.py",
+    }
     assert "backtest/__init__.py" in importers
 
 

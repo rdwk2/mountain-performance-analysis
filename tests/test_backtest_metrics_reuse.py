@@ -109,7 +109,8 @@ def test_no_module_imports_metrics_but_the_backtest_package() -> None:
     paquet ``backtest`` — avec, depuis M4b-2, ``backtest/scoring.py``, qui assemble les
     vecteurs et appelle ses fonctions (§ 6 du brief M4b-2) — et, depuis M4b-3,
     ``backtest/repeatability.py``, qui appelle ``support_metrics`` sur les prévisions
-    d'un pli (§ 6 du brief M4b-3)."""
+    d'un pli (§ 6 du brief M4b-3) — et, depuis M4b-5, ``backtest/report.py``, qui
+    mesure les sous-classes de descente (§ 6.0 du brief M4b-5)."""
     defined = _defined_names(METRICS)
     importers = []
     allowed = (
@@ -117,6 +118,7 @@ def test_no_module_imports_metrics_but_the_backtest_package() -> None:
         PACKAGE / "metrics.py",
         PACKAGE / "scoring.py",
         PACKAGE / "repeatability.py",
+        PACKAGE / "report.py",
     )
     for path in sorted(SOURCE.rglob("*.py")):
         if path in allowed:
