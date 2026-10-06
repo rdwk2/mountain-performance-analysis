@@ -407,3 +407,64 @@ def test_outings_of_another_set_or_route_are_not_held(tmp_path: Path) -> None:
         recorded_at=at(1),
     )
     verify_registry(root)
+
+
+# ---------------------------------------------------------------------------
+# Correctifs de la relecture de la PR #20
+# ---------------------------------------------------------------------------
+
+
+def _refused_at_append(root: Path, *days: Performance) -> None:
+    before = snapshot(root)
+    with pytest.raises(RegistryError) as raised:
+        append_result(
+            root,
+            1,
+            outcomes(),
+            unscored=_unscored(*days),
+            references=_multi_reference(),
+            recorded_at=at(1),
+        )
+    assert str(raised.value) == "ajout refusé : " + MESSAGE.format("'q-2026-05-24'")
+    assert snapshot(root) == before
+
+
+def test_a_day_outside_the_reference_does_not_stop_the_check(tmp_path: Path) -> None:
+    """Précision de D14 (M4b-5) : les performances se parcourent toutes — un jour que
+    la référence ne couvre pas (2026-05-22) avant le jour multi-sorties n'arrête pas le
+    recoupement : la référence d'une autre empreinte de ``q-2026-05-24`` est
+    refusée."""
+    may_22 = date(2026, 5, 22)
+    other = Performance(
+        may_22,
+        (_day_outing("x-2026-05-22", may_22, "3", None, None, DataSet.DEVELOPMENT),),
+    )
+    day = _multi_outing_day(OTHER)
+    _refused_at_append(_declared_with(tmp_path, other, day), other, day)
+
+
+def test_an_outing_not_held_does_not_stop_the_check(tmp_path: Path) -> None:
+    """Décision Q14 : les sorties d'un jour se parcourent toutes — au jour
+    multi-sorties, ``p-2026-05-24``, sans parcours, avant celle de ``r1`` n'arrête pas
+    le recoupement : la référence d'une autre empreinte de ``q-2026-05-24`` est
+    refusée."""
+    held = _multi_outing_day(OTHER).outings[0]
+    first = _day_outing("p-2026-05-24", MAY_24, "2", None, None, DataSet.DEVELOPMENT)
+    day = Performance(MAY_24, (first, held))
+    assert [o.outing_id for o in day.outings] == ["p-2026-05-24", "q-2026-05-24"]
+    _refused_at_append(_declared_with(tmp_path, day), day)
+
+
+@pytest.mark.parametrize(
+    "offset",
+    [timedelta(seconds=1), -timedelta(minutes=5, seconds=59)],
+    ids=["+1s", "-5min59s"],
+)
+def test_odd_whole_second_offsets_are_read_back_identically(offset: timedelta) -> None:
+    """§ 6.4 : la règle porte sur la seconde entière — un décalage d'un nombre impair
+    de secondes s'écrit et se relit à l'identique, décalage compris."""
+    instant = datetime(2026, 10, 3, 15, 0, tzinfo=timezone(offset))
+    value = dataclasses.replace(SAMPLE, instant=instant)
+    back = decode_contract(Sample, encode_contract(value))
+    assert back.instant == instant
+    assert back.instant.utcoffset() == offset

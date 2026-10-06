@@ -17,7 +17,8 @@ import dataclasses
 import math
 from collections.abc import Sequence
 from datetime import UTC, date, datetime, timedelta
-from typing import Any
+from types import SimpleNamespace
+from typing import Any, cast
 
 import pytest
 from hypothesis import given, settings
@@ -71,6 +72,7 @@ from mountain_perf.backtest.segments import FineOverlap
 from mountain_perf.schemas import (
     CLOCKS,
     AdmittedSegment,
+    DataSet,
     MetricValue,
     ParameterSet,
     RegimeClass,
@@ -652,3 +654,81 @@ def test_third_clock_is_elapsed_on_the_world(world: BacktestRun) -> None:
         if not third_clock_is_elapsed(run.match)
     )
     assert not_elapsed == THIRD_CLOCK_NOT_ELAPSED
+
+
+# ---------------------------------------------------------------------------
+# Correctifs de la relecture de la PR #20
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "cls",
+    [
+        report.Aggregate,
+        report.ScoredPerformance,
+        report.AggregateRow,
+        report.RouteComparison,
+        report.SubclassMetrics,
+        report.GeometryDiagnostic,
+    ],
+    ids=lambda cls: str(cls.__name__),
+)
+def test_report_objects_are_frozen(cls: Any) -> None:
+    """§ 6.2 : chacun de ces objets est gelé — affecter un champ lève
+    ``FrozenInstanceError``."""
+    instance = object.__new__(cls)
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        setattr(instance, dataclasses.fields(cls)[0].name, None)
+
+
+def test_shape_takes_the_motif_of_a_missing_level(world: BacktestRun) -> None:
+    """Précision de D6 (``E_R − L`` : ``L`` absent, le motif de ``L``) : sous une
+    horloge dont le ``L`` du scénario manque — une erreur du modèle hors des
+    descentes —, une sous-classe garde son ``E_R`` et son ``E_R − L`` prend le motif
+    de ``L``. Le scénario est réduit à ce que ``subclass_metrics`` en lit."""
+    run = outing_run(world, "a-2026-06-03")
+    usage = run.scores.usage
+    assert usage is not None
+    segments = run.scores.observation.segments
+    subclasses = descent_subclasses(
+        segments, descent_fractions(run.profile, segments), 0.80
+    )
+    level = MetricValue(None, Unavailability.MODEL_ERROR, len(segments))
+    reduced = SimpleNamespace(
+        forecast=usage.forecast,
+        clocks=[SimpleNamespace(support=SimpleNamespace(log_ratio=level))],
+    )
+    rolling, steep = subclass_metrics(
+        run.scores.observation, cast(ScenarioScores, reduced), subclasses, CLOCKS[0]
+    )
+    for metrics in (rolling, steep):
+        assert metrics.log_ratio.value is not None
+        assert metrics.shape == MetricValue(
+            None, Unavailability.MODEL_ERROR, metrics.log_ratio.count
+        )
+
+
+def test_values_of_a_performance_without_scores(world: BacktestRun) -> None:
+    """§ 6.2, ``performance_values`` : ``entry.missing`` présent, ou sans scores —
+    toutes les clés valent le motif (``not_scored`` sans motif) ; un motif présent
+    l'emporte sur des scores présents."""
+    run = outing_run(world, "a-2026-06-03")
+    day, sets, routes = date(2026, 6, 3), (DataSet.REPEATABILITY,), ("a",)
+    multi = Unavailability.MULTI_OUTING_DAY.value
+    without = ScoredPerformance(day, sets, routes, None, (), None)
+    masked = ScoredPerformance(
+        day, sets, routes, run.scores, report_clocks(run.match), multi
+    )
+    for entry, motif in ((without, NOT_SCORED), (masked, multi)):
+        values = performance_values(entry, Scenario.USAGE, ClockRole.ELAPSED)
+        assert len(values) == 20
+        assert set(values.values()) == {motif}
+
+
+def test_aggregate_refuses_an_unknown_motif() -> None:
+    """``aggregate`` (publique) : un motif hors de ``MISSING_ORDER`` lève
+    ``ValueError`` au lieu de disparaître des motifs comptés."""
+    with pytest.raises(
+        ValueError, match=r"^aggregate : motifs inconnus \['inconnu'\]$"
+    ):
+        aggregate([1.0, "inconnu", NOT_SCORED])

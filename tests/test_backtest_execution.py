@@ -20,6 +20,7 @@ import math
 import re
 import shutil
 import subprocess
+from collections import Counter
 from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
@@ -39,6 +40,7 @@ from fixtures.backtest_world import (
     ATHLETE,
     COMMIT,
     COURBE,
+    EMPTY_GPX,
     RECORDED_AT,
     REFUSED,
     RETRIEVED_AT,
@@ -64,10 +66,12 @@ from mountain_perf.backtest import (
     prepare_backtest,
     read_registry,
     repeatability_reference,
+    retain_outings,
     run_backtest,
     v0_scores,
     verify_registry,
 )
+from mountain_perf.gpx import GpxReadResult, read_gpx
 from mountain_perf.model import ENGINE_VERSION, PROJECTION_PARAMETER_SPECS
 from mountain_perf.schemas import (
     CLOCKS,
@@ -79,6 +83,7 @@ from mountain_perf.schemas import (
     ParameterSet,
     RepeatabilityDay,
     RepeatabilityReference,
+    RetentionDecision,
     SourceRef,
     Unavailability,
 )
@@ -717,3 +722,265 @@ def test_outing_of_another_set_on_the_route_is_not_held(tmp_path: Path) -> None:
     assert "a-bis-2026-06-12" in [o.outing_id for o in june_12.outings]
     assert backtest.result_event.kind is EventKind.RESULT
     verify_registry(registry)
+
+
+# ---------------------------------------------------------------------------
+# Correctifs de la relecture de la PR #20
+# ---------------------------------------------------------------------------
+
+
+def _without_route_or_reference(manifest: Manifest) -> None:
+    entry = outing(manifest, "a-2026-06-03")
+    entry.pop("route")
+    entry.pop("reference")
+
+
+def _two_references_then_without_route(manifest: Manifest) -> None:
+    outing(manifest, "a-2026-06-10").update(
+        reference=outing(manifest, "b-2026-06-04")["reference"]
+    )
+    outing(manifest, "b-2026-06-12").pop("route")
+
+
+@pytest.mark.parametrize(
+    ("change", "message"),
+    [
+        (
+            _without_route_or_reference,
+            "sortie 'a-2026-06-03' : jeu de répétabilité sans parcours (0010 D8).",
+        ),
+        (
+            _two_references_then_without_route,
+            "sortie 'b-2026-06-12' : jeu de répétabilité sans parcours (0010 D8).",
+        ),
+    ],
+    ids=["route-before-reference", "outings-before-references"],
+)
+def test_order_of_the_refusals_of_the_repeatability_set(
+    tmp_path: Path, change: Callable[[Manifest], None], message: str
+) -> None:
+    """§ 6.1, étape 3 : pour chaque sortie, dans l'ordre, sans parcours puis sans
+    référence ; puis, parcours par parcours, plus d'une référence — une sortie sans
+    parcours ni référence reçoit « sans parcours » ; un parcours à deux références et
+    une sortie suivante sans parcours, « sans parcours »."""
+    with pytest.raises(BacktestError) as raised:
+        prepare(world_variant(tmp_path, change))
+    assert str(raised.value) == message
+
+
+def test_first_unreadable_domain_file_wins(tmp_path: Path) -> None:
+    """§ 6.1, point 2 (précision de D2.1) : les fichiers du profil de domaine se lisent
+    dans l'ordre, arrêt au premier qui ne se lit pas — ``libre-2026-06-15``, ses deux
+    tronçons sans point (refusés, ses instants déclarés) : le motif nomme le
+    premier."""
+
+    def declared_instants(manifest: Manifest) -> None:
+        entry = outing(manifest, "libre-2026-06-15")
+        entry["start"] = "2026-06-15T08:00:00+02:00"
+        entry["end"] = "2026-06-15T09:00:00+02:00"
+
+    manifest = world_variant(tmp_path, declared_instants)
+    folder = tmp_path / "gpx" / "libre"
+    (folder / "libre15_1.gpx").write_bytes(EMPTY_GPX.encode("utf-8"))
+    second = EMPTY_GPX.replace("Trace vide", "Second tronçon vide")
+    assert second != EMPTY_GPX
+    (folder / "libre15_2.gpx").write_bytes(second.encode("utf-8"))
+    domain = next(
+        d
+        for d in outing_domains(load_manifest(manifest))
+        if d.outing_id == "libre-2026-06-15"
+    )
+    assert domain.dplus_per_km is None
+    assert domain.reason == (
+        "profil de domaine illisible (libre15_1.gpx) : Aucun <trkpt> dans le fichier "
+        "GPX."
+    )
+
+
+def test_contract_error_of_a_domain_file_is_an_unknown_dplus(tmp_path: Path) -> None:
+    """§ 6.1, point 2 (précision de D2.1) : un fichier lisible dont une altitude n'est
+    pas finie fait lever ``ContractError`` à sa lecture — le D+/km de
+    ``x-2026-06-18`` est inconnu, avec son motif ; la préparation continue."""
+    manifest = write_world(tmp_path)
+    folder = tmp_path / "gpx" / "libre"
+    text = (folder / "c16.gpx").read_bytes().decode("utf-8")
+    elevations = re.findall(r"<ele>[^<]*</ele>", text)
+    assert len(elevations) > 2
+    position = text.index(elevations[1], text.index(elevations[0]) + 1)
+    nan = text[:position] + "<ele>nan</ele>" + text[position + len(elevations[1]) :]
+    (folder / "x18.gpx").write_bytes(nan.encode("utf-8"))
+    domain = next(
+        d
+        for d in outing_domains(load_manifest(manifest))
+        if d.outing_id == "x-2026-06-18"
+    )
+    assert domain.dplus_per_km is None
+    assert domain.reason == (
+        "profil de domaine illisible (x18.gpx) : elevation_m[1] doit être fini, reçu "
+        "nan."
+    )
+    exclusions = prepare(manifest).declaration.exclusions
+    reasons = {e.outing_id: e.reason for e in exclusions}
+    assert reasons["x-2026-06-18"] == f"hors domaine : D+/km inconnu ({domain.reason})"
+
+
+def test_tree_modified_is_declared(tmp_path: Path) -> None:
+    """§ 6.1 : la DÉCLARATION porte l'arbre tel que l'appelant le donne
+    (``tree_modified``)."""
+    preparation = prepare_backtest(
+        write_world(tmp_path),
+        COURBE,
+        commit=COMMIT,
+        tree_modified=True,
+        retrieved_at=RETRIEVED_AT,
+    )
+    assert preparation.declaration.tree_modified is True
+
+
+def test_reference_file_is_read_once_per_execution(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """§ 6.1, étape 3 : le tracé d'une référence est lu une fois par fichier (cache par
+    chemin) — pendant l'exécution du monde, ``prepare.gpx`` (parcours ``a``) et
+    ``b08.gpx`` (parcours ``b``) une fois chacun."""
+    preparation = prepare(write_world(tmp_path / "monde"))
+    counts: Counter[str] = Counter()
+
+    def counted(path: Path) -> GpxReadResult:
+        counts[path.name] += 1
+        return read_gpx(path)
+
+    monkeypatch.setattr(execution, "read_gpx", counted)
+    run_backtest(preparation, tmp_path / "registre", recorded_at=RECORDED_AT)
+    assert counts == Counter({"prepare.gpx": 1, "b08.gpx": 1})
+
+
+@pytest.mark.parametrize(
+    "cls",
+    [
+        execution.GitState,
+        execution.OutingDomain,
+        execution.Preparation,
+        execution.OutingRun,
+        execution.BacktestRun,
+    ],
+    ids=lambda cls: str(cls.__name__),
+)
+def test_execution_objects_are_frozen(cls: Any) -> None:
+    """§ 6.1 : chacun de ces objets est gelé — affecter un champ lève
+    ``FrozenInstanceError``."""
+    instance = object.__new__(cls)
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        setattr(instance, dataclasses.fields(cls)[0].name, None)
+
+
+def test_preparation_keeps_its_decisions_and_domains(tmp_path: Path) -> None:
+    """§ 6.1 : la préparation garde les décisions de rétention (``decisions``) et le
+    profil de domaine de chaque sortie (``domains``), ceux que ``retain_outings`` et
+    ``outing_domains`` rendent sur son manifeste (les sorties comparées par leur
+    identifiant : chaque lecture date ses fichiers)."""
+    manifest = write_world(tmp_path)
+    read = load_manifest(manifest)
+    preparation = prepare(manifest)
+
+    def decided(decisions: Sequence[RetentionDecision]) -> list[tuple[object, ...]]:
+        return [
+            (
+                d.outing.outing_id,
+                d.civil_date,
+                d.rank,
+                d.cumulative_elapsed_s,
+                d.retained,
+            )
+            for d in decisions
+        ]
+
+    assert decided(preparation.decisions) == decided(retain_outings(read.outings))
+    assert preparation.domains == outing_domains(read)
+
+
+def _without_performance(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    kept = {"velo-2026-05-30", "velo-2026-06-06", "velo-2026-06-09", "plat-2026-06-11"}
+
+    def only_velo_and_flat(manifest: Manifest) -> None:
+        manifest["outings"] = [o for o in _outings(manifest) if o["id"] in kept]
+
+    return world_variant(tmp_path / "monde", only_velo_and_flat)
+
+
+def _computation_raises(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    def raising(*args: Any, **kwargs: Any) -> OutingScores:
+        raise ValueError("valeur inattendue")
+
+    monkeypatch.setattr(execution, "v0_scores", raising)
+    return write_world(tmp_path / "monde")
+
+
+@pytest.mark.parametrize(
+    "failing",
+    [_without_performance, _computation_raises],
+    ids=["not-evaluable", "technical"],
+)
+def test_failure_is_recorded_at_the_given_instant(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    failing: Callable[[Path, pytest.MonkeyPatch], Path],
+) -> None:
+    """§ 6.1, étapes 2 et 4 : l'ÉCHEC, « non évaluable » ou technique, est enregistré à
+    l'instant donné (``recorded_at``), comme la DÉCLARATION."""
+    registry = tmp_path / "registre"
+    manifest = failing(tmp_path, monkeypatch)
+    with pytest.raises(BacktestError):
+        run(manifest, registry)
+    declaration, failure = read_registry(registry).events
+    assert failure.kind is EventKind.FAILURE
+    assert declaration.recorded_at == failure.recorded_at == RECORDED_AT
+
+
+def test_route_of_a_single_repeatability_outing(tmp_path: Path) -> None:
+    """D8, D8.1 : un parcours de répétabilité d'une seule sortie (``b-2026-06-08``
+    seule sur ``b``) a sa référence déclarée, et sa référence D8 un jour."""
+
+    def single_b(manifest: Manifest) -> None:
+        remove(manifest, "b-2026-06-04")
+        remove(manifest, "b-2026-06-12")
+
+    backtest = run(world_variant(tmp_path / "monde", single_b), tmp_path / "registre")
+    reference = dict(backtest.references)["b"]
+    assert [day.isoformat() for day in reference.days] == ["2026-06-08"]
+    assert reference.reference.identifier == "b08.gpx"
+
+
+def test_motif_of_an_outing_of_the_first_day_of_the_domain(tmp_path: Path) -> None:
+    """Précision de D2.1 : le domaine commence le jour de ``domain_start_date`` — une
+    sortie de ce jour-là, hors du domaine, l'est par son D+/km, pas par sa date
+    (``plat-2026-06-11``, le domaine ouvert le 2026-06-11)."""
+    manifest = world_variant(
+        tmp_path, lambda m: m.update(domain_start_date="2026-06-11")
+    )
+    exclusions = prepare(manifest).declaration.exclusions
+    reasons = {e.outing_id: e.reason for e in exclusions}
+    assert reasons["plat-2026-06-11"] == "hors domaine : D+/km 4.8, sous 40"
+
+
+def test_unscored_outing_first_in_a_multi_outing_day(tmp_path: Path) -> None:
+    """§ 6.1, étape 3, sortie par sortie : une sortie non scorée en tête d'un jour de
+    trois sorties (``a-2026-06-12`` sans trace, ses instants déclarés) n'arrête pas les
+    suivantes — ``b-2026-06-12`` et ``libre-2026-06-12`` sont scorées."""
+
+    def untraced_a12(manifest: Manifest) -> None:
+        untraced(
+            manifest,
+            "a-2026-06-12",
+            "2026-06-12T07:00:00+02:00",
+            "2026-06-12T07:45:00+02:00",
+        )
+
+    backtest = run(
+        world_variant(tmp_path / "monde", untraced_a12), tmp_path / "registre"
+    )
+    scored = [o.outing.outing_id for o in backtest.outings]
+    assert "b-2026-06-12" in scored
+    assert "libre-2026-06-12" in scored
+    unscored = [(e.outing_id, e.reason) for e in backtest.unscored]
+    assert ("a-2026-06-12", "sortie non tracée") in unscored
