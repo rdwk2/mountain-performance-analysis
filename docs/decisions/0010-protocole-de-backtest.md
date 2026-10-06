@@ -872,12 +872,14 @@ comptent par effet et par cible ; les exécutions sans effet testé, à part.
 *(précision, M4b-5)* `just backtest` déclare le commit du code qu'il exécute et refuse,
 avant tout écrit, un arbre de travail dont des fichiers suivis sont modifiés ; en M4b, il
 déclare v0 brut seul (effort 1, paramètres par défaut), les onze horloges et
-l'appariement par défaut. Une exception, ou une interruption au clavier (Ctrl-C), entre
-la DÉCLARATION et le RÉSULTAT devient un ÉCHEC technique, au motif sans chemin de
-fichier ; une exécution sans performance dans le domaine, un ÉCHEC
-« non évaluable ». La référence D8 d'un parcours nomme le fichier de référence déclaré de
-chaque sortie du jeu de répétabilité de ce parcours, à chacun des jours de la référence,
-jours multi-sorties compris (même empreinte), ce que le registre vérifie.
+l'appariement par défaut. Une exception, ou une interruption au clavier (Ctrl-C), pendant
+le calcul qui sépare la DÉCLARATION du RÉSULTAT devient un ÉCHEC technique, au motif sans
+chemin de fichier — une interruption hors du calcul, pendant l'ajout d'un événement au
+registre ou à l'instant qui le suit, est celle d'un processus tué ; une exécution sans
+performance dans le domaine, un ÉCHEC « non évaluable ». La référence D8 d'un parcours
+nomme le fichier de référence déclaré de chaque sortie du jeu de répétabilité de ce
+parcours, à chacun des jours de la référence, jours multi-sorties compris (même
+empreinte), ce que le registre vérifie.
 *(précision, M4b-5)* L'empreinte `sha256` de la dernière ligne du journal scelle le
 registre : `just backtest` la publie à chaque exécution — sa synthèse et son rapport, ou
 son message d'erreur quand l'exécution finit en ÉCHEC ou que le rapport ne s'écrit pas —,

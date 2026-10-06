@@ -55,6 +55,22 @@ de `src/` (dont 904 dans `cli.py`) et 3 640 de tests et de fixtures. Rangé dans
 `tests/test_backtest_registry_hardening.py`, `0010`, `README.md` ; branche
 `m4b/backtest`. Le contrôle réel (`just backtest` sur le manifeste, par rdw) et son
 résumé suivront.
+Correctifs de la relecture (deux relectures C et le balayage de mutation de la
+conception) : une exécution sans sortie scorée écrit son rapport (la géométrie levait sur
+une liste vide, et le RÉSULTAT restait sans rapport), sans section « référence » quand
+aucun parcours n'est de répétabilité ; « (jour multi-sorties) » finit aussi la ligne d'une
+sortie non scorée d'un tel jour ; un rapport interrompu pendant son écriture ne garde pas
+son nom ; la précision de D14 bornée au calcul (une interruption hors du calcul est celle
+d'un processus tué) ; et des tests pour des règles écrites qu'aucun test ne tenait — la
+création exclusive du rapport, quatre ordres de refus, `ManifestError` et `RegistryError`
+par la commande, le premier fichier illisible et `ContractError` du profil de domaine,
+l'arbre déclaré, le tracé d'une référence lu une fois, les décisions et les domaines de la
+préparation, une sortie non scorée en tête d'un jour multi-sorties, le recoupement des
+références D8 sur tous les jours et toutes les sorties, un décalage horaire d'un nombre
+impair de secondes, `E_R − L` quand `L` manque, les motifs d'une performance sans scores,
+l'instant des ÉCHECs, un parcours de répétabilité d'une seule sortie, le premier jour du
+domaine, un motif inconnu refusé par `aggregate`, les onze objets gelés ; 3 699 tests.
+Deux lignes de backlog.
 
 ### 2026-10-04 · M4b-4 — Backtest : registre des expériences
 Registre D14 en bibliothèque (aucune commande) : contrats de la déclaration complète
