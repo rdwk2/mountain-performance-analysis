@@ -44,6 +44,7 @@ from test_backtest_execution import (
     files,
     outing,
     route_b_without_day,
+    untraced,
     world_variant,
 )
 
@@ -915,3 +916,98 @@ def test_registry_error_through_the_command(
         "n'est en cours (plantage), le supprimer à la main.\n"
     )
     assert files(data) == {"registre/verrou": b""}
+
+
+def test_the_command_declares_its_clean_tree(world: Outcome) -> None:
+    """Précision de D14 (M4b-5) : la commande refuse un arbre modifié avant tout écrit ;
+    la DÉCLARATION qu'elle écrit porte donc un arbre propre (``tree_modified`` faux)."""
+    declaration = read_registry(world.data / "registre").events[0].declaration
+    assert declaration is not None
+    assert declaration.tree_modified is False
+
+
+def test_failed_removal_keeps_the_published_error(
+    tmp_path: Path, data: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Décision Q17, § 6.3, étape 6 : si le fichier commencé ne peut pas être retiré,
+    l'erreur publiée reste celle du rapport non écrit, avec le sceau."""
+    real_open, real_unlink = Path.open, Path.unlink
+
+    def opened(path: Path, mode: str = "r", *args: Any, **kwargs: Any) -> Any:
+        stream = real_open(path, mode, *args, **kwargs)
+        return _InterruptedWrite(stream) if mode == "x" else stream
+
+    def unlink(path: Path, missing_ok: bool = False) -> None:
+        if path.parent.name == "rapports":
+            raise PermissionError(13, "retrait refusé")
+        real_unlink(path, missing_ok=missing_ok)
+
+    monkeypatch.setattr(Path, "open", opened)
+    monkeypatch.setattr(Path, "unlink", unlink)
+    outcome = backtest(monkeypatch, data, write_world(tmp_path / "monde"))
+    assert (outcome.code, outcome.out) == (1, "")
+    assert outcome.err == (
+        "Erreur : RÉSULTAT enregistré (événement 2 ; dernière ligne sha256 "
+        f"{outcome.seal()}) ; rapport rapports/backtest-0002.txt non écrit : "
+        "KeyboardInterrupt\n"
+    )
+
+
+def test_scored_outing_without_set_or_label(
+    tmp_path: Path, data: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """§ 6.3 : une sortie scorée sans jeu ni étiquette (``libre-2026-06-15``, aussi
+    sans parcours) — « — » dans les colonnes jeu et étiquette de la synthèse ; en tête
+    de son détail, « parcours — ; jeu — ; sans étiquette »."""
+
+    def bare(manifest: Manifest) -> None:
+        entry = outing(manifest, "libre-2026-06-15")
+        del entry["dataset"]
+        del entry["label"]
+
+    outcome = backtest(monkeypatch, data, world_variant(tmp_path / "monde", bare))
+    assert outcome.code == 0
+    assert (
+        "             2026-06-15  libre-2026-06-15            —              —        "
+        "     100.00 %    2.63 km    +0.007733   sans référence"
+    ) in lines_of(outcome.out)
+    assert (
+        "performance  2026-06-15 — libre-2026-06-15 ; parcours — ; jeu — ; sans "
+        "étiquette"
+    ) in lines_of(outcome.report())
+
+
+def test_unscored_outing_first_in_its_day_keeps_the_others(
+    tmp_path: Path, data: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """§ 6.3, synthèse : une ligne par sortie déclarée — une sortie non scorée en tête
+    d'un jour multi-sorties (``a-2026-06-12`` sans trace, ses instants déclarés)
+    n'efface pas les lignes des sorties suivantes du jour."""
+
+    def untraced_a12(manifest: Manifest) -> None:
+        untraced(
+            manifest,
+            "a-2026-06-12",
+            "2026-06-12T07:00:00+02:00",
+            "2026-06-12T07:45:00+02:00",
+        )
+
+    outcome = backtest(
+        monkeypatch, data, world_variant(tmp_path / "monde", untraced_a12)
+    )
+    assert outcome.code == 0
+    day = [
+        line
+        for line in lines_of(outcome.out)
+        if line.startswith("             2026-06-12  ")
+    ]
+    assert day == [
+        "             2026-06-12  a-2026-06-12                répétabilité   "
+        "entraînement  non scorée : sortie non tracée (jour multi-sorties)",
+        "             2026-06-12  b-2026-06-12                répétabilité   "
+        "entraînement  99.96 %     3.64 km    +0.015959   0.015832 "
+        "(jour multi-sorties)",
+        "             2026-06-12  libre-2026-06-12            développement  "
+        "entraînement  100.00 %    2.62 km    +0.025011   sans référence "
+        "(jour multi-sorties)",
+    ]
