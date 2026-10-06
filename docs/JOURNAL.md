@@ -76,6 +76,83 @@ de `src/` : quatre tests — la DÉCLARATION de la commande porte un arbre propr
 publiée reste celle du rapport non écrit quand le fichier commencé ne peut pas être
 retiré, une sortie scorée sans jeu ni étiquette, une sortie non scorée en tête d'un jour
 multi-sorties ; 3 703 tests. Une ligne de backlog.
+Contrôle réel (rdw, 2026-10-06, sur `5c028f3`, arbre propre) :
+`just backtest courbe_2026-05-20_2026-06-26.csv` sur le manifeste réel, code 0 en deux
+minutes et demie environ ; au registre réel, la DÉCLARATION 1 et le RÉSULTAT 2, que
+`verify_registry` accepte ; sceau (empreinte de la dernière ligne)
+`d9c30ee8f9a31febb50af1fe6f4de504fc75fbe333e95b5f3acfe2cad6fdd885` ;
+rapport `rapports/backtest-0002.txt` (2 279 lignes). La synthèse est identique, hors du
+commit et du sceau, à celle que la conception avait calculée sur le même manifeste et
+la même courbe :
+```text
+backtest     v0 brut, protocole 0010 — commit 5c028f378adb ; Δ 250 m, ε 30 m, r_c 15 m
+registre     déclaration 1, résultat 2 ; dernière ligne sha256 d9c30ee8f9a31febb50af1fe6f4de504fc75fbe333e95b5f3acfe2cad6fdd885
+             à recopier au JOURNAL : l'empreinte de la dernière ligne scelle le registre
+manifeste    manifeste.json   sha256 118df930… — 14 sorties, 12 performances
+courbe       courbe_2026-05-20_2026-06-26.csv   sha256 f7a83ece… — estimée le 2026-07-13
+             âge au jour J : de −49 à +16 jours ; postérieure à l'origine de 11 performances sur 12
+             mouvement historique non harmonisé ; biais d'opérateur de pente (0009, 0010 D6)
+écartée      trail-2026-06-07 — hors domaine : D+/km inconnu (sortie non tracée, sans référence)
+écartée      vtt-2026-06-18 — non retenue : écoulé cumulé du jour 23209 s, 4 h ou plus (0010 D0)
+performances jour        sortie                      jeu            étiquette     couverture  préfixe    L           q_usage
+             2026-05-25  q1-2026-05-25               répétabilité   entraînement  78.96 %     3.00 km    −0.153637   support insuffisant
+             2026-05-26  q1-2026-05-26               répétabilité   entraînement  58.25 %     3.25 km    −0.127644   support insuffisant
+             2026-05-27  infernet-2026-05-27         répétabilité   entraînement  86.36 %     5.50 km    −0.046763   support insuffisant
+             2026-05-29  q1-2026-05-29               répétabilité   entraînement  95.35 %     3.00 km    −0.130380   support insuffisant
+             2026-06-04  q1-2026-06-04               répétabilité   entraînement  90.71 %     5.25 km    −0.024041   support insuffisant
+             2026-06-07  q1-2026-06-07               répétabilité   entraînement  99.99 %     10.78 km   +0.002883   0.024308
+             2026-06-18  infernet-2026-06-18         répétabilité   entraînement  93.94 %     3.50 km    −0.131762   support insuffisant
+             2026-06-24  q1-2026-06-24               répétabilité   entraînement  99.90 %     10.77 km   +0.107394   0.071958
+             2026-07-03  queyras-2026-07-03          développement  course        45.82 %     3.50 km    −0.271169   support insuffisant
+             2026-07-17  infernet-2026-07-17         développement  entraînement  89.39 %     3.50 km    −0.081185   support insuffisant
+             2026-07-18  q1-2026-07-18               développement  entraînement  99.96 %     10.77 km   −0.030112   0.044795
+             2026-07-29  pas-de-l-homme-2026-07-29   développement  entraînement  100.00 %    16.23 km   +0.060689   sans référence
+agrégats     usage, écoulé ; moyenne à poids égal par performance (effectif) ; détail et motifs : rapport complet
+                             répétabilité        développement       confirmation
+             L               −0.062994 (8)       −0.127489 (3)       — (0)
+             |L|             0.090563 (8)        0.127489 (3)        — (0)
+             A               0.144095 (8)        0.180956 (3)        — (0)
+             W               0.120541 (8)        0.168740 (3)        — (0)
+             B               0.074095 (8)        0.050676 (3)        — (0)
+             C_comp          0.050540 (8)        0.038460 (3)        — (0)
+             montée E_R−L    −0.034653 (8)       −0.010039 (3)       — (0)
+             montée |E_R|    0.110662 (8)        0.137528 (3)        — (0)
+             montée D_R      0.093193 (8)        0.149968 (3)        — (0)
+             plat E_R−L      +0.130089 (2)       −0.021880 (2)       — (0)
+             plat |E_R|      0.040826 (2)        0.238612 (2)        — (0)
+             plat D_R        0.084375 (2)        0.273928 (2)        — (0)
+             descente E_R−L  +0.092129 (8)       +0.051141 (3)       — (0)
+             descente |E_R|  0.107226 (8)        0.094207 (3)        — (0)
+             descente D_R    0.130900 (8)        0.159509 (3)        — (0)
+             mixte E_R−L     −0.710344 (1)       −0.025645 (1)       — (0)
+             mixte |E_R|     0.842106 (1)        0.296814 (1)        — (0)
+             mixte D_R       0.744931 (1)        0.337344 (1)        — (0)
+             max |C_k|       430.6 (8)           193.8 (3)           — (0)
+             q_usage         0.048133 (2)        0.044795 (1)        — (0)
+référence    répétabilité (0010 D8)
+             infernet — 2 jours, un seul contraste ; écoulé, usage : F du parcours, v0 sur ses jours
+             |L|             F 0.031620 (m 2)             v0 0.089263 (2)
+             montée |E_R|    F 0.052119 (m 2)             v0 0.112556 (2)
+             montée D_R      F 0.073967 (m 2)             v0 0.069027 (2)
+             plat |E_R|      F 0.068558 (m 2)             v0 0.040826 (2)
+             plat D_R        F 0.083871 (m 2)             v0 0.084375 (2)
+             descente |E_R|  F 0.008575 (m 2)             v0 0.011532 (2)
+             descente D_R    F 0.097759 (m 2)             v0 0.125124 (2)
+             mixte |E_R|     F support insuffisant (m 0)  v0 0.842106 (1)
+             mixte D_R       F support insuffisant (m 0)  v0 0.744931 (1)
+             q1 — 6 jours ; écoulé, usage : F du parcours, v0 sur ses jours
+             |L|             F 0.098952 (m 6)             v0 0.090996 (6)
+             montée |E_R|    F 0.084846 (m 6)             v0 0.110030 (6)
+             montée D_R      F 0.053332 (m 6)             v0 0.101248 (6)
+             plat |E_R|      F support insuffisant (m 0)  v0 — (0)
+             plat D_R        F support insuffisant (m 0)  v0 — (0)
+             descente |E_R|  F 0.145671 (m 6)             v0 0.139124 (6)
+             descente D_R    F 0.132561 (m 6)             v0 0.132825 (6)
+             mixte |E_R|     F support insuffisant (m 0)  v0 — (0)
+             mixte D_R       F support insuffisant (m 0)  v0 — (0)
+diagnostics  descentes roulantes et raides au seuil 0.80 ; géométrie usage − contrôle : rapport complet
+rapport      rapports/backtest-0002.txt
+```
 
 ### 2026-10-04 · M4b-4 — Backtest : registre des expériences
 Registre D14 en bibliothèque (aucune commande) : contrats de la déclaration complète
