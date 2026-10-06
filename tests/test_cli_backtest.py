@@ -36,6 +36,7 @@ from mountain_perf.backtest import (
     BacktestRun,
     GitState,
     read_registry,
+    run_backtest,
 )
 from mountain_perf.schemas import EventKind, OutingScores
 from test_backtest_execution import (
@@ -807,3 +808,110 @@ def test_interrupted_write_leaves_no_report(
     )
     assert outcome.kinds() == (EventKind.DECLARATION, EventKind.RESULT)
     assert list((data / "rapports").iterdir()) == []
+
+
+def test_report_created_meanwhile_is_never_rewritten(
+    tmp_path: Path, data: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Précision de D15 (« jamais réécrit »), § 6.3, étape 6 : le rapport s'ouvre en
+    création exclusive — un fichier apparu sous son nom après le contrôle de l'étape
+    4 n'est pas réécrit ; le sceau est publié, le fichier intact."""
+
+    def then_a_report(*args: Any, **kwargs: Any) -> BacktestRun:
+        run = run_backtest(*args, **kwargs)
+        (data / "rapports").mkdir()
+        (data / REPORT).write_bytes(b"rapport concurrent\n")
+        return run
+
+    monkeypatch.setattr(cli, "run_backtest", then_a_report)
+    outcome = backtest(monkeypatch, data, write_world(tmp_path / "monde"))
+    assert (outcome.code, outcome.out) == (1, "")
+    assert outcome.err == (
+        "Erreur : RÉSULTAT enregistré (événement 2 ; dernière ligne sha256 "
+        f"{outcome.seal()}) ; rapport rapports/backtest-0002.txt non écrit : "
+        "FileExistsError (errno 17)\n"
+    )
+    assert (data / REPORT).read_bytes() == b"rapport concurrent\n"
+
+
+def _without_data_dir(
+    monkeypatch: pytest.MonkeyPatch, arguments: list[str], *, modified: bool
+) -> tuple[int, str, list[Path]]:
+    """``mperf <arguments>`` sans ``MPA_DATA_DIR`` : le code, l'erreur, les dossiers
+    dont l'état git a été demandé."""
+    asked: list[Path] = []
+
+    def state(directory: Path) -> GitState:
+        asked.append(directory)
+        return GitState(COMMIT, modified)
+
+    monkeypatch.setattr(cli, "git_state", state)
+    monkeypatch.delenv("MPA_DATA_DIR", raising=False)
+    err = io.StringIO()
+    with contextlib.redirect_stderr(err), contextlib.redirect_stdout(io.StringIO()):
+        code = cli.main(arguments)
+    return code, err.getvalue(), asked
+
+
+def test_threshold_is_refused_before_the_data_dir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """§ 6.3, étapes 1 et 2 : un seuil hors bornes **et** ``MPA_DATA_DIR`` absent — le
+    refus du seuil, « avant tout »."""
+    manifest = write_world(tmp_path / "monde")
+    arguments = ["backtest", str(manifest), "--curve", str(COURBE)]
+    code, err, asked = _without_data_dir(
+        monkeypatch, [*arguments, "--descent-threshold", "0.59"], modified=False
+    )
+    assert code == 1
+    assert err == (
+        "Erreur : descent_subclass_threshold doit être dans [0.6, 1.0], reçu 0.59.\n"
+    )
+    assert asked == []
+
+
+def test_data_dir_is_read_before_the_git_state(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """§ 6.3, étapes 2 et 3 : ``MPA_DATA_DIR`` absent **et** un arbre modifié — le
+    message de ``ConfigError`` ; l'état git n'est pas demandé."""
+    manifest = write_world(tmp_path / "monde")
+    code, err, asked = _without_data_dir(
+        monkeypatch, ["backtest", str(manifest), "--curve", str(COURBE)], modified=True
+    )
+    assert code == 1
+    assert err.startswith(
+        "Erreur : La variable d'environnement MPA_DATA_DIR n'est pas définie."
+    )
+    assert asked == []
+
+
+def test_manifest_error_through_the_command(
+    tmp_path: Path, data: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """§ 6.3 : une ``ManifestError`` rejoint les erreurs que ``main`` attrape — son
+    message, code 1 ; rien n'est écrit."""
+    manifest = world_variant(tmp_path / "monde", lambda m: m.update(schema_version=2))
+    outcome = backtest(monkeypatch, data, manifest)
+    assert (outcome.code, outcome.out) == (1, "")
+    assert outcome.err == (
+        "Erreur : manifeste, clé schema_version : doit valoir 1, reçu 2.\n"
+    )
+    assert files(data) == {}
+
+
+def test_registry_error_through_the_command(
+    tmp_path: Path, data: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """§ 6.3 : une ``RegistryError`` (registre verrouillé : la DÉCLARATION est
+    refusée) rejoint les erreurs que ``main`` attrape — son message, code 1 ; rien
+    d'autre n'est écrit."""
+    (data / "registre").mkdir()
+    (data / "registre" / "verrou").write_bytes(b"")
+    outcome = backtest(monkeypatch, data, write_world(tmp_path / "monde"))
+    assert (outcome.code, outcome.out) == (1, "")
+    assert outcome.err == (
+        "Erreur : registre verrouillé : le fichier « verrou » existe. Si aucun ajout "
+        "n'est en cours (plantage), le supprimer à la main.\n"
+    )
+    assert files(data) == {"registre/verrou": b""}
