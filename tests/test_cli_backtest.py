@@ -17,6 +17,7 @@ clavier fait échouer le test (``pytest.fail``) au lieu d'arrêter pytest.
 import contextlib
 import hashlib
 import io
+import re
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -37,7 +38,13 @@ from mountain_perf.backtest import (
     read_registry,
 )
 from mountain_perf.schemas import EventKind, OutingScores
-from test_backtest_execution import Manifest, files, route_b_without_day, world_variant
+from test_backtest_execution import (
+    Manifest,
+    files,
+    outing,
+    route_b_without_day,
+    world_variant,
+)
 
 FIXTURES = Path(__file__).parent / "fixtures"
 SYNTHESIS = (FIXTURES / "backtest_synthese.txt").read_text(encoding="utf-8")
@@ -632,3 +639,171 @@ def test_report_not_written_publishes_the_seal(
     )
     assert outcome.kinds() == (EventKind.DECLARATION, EventKind.RESULT)
     assert not (data / REPORT).exists()
+
+
+# ---------------------------------------------------------------------------
+# Correctifs de la relecture de la PR #20
+# ---------------------------------------------------------------------------
+
+NO_SCORED_SYNTHESIS = (
+    "backtest     v0 brut, protocole 0010 — commit 0123456789ab ; Δ 250 m, ε 30 m, "
+    "r_c 15 m\n"
+    "registre     déclaration 1, résultat 2 ; dernière ligne sha256 <sceau>\n"
+    "             à recopier au JOURNAL : l'empreinte de la dernière ligne scelle le "
+    "registre\n"
+    "manifeste    manifeste.json   sha256 87001248… — 2 sorties, 2 performances\n"
+    "courbe       courbe_synthetique.csv   sha256 6767dd38… — estimée le 2026-02-01\n"
+    "             âge au jour J : de +135 à +139 jours ; postérieure à l'origine de 0 "
+    "performance sur 2\n"
+    "             mouvement historique non harmonisé ; biais d'opérateur de pente "
+    "(0009, 0010 D6)\n"
+    "performances jour        sortie                      jeu            étiquette     "
+    "couverture  préfixe    L           q_usage\n"
+    "             2026-06-16  c-2026-06-16                développement  entraînement  "
+    "non scorée : trace refusée (c16.gpx) : c16.gpx, trkpt[0].time : instant "
+    "manquant.\n"
+    "             2026-06-20  a-2026-06-20                développement  entraînement  "
+    "non scorée : sortie non tracée\n"
+    "agrégats     usage, écoulé ; moyenne à poids égal par performance (effectif) ; "
+    "détail et motifs : rapport complet\n"
+    "                             répétabilité        développement       "
+    "confirmation\n"
+    "             L               — (0)               — (0)               — (0)\n"
+    "             |L|             — (0)               — (0)               — (0)\n"
+    "             A               — (0)               — (0)               — (0)\n"
+    "             W               — (0)               — (0)               — (0)\n"
+    "             B               — (0)               — (0)               — (0)\n"
+    "             C_comp          — (0)               — (0)               — (0)\n"
+    "             montée E_R−L    — (0)               — (0)               — (0)\n"
+    "             montée |E_R|    — (0)               — (0)               — (0)\n"
+    "             montée D_R      — (0)               — (0)               — (0)\n"
+    "             plat E_R−L      — (0)               — (0)               — (0)\n"
+    "             plat |E_R|      — (0)               — (0)               — (0)\n"
+    "             plat D_R        — (0)               — (0)               — (0)\n"
+    "             descente E_R−L  — (0)               — (0)               — (0)\n"
+    "             descente |E_R|  — (0)               — (0)               — (0)\n"
+    "             descente D_R    — (0)               — (0)               — (0)\n"
+    "             mixte E_R−L     — (0)               — (0)               — (0)\n"
+    "             mixte |E_R|     — (0)               — (0)               — (0)\n"
+    "             mixte D_R       — (0)               — (0)               — (0)\n"
+    "             max |C_k|       — (0)               — (0)               — (0)\n"
+    "             q_usage         — (0)               — (0)               — (0)\n"
+    "diagnostics  descentes roulantes et raides au seuil 0.80 ; géométrie usage − "
+    "contrôle : rapport complet\n"
+    "rapport      rapports/backtest-0002.txt\n"
+)
+"""La synthèse d'une exécution sans sortie scorée (K1) : celle du prototype de la
+conception ; aucune ligne « référence » sans parcours de répétabilité."""
+
+
+def test_run_without_any_scored_outing_writes_its_report(
+    tmp_path: Path, data: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Précision de D15 (le rapport s'écrit en entier à chaque exécution), § 6.3,
+    point 5 : des performances dont aucune sortie n'est scorée (``c-2026-06-16``, trace
+    refusée ; ``a-2026-06-20``, non tracée) — le RÉSULTAT, sa synthèse, et son rapport,
+    dont la géométrie n'a aucune ligne de sortie."""
+
+    def unscored_only(manifest: Manifest) -> None:
+        outings = manifest["outings"]
+        assert isinstance(outings, list)
+        kept = ("c-2026-06-16", "a-2026-06-20")
+        manifest["outings"] = [o for o in outings if o["id"] in kept]
+
+    manifest = world_variant(tmp_path / "monde", unscored_only)
+    outcome = backtest(monkeypatch, data, manifest)
+    assert (outcome.code, outcome.err) == (0, "")
+    assert outcome.kinds() == (EventKind.DECLARATION, EventKind.RESULT)
+    assert outcome.out.replace(outcome.seal(), "<sceau>") == NO_SCORED_SYNTHESIS
+    lines = lines_of(outcome.report())
+    assert "             total : 0 roulante, 0 raide, 0 non départagée" in lines
+    block = [
+        "géométrie    usage − contrôle = ln(ΣP_usage / ΣP_contrôle) sur le support "
+        "admis (0010 D3), v0 brut",
+        "                             G                   montée              plat"
+        "                descente            mixte",
+        "non scorée   c-2026-06-16 — trace refusée (c16.gpx) : c16.gpx, trkpt[0].time "
+        ": instant manquant.",
+        "non scorée   a-2026-06-20 — sortie non tracée",
+    ]
+    assert len(contiguous(block, lines)) == 1
+
+
+def test_unscored_outing_of_a_multi_outing_day(
+    tmp_path: Path, data: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """§ 6.3, synthèse : « (jour multi-sorties) » à la fin de chaque ligne d'un tel
+    jour, celle d'une sortie non scorée comprise — la trace de ``libre-2026-06-12``
+    sans horodatage, ses instants déclarés."""
+
+    def declared_instants(manifest: Manifest) -> None:
+        entry = outing(manifest, "libre-2026-06-12")
+        entry["start"] = "2026-06-12T19:00:00+02:00"
+        entry["end"] = "2026-06-12T19:40:00+02:00"
+
+    manifest = world_variant(tmp_path / "monde", declared_instants)
+    trace = tmp_path / "monde" / "gpx" / "libre" / "libre12.gpx"
+    text = trace.read_bytes().decode("utf-8")
+    untimed = re.sub(r"<time>[^<]*</time>", "", text)
+    assert untimed != text
+    trace.write_bytes(untimed.encode("utf-8"))
+    outcome = backtest(monkeypatch, data, manifest)
+    assert outcome.code == 0
+    day = [
+        line
+        for line in lines_of(outcome.out)
+        if line.startswith("             2026-06-12  ")
+    ]
+    assert day == [
+        "             2026-06-12  a-2026-06-12                répétabilité   "
+        "entraînement  100.00 %    4.26 km    −0.002133   0.014189 "
+        "(jour multi-sorties)",
+        "             2026-06-12  b-2026-06-12                répétabilité   "
+        "entraînement  99.96 %     3.64 km    +0.015959   0.015832 "
+        "(jour multi-sorties)",
+        "             2026-06-12  libre-2026-06-12            développement  "
+        "entraînement  non scorée : trace refusée (libre12.gpx) : libre12.gpx, "
+        "trkpt[0].time : instant manquant. (jour multi-sorties)",
+    ]
+
+
+class _InterruptedWrite:
+    """Un fichier dont l'écriture s'interrompt à mi-texte (Ctrl-C)."""
+
+    def __init__(self, stream: Any) -> None:
+        self.stream = stream
+
+    def __enter__(self) -> "_InterruptedWrite":
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self.stream.close()
+
+    def write(self, text: str) -> int:
+        self.stream.write(text[: len(text) // 2])
+        self.stream.flush()
+        raise KeyboardInterrupt
+
+
+def test_interrupted_write_leaves_no_report(
+    tmp_path: Path, data: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Décision Q17, § 6.3, étape 6 : une interruption au clavier pendant l'écriture
+    du rapport publie le sceau dans l'erreur d'un rapport non écrit — et le fichier
+    commencé ne garde pas son nom."""
+    real_open = Path.open
+
+    def opened(path: Path, mode: str = "r", *args: Any, **kwargs: Any) -> Any:
+        stream = real_open(path, mode, *args, **kwargs)
+        return _InterruptedWrite(stream) if mode == "x" else stream
+
+    monkeypatch.setattr(Path, "open", opened)
+    outcome = backtest(monkeypatch, data, write_world(tmp_path / "monde"))
+    assert (outcome.code, outcome.out) == (1, "")
+    assert outcome.err == (
+        "Erreur : RÉSULTAT enregistré (événement 2 ; dernière ligne sha256 "
+        f"{outcome.seal()}) ; rapport rapports/backtest-0002.txt non écrit : "
+        "KeyboardInterrupt\n"
+    )
+    assert outcome.kinds() == (EventKind.DECLARATION, EventKind.RESULT)
+    assert list((data / "rapports").iterdir()) == []

@@ -6,6 +6,7 @@ manquerait dans ``src/``.
 """
 
 import argparse
+import contextlib
 import csv
 import io
 import math
@@ -1168,7 +1169,10 @@ def _performance_lines(run: BacktestRun) -> list[str]:
                 f"{outing.outing_id:<28}{dataset:<15}{label:<14}"
             )
             if outing.outing_id in unscored:
-                lines.append(f"{start}non scorée : {unscored[outing.outing_id]}")
+                line = f"{start}non scorée : {unscored[outing.outing_id]}"
+                if performance.is_multi_outing:
+                    line += " (jour multi-sorties)"
+                lines.append(line)
                 continue
             run_ = scored[outing.outing_id]
             coverage = run_.match.coverage
@@ -1192,9 +1196,13 @@ def _comparison_lines(
     run: BacktestRun, entries: Sequence[ScoredPerformance]
 ) -> list[str]:
     """La référence de répétabilité dans la synthèse : par parcours, ses ``F`` sous
-    l'écoulé à côté de v0 sur ses jours ; une largeur par parcours."""
+    l'écoulé à côté de v0 sur ses jours ; une largeur par parcours. Sans parcours de
+    répétabilité, aucune ligne (comme « écartée » sans exclusion)."""
+    comparisons = route_comparisons(entries, run.references)
+    if not comparisons:
+        return []
     lines = [f"{'référence':<13}répétabilité (0010 D8)"]
-    for comparison in route_comparisons(entries, run.references):
+    for comparison in comparisons:
         days = _count(comparison.days, "jour", "jours")
         single = ", un seul contraste" if comparison.single_contrast else ""
         lines.append(
@@ -1517,7 +1525,7 @@ def _geometry_lines(run: BacktestRun) -> list[str]:
             continue
         values = [diagnostic.total, *diagnostic.classes]
         rows.append((outing.outing.outing_id, [_label(v, _log) for v in values]))
-    names = max(16, max(len(name) for name, _ in rows) + 2)
+    names = max([16, *(len(name) + 2 for name, _ in rows)])
     cells = [*header, *(c for _, row in rows if row is not None for c in row)]
     width = max(20, max(len(c) for c in cells) + 2)
     lines.append(
@@ -1701,7 +1709,8 @@ def _run_backtest(args: argparse.Namespace) -> int:
     descentes ; ``MPA_DATA_DIR`` ; l'état git du paquet exécuté, un arbre modifié
     refusé ; le nom du rapport prévu, refusé s'il existe ; la préparation et
     l'exécution enregistrée ; la synthèse et le rapport calculés, puis le rapport
-    écrit (une erreur ou une interruption y publie le sceau) ; la synthèse."""
+    écrit (une erreur ou une interruption y publie le sceau, et retire le fichier
+    commencé) ; la synthèse."""
     given = {}
     if args.descent_threshold is not None:
         given["descent_subclass_threshold"] = args.descent_threshold
@@ -1724,13 +1733,20 @@ def _run_backtest(args: argparse.Namespace) -> int:
     )
     run = run_backtest(preparation, registry)
     name = _report_name(run.result_event.number)
+    created: Path | None = None
     try:
         summary = _summary(run, threshold, name)
         text = _full_report(run, summary, threshold)
         (data / REPORTS_DIR).mkdir(exist_ok=True)
         with (data / name).open("x", encoding="utf-8", newline="\n") as report:
+            created = data / name
             report.write(text)
     except (Exception, KeyboardInterrupt) as error:
+        if created is not None:
+            # Un rapport interrompu pendant son écriture ne garde pas son nom : le
+            # message dit « non écrit » (décision Q17 ; relecture de la PR #20).
+            with contextlib.suppress(OSError):
+                created.unlink()
         message = REPORT_NOT_WRITTEN_ERROR.format(
             number=run.result_event.number,
             seal=run.seal,
