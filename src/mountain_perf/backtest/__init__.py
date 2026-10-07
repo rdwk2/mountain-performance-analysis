@@ -171,8 +171,10 @@ from mountain_perf.backtest.report import (
     third_clock_is_elapsed,
 )
 from mountain_perf.backtest.scoring import (
+    clock_scores,
     control_forecast,
     observe_outing,
+    realized_profile,
     report_clocks,
     score_outing,
     score_scenario,
@@ -292,6 +294,7 @@ __all__ = [
     "civil_date",
     "clock_duration_s",
     "clock_partition",
+    "clock_scores",
     "comparable_prefix",
     "compensation",
     "confirm",
@@ -361,6 +364,7 @@ __all__ = [
     "realized_at",
     "realized_length_m",
     "realized_path",
+    "realized_profile",
     "reference_geometry",
     "regime_class",
     "regime_lengths",
