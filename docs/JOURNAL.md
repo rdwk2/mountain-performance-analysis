@@ -16,6 +16,31 @@ Backtest (à partir de M4) : métrique avant → après.
 
 ---
 
+### 2026-10-07 · M4c-1 — Backtest : modèles de référence et calage
+La bibliothèque de `0010` D9, sans commande, d'après `41_BRIEF_M4C-1.md` (révision 2) et
+quatre précisions de la relecture du plan : les baselines vitesse constante, Naismith et
+Tobler, une allure par intervalle de la grille fine et une `ProjectedTimeline`, `None`
+si une allure n'est pas finie (`model/baselines.py`) ; les contrats du calage, où
+`ModelKind` est déplacé depuis le registre, qui le réimporte (forme stockée inchangée),
+et `ModelCalibration` qui vérifie la relation à `β` à `τ = 1e−12` près et refuse un `β`
+hors du domaine d'`exp` (`schemas/calibration.py`) ; `clock_scores` et
+`realized_profile` extraits de `backtest/scoring.py` sans changer un bit ; le calage
+(`backtest/calibration.py`) — scores non calés d'une baseline, `C_j` (fin la plus tardive
+des sorties strictement avant `o_j`), totaux d'un membre (support vide, puis `T_c` nul,
+puis projection invalide), `β`, effort borné et saturation, prévision calée
+(`p / effort` pour v0, `p · facteur` pour une baseline), scores calés de base v0 brut,
+assemblage par performance ; `tests/conftest.py` pose `MPA_DATA_DIR` sur un dossier
+temporaire de la session puis neuf pour chaque test. Trois précisions de `0010` (D2.4,
+D9.1, D9.2). Les valeurs du § 7 reproduites du premier coup (11 populations, 924 calages,
+968 niveaux calés), bornes exactes de l'effort comprises sous Windows. Les 107
+contre-épreuves (70 du code, 34 des contrats, 3 des fixtures), jouées une à une sans
+cache de bytecode sur des copies du dépôt : 103 rougissent exactement les numéros du
+brief, 3 un numéro de plus, l'équivalente déclarée survit ; aucune n'est rouge à la
+seule collecte.
+Conclusion : `just check` vert, 3 921 tests (3 703 + 218). Rangé dans
+`src/mountain_perf/{model/baselines,schemas/calibration,backtest/calibration}.py`,
+`tests/`, `docs/decisions/0010-protocole-de-backtest.md`, branche `m4c/calage`.
+
 ### 2026-10-05 · M4b-5 — Backtest : just backtest v0 et rapport D15
 `just backtest <courbe.csv>` (`mperf backtest`) : l'exécution enregistrée de v0 brut sur
 le manifeste — état git du code exécuté (arbre modifié refusé), domaine des sorties
