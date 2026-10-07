@@ -110,7 +110,9 @@ def test_no_module_imports_metrics_but_the_backtest_package() -> None:
     vecteurs et appelle ses fonctions (§ 6 du brief M4b-2) — et, depuis M4b-3,
     ``backtest/repeatability.py``, qui appelle ``support_metrics`` sur les prévisions
     d'un pli (§ 6 du brief M4b-3) — et, depuis M4b-5, ``backtest/report.py``, qui
-    mesure les sous-classes de descente (§ 6.0 du brief M4b-5)."""
+    mesure les sous-classes de descente (§ 6.0 du brief M4b-5) — et, depuis M4c-1,
+    ``backtest/calibration.py``, qui juge les sorties de modèle d'un membre du calage
+    (``is_invalid_model_output``, § 2 du brief M4c-1)."""
     defined = _defined_names(METRICS)
     importers = []
     allowed = (
@@ -119,6 +121,7 @@ def test_no_module_imports_metrics_but_the_backtest_package() -> None:
         PACKAGE / "scoring.py",
         PACKAGE / "repeatability.py",
         PACKAGE / "report.py",
+        PACKAGE / "calibration.py",
     )
     for path in sorted(SOURCE.rglob("*.py")):
         if path in allowed:

@@ -7,6 +7,15 @@ from mountain_perf.backtest.calendar import (
     civil_date,
     origin,
 )
+from mountain_perf.backtest.calibration import (
+    BASELINE_CURVE_REF,
+    baseline_scores,
+    calibrate,
+    calibrate_performances,
+    calibrated_forecast,
+    calibrated_scores,
+    calibration_population,
+)
 from mountain_perf.backtest.clocks import (
     CLOCK_HALF_WINDOW_S,
     Qualification,
@@ -217,6 +226,7 @@ from mountain_perf.backtest.series import (
 __all__ = [
     "ATTRIBUTION_DISTANCE_TIE_M",
     "ATTRIBUTION_TIME_TIE_S",
+    "BASELINE_CURVE_REF",
     "CLASS_METRICS",
     "CLOCK_HALF_WINDOW_S",
     "CURVE_METADATA_KIND",
@@ -288,7 +298,13 @@ __all__ = [
     "attach_occurrence",
     "attribute_episode",
     "available_at_origin",
+    "baseline_scores",
     "build_series",
+    "calibrate",
+    "calibrate_performances",
+    "calibrated_forecast",
+    "calibrated_scores",
+    "calibration_population",
     "canonical_bytes",
     "chronology_violations",
     "civil_date",

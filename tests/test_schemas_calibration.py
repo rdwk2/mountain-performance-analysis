@@ -10,11 +10,15 @@ calculent effort, facteur et saturation par la formule (§ 7.0), sauf les cas au
 bornes exactes. Aussi : ``β`` hors du domaine d'``exp`` (précision 4 de la relecture du
 plan), le déplacement de ``ModelKind`` (décision 5), les énumérations,
 ``EFFORT_BOUNDS`` relié au paramètre ``effort`` du moteur, la place des types dans le
-dictionnaire.
+dictionnaire. Les scores calés valides viennent du monde du § 7.1
+(``calibrate_performances``) : la vitesse constante du 16 juin, les huit entrées du
+18 juin.
 """
 
+import functools
 import math
 import re
+from dataclasses import replace
 from datetime import UTC, date, datetime
 from typing import Any
 
@@ -22,6 +26,8 @@ import pytest
 
 import mountain_perf.schemas.calibration as calibration_module
 import mountain_perf.schemas.registry as registry_module
+from fixtures import calibration as world
+from mountain_perf.backtest import calibrate_performances
 from mountain_perf.model import MODEL_PARAMETER_SPECS
 from mountain_perf.schemas import (
     CALIBRATED_MODELS,
@@ -484,3 +490,161 @@ def test_new_types_follow_trial_counts_in_the_dictionary() -> None:
     for cls in NEW_TYPES:
         assert f"## `{cls.__name__}`" in text
     assert "*`mountain_perf.schemas.calibration` · énumération*" in text
+
+
+# ---------------------------------------------------------------------------
+# Scores calés (D9.2 ; décision 8) : objets valides du monde (§ 7.1)
+# ---------------------------------------------------------------------------
+
+
+@functools.cache
+def _monde() -> dict[date, CalibratedPerformance]:
+    spec = world.WORLDS["Monde"]
+    results = calibrate_performances(
+        world.world_performances(spec), world.world_scores(spec)
+    )
+    return {result.population.civil_date: result for result in results}
+
+
+def _outing(model: ModelKind = ModelKind.CONSTANT_SPEED) -> CalibratedOutingScores:
+    """Les scores calés d'un modèle sur ``j1-0616`` (16 juin)."""
+    (entry,) = (e for e in _monde()[J].outings if e.control.model is model)
+    return entry
+
+
+def test_valid_scored_contracts_from_the_world() -> None:
+    """Les contrats des scores calés du monde sont valides : calé et non calé, avec et
+    sans usage."""
+    outing = _outing()
+    assert outing.usage is not None
+    assert len(outing.control.clocks) == len(CLOCKS)
+    assert len(_monde()[date(2026, 6, 18)].outings) == 8
+
+
+def test_calibrated_clock_scores_invariants() -> None:
+    """§ 6.2, ``CalibratedClockScores`` : scores absents si et seulement si le modèle
+    n'est pas calé ; l'horloge des scores est celle du calage."""
+    row = _outing().control.clocks[0]
+    assert row.scores is not None
+    _raises(
+        "scores absents si et seulement si",
+        CalibratedClockScores,
+        calibration=row.calibration,
+        scores=None,
+    )
+    error = _outing(ModelKind.NAISMITH).control.clocks[0]
+    assert error.calibration.unavailability is Unavailability.MODEL_ERROR
+    _raises(
+        "scores absents si et seulement si",
+        CalibratedClockScores,
+        calibration=error.calibration,
+        scores=row.scores,
+    )
+    other = _outing().control.clocks[1].scores
+    _raises(
+        "doit être l'horloge du calage",
+        CalibratedClockScores,
+        calibration=row.calibration,
+        scores=other,
+    )
+
+
+def _scenario(**changes: Any) -> CalibratedScenarioScores:
+    usage = _outing().usage
+    assert usage is not None
+    fields: dict[str, Any] = {
+        "model": usage.model,
+        "scenario": usage.scenario,
+        "forecast": usage.forecast,
+        "clocks": usage.clocks,
+    }
+    return CalibratedScenarioScores(**(fields | changes))
+
+
+def _with_calibration(**changes: Any) -> tuple[CalibratedClockScores, ...]:
+    """Les onze horloges de l'usage, la quatrième d'un calage altéré (valide)."""
+    clocks = list(_scenario().clocks)
+    row = clocks[3]
+    clocks[3] = CalibratedClockScores(replace(row.calibration, **changes), row.scores)
+    return tuple(clocks)
+
+
+def test_calibrated_scenario_scores_invariants() -> None:
+    """§ 6.2, ``CalibratedScenarioScores`` : un modèle calé ; la prévision du
+    scénario ; les onze horloges dans l'ordre de ``CLOCKS`` ; chaque calage du même
+    modèle et du même scénario. Aucune enveloppe (décision 8)."""
+    clocks = _scenario().clocks
+    _raises("model doit être un modèle calé", _scenario, model=ModelKind.V0_RAW)
+    _raises("doit valoir scenario", _scenario, forecast=_outing().control.forecast)
+    _raises("clocks doit être une séquence immuable", _scenario, clocks=list(clocks))
+    _raises(
+        "onze horloges dans l'ordre de CLOCKS",
+        _scenario,
+        clocks=(clocks[1], clocks[0], *clocks[2:]),
+    )
+    _raises("onze horloges dans l'ordre de CLOCKS", _scenario, clocks=clocks[:10])
+    _raises(
+        "doit porter le modèle",
+        _scenario,
+        clocks=_with_calibration(model=ModelKind.NAISMITH),
+    )
+    _raises(
+        "doit porter le modèle",
+        _scenario,
+        clocks=_with_calibration(scenario=Scenario.CONTROL),
+    )
+    assert not hasattr(_scenario(), "envelope")
+
+
+def _outing_with(**changes: Any) -> CalibratedOutingScores:
+    outing = _outing()
+    fields: dict[str, Any] = {
+        "outing_id": outing.outing_id,
+        "observation": outing.observation,
+        "control": outing.control,
+        "usage": outing.usage,
+    }
+    return CalibratedOutingScores(**(fields | changes))
+
+
+def test_calibrated_outing_scores_invariants() -> None:
+    """§ 6.2, ``CalibratedOutingScores`` : contrôle et usage dans leur scénario, du
+    même modèle ; autant de projections que de segments admis."""
+    outing = _outing()
+    _raises("control porte le scénario contrôle", _outing_with, control=outing.usage)
+    _raises("usage porte le scénario usage", _outing_with, usage=outing.control)
+    _raises("même modèle", _outing_with, usage=_outing(ModelKind.TOBLER).usage)
+    (other,) = (
+        e
+        for e in _monde()[date(2026, 6, 17)].outings
+        if e.control.model is ModelKind.CONSTANT_SPEED
+    )
+    assert len(other.observation.segments) != len(outing.observation.segments)
+    _raises(
+        "projections pour",
+        _outing_with,
+        observation=other.observation,
+        usage=None,
+    )
+
+
+def test_calibrated_performance_invariants() -> None:
+    """§ 6.2, ``CalibratedPerformance`` : quatre modèles par sortie, dans l'ordre de
+    ``CALIBRATED_MODELS`` ; une seule sortie par groupe ; deux groupes de sorties
+    distinctes."""
+    performance = _monde()[date(2026, 6, 18)]
+    entries = performance.outings
+    population = performance.population
+
+    def build(outings: Any) -> CalibratedPerformance:
+        return CalibratedPerformance(population, outings)
+
+    assert build(entries).outings == entries
+    _raises("outings doit être une séquence immuable", build, outings=list(entries))
+    _raises("modèles par sortie", build, outings=entries[:7])
+    swapped = (entries[1], entries[0], *entries[2:])
+    _raises("suivent CALIBRATED_MODELS", build, outings=swapped)
+    renamed = (*entries[:3], replace(entries[3], outing_id="j3b-0618"), *entries[4:])
+    _raises("une seule sortie", build, outings=renamed)
+    _raises("deux groupes", build, outings=(*entries[:4], *entries[:4]))
+    assert [e.control.model for e in entries[:4]] == list(CALIBRATED_MODELS)
