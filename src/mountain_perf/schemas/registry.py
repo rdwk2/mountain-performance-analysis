@@ -24,6 +24,7 @@ from enum import StrEnum
 from itertools import pairwise
 from types import MappingProxyType
 
+from mountain_perf.schemas.calibration import ModelKind
 from mountain_perf.schemas.clock import CLOCKS, Clock
 from mountain_perf.schemas.common import SourceRef
 from mountain_perf.schemas.matching import Coverage
@@ -127,57 +128,6 @@ EVENT_KIND_DESCRIPTIONS: Mapping[EventKind, str] = MappingProxyType(
             "Échec : erreur technique ou non-évaluabilité d'une déclaration, avec son "
             "motif."
         ),
-    }
-)
-
-
-class ModelKind(StrEnum):
-    """Nature d'un modèle évalué (``0010`` D9.1, D10.1).
-
-    Champs
-    ------
-    Valeurs décrites dans ``MODEL_KIND_DESCRIPTIONS``.
-
-    Invariants
-    ----------
-    Énumération fermée : les cinq modèles de D9.1 et le candidat de D10.1.
-
-    Producteur
-    ----------
-    L'appelant d'une déclaration (M4b-5 pour v0 brut, M4c pour les autres).
-
-    Consommateurs
-    -------------
-    ``DeclaredModel``, ``ExperimentDeclaration``, ``ModelResult``, ``OutingOutcome`` ;
-    l'accord d'un résultat avec sa déclaration (``CURVE_MODELS``).
-
-    Non promis
-    ----------
-    La nature ne dit ni la version ni les paramètres : ils sont dans la déclaration du
-    modèle.
-    """
-
-    V0_RAW = "v0_raw"
-    V0_RECALIBRATED = "v0_recalibrated"
-    CONSTANT_SPEED = "constant_speed"
-    NAISMITH = "naismith"
-    TOBLER = "tobler"
-    CANDIDATE = "candidate"
-
-
-MODEL_KIND_DESCRIPTIONS: Mapping[ModelKind, str] = MappingProxyType(
-    {
-        ModelKind.V0_RAW: "v0 brut : la courbe, effort 1, sans calage (D9.1).",
-        ModelKind.V0_RECALIBRATED: (
-            "v0 + effort recalé : le comparateur, base (0) de toute expérience (D9.1, "
-            "D10.1)."
-        ),
-        ModelKind.CONSTANT_SPEED: "Vitesse constante : baseline (D9.1).",
-        ModelKind.NAISMITH: (
-            "Naismith : baseline, 5 km/h + 1 h par 600 m de D+ (D9.1)."
-        ),
-        ModelKind.TOBLER: "Tobler : baseline (D9.1).",
-        ModelKind.CANDIDATE: "Candidat (1) : la base plus l'effet testé (D10.1).",
     }
 )
 

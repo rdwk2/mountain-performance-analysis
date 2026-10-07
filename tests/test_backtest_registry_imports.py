@@ -40,10 +40,12 @@ def _outside(path: Path) -> set[str]:
 
 
 def test_contracts_import_only_the_named_contracts() -> None:
-    """§ 6 : les contrats du registre, ni ``backtest`` ni ``model``."""
+    """§ 6 : les contrats du registre, ni ``backtest`` ni ``model`` ;
+    ``ModelKind`` vient des contrats du calage depuis M4c-1 (§ 2 du brief M4c-1)."""
     imported = _imports(SCHEMAS_MODULE)
     assert _project(SCHEMAS_MODULE) <= {
         "mountain_perf.validation",
+        "mountain_perf.schemas.calibration",
         "mountain_perf.schemas.clock",
         "mountain_perf.schemas.common",
         "mountain_perf.schemas.matching",
@@ -52,6 +54,7 @@ def test_contracts_import_only_the_named_contracts() -> None:
         "mountain_perf.schemas.parameters",
         "mountain_perf.schemas.scoring",
     }
+    assert imported["mountain_perf.schemas.calibration"] == {"ModelKind"}
     assert imported["mountain_perf.schemas.clock"] <= {"CLOCKS", "Clock"}
     assert imported["mountain_perf.schemas.common"] <= {"SourceRef"}
     assert imported["mountain_perf.schemas.matching"] <= {"Coverage"}
