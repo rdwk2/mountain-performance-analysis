@@ -16,6 +16,19 @@ Backtest (à partir de M4) : métrique avant → après.
 
 ---
 
+### 2026-10-08 · M4c-1 — correctifs de relecture
+Deux fichiers de tests neufs, sans rien changer à `src/`, après les deux relectures C de la
+PR #21 et le balayage de mutation de la conception : `test_backtest_calibration_guarantees.py`
+(provenance et forme d'une baseline sans chronologie, `generated_at` en UTC, membres
+parcourus dans l'ordre de la population, sortie sans usage ou non scorée, paramètres de la
+prévision calée, ordre reçu, ordre des préconditions, aucune lecture ni écriture de
+fichier, base de `q_usage` de `clock_scores`) et `test_schemas_calibration_guarantees.py`
+(ordre des contrôles de `ModelCalibration`, tolérance `τ` relative et de largeur `1e−12`,
+saturation exactement à une borne, descriptions en lecture seule). Trois lignes de
+`BACKLOG.md`. Conclusion : `just check` vert, 3 945 tests.
+
+---
+
 ### 2026-10-07 · M4c-1 — Backtest : modèles de référence et calage
 La bibliothèque de `0010` D9, sans commande, d'après `41_BRIEF_M4C-1.md` (révision 2) et
 quatre précisions de la relecture du plan : les baselines vitesse constante, Naismith et
