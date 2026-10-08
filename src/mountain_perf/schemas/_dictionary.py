@@ -21,6 +21,20 @@ from types import MappingProxyType
 from typing import Any
 
 from mountain_perf.schemas.activity import Activity, TrackPointStream
+from mountain_perf.schemas.calibration import (
+    MODEL_KIND_DESCRIPTIONS,
+    POPULATION_EXCLUSION_DESCRIPTIONS,
+    CalibratedClockScores,
+    CalibratedOutingScores,
+    CalibratedPerformance,
+    CalibratedScenarioScores,
+    CalibrationPopulation,
+    CalibrationWithdrawal,
+    ModelCalibration,
+    ModelKind,
+    PopulationExclusion,
+    PopulationExclusionReason,
+)
 from mountain_perf.schemas.clock import (
     CLOCK_KIND_DESCRIPTIONS,
     INTERVAL_STATE_DESCRIPTIONS,
@@ -104,7 +118,6 @@ from mountain_perf.schemas.registry import (
     EVENT_KIND_DESCRIPTIONS,
     EXPERIMENT_METRIC_DESCRIPTIONS,
     FAILURE_KIND_DESCRIPTIONS,
-    MODEL_KIND_DESCRIPTIONS,
     REFERENCE_SOURCE_DESCRIPTIONS,
     Declaration,
     DeclaredEffect,
@@ -119,7 +132,6 @@ from mountain_perf.schemas.registry import (
     Failure,
     FailureKind,
     FrozenReference,
-    ModelKind,
     ModelResult,
     OutingOutcome,
     OutingResult,
@@ -270,6 +282,15 @@ DOCUMENTED_TYPES: tuple[type, ...] = (
     OutingOutcome,
     ExperimentTrials,
     TrialCounts,
+    PopulationExclusionReason,
+    PopulationExclusion,
+    CalibrationPopulation,
+    CalibrationWithdrawal,
+    ModelCalibration,
+    CalibratedClockScores,
+    CalibratedScenarioScores,
+    CalibratedOutingScores,
+    CalibratedPerformance,
 )
 """Types publiés dans le dictionnaire, dans l'ordre de lecture."""
 
@@ -300,6 +321,7 @@ ENUM_DESCRIPTIONS: Mapping[type[Enum], Mapping[Any, str]] = MappingProxyType(
         ExperimentMetric: EXPERIMENT_METRIC_DESCRIPTIONS,
         ReferenceSource: REFERENCE_SOURCE_DESCRIPTIONS,
         FailureKind: FAILURE_KIND_DESCRIPTIONS,
+        PopulationExclusionReason: POPULATION_EXCLUSION_DESCRIPTIONS,
     }
 )
 """Description des membres de chaque énumération publiée."""

@@ -427,6 +427,67 @@ def _envelope(
     )
 
 
+def _clock_scores(
+    observation: OutingObservation,
+    forecast: ModelForecast,
+    base: ModelForecast | None,
+    clock_index: int,
+) -> ClockScores:
+    """Les scores d'une prévision sous la seule horloge ``CLOCKS[clock_index]`` : le
+    corps de la boucle de :func:`score_scenario`, inchangé (brief M4c-1, § 6.3).
+    Préconditions vérifiées par l'appelant."""
+    i, clock = clock_index, CLOCKS[clock_index]
+    usage = forecast.scenario is Scenario.USAGE
+    base_s = (forecast if base is None else base).target_s
+    segments = observation.segments
+    classes = tuple(segment.regime_class for segment in segments)
+    point_motifs = tuple(point.unavailability for point in observation.error_points)
+    target_motifs = tuple(target.unavailability for target in observation.targets)
+    observed_s = tuple(segment.times_s[i] for segment in segments)
+    support = support_metrics(forecast.segment_s, observed_s, classes)
+    diagnostic = None
+    if support.dispersion.unavailability is Unavailability.ZERO_TIME:
+        diagnostic = positive_time_diagnostic(forecast.segment_s, observed_s, classes)
+    errors, target = None, None
+    if usage:
+        errors = passage_errors(
+            forecast.point_s,
+            _observed_times(observation.error_points, i),
+            point_motifs,
+        )
+        target = usage_target(
+            forecast.target_s,
+            base_s,
+            _observed_times(observation.targets, i),
+            target_motifs,
+            arrival_anchor_gap_m=observation.arrival_anchor_gap_m,
+        )
+    return ClockScores(clock, support, diagnostic, errors, target)
+
+
+def clock_scores(
+    observation: OutingObservation,
+    forecast: ModelForecast,
+    clock_index: int,
+    *,
+    base: ModelForecast | None = None,
+) -> ClockScores:
+    """Les scores d'une prévision sous la seule horloge ``CLOCKS[clock_index]``,
+    identiques au bit à ``score_scenario(observation, forecast, base=base)
+    .clocks[clock_index]`` (brief M4c-1, § 6.3). Elle sert le calage (``0010`` D9.2),
+    dont la prévision change d'une horloge à l'autre.
+
+    Préconditions (``ValueError``) : celles de :func:`score_scenario`, vérifiées
+    d'abord, puis ``0 <= clock_index < len(CLOCKS)``.
+    """
+    _require_forecast(observation, forecast, base)
+    if not 0 <= clock_index < len(CLOCKS):
+        raise ValueError(
+            f"clock_scores : clock_index {clock_index} hors de [0 ; {len(CLOCKS)}[."
+        )
+    return _clock_scores(observation, forecast, base, clock_index)
+
+
 def score_scenario(
     observation: OutingObservation,
     forecast: ModelForecast,
@@ -450,36 +511,9 @@ def score_scenario(
     sortie de modèle invalide reste un statut, jugé par les fonctions de M4b-1 (D7.1).
     """
     _require_forecast(observation, forecast, base)
-    usage = forecast.scenario is Scenario.USAGE
-    base_s = (forecast if base is None else base).target_s
     segments = observation.segments
     classes = tuple(segment.regime_class for segment in segments)
-    point_motifs = tuple(point.unavailability for point in observation.error_points)
-    target_motifs = tuple(target.unavailability for target in observation.targets)
-    clocks: list[ClockScores] = []
-    for i, clock in enumerate(CLOCKS):
-        observed_s = tuple(segment.times_s[i] for segment in segments)
-        support = support_metrics(forecast.segment_s, observed_s, classes)
-        diagnostic = None
-        if support.dispersion.unavailability is Unavailability.ZERO_TIME:
-            diagnostic = positive_time_diagnostic(
-                forecast.segment_s, observed_s, classes
-            )
-        errors, target = None, None
-        if usage:
-            errors = passage_errors(
-                forecast.point_s,
-                _observed_times(observation.error_points, i),
-                point_motifs,
-            )
-            target = usage_target(
-                forecast.target_s,
-                base_s,
-                _observed_times(observation.targets, i),
-                target_motifs,
-                arrival_anchor_gap_m=observation.arrival_anchor_gap_m,
-            )
-        clocks.append(ClockScores(clock, support, diagnostic, errors, target))
+    clocks = [_clock_scores(observation, forecast, base, i) for i in range(len(CLOCKS))]
     return ScenarioScores(
         scenario=forecast.scenario,
         forecast=forecast,
@@ -524,6 +558,16 @@ def report_clocks(match: MatchResult) -> tuple[Clock, ...]:
     )
 
 
+def realized_profile(trace: RecordedTrace) -> RouteProfile:
+    """Le profil de la trace réalisée, celui du scénario contrôle (``0010`` D3 ; brief
+    M4b-2, choix 4 ; brief M4c-1, § 6.3) : ``trace_route`` puis ``build_profile`` aux
+    défauts de ``0008``. Commun à v0 brut et aux baselines."""
+    return build_profile(
+        trace_route(trace, trace.sources[0].identifier),
+        ParameterSet(PROFILE_PARAMETER_SPECS),
+    )
+
+
 def v0_scores(
     reference: RouteProfile | None,
     trace: RecordedTrace,
@@ -547,10 +591,7 @@ def v0_scores(
     at = datetime.now(UTC) if generated_at is None else generated_at
     parameters = ParameterSet(PROJECTION_PARAMETER_SPECS)
     observation = observe_outing(match, passages, partition)
-    realized = build_profile(
-        trace_route(trace, trace.sources[0].identifier),
-        ParameterSet(PROFILE_PARAMETER_SPECS),
-    )
+    realized = realized_profile(trace)
     control = control_forecast(
         observation,
         projected_timeline(realized, curve, parameters),

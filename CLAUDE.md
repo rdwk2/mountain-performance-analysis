@@ -136,8 +136,11 @@ src/mountain_perf/     le code de la bibliothèque
     repeatability.py   TwoWayFit, RepeatabilityDay, ClassFit, ClassScore, FoldScores,
                        ClockReference, RepeatabilityReference : référence de
                        répétabilité (M4b-3)
-    registry.py        EventKind, ModelKind, Declaration, Result, Failure, RegistryEvent,
+    registry.py        EventKind, Declaration, Result, Failure, RegistryEvent,
                        RegistryLog, TrialCounts… : registre des expériences (M4b-4)
+    calibration.py     ModelKind, CalibrationPopulation, ModelCalibration,
+                       CalibratedScenarioScores, CalibratedPerformance… : calage des
+                       modèles de référence (M4c-1)
     _dictionary.py     rendu du dictionnaire de données depuis les docstrings
   gpx/                 lecture GPX, profil, grille de pente (M2)
     geo.py             haversine 2D, polyligne dédoublonnée, projection point-segment
@@ -146,6 +149,8 @@ src/mountain_perf/     le code de la bibliothèque
     profile.py         paramètres, grille, lissage, passages et diagnostics de calcul
   model/               le moteur de projection (M3, puis M6a, M7) ; ProjectedTimeline,
                        la chronologie projetée d'un profil (M4b-2)
+    baselines.py       vitesse constante, Naismith, Tobler : allures et chronologies
+                       des baselines de 0010 D9.1 (M4c-1)
   backtest/            évaluation contre des performances réelles (M4)
     calendar.py        jour civil à Paris, origine o_j, disponibilité (M4a)
     manifest.py        load_manifest, ManifestReadResult, ManifestError (M4a)
@@ -160,13 +165,16 @@ src/mountain_perf/     le code de la bibliothèque
     metrics.py         seuil, prédicats, métriques du support, diagnostic, enveloppes, C_k,
                        K par défaut, q_usage : métriques D7, fonctions pures (M4b-1)
     scoring.py         observe_outing, usage_forecast, control_forecast, score_scenario,
-                       score_outing, report_clocks, v0_scores : scores de v0 brut (M4b-2)
+                       score_outing, report_clocks, v0_scores : scores de v0 brut (M4b-2) ;
+                       clock_scores, realized_profile (M4c-1)
     repeatability.py   two_way_fit, contraction_rate, repeatability_reference : référence
                        D8 d'un parcours (M4b-3)
     codec.py           écriture canonique des contrats en JSON, documents (M4b-4)
     registry.py        journal, documents, ajout, relecture, comptage des essais (M4b-4)
     execution.py       git, domaine, déclaration, exécution enregistrée de just backtest (M4b-5)
     report.py          valeurs du rapport D15, fonctions pures (M4b-5)
+    calibration.py     baseline_scores, calibration_population, calibrate,
+                       calibrated_scores, calibrate_performances : calage D9 (M4c-1)
   ingest/              acquisition et normalisation Garmin (M6b)
   ui/                  interface — appelle la bibliothèque, ne calcule rien (M5)
   cli.py               mperf profile <fichier.gpx>, compte-rendu ou CSV sur stdout ;
@@ -175,6 +183,7 @@ src/mountain_perf/     le code de la bibliothèque
                        --curve, --no-reference : scores de v0 brut (M4b-2) ;
                        mperf backtest <manifeste.json> --curve : backtest enregistré, rapport D15 (M4b-5)
 tests/
+  conftest.py          MPA_DATA_DIR sur un dossier temporaire neuf pour chaque test (M4c-1)
   strategies.py        stratégies Hypothesis des contrats, réutilisées par tous les jalons
   fixtures/            données synthétiques minuscules, commitées
 scripts/               outillage du dépôt (ex. `just dictionary`), jamais de logique métier

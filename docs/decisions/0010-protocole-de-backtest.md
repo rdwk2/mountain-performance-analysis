@@ -153,6 +153,11 @@ tous les scores de développement sont rétrospectifs.
 3. le **réservoir des fourchettes** : identique à `C_j`, chaque résidu étiqueté
    dans ou hors fenêtre de la courbe (D11).
 
+*(précision, M4c-1)* Une performance est candidate à `C_j` si l'instant de fin le plus
+tardif de ses sorties est strictement antérieur à `o_j` (D2.5). Le motif publié d'une
+candidate exclue est « course » si l'une de ses sorties est une course, sinon
+« étiquette manquante ».
+
 **D2.5 Origine et disponibilité.** `o_j` = 00:00 Europe/Paris du jour civil
 `J − 7`. Une donnée est disponible à `o_j` si l'instant de **fin** de la sortie
 qui la porte est strictement antérieur à `o_j`. Âge de la courbe rapporté au jour
@@ -669,6 +674,15 @@ fine : distance horizontale, D+ du profil lissé, `g` sans unité, vitesses
 converties en m/s, temps fins sommés au prorata de longueur sur les segments de
 score. La vitesse nominale de la vitesse constante (1 m/s) est absorbée par le
 facteur.
+*(précision, M4c-1)* Allures sur chaque intervalle de la grille fine, à sa pente `g`
+du profil lissé, dans cet ordre de calcul : vitesse constante `1 / 1` s/m ; Naismith
+`1 / (5 / 3,6) + 6 · max(g, 0)` s/m ; Tobler `1 / ((6 / 3,6) · exp(−3,5 · |g + 0,05|))`
+s/m. Le temps d'un segment de score, ou le cumul en un point, se lit sur les cumuls aux
+nœuds de la grille, interpolés au prorata de longueur dans l'intervalle, comme pour v0
+(`ProjectedTimeline`). Une allure non finie ou nulle sur un intervalle (Tobler à une
+pente extrême) : la baseline n'a aucune prévision sur ce profil, `erreur du modèle`
+pour la performance sous toute horloge où le support admis n'est pas vide (D7.1). Une
+baseline ne lit pas la courbe.
 
 **D9.2 Règle de calage unique.** Pour la performance évaluée `j` et chaque modèle
 `M`, pour chaque performance `c` de la population effective `C_j^eff`, totaux
@@ -686,6 +700,20 @@ facteur.
   retrait discret de la performance. Retraits et `|C_j^eff|` publiés.
 - `C_j^eff` vide : statut `non calé` (v0 brut reste scoré).
 - Le jour évalué n'entre jamais dans son propre calage.
+
+*(précision, M4c-1)* Le calage se fait par performance évaluée, modèle, scénario et
+horloge. `T_c` et `P_c` sont les sommes (`fsum`) des temps et des projections **non
+calées** (v0 brut pour v0 + effort recalé) des segments admis de toutes les sorties
+scorées du membre, dans l'ordre de leur rang ; une sortie non scorée, ou sans scénario
+d'usage, n'a pas de support dans ce scénario. Pour chaque membre, dans l'ordre : support
+vide, retrait (`support insuffisant`) ; `T_c` nul, retrait (`temps nul`) ; puis une
+projection invalide sur le support rend le calage `erreur du modèle`.
+`β = fsum(ln(T_c / P_c)) / |C_j^eff|`. La prévision calée est la prévision
+non calée multipliée par `exp(β)` (baseline), ou divisée par l'effort borné (v0) ;
+l'effort est saturé si et seulement si `exp(−β)` est hors de `[0,5 ; 1,5]` (bornes
+comprises dans l'intervalle). Un modèle calé n'a pas d'enveloppe (D5.4) : sa prévision
+change d'une horloge à l'autre. Au rapport, le dénominateur `P^(0)` de `q_usage` d'une
+baseline et d'un modèle calé est celui de v0 brut (D7.4).
 
 **D9.3 Effets candidats** (M6a+) : paramètres ou règle d'estimation appris sur
 `C_j` seulement, même information que le comparateur.

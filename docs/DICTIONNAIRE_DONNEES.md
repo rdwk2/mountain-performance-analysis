@@ -106,6 +106,15 @@
 - `OutingOutcome`
 - `ExperimentTrials`
 - `TrialCounts`
+- `PopulationExclusionReason`
+- `PopulationExclusion`
+- `CalibrationPopulation`
+- `CalibrationWithdrawal`
+- `ModelCalibration`
+- `CalibratedClockScores`
+- `CalibratedScenarioScores`
+- `CalibratedOutingScores`
+- `CalibratedPerformance`
 
 ---
 
@@ -4233,7 +4242,7 @@ s'il a été corrigé.
 
 ## `ModelKind`
 
-*`mountain_perf.schemas.registry` · énumération*
+*`mountain_perf.schemas.calibration` · énumération*
 
 | Membre | Valeur | Description |
 |---|---|---|
@@ -4256,12 +4265,14 @@ Valeurs décrites dans `MODEL_KIND_DESCRIPTIONS`.
 
 #### Producteur
 
-L'appelant d'une déclaration (M4b-5 pour v0 brut, M4c pour les autres).
+L'appelant d'une déclaration (M4b-5 pour v0 brut, M4c pour les autres) ; le
+calage (M4c-1).
 
 #### Consommateurs
 
-`DeclaredModel`, `ExperimentDeclaration`, `ModelResult`, `OutingOutcome` ;
-l'accord d'un résultat avec sa déclaration (`CURVE_MODELS`).
+`ModelCalibration` ; `DeclaredModel`, `ExperimentDeclaration`,
+`ModelResult`, `OutingOutcome` ; l'accord d'un résultat avec sa déclaration
+(`CURVE_MODELS`).
 
 #### Non promis
 
@@ -5194,3 +5205,406 @@ Le rapport (M4b-5) ; l'admission (M4c).
 
 Chaque DÉCLARATION compte pour un essai, corrections comprises : la règle ne peut
 que surestimer le nombre d'essais ; un ÉCHEC ne compte pas.
+
+---
+
+## `PopulationExclusionReason`
+
+*`mountain_perf.schemas.calibration` · énumération*
+
+| Membre | Valeur | Description |
+|---|---|---|
+| `RACE` | `race` | course : une performance qui contient une course est exclue en entier (D2.4). |
+| `UNLABELLED` | `unlabelled` | étiquette manquante : une sortie sans étiquette ne vaut pas entraînement (D2.4). |
+
+Motif d'exclusion d'une performance de `C_j` (`0010` D2.4 ; précision de
+M4c-1).
+
+#### Champs
+
+Valeurs décrites dans `POPULATION_EXCLUSION_DESCRIPTIONS`.
+
+#### Invariants
+
+Énumération fermée : course, ou étiquette manquante ; « course » l'emporte quand
+une performance porte à la fois une course et une sortie sans étiquette.
+
+#### Producteur
+
+`calibration_population` (`mountain_perf.backtest.calibration`).
+
+#### Consommateurs
+
+`PopulationExclusion`.
+
+#### Non promis
+
+Le motif ne dit pas quelle sortie de la performance l'a déclenché.
+
+---
+
+## `PopulationExclusion`
+
+*`mountain_perf.schemas.calibration` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `civil_date` | `date` | — |
+| `reason` | `PopulationExclusionReason` | — |
+
+Une performance terminée avant l'origine `o_j`, exclue de `C_j` (`0010`
+D2.4).
+
+#### Champs
+
+- `civil_date` — jour civil — le jour de la performance exclue.
+- `reason` — sans unité — son motif : course, sinon étiquette manquante.
+
+#### Invariants
+
+Aucun au-delà des types.
+
+#### Producteur
+
+`calibration_population` (`mountain_perf.backtest.calibration`).
+
+#### Consommateurs
+
+`CalibrationPopulation`.
+
+#### Non promis
+
+Le motif n'est pas recoupé avec les étiquettes des sorties de la performance.
+
+---
+
+## `CalibrationPopulation`
+
+*`mountain_perf.schemas.calibration` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `civil_date` | `date` | — |
+| `origin` | `datetime` | — |
+| `members` | `tuple[date, ...]` | — |
+| `excluded` | `tuple[PopulationExclusion, ...]` | — |
+
+La population `C_j` d'une performance évaluée (`0010` D2.4, D2.5 ;
+précision de M4c-1).
+
+#### Champs
+
+- `civil_date` — jour civil — le jour évalué `J`.
+- `origin` — instant avec fuseau — l'origine `o_j` de `J`.
+- `members` — jours civils — les membres : performances terminées strictement
+  avant `o_j` dont toutes les sorties sont étiquetées entraînement.
+- `excluded` — sans unité — les autres performances terminées avant `o_j`,
+  avec leur motif.
+
+#### Invariants
+
+1. `origin` avec fuseau ; `members` et `excluded` sont des tuples ;
+2. `members`, puis les jours de `excluded` : strictement croissants, et chacun
+   antérieur à `civil_date` (D9.2 : le jour évalué n'entre jamais dans son
+   propre calage) ;
+3. aucun jour à la fois membre et exclu.
+
+#### Producteur
+
+`calibration_population` (`mountain_perf.backtest.calibration`).
+
+#### Consommateurs
+
+`calibrate` ; `CalibratedPerformance`.
+
+#### Non promis
+
+`origin` n'est pas recalculée depuis `civil_date` ; le domaine des membres
+n'est pas revérifié.
+
+---
+
+## `CalibrationWithdrawal`
+
+*`mountain_perf.schemas.calibration` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `civil_date` | `date` | — |
+| `reason` | `Unavailability` | — |
+
+Un membre de `C_j` retiré de la population effective d'un calage (`0010`
+D9.2 ; précision de M4c-1).
+
+#### Champs
+
+- `civil_date` — jour civil — le jour du membre retiré.
+- `reason` — sans unité — son motif : support admis vide
+  (`insufficient_support`) ou `T_c` nul (`zero_time`).
+
+#### Invariants
+
+`reason` vaut `INSUFFICIENT_SUPPORT` ou `ZERO_TIME`.
+
+#### Producteur
+
+`calibrate` (`mountain_perf.backtest.calibration`).
+
+#### Consommateurs
+
+`ModelCalibration`.
+
+#### Non promis
+
+Le motif n'est pas recoupé avec les scores du membre ; une projection invalide
+n'est jamais un retrait (D7.1 : elle rend le calage `erreur du modèle`).
+
+---
+
+## `ModelCalibration`
+
+*`mountain_perf.schemas.calibration` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `model` | `ModelKind` | — |
+| `scenario` | `Scenario` | — |
+| `clock` | `Clock` | — |
+| `population` | `tuple[date, ...]` | — |
+| `withdrawals` | `tuple[CalibrationWithdrawal, ...]` | — |
+| `beta` | `float \| None` | — |
+| `effort` | `float \| None` | — |
+| `factor` | `float \| None` | — |
+| `saturated` | `bool` | — |
+| `unavailability` | `Unavailability \| None` | — |
+
+Le calage d'un modèle pour une performance, dans un scénario et sous une
+horloge (`0010` D9.2 ; précision de M4c-1).
+
+#### Champs
+
+- `model` — sans unité — le modèle calé.
+- `scenario` — sans unité — le scénario des totaux.
+- `clock` — sans unité — l'horloge des totaux observés.
+- `population` — jours civils — `C_j^eff` : les membres dont le support admis
+  est non vide et `T_c > 0`.
+- `withdrawals` — sans unité — les autres membres de `C_j`, avec leur motif.
+- `beta` — sans unité — `β` : la moyenne des `ln(T_c / P_c)`, un par membre
+  de la population ; absent si le modèle n'est pas calé.
+- `effort` — sans unité — v0 seulement : `exp(−β)` borné à `EFFORT_BOUNDS` ;
+  la prévision calée de v0 est la prévision non calée divisée par lui.
+- `factor` — sans unité — baseline : `exp(β)`, le multiplicateur de la
+  prévision non calée ; v0 : `1 / effort`, publié pour lecture — la prévision
+  calée de v0 est `p / effort`, jamais `p · factor` (l'arrondi diffère ;
+  décision 2).
+- `saturated` — sans unité — v0 seulement : `exp(−β)` hors de
+  `EFFORT_BOUNDS`.
+- `unavailability` — sans unité — `NOT_CALIBRATED`, `MODEL_ERROR`, ou absent
+  (calé).
+
+#### Invariants
+
+Dans l'ordre, `τ = METRIC_RELATIVE_TOLERANCE` (`1e−12`), `_close(x, y)` :
+`|x − y| <= τ·max(1, |y|)` :
+
+1. `model` dans `CALIBRATED_MODELS` ;
+2. `population` et `withdrawals` : tuples, strictement croissants par jour,
+   sans jour commun ;
+3. `unavailability` absent, `NOT_CALIBRATED` ou `MODEL_ERROR` ;
+4. `NOT_CALIBRATED` si et seulement si `population` est vide ;
+5. calé (`unavailability` absent) : `beta` fini, dans le domaine d'`exp`
+   (`exp(beta)` et `exp(−beta)` ne débordent pas) ; `factor` fini et
+   `> 0` ; baseline : ni `effort` ni saturation, `_close(factor,
+   exp(beta))` ; v0, `(low, high) = EFFORT_BOUNDS` : `effort` présent dans
+   `[low ; high]`, `factor == 1 / effort` **au bit**, `saturated` seulement
+   si `effort` vaut `low` ou `high`, `_close(effort, min(max(exp(−beta),
+   low), high))`, et `saturated` vaut `exp(−beta)` hors de `[low ; high]`
+   — indifférent quand `exp(−beta)` est à `τ` près d'une borne ;
+6. non calé ou en erreur : ni `beta`, ni `effort`, ni `factor`, ni
+   saturation.
+
+#### Producteur
+
+`calibrate` (`mountain_perf.backtest.calibration`).
+
+#### Consommateurs
+
+`CalibratedClockScores` ; `calibrated_forecast`, `calibrated_scores`.
+
+#### Non promis
+
+- la population n'est recoupée ni avec `C_j` ni avec les retraits ; les
+  `ln(T_c / P_c)` de chaque membre ne sont pas publiés ;
+- **la relation à `beta` n'est vérifiée qu'à `τ` près, pas au bit**
+  (décision 15) : l'arrondi d'`exp` dépend de la plateforme, et un calage écrit
+  sur l'une doit se relire sur l'autre ; `calibrate` la tient au bit sur la
+  plateforme qui calcule.
+
+---
+
+## `CalibratedClockScores`
+
+*`mountain_perf.schemas.calibration` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `calibration` | `ModelCalibration` | — |
+| `scores` | `ClockScores \| None` | — |
+
+Le calage d'un modèle sous une horloge, et les scores de sa prévision calée
+(`0010` D9.2, D7).
+
+#### Champs
+
+- `calibration` — sans unité — le calage sous cette horloge.
+- `scores` — sans unité — les scores de la prévision calée sous cette horloge ;
+  absents si le modèle n'est pas calé.
+
+#### Invariants
+
+1. `scores` absents si et seulement si `calibration.unavailability` est
+   présent ;
+2. `scores.clock == calibration.clock`.
+
+#### Producteur
+
+`calibrated_scores` (`mountain_perf.backtest.calibration`).
+
+#### Consommateurs
+
+`CalibratedScenarioScores`.
+
+#### Non promis
+
+La prévision calée n'est pas portée : elle se refait depuis la prévision non
+calée et le calage (décision 2).
+
+---
+
+## `CalibratedScenarioScores`
+
+*`mountain_perf.schemas.calibration` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `model` | `ModelKind` | — |
+| `scenario` | `Scenario` | — |
+| `forecast` | `ModelForecast` | — |
+| `clocks` | `tuple[CalibratedClockScores, ...]` | — |
+
+Les scores calés d'un modèle sur une sortie, dans un scénario, sous les onze
+horloges (`0010` D9.2, D7 ; précision de M4c-1).
+
+#### Champs
+
+- `model` — sans unité — le modèle calé.
+- `scenario` — sans unité — le scénario.
+- `forecast` — sans unité — la prévision **non calée** (v0 à l'effort 1,
+  baseline à son échelle nominale).
+- `clocks` — sans unité — le calage et les scores calés sous chaque horloge,
+  dans l'ordre de `CLOCKS`.
+
+#### Invariants
+
+1. `model` dans `CALIBRATED_MODELS` ;
+2. `forecast.scenario is scenario` ;
+3. `clocks` est un tuple ; ses horloges sont `CLOCKS`, dans l'ordre ;
+4. chaque calage porte ce `model` et ce `scenario`.
+
+#### Producteur
+
+`calibrated_scores` (`mountain_perf.backtest.calibration`).
+
+#### Consommateurs
+
+`CalibratedOutingScores`.
+
+#### Non promis
+
+Aucune enveloppe (D5.4 ; décision 8) : la prévision calée change d'une horloge à
+l'autre.
+
+---
+
+## `CalibratedOutingScores`
+
+*`mountain_perf.schemas.calibration` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `outing_id` | `str` | — |
+| `observation` | `OutingObservation` | — |
+| `control` | `CalibratedScenarioScores` | — |
+| `usage` | `CalibratedScenarioScores \| None` | — |
+
+Les scores calés d'un modèle sur une sortie, dans ses scénarios (`0010` D3,
+D9.2).
+
+#### Champs
+
+- `outing_id` — sans unité — l'identifiant de la sortie.
+- `observation` — sans unité — ce que la sortie observe (celle des scores non
+  calés de la source).
+- `control` — sans unité — les scores calés du scénario contrôle.
+- `usage` — sans unité — les scores calés du scénario usage ; absents pour une
+  sortie sans référence (D3).
+
+#### Invariants
+
+1. `control.scenario is CONTROL` ;
+2. `usage` présent : `usage.scenario is USAGE`, même modèle que `control` ;
+3. pour chaque scénario présent,
+   `len(forecast.segment_s) == len(observation.segments)`.
+
+#### Producteur
+
+`calibrate_performances` (`mountain_perf.backtest.calibration`).
+
+#### Consommateurs
+
+`CalibratedPerformance` ; l'exécution et le rapport à cinq modèles (M4c-2).
+
+#### Non promis
+
+Les calages ne sont pas recoupés d'un scénario à l'autre (`C_j^eff` peut
+différer).
+
+---
+
+## `CalibratedPerformance`
+
+*`mountain_perf.schemas.calibration` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `population` | `CalibrationPopulation` | — |
+| `outings` | `tuple[CalibratedOutingScores, ...]` | — |
+
+Le calage d'une performance évaluée et les scores calés de ses sorties scorées
+(`0010` D9.2).
+
+#### Champs
+
+- `population` — sans unité — `C_j`.
+- `outings` — sans unité — par sortie scorée, dans l'ordre de la performance,
+  les scores calés des quatre modèles, dans l'ordre de `CALIBRATED_MODELS`.
+
+#### Invariants
+
+1. `outings` est un tuple ; sa longueur est un multiple de quatre ;
+2. par groupes consécutifs de quatre : les modèles (`control.model`) sont
+   `CALIBRATED_MODELS`, dans l'ordre ; un seul `outing_id` par groupe ; deux
+   groupes n'ont pas le même `outing_id`.
+
+#### Producteur
+
+`calibrate_performances` (`mountain_perf.backtest.calibration`).
+
+#### Consommateurs
+
+L'exécution et le rapport à cinq modèles (M4c-2).
+
+#### Non promis
+
+Les sorties non scorées n'y figurent pas ; les calages ne sont pas recoupés d'une
+sortie à l'autre d'une même performance.
