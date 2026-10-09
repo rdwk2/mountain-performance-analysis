@@ -17,8 +17,8 @@ Cinq contraintes pèsent sur tous les choix :
   semaines, quelques sorties de développement, une course longue interrompue.
   Aucune analyse statistique confirmatoire n'est possible aujourd'hui ; toute
   règle de décision est exploratoire.
-- **La courbe v0 a été estimée sur une partie de ces sorties** (fenêtre du
-  2026-05-20 au 2026-06-26) et produite après coup : aucun score ne peut
+- **La courbe v0 a été estimée sur une partie de ces sorties** (sa fenêtre, D2.2)
+  et produite après coup : aucun score ne peut
   revendiquer l'information réellement disponible avant la sortie.
 - **Les traces réalisées ne suivent jamais exactement le préparé** : variantes,
   raccourcis, lacets, départs et arrivées à quelques mètres de la ligne,
@@ -110,13 +110,13 @@ confirmation statistique (données futures).
 ### D2 — Données
 
 **D2.1 Domaine.** Trail à pied (`Sport.FOOT`), départ au plus tôt à la **date de
-début du domaine** déclarée dans le manifeste (aujourd'hui 2026-05-20, premier
-jour de la fenêtre de la courbe v0), profil de **D+/km ≥ 40** — D+ du profil lissé
+début du domaine** déclarée dans le manifeste (aujourd'hui le premier jour de la
+fenêtre de la courbe v0), profil de **D+/km ≥ 40** — D+ du profil lissé
 de `0008` rapporté à sa longueur. Profil utilisé : le préparé ; à défaut, la trace
 de référence désignée ; à défaut, la trace réalisée — source fixée par le
-manifeste avant toute évaluation ; seuil inclusif. Les sorties de plat (≈ 14 D+/km
-sur la série observée) forment un diagnostic « hors domaine », hors de tout score
-principal ; les parcours de répétabilité mesurent 66 à 87 D+/km.
+manifeste avant toute évaluation ; seuil inclusif. Les sorties de plat forment un
+diagnostic « hors domaine », hors de tout score principal ; les parcours de
+répétabilité sont nettement au-dessus du seuil.
 *(précision, M4b-5)* Le profil de domaine se lit comme un tracé (lecture GPX, profil lissé
 de `0008` à ses paramètres par défaut) : le préparé, la trace de référence désignée ou, à
 défaut, les fichiers de trace de la sortie, même refusés par la lecture des traces (un
@@ -127,8 +127,9 @@ d'une sortie retenue hors du domaine est le premier, dans l'ordre : sport, date,
 inconnu, D+/km sous le seuil. Une sortie du domaine dont la trace est refusée reste dans sa
 performance, non scorée, avec le motif du refus.
 
-**D2.2 Fenêtre de la courbe v0** : du 2026-05-20 00:00 au 2026-06-26 24:00
-(Europe/Paris), les deux jours inclus. La courbe a été produite en septembre
+**D2.2 Fenêtre de la courbe v0** : de son premier jour 00:00 à son dernier jour 24:00
+(Europe/Paris), les deux jours inclus ; ses dates sont celles du compagnon de la courbe
+(`0009`, D8), avec les données, hors du dépôt. La courbe a été produite en septembre
 2026 : **aucun score M4 ne peut revendiquer l'information disponible à J−7** ;
 tous les scores de développement sont rétrospectifs.
 
