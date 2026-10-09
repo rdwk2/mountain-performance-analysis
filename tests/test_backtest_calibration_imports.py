@@ -146,7 +146,7 @@ def test_no_new_dependency() -> None:
 def test_only_the_backtest_package_imports_the_calibration() -> None:
     """§ 6.0 : aucun module de ``src/`` n'importe ``backtest/calibration.py``, ni par
     son nom de module, ni par ses noms depuis le paquet ``backtest``, hors l'export de
-    ``backtest/__init__.py``."""
+    ``backtest/__init__.py`` et, depuis M4c-2, l'exécution."""
     defined = _defined_names(ast.parse(CALIBRATION.read_text(encoding="utf-8")))
     importers = []
     for path in sorted(SOURCE.rglob("*.py")):
@@ -159,4 +159,4 @@ def test_only_the_backtest_package_imports_the_calibration() -> None:
             )
             if by_module or by_package:
                 importers.append(path.relative_to(SOURCE).as_posix())
-    assert importers == ["backtest/__init__.py"]
+    assert importers == ["backtest/__init__.py", "backtest/execution.py"]

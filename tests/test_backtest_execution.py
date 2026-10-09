@@ -51,6 +51,7 @@ from fixtures.backtest_world import (
 from mountain_perf.backtest import (
     EVENTS_FILE,
     MATCHING_PARAMETER_SPECS,
+    MODELS,
     PROTOCOL_RECORD,
     V0_RAW_MODEL,
     BacktestError,
@@ -314,8 +315,8 @@ def test_declaration_of_the_world(tmp_path: Path) -> None:
     """D14 et sa précision de M4b-5 : la déclaration exacte — commit, arbre, ``0010``,
     athlète, appariement par défaut, onze horloges, courbe, compagnon et instant de
     sa lecture, manifeste, performances et origines (D2.5), exclusions et leurs
-    motifs dans l'ordre (D0, D2.1, D2.6), v0 brut seul, sans expérience ; rien n'est
-    écrit."""
+    motifs dans l'ordre (D0, D2.1, D2.6), les cinq modèles (M4c-2), sans expérience ;
+    rien n'est écrit."""
     manifest = write_world(tmp_path)
     before = files(tmp_path)
     declaration = prepare(manifest).declaration
@@ -357,7 +358,8 @@ def test_declaration_of_the_world(tmp_path: Path) -> None:
         == PERFORMANCES
     )
     assert tuple((e.outing_id, e.reason) for e in declaration.exclusions) == EXCLUSIONS
-    assert declaration.models == (V0_RAW_MODEL,)
+    assert declaration.models == MODELS
+    assert MODELS[0] is V0_RAW_MODEL
     assert V0_RAW_MODEL.kind is ModelKind.V0_RAW
     assert V0_RAW_MODEL.engine_version == ENGINE_VERSION
     assert V0_RAW_MODEL.parameters == ParameterSet(PROJECTION_PARAMETER_SPECS)
@@ -448,7 +450,13 @@ def test_scored_and_unscored_outings(world: tuple[Path, BacktestRun]) -> None:
     assert tuple(o.outing_id for o in outcomes) == SCORED
     for outcome, run in zip(outcomes, backtest.outings, strict=True):
         assert outcome.coverage == run.match.coverage
-        assert outcome.scores == ((ModelKind.V0_RAW, run.scores),)
+        calibrated = tuple(
+            (entry.control.model, entry)
+            for performance in backtest.calibration
+            for entry in performance.outings
+            if entry.outing_id == run.outing.outing_id
+        )
+        assert outcome.scores == ((ModelKind.V0_RAW, run.scores), *calibrated)
     assert load_references(registry, log, 2) == backtest.references
     result = backtest.result_event.result
     assert result is not None

@@ -1,22 +1,24 @@
-"""L'exécution enregistrée de ``just backtest`` (M4b-5) : état git, domaine,
-DÉCLARATION, chaîne de ``mperf match --curve`` sortie par sortie, références D8,
-RÉSULTAT ou ÉCHEC.
+"""L'exécution enregistrée de ``just backtest`` (M4b-5, M4c-2) : état git, domaine,
+DÉCLARATION des cinq modèles, chaîne de ``mperf match --curve`` sortie par sortie,
+scores non calés des baselines, références D8, calage, RÉSULTAT ou ÉCHEC.
 
-Protocole : ``docs/decisions/0010`` D14 (et ses précisions de M4b-5), D0, D2.1, D2.5,
-D2.6, D3, D8. Ce module lit des fichiers et écrit au registre ; il n'ajoute aucun
-calcul : il enchaîne ceux des modules fusionnés. Ses messages ne portent aucun chemin
-absolu (règle 1 de ``CLAUDE.md``).
+Protocole : ``docs/decisions/0010`` D14 (et ses précisions de M4b-5 et M4c-2), D0,
+D2.1, D2.5, D2.6, D3, D8, D9. Ce module lit des fichiers et écrit au registre ; il
+n'ajoute aucun calcul : il enchaîne ceux des modules fusionnés. Ses messages ne
+portent aucun chemin absolu (règle 1 de ``CLAUDE.md``).
 """
 
 from __future__ import annotations
 
 import math
 import subprocess
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
 
 from mountain_perf.backtest.calendar import civil_date
+from mountain_perf.backtest.calibration import baseline_scores, calibrate_performances
 from mountain_perf.backtest.clocks import clock_partition
 from mountain_perf.backtest.geometry import (
     ReferenceGeometry,
@@ -42,7 +44,7 @@ from mountain_perf.backtest.registry import (
     line_hash,
 )
 from mountain_perf.backtest.repeatability import repeatability_reference
-from mountain_perf.backtest.scoring import v0_scores
+from mountain_perf.backtest.scoring import realized_profile, v0_scores
 from mountain_perf.backtest.segments import match_trace
 from mountain_perf.backtest.series import TraceSeries, build_series
 from mountain_perf.gpx import (
@@ -53,13 +55,18 @@ from mountain_perf.gpx import (
     read_gpx,
 )
 from mountain_perf.model import (
+    BASELINE_VERSION,
+    BASELINES,
     ENGINE_VERSION,
     PROJECTION_PARAMETER_SPECS,
     CurveReadResult,
     read_curve,
 )
 from mountain_perf.schemas import (
+    CALIBRATED_MODELS,
     CLOCKS,
+    CalibratedOutingScores,
+    CalibratedPerformance,
     ClockPartition,
     DataSet,
     Declaration,
@@ -92,8 +99,40 @@ PROTOCOL_RECORD = "0010"
 V0_RAW_MODEL = DeclaredModel(
     ModelKind.V0_RAW, ENGINE_VERSION, ParameterSet(PROJECTION_PARAMETER_SPECS), None
 )
-"""Le seul modèle de M4b : v0 brut, effort 1, paramètres par défaut, sans règle
-d'estimation (précision de D14, M4b-5)."""
+"""v0 brut : effort 1, paramètres par défaut, sans règle d'estimation (précision de
+D14, M4b-5)."""
+
+CALIBRATION_RULE = (
+    "calage D9.2 par performance évaluée, scénario et horloge, sur C_j^eff ; "
+    "jour évalué exclu"
+)
+"""La règle d'estimation déclarée des quatre modèles calés (``0010`` D9.2, D14) : un
+``β`` par performance évaluée, scénario et horloge, appris sur ``C_j^eff``, le jour
+évalué exclu."""
+
+V0_RECALIBRATED_MODEL = DeclaredModel(
+    ModelKind.V0_RECALIBRATED,
+    ENGINE_VERSION,
+    ParameterSet(PROJECTION_PARAMETER_SPECS),
+    CALIBRATION_RULE,
+)
+"""v0 + effort recalé : les paramètres de départ de v0 (effort 1), l'effort appris par
+la règle de calage (``0010`` D9.1, D9.2 ; précision de D14, M4c-2)."""
+
+BASELINE_MODELS: tuple[DeclaredModel, ...] = tuple(
+    DeclaredModel(kind, BASELINE_VERSION, None, CALIBRATION_RULE) for kind in BASELINES
+)
+"""Les trois baselines, dans l'ordre de ``BASELINES`` : sans paramètre fixé, un
+facteur appris par la règle de calage (``0010`` D9.1, D9.2 ; précision de D14,
+M4c-2)."""
+
+MODELS: tuple[DeclaredModel, ...] = (
+    V0_RAW_MODEL,
+    V0_RECALIBRATED_MODEL,
+    *BASELINE_MODELS,
+)
+"""Les cinq modèles que déclare ``just backtest``, dans l'ordre de ``0010`` D9.1
+(précision de D14, M4c-2)."""
 
 _GIT_MISSING = "git introuvable : just backtest enregistre le commit du code exécuté."
 _NOT_A_REPOSITORY = (
@@ -142,11 +181,20 @@ def _git(directory: Path, *arguments: str) -> str:
 
 def git_state(directory: Path) -> GitState:
     """L'état git du dépôt qui contient ``directory`` (précision de D14, M4b-5 ;
-    décision Q7) : ``git rev-parse HEAD``, puis ``git status --porcelain
-    --untracked-files=no``, modifié si sa sortie n'est pas vide — un fichier non suivi
-    ne compte pas. ``BacktestError`` sans ``git``, ou hors d'un dépôt."""
+    décision Q7) : ``git rev-parse HEAD``, puis ``git --no-optional-locks status
+    --porcelain --untracked-files=no``, modifié si sa sortie n'est pas vide — un
+    fichier non suivi ne compte pas. Le statut ne rafraîchit pas l'index : aucun
+    verrou ``.git/index.lock`` n'est posé (M4c-2). ``BacktestError`` sans ``git``, ou
+    hors d'un dépôt."""
     commit = _git(directory, "rev-parse", "HEAD").strip()
-    status = _git(directory, "status", "--porcelain", "--untracked-files=no")
+    # --no-optional-locks : le statut lit l'index sans le réécrire, donc sans verrou.
+    status = _git(
+        directory,
+        "--no-optional-locks",
+        "status",
+        "--porcelain",
+        "--untracked-files=no",
+    )
     return GitState(commit, status != "")
 
 
@@ -315,7 +363,8 @@ def prepare_backtest(
     remontent telles quelles) ; les domaines, la rétention et les performances ; le
     jeu de répétabilité (parcours, référence, une seule par parcours) ; les exclusions
     et leurs motifs ; les deux fichiers de la courbe, lus à ``retrieved_at`` ; la
-    DÉCLARATION de v0 brut seul, des onze horloges et de l'appariement par défaut."""
+    DÉCLARATION des cinq modèles (``MODELS``), des onze horloges et de l'appariement
+    par défaut."""
     read = load_manifest(manifest_path)
     curve = read_curve(curve_path, ParameterSet(PROJECTION_PARAMETER_SPECS))
     domains = outing_domains(read)
@@ -345,7 +394,7 @@ def prepare_backtest(
         manifest=read.source,
         performances=tuple(declared_performance(p) for p in performances),
         exclusions=exclusions,
-        models=(V0_RAW_MODEL,),
+        models=MODELS,
         experiment=None,
     )
     return Preparation(read, curve, decisions, domains, performances, declaration)
@@ -359,7 +408,9 @@ def prepare_backtest(
 @dataclass(frozen=True)
 class OutingRun:
     """Une sortie scorée, et ce qui a servi à la scorer : la chaîne de ``mperf match
-    --curve`` (profil et géométrie de sa référence, ou de sa trace sans référence)."""
+    --curve`` (profil et géométrie de sa référence, ou de sa trace sans référence),
+    puis les scores **non calés** des trois baselines, dans l'ordre de ``BASELINES``
+    (M4c-2)."""
 
     outing: Outing
     profile: RouteProfile
@@ -370,13 +421,30 @@ class OutingRun:
     match: MatchResult
     passages: PassageMatchResult
     scores: OutingScores
+    baselines: tuple[tuple[ModelKind, OutingScores], ...]
+
+
+@dataclass(frozen=True)
+class BacktestEvaluation:
+    """Le calcul d'une exécution, avant son RÉSULTAT (précision de D14, M4c-2) : sa
+    préparation, sa DÉCLARATION, les sorties scorées et non scorées, les références D8
+    par parcours, et le calage de chaque performance, dans l'ordre des
+    performances."""
+
+    preparation: Preparation
+    declaration_event: RegistryEvent
+    outings: tuple[OutingRun, ...]
+    unscored: tuple[Exclusion, ...]
+    references: tuple[tuple[str, RepeatabilityReference], ...]
+    calibration: tuple[CalibratedPerformance, ...]
 
 
 @dataclass(frozen=True)
 class BacktestRun:
     """Une exécution enregistrée : sa préparation, sa DÉCLARATION et son RÉSULTAT,
-    les sorties scorées et non scorées, les références D8 par parcours, et le sceau
-    (l'empreinte de la ligne du RÉSULTAT, la dernière du journal)."""
+    les sorties scorées et non scorées, les références D8 par parcours, le calage de
+    chaque performance (M4c-2), et le sceau (l'empreinte de la ligne du RÉSULTAT, la
+    dernière du journal)."""
 
     preparation: Preparation
     declaration_event: RegistryEvent
@@ -384,6 +452,7 @@ class BacktestRun:
     outings: tuple[OutingRun, ...]
     unscored: tuple[Exclusion, ...]
     references: tuple[tuple[str, RepeatabilityReference], ...]
+    calibration: tuple[CalibratedPerformance, ...]
     seal: str
 
 
@@ -409,7 +478,10 @@ def _score(
 ) -> OutingRun:
     """La chaîne de ``mperf match --curve`` sur une sortie tracée (``0010`` D3) : avec
     référence, le tracé de son fichier (lu une fois par chemin) et l'usage sur ce
-    profil ; sans référence, la grille sur sa trace enregistrée, sans usage."""
+    profil ; sans référence, la grille sur sa trace enregistrée, sans usage. Puis les
+    scores non calés des trois baselines (D9.1, M4c-2) : contrôle sur le profil de la
+    trace, usage sur celui de la référence, de base la prévision d'usage de v0 brut
+    (D7.4), datés comme ceux de v0."""
     reference = outing.reference
     usage: RouteProfile | None = None
     if reference is not None:
@@ -447,8 +519,33 @@ def _score(
         curve_ref=curve.curve_ref,
         generated_at=generated_at,
     )
+    realized = realized_profile(trace)
+    base = None if scores.usage is None else scores.usage.forecast
+    baselines = tuple(
+        (
+            kind,
+            baseline_scores(
+                scores.observation,
+                usage,
+                realized,
+                kind,
+                base=base,
+                generated_at=generated_at,
+            ),
+        )
+        for kind in BASELINES
+    )
     return OutingRun(
-        outing, profile, geometry, trace, series, partition, match, passages, scores
+        outing,
+        profile,
+        geometry,
+        trace,
+        series,
+        partition,
+        match,
+        passages,
+        scores,
+        baselines,
     )
 
 
@@ -486,19 +583,11 @@ def _references(
     )
 
 
-def _evaluate(
-    preparation: Preparation,
-    registry_root: Path,
-    declared: RegistryEvent,
-    recorded_at: datetime | None,
-) -> tuple[
-    tuple[OutingRun, ...],
-    tuple[Exclusion, ...],
-    tuple[tuple[str, RepeatabilityReference], ...],
-    RegistryEvent,
-]:
-    """Étape 3 de ``run_backtest`` : chaque sortie déclarée scorée ou écartée avec son
-    motif, les références D8, puis le RÉSULTAT ; les prévisions datées de la
+def _evaluate(preparation: Preparation, declared: RegistryEvent) -> BacktestEvaluation:
+    """Le calcul de ``run_backtest``, sans rien écrire : chaque sortie déclarée scorée
+    (v0 brut et les baselines non calées) ou écartée avec son motif, les références D8,
+    puis le calage de chaque performance (``0010`` D9.2 ; ``calibrate_performances``)
+    sur les scores non calés des sorties scorées ; les prévisions datées de la
     DÉCLARATION."""
     read = preparation.manifest
     refused = {entry.outing_id: entry.reason for entry in read.refused}
@@ -525,21 +614,44 @@ def _evaluate(
     references = _references(
         preparation.performances, {run.outing.outing_id: run for run in runs}
     )
-    outcomes = tuple(
-        OutingOutcome(
-            run.outing.outing_id, run.match.coverage, ((ModelKind.V0_RAW, run.scores),)
-        )
+    unscaled = {
+        run.outing.outing_id: {ModelKind.V0_RAW: run.scores, **dict(run.baselines)}
         for run in runs
+    }
+    calibration = calibrate_performances(preparation.performances, unscaled)
+    return BacktestEvaluation(
+        preparation,
+        declared,
+        tuple(runs),
+        tuple(unscored),
+        references,
+        calibration,
     )
-    result = append_result(
-        registry_root,
-        declared.number,
-        outcomes,
-        unscored=tuple(unscored),
-        references=references,
-        recorded_at=recorded_at,
+
+
+def _outcomes(evaluation: BacktestEvaluation) -> tuple[OutingOutcome, ...]:
+    """Ce que le RÉSULTAT porte de chaque sortie scorée, dans l'ordre des sorties
+    (précision de D14, M4c-2) : v0 brut, puis les scores calés de chaque modèle de
+    ``CALIBRATED_MODELS``, dans cet ordre."""
+    calibrated: dict[tuple[str, ModelKind], CalibratedOutingScores] = {
+        (entry.outing_id, entry.control.model): entry
+        for performance in evaluation.calibration
+        for entry in performance.outings
+    }
+    return tuple(
+        OutingOutcome(
+            run.outing.outing_id,
+            run.match.coverage,
+            (
+                (ModelKind.V0_RAW, run.scores),
+                *(
+                    (model, calibrated[(run.outing.outing_id, model)])
+                    for model in CALIBRATED_MODELS
+                ),
+            ),
+        )
+        for run in evaluation.outings
     )
-    return tuple(runs), tuple(unscored), references, result
 
 
 def run_backtest(
@@ -547,33 +659,45 @@ def run_backtest(
     registry_root: Path,
     *,
     recorded_at: datetime | None = None,
+    on_declaration: Callable[[RegistryEvent, str], None] | None = None,
+    before_result: Callable[[BacktestEvaluation], None] | None = None,
 ) -> BacktestRun:
-    """L'exécution enregistrée (``0010`` D14 et ses précisions de M4b-5 ; décisions
-    Q15 et Q17), dans cet ordre : la DÉCLARATION, **avant tout calcul** (ses erreurs
-    remontent telles quelles) ; sans performance, un ÉCHEC « non évaluable » ; puis le
-    calcul et le RÉSULTAT — une exception ou une interruption au clavier y devient un
-    ÉCHEC technique au motif sans chemin. Chaque ÉCHEC finit en ``BacktestError``, qui
-    publie l'empreinte de sa ligne ; le sceau d'une exécution réussie est l'empreinte
-    de la ligne du RÉSULTAT. Le recoupement des références D8 avec la référence
-    déclarée des sorties est fait par l'accord du registre, à l'ajout du RÉSULTAT."""
+    """L'exécution enregistrée (``0010`` D14 et ses précisions de M4b-5 et M4c-2 ;
+    décisions Q15 et Q17), dans cet ordre :
+
+    1. la DÉCLARATION, **avant tout calcul** (ses erreurs remontent telles quelles) ;
+    2. ``on_declaration(événement, empreinte de sa ligne)``, s'il est donné — la
+       commande publie l'empreinte dès l'ajout ; puis, s'il y a des performances, le
+       calcul (``BacktestEvaluation``), ``before_result(calcul)`` s'il est donné — la
+       commande y calcule son rapport —, et le RÉSULTAT ; une exception ou une
+       interruption au clavier dans l'un d'eux devient un ÉCHEC technique au motif
+       sans chemin ;
+    3. sans performance, un ÉCHEC « non évaluable », après ``on_declaration``.
+
+    Chaque ÉCHEC finit en ``BacktestError``, qui publie l'empreinte de sa ligne ; le
+    sceau d'une exécution réussie est l'empreinte de la ligne du RÉSULTAT. Le
+    recoupement des références D8 avec la référence déclarée des sorties est fait par
+    l'accord du registre, à l'ajout du RÉSULTAT."""
     declared = append_declaration(
         registry_root, preparation.declaration, recorded_at=recorded_at
     )
-    if not preparation.performances:
-        failure = append_failure(
-            registry_root,
-            declared.number,
-            Failure(FailureKind.NOT_EVALUABLE, _NO_PERFORMANCE),
-            recorded_at=recorded_at,
-        )
-        raise BacktestError(
-            f"{_NO_PERFORMANCE} : ÉCHEC enregistré (événement {failure.number} ; "
-            f"dernière ligne sha256 {line_hash(failure)})."
-        )
+    evaluation: BacktestEvaluation | None = None
+    result: RegistryEvent | None = None
     try:
-        outings, unscored, references, result = _evaluate(
-            preparation, registry_root, declared, recorded_at
-        )
+        if on_declaration is not None:
+            on_declaration(declared, line_hash(declared))
+        if preparation.performances:
+            evaluation = _evaluate(preparation, declared)
+            if before_result is not None:
+                before_result(evaluation)
+            result = append_result(
+                registry_root,
+                declared.number,
+                _outcomes(evaluation),
+                unscored=evaluation.unscored,
+                references=evaluation.references,
+                recorded_at=recorded_at,
+            )
     except (Exception, KeyboardInterrupt) as error:
         reason = failure_reason(error)
         failure = append_failure(
@@ -586,12 +710,24 @@ def run_backtest(
             f"échec de l'exécution, ÉCHEC enregistré (événement {failure.number} ; "
             f"dernière ligne sha256 {line_hash(failure)}) : {reason}"
         ) from error
+    if evaluation is None or result is None:
+        failure = append_failure(
+            registry_root,
+            declared.number,
+            Failure(FailureKind.NOT_EVALUABLE, _NO_PERFORMANCE),
+            recorded_at=recorded_at,
+        )
+        raise BacktestError(
+            f"{_NO_PERFORMANCE} : ÉCHEC enregistré (événement {failure.number} ; "
+            f"dernière ligne sha256 {line_hash(failure)})."
+        )
     return BacktestRun(
         preparation,
         declared,
         result,
-        outings,
-        unscored,
-        references,
+        evaluation.outings,
+        evaluation.unscored,
+        evaluation.references,
+        evaluation.calibration,
         seal=line_hash(result),
     )
