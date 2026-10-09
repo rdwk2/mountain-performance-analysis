@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from fixtures.registry import at, declaration, outcomes, registry_root
+from fixtures.registry import at, declaration, outcomes, references, registry_root
 from mountain_perf.backtest import (
     RegistryError,
     append_declaration,
@@ -86,6 +86,7 @@ def test_result_correcting_the_result(tmp_path: Path) -> None:
         root,
         1,
         outcomes(),
+        references=references(),
         recorded_at=at(2),
         corrects=2,
         correction_reason="erreur de saisie",

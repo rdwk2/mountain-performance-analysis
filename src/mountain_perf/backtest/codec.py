@@ -29,6 +29,7 @@ from enum import StrEnum
 
 from mountain_perf.schemas import (
     REGISTRY_FORMAT_VERSION,
+    CalibratedScenarioScores,
     OutingObservation,
     RepeatabilityReference,
     ScenarioScores,
@@ -38,10 +39,23 @@ DOCUMENT_TYPES: tuple[type, ...] = (
     OutingObservation,
     ScenarioScores,
     RepeatabilityReference,
+    CalibratedScenarioScores,
 )
 """Les contrats que le registre range en documents, nommés par leur empreinte
 (``0010`` D14) : l'observation d'une sortie, les scores d'un scénario (prévision
-comprise), la référence D8 d'un parcours."""
+comprise), la référence D8 d'un parcours ; depuis le format 2, les scores calés d'un
+modèle dans un scénario (prévision non calée et calages compris, M4c-2)."""
+
+DOCUMENT_FIRST_FORMAT: Mapping[type, int] = types.MappingProxyType(
+    {
+        OutingObservation: 1,
+        ScenarioScores: 1,
+        RepeatabilityReference: 1,
+        CalibratedScenarioScores: 2,
+    }
+)
+"""Le premier format du registre qui connaît chaque type de document (précision de
+D14, M4c-2) : un document ne s'écrit ni ne se relit à un format antérieur."""
 
 NON_FINITE_TEXTS: tuple[str, ...] = ("inf", "-inf", "nan")
 """Les textes d'un flottant non fini : JSON n'a pas de nombre pour eux."""
@@ -393,29 +407,44 @@ def content_hash(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def encode_document(value: object) -> bytes:
-    """Le document d'un contrat de ``DOCUMENT_TYPES`` : l'écriture canonique de
-    ``{"type": <nom de la classe>, "format": REGISTRY_FORMAT_VERSION, "data": …}`` ;
-    ``TypeError`` pour un autre type."""
+def encode_document(
+    value: object, format_version: int = REGISTRY_FORMAT_VERSION
+) -> bytes:
+    """Le document d'un contrat de ``DOCUMENT_TYPES`` au format ``format_version`` :
+    l'écriture canonique de ``{"type": <nom de la classe>, "format": format_version,
+    "data": …}`` ; ``TypeError`` pour un autre type, ou pour un format antérieur au
+    premier qui connaît le type (``DOCUMENT_FIRST_FORMAT`` ; précision de D14,
+    M4c-2)."""
     cls = type(value)
     if cls not in DOCUMENT_TYPES:
         names = ", ".join(document.__name__ for document in DOCUMENT_TYPES)
         raise TypeError(f"{cls.__name__} n'est pas un type de document ({names}).")
+    first = DOCUMENT_FIRST_FORMAT[cls]
+    if format_version < first:
+        raise TypeError(
+            f"{cls.__name__} n'existe qu'à partir du format {first}, demandé au "
+            f"format {format_version}."
+        )
     return canonical_bytes(
         {
             "type": cls.__name__,
-            "format": REGISTRY_FORMAT_VERSION,
+            "format": format_version,
             "data": encode_contract(value),
         }
     )
 
 
-def decode_document[T](data: bytes, expected: type[T]) -> T:
-    """Le contrat ``expected`` relu depuis les octets d'un document.
+def decode_document[T](
+    data: bytes, expected: type[T], format_version: int = REGISTRY_FORMAT_VERSION
+) -> T:
+    """Le contrat ``expected`` relu depuis les octets d'un document **du format
+    ``format_version``** — celui de l'événement qui le cite (précision de D14, M4c-2).
 
     Dans cet ordre : JSON en UTF-8 ; un objet aux clés exactement ``type``,
-    ``format``, ``data`` ; le type ; le format ; le contrat ; enfin, la réécriture du
-    contrat relu redonne les octets lus (sinon : écriture non canonique).
+    ``format``, ``data`` ; le type ; le format, égal à ``format_version`` ; un format
+    qui connaît le type (``DOCUMENT_FIRST_FORMAT``) ; le contrat ; enfin, la
+    réécriture du contrat relu, au même format, redonne les octets lus (sinon :
+    écriture non canonique).
     """
     try:
         envelope = json.loads(data.decode("utf-8"))
@@ -428,12 +457,16 @@ def decode_document[T](data: bytes, expected: type[T]) -> T:
         raise CodecError(
             f"document de type {envelope['type']!r}, {expected.__name__!r} attendu"
         )
-    if envelope["format"] != REGISTRY_FORMAT_VERSION:
+    if envelope["format"] != format_version:
         raise CodecError(
-            f"document au format {envelope['format']!r}, {REGISTRY_FORMAT_VERSION} "
-            "attendu"
+            f"document au format {envelope['format']!r}, {format_version} attendu"
+        )
+    if format_version < DOCUMENT_FIRST_FORMAT.get(expected, 1):
+        raise CodecError(
+            f"document de type {expected.__name__!r} au format {format_version}, qui "
+            "ne le connaît pas"
         )
     value = decode_contract(expected, envelope["data"])
-    if encode_document(value) != data:
+    if encode_document(value, format_version) != data:
         raise CodecError("document d'écriture non canonique")
     return value

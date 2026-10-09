@@ -18,8 +18,11 @@ from fixtures.registry import (
     at,
     declaration,
     experiment,
+    not_calibrated,
     outcomes,
+    references,
     registry_root,
+    v0_of,
 )
 from mountain_perf.backtest import (
     DOCUMENT_SUFFIX,
@@ -190,8 +193,8 @@ def test_altered_then_missing_document(tmp_path: Path) -> None:
     name = f"{DOCUMENTS_DIR}/{usage}{DOCUMENT_SUFFIX}"
     path = root / name
     data = path.read_bytes()
-    assert data.count(b'"format":1') == 1
-    path.write_bytes(data.replace(b'"format":1', b'"format":1 '))
+    assert data.count(b'"format":2') == 1
+    path.write_bytes(data.replace(b'"format":2', b'"format":2 '))
     _refused(root, re.escape(f"{name} : document altéré"))
     path.unlink()
     _refused(root, re.escape(f"{name} : document introuvable"))
@@ -432,18 +435,30 @@ def test_forecasts_are_checked_model_by_model(tmp_path: Path) -> None:
     declared = declaration(models=CALIBRATED_MODELS, experiment=experiment())
     append_declaration(root, declared, recorded_at=at(0))
     two_models = tuple(
-        replace(o, scores=(*o.scores, (ModelKind.V0_RECALIBRATED, o.scores[0][1])))
+        replace(
+            o,
+            scores=(
+                *o.scores,
+                (
+                    ModelKind.V0_RECALIBRATED,
+                    not_calibrated(
+                        o.outing_id, ModelKind.V0_RECALIBRATED, v0_of(o.outing_id)
+                    ),
+                ),
+                (ModelKind.CANDIDATE, v0_of(o.outing_id)),
+            ),
+        )
         for o in outcomes()
     )
-    append_result(root, 1, two_models, recorded_at=at(1))
+    append_result(root, 1, two_models, references=references(), recorded_at=at(1))
 
     def swap(event: RegistryEvent) -> RegistryEvent:
         result = _result(event)
         q20, q27, p03 = result.outings
-        v0_raw, recalibrated = q20.models
+        v0_raw, recalibrated, candidate = q20.models
         v0_raw = replace(v0_raw, control=p03.models[0].control)
         recalibrated = replace(recalibrated, control=q20.observation)
-        q20 = replace(q20, models=(v0_raw, recalibrated))
+        q20 = replace(q20, models=(v0_raw, recalibrated, candidate))
         return _with_result(event, replace(result, outings=(q20, q27, p03)))
 
     rewrite_last(root, swap)

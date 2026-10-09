@@ -30,6 +30,7 @@ from mountain_perf.backtest.clocks import (
     window_measures,
 )
 from mountain_perf.backtest.codec import (
+    DOCUMENT_FIRST_FORMAT,
     DOCUMENT_TYPES,
     NON_FINITE_TEXTS,
     CodecError,
@@ -232,6 +233,7 @@ __all__ = [
     "CURVE_METADATA_KIND",
     "CURVE_MODELS",
     "DOCUMENTS_DIR",
+    "DOCUMENT_FIRST_FORMAT",
     "DOCUMENT_SUFFIX",
     "DOCUMENT_TYPES",
     "DOMAIN_MIN_DPLUS_PER_KM",

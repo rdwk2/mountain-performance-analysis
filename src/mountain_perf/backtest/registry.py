@@ -28,6 +28,7 @@ from pathlib import Path
 
 from mountain_perf.backtest.calendar import origin
 from mountain_perf.backtest.codec import (
+    DOCUMENT_FIRST_FORMAT,
     CodecError,
     canonical_bytes,
     content_hash,
@@ -38,9 +39,12 @@ from mountain_perf.backtest.codec import (
 )
 from mountain_perf.model.curve_io import META_SUFFIX, CurveReadResult
 from mountain_perf.schemas import (
+    CALIBRATED_MODELS,
     REGISTRY_FORMAT_VERSION,
     ArtifactRef,
     ArtifactRole,
+    CalibratedOutingScores,
+    CalibratedScenarioScores,
     DataSet,
     Declaration,
     DeclaredModel,
@@ -235,8 +239,9 @@ def _stored(root: Path, sha: str) -> bytes:
 
 def verify_registry(root: Path) -> RegistryLog:
     """``read_registry``, puis, résultat par résultat, l'accord par les documents :
-    chaque document cité décodé, ses scores reconstruits, ses prévisions recoupées
-    avec la déclaration, ses références D8 avec les jours déclarés."""
+    chaque document cité décodé **au format de l'événement qui le cite** (précision
+    de D14, M4c-2), ses scores reconstruits, ses prévisions recoupées avec la
+    déclaration, ses références D8 avec les jours de répétabilité."""
     log = read_registry(root)
     for event in log.events:
         if event.result is not None:
@@ -246,6 +251,7 @@ def verify_registry(root: Path) -> RegistryLog:
                 lambda sha: _stored(root, sha),
                 _line_prefix(event.number),
                 "",
+                event.format_version,
             )
     return log
 
@@ -266,8 +272,10 @@ def _declared_outings(declaration: Declaration) -> dict[str, Outing]:
 def _agree(declaration: Declaration, result: Result, prefix: str) -> None:
     """L'accord sans documents (``0010`` D0, D3, D14) : chaque sortie du résultat est
     déclarée ; chaque sortie déclarée a un sort ; une sortie scorée est tracée, ses
-    modèles sont déclarés, son usage existe si et seulement si elle a une référence ;
-    les parcours des références D8 sont déclarés."""
+    modèles sont déclarés, son usage existe si et seulement si elle a une référence,
+    et elle l'est par **chaque modèle déclaré**, statut « non calé » ou « erreur du
+    modèle » compris (D0, D9.2 ; précision de D14, M4c-2 : toute ligne, de tout
+    format) ; les parcours des références D8 sont déclarés."""
     outings = _declared_outings(declaration)
     fates = [outing.outing_id for outing in result.outings]
     fates += [exclusion.outing_id for exclusion in result.unscored]
@@ -297,6 +305,15 @@ def _agree(declaration: Declaration, result: Result, prefix: str) -> None:
                     f"{prefix}{scored.outing_id!r}, le scénario usage est présent "
                     "si et seulement si la sortie a une référence (D3)"
                 )
+        present = {model.model for model in scored.models}
+        absent = [
+            model.kind for model in declaration.models if model.kind not in present
+        ]
+        if absent:
+            raise RegistryError(
+                f"{prefix}{scored.outing_id!r}, une sortie scorée l'est par chaque "
+                f"modèle déclaré (D0, D9.2) ; absent : {', '.join(absent)}"
+            )
     route_ids = declaration.route_ids
     for record in result.references:
         if record.route_id not in route_ids:
@@ -304,11 +321,16 @@ def _agree(declaration: Declaration, result: Result, prefix: str) -> None:
 
 
 def _decoded[T](
-    read: Callable[[str], bytes], sha: str, expected: type[T], prefix: str
+    read: Callable[[str], bytes],
+    sha: str,
+    expected: type[T],
+    prefix: str,
+    format_version: int,
 ) -> T:
-    """Le document ``sha`` décodé ; ses erreurs, préfixées de son nom."""
+    """Le document ``sha`` décodé au format ``format_version``, celui de l'événement
+    qui le cite (précision de D14, M4c-2) ; ses erreurs, préfixées de son nom."""
     try:
-        return decode_document(read(sha), expected)
+        return decode_document(read(sha), expected, format_version)
     except (CodecError, ContractError) as error:
         raise RegistryError(f"{prefix}{_document_name(sha)} : {error}") from error
 
@@ -318,16 +340,51 @@ def _model_scores(
     read: Callable[[str], bytes],
     prefix: str,
     document_prefix: str,
-) -> Iterator[tuple[ModelKind, OutingScores]]:
+    format_version: int,
+) -> Iterator[tuple[ModelKind, OutingScores | CalibratedOutingScores]]:
     """Les scores de chaque modèle d'une sortie scorée, reconstruits depuis ses
-    documents : l'observation, puis, modèle par modèle, le contrôle et l'usage."""
-    observation = _decoded(read, scored.observation, OutingObservation, document_prefix)
+    documents au format ``format_version`` : l'observation, puis, modèle par modèle,
+    le contrôle et l'usage — en ``CalibratedScenarioScores`` puis
+    ``CalibratedOutingScores`` pour un modèle calé, de ce modèle ; en
+    ``ScenarioScores`` puis ``OutingScores`` pour v0 brut et le candidat.
+
+    Au format 1, aucun modèle n'était calé : une ligne d'un format antérieur au
+    document calé (``DOCUMENT_FIRST_FORMAT``) qui en porte un est refusée, avant tout
+    décodage de ses scores (précision de D14, M4c-2)."""
+    observation = _decoded(
+        read, scored.observation, OutingObservation, document_prefix, format_version
+    )
     for model in scored.models:
-        control = _decoded(read, model.control, ScenarioScores, document_prefix)
+        if model.model in CALIBRATED_MODELS:
+            if format_version < DOCUMENT_FIRST_FORMAT[CalibratedScenarioScores]:
+                raise RegistryError(
+                    f"{prefix}{scored.outing_id!r}, {model.model} : un modèle calé "
+                    f"n'a pas de scores au format {format_version}, une ligne du "
+                    f"format {format_version} ne le relit pas (précision de D14, "
+                    "M4c-2)"
+                )
+            yield (
+                model.model,
+                _calibrated_scores(
+                    scored,
+                    model,
+                    observation,
+                    read,
+                    prefix,
+                    document_prefix,
+                    format_version,
+                ),
+            )
+            continue
+        control = _decoded(
+            read, model.control, ScenarioScores, document_prefix, format_version
+        )
         usage = (
             None
             if model.usage is None
-            else _decoded(read, model.usage, ScenarioScores, document_prefix)
+            else _decoded(
+                read, model.usage, ScenarioScores, document_prefix, format_version
+            )
         )
         try:
             scores = OutingScores(observation, control, usage)
@@ -336,37 +393,103 @@ def _model_scores(
         yield model.model, scores
 
 
+def _calibrated_scores(
+    scored: OutingResult,
+    model: ModelResult,
+    observation: OutingObservation,
+    read: Callable[[str], bytes],
+    prefix: str,
+    document_prefix: str,
+    format_version: int,
+) -> CalibratedOutingScores:
+    """Les scores calés d'un modèle calé sur une sortie scorée (M4c-2) : son contrôle
+    et son usage décodés en ``CalibratedScenarioScores``, puis
+    ``CalibratedOutingScores``, qui doit porter ce modèle."""
+    control = _decoded(
+        read, model.control, CalibratedScenarioScores, document_prefix, format_version
+    )
+    usage = (
+        None
+        if model.usage is None
+        else _decoded(
+            read,
+            model.usage,
+            CalibratedScenarioScores,
+            document_prefix,
+            format_version,
+        )
+    )
+    try:
+        scores = CalibratedOutingScores(scored.outing_id, observation, control, usage)
+        if control.model is not model.model:
+            raise ContractError(
+                f"les scores calés portent le modèle {control.model}, {model.model} "
+                "attendu"
+            )
+    except ContractError as error:
+        raise RegistryError(f"{prefix}{scored.outing_id!r}, {error}") from error
+    return scores
+
+
 def _agree_documents(
     declaration: Declaration,
     result: Result,
     read: Callable[[str], bytes],
     prefix: str,
     document_prefix: str,
+    format_version: int,
 ) -> None:
-    """L'accord par les documents (``0010`` D14, D2.6) : les scores de chaque sortie se
-    reconstruisent, leurs prévisions recopient la déclaration de leur modèle et nomment
-    un fichier déclaré de leur sortie ; les jours des références D8 sont déclarés, puis
-    leur fichier est recoupé avec la référence déclarée des sorties de répétabilité de
-    leur parcours (précision de D14, M4b-5)."""
+    """L'accord par les documents (``0010`` D14, D2.6), chaque document relu au format
+    ``format_version`` de l'événement qui le cite (précision de D14, M4c-2), dans cet
+    ordre : les scores de chaque sortie se reconstruisent, leurs prévisions recopient
+    la déclaration de leur modèle et nomment un fichier déclaré de leur sortie ; pour
+    chaque référence D8, ses jours sont exactement ceux du jeu de répétabilité sur son
+    parcours, puis son fichier est recoupé avec la référence déclarée des sorties de
+    répétabilité de ce parcours (précision de D14, M4b-5) ; en dernier, chaque
+    parcours du jeu de répétabilité a sa référence D8 (précision de D14, M4c-2)."""
     outings = _declared_outings(declaration)
     models = {model.kind: model for model in declaration.models}
     for scored in result.outings:
         outing = outings[scored.outing_id]
-        for kind, scores in _model_scores(scored, read, prefix, document_prefix):
+        for kind, scores in _model_scores(
+            scored, read, prefix, document_prefix, format_version
+        ):
             _check_forecasts(declaration, models[kind], outing, scores, prefix)
     for record in result.references:
         reference = _decoded(
-            read, record.reference, RepeatabilityReference, document_prefix
+            read,
+            record.reference,
+            RepeatabilityReference,
+            document_prefix,
+            format_version,
         )
-        _check_reference_days(declaration, record.route_id, reference, prefix)
+        _check_reference_days(declaration, result, record.route_id, reference, prefix)
         _check_reference_outings(declaration, record.route_id, reference, prefix)
+    referenced = {record.route_id for record in result.references}
+    for route_id in sorted(_repeatability_routes(declaration)):
+        if route_id not in referenced:
+            raise RegistryError(
+                f"{prefix}le parcours de répétabilité {route_id!r} n'a pas de "
+                "référence D8"
+            )
+
+
+def _repeatability_routes(declaration: Declaration) -> set[str]:
+    """Les parcours du jeu de répétabilité : ceux des sorties déclarées de ce jeu qui
+    ont un parcours (``0010`` D8)."""
+    return {
+        outing.route_id
+        for declared in declaration.performances
+        for outing in declared.performance.outings
+        if outing.dataset is DataSet.REPEATABILITY and outing.route_id
+    }
 
 
 def _check_forecasts(
     declaration: Declaration,
     model: DeclaredModel,
     outing: Outing,
-    scores: OutingScores,
+    scores: OutingScores | CalibratedOutingScores,
     prefix: str,
 ) -> None:
     for scenario_scores in (scores.control, scores.usage):
@@ -406,10 +529,19 @@ def _check_forecasts(
 
 def _check_reference_days(
     declaration: Declaration,
+    result: Result,
     route_id: str,
     reference: RepeatabilityReference,
     prefix: str,
 ) -> None:
+    """Les jours d'une référence D8 (``0010`` D8 ; précisions de D14, M4b-5 et
+    M4c-2) : d'abord, chacun est un jour déclaré sur ce parcours ; puis ils sont
+    **exactement** ceux du jeu de répétabilité sur ce parcours — une performance
+    déclarée de plusieurs sorties, dont une de ce jeu sur ce parcours, donne un jour
+    multi-sorties ; une performance d'une seule sortie, de ce jeu sur ce parcours, un
+    jour si cette sortie est scorée par le résultat. Pour les jours puis les jours
+    multi-sorties : chaque jour attendu absent, puis chaque jour présent non
+    attendu, dans l'ordre des jours."""
     days: set[date] = {
         declared.performance.civil_date
         for declared in declaration.performances
@@ -420,6 +552,34 @@ def _check_reference_days(
             raise RegistryError(
                 f"{prefix}la référence de {route_id!r} porte un jour non déclaré "
                 f"sur ce parcours, {day.isoformat()}"
+            )
+    scored = {outing.outing_id for outing in result.outings}
+    single: set[date] = set()
+    multi: set[date] = set()
+    for declared in declaration.performances:
+        performance = declared.performance
+        if not any(
+            outing.dataset is DataSet.REPEATABILITY and outing.route_id == route_id
+            for outing in performance.outings
+        ):
+            continue
+        if performance.is_multi_outing:
+            multi.add(performance.civil_date)
+        elif performance.outings[0].outing_id in scored:
+            single.add(performance.civil_date)
+    for present, expected, kind in (
+        (set(reference.days), single, "jour"),
+        (set(reference.multi_outing_days), multi, "jour multi-sorties"),
+    ):
+        for day in sorted(expected - present):
+            raise RegistryError(
+                f"{prefix}la référence de {route_id!r} omet le {kind} "
+                f"{day.isoformat()} du jeu de répétabilité"
+            )
+        for day in sorted(present - expected):
+            raise RegistryError(
+                f"{prefix}la référence de {route_id!r} porte le {kind} "
+                f"{day.isoformat()}, qui n'en est pas un du jeu de répétabilité"
             )
 
 
@@ -623,7 +783,12 @@ def _append(
             declared = _declaration_of(extended, event)
             _agree(declared, result, _REFUSED)
             _agree_documents(
-                declared, result, documents.__getitem__, _REFUSED, _REFUSED
+                declared,
+                result,
+                documents.__getitem__,
+                _REFUSED,
+                _REFUSED,
+                REGISTRY_FORMAT_VERSION,
             )
         _write(root, documents, line)
     return event
@@ -704,8 +869,10 @@ def load_outcomes(
     root: Path, log: RegistryLog, number: int
 ) -> tuple[OutingOutcome, ...]:
     """Les sorties scorées du résultat ``number``, reconstruites depuis ses documents,
-    présents, intacts et décodés."""
+    présents, intacts et décodés au format de l'événement ``number`` (précision de
+    D14, M4c-2)."""
     result = _result(log, number)
+    format_version = log.event(number).format_version
 
     def read(sha: str) -> bytes:
         return _stored(root, sha)
@@ -714,7 +881,9 @@ def load_outcomes(
         OutingOutcome(
             scored.outing_id,
             scored.coverage,
-            tuple(_model_scores(scored, read, _line_prefix(number), "")),
+            tuple(
+                _model_scores(scored, read, _line_prefix(number), "", format_version)
+            ),
         )
         for scored in result.outings
     )
@@ -723,8 +892,10 @@ def load_outcomes(
 def load_references(
     root: Path, log: RegistryLog, number: int
 ) -> tuple[tuple[str, RepeatabilityReference], ...]:
-    """Les références D8 du résultat ``number`` : couples (parcours, référence)."""
+    """Les références D8 du résultat ``number`` : couples (parcours, référence), au
+    format de l'événement ``number`` (précision de D14, M4c-2)."""
     result = _result(log, number)
+    format_version = log.event(number).format_version
     return tuple(
         (
             record.route_id,
@@ -733,6 +904,7 @@ def load_references(
                 record.reference,
                 RepeatabilityReference,
                 "",
+                format_version,
             ),
         )
         for record in result.references

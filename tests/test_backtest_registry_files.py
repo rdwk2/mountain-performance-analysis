@@ -15,12 +15,15 @@ from pathlib import Path
 import pytest
 
 from fixtures.registry import (
+    REFERENCE_R1,
     at,
+    d8_reference,
     declaration,
     outcomes,
     references,
     registry_root,
 )
+from fixtures.repeatability import DEUX_JOURS
 from mountain_perf.backtest import (
     DOCUMENT_SUFFIX,
     DOCUMENTS_DIR,
@@ -36,7 +39,7 @@ from mountain_perf.backtest import (
 from mountain_perf.schemas import Exclusion
 from test_backtest_registry import filled, journal_lines, snapshot
 
-FIRST_LINE_SHA256 = "5c6dedde1f47fa967ab8e027dce63231fb4ee87abad6d9ad6469692242189183"
+FIRST_LINE_SHA256 = "603f00f753f5ebd6626957b97c948addba4660c5ccb9cbba108b5dd274e37367"
 
 
 def test_first_line_of_the_journal(tmp_path: Path) -> None:
@@ -157,7 +160,16 @@ def test_new_documents_in_a_registry_that_has_documents(tmp_path: Path) -> None:
     append_declaration(root, declaration(), recorded_at=at(0))
     first, *others = outcomes()
     unscored = tuple(Exclusion(o.outing_id, "trace illisible") for o in others)
-    append_result(root, 1, (first,), unscored=unscored, recorded_at=at(1))
+    # Q27 écartée : la référence de r1 n'a plus que le 2026-05-20 (M4c-2).
+    alone = d8_reference(REFERENCE_R1.artifact.source, [DEUX_JOURS[0]])
+    append_result(
+        root,
+        1,
+        (first,),
+        unscored=unscored,
+        references=(("r1", alone),),
+        recorded_at=at(1),
+    )
     event = append_result(
         root,
         1,

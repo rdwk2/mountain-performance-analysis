@@ -27,14 +27,17 @@ from fixtures.registry import (
     V0_RAW,
     at,
     curve,
+    d8_reference,
     declaration,
     experiment,
+    not_calibrated,
     outcome,
     outcomes,
     references,
     registry_root,
+    v0_of,
 )
-from fixtures.repeatability import case_reference
+from fixtures.repeatability import DEUX_JOURS, case_reference
 from mountain_perf.backtest import (
     CURVE_MODELS,
     DOCUMENT_SUFFIX,
@@ -166,7 +169,7 @@ def test_altered_document_already_present(tmp_path: Path, name: str) -> None:
     un seul ; un document altéré, où qu'il soit, et aucun document n'est ajouté."""
     root = _declared(tmp_path)
     outing_id = Q20_ID if name == "Régimes" else Q27_ID
-    observation = outcome(outing_id).scores[0][1].observation
+    observation = v0_of(outing_id).observation
     sha = content_hash(encode_document(observation))
     (root / DOCUMENTS_DIR).mkdir()
     (root / DOCUMENTS_DIR / f"{sha}{DOCUMENT_SUFFIX}").write_bytes(b"{}")
@@ -193,7 +196,9 @@ def test_declared_outing_without_fate(tmp_path: Path) -> None:
         lambda: append_result(root, 1, outcomes()[:2]),
     )
     unscored = (Exclusion(P03_ID, "trace illisible"),)
-    event = append_result(root, 1, outcomes()[:2], unscored=unscored)
+    event = append_result(
+        root, 1, outcomes()[:2], unscored=unscored, references=references()
+    )
     assert event.result is not None
     assert event.result.unscored == unscored
 
@@ -215,12 +220,12 @@ def test_undeclared_outing(tmp_path: Path) -> None:
 
 def test_undeclared_model(tmp_path: Path) -> None:
     root = _declared(tmp_path)
-    scores = outcome(Q20_ID).scores[0][1]
-    naismith = replace(outcome(Q20_ID), scores=((ModelKind.NAISMITH, scores),))
+    scores = v0_of(Q20_ID)
+    candidate = replace(outcome(Q20_ID), scores=((ModelKind.CANDIDATE, scores),))
     _refused(
         root,
-        "ajout refusé : modèle non déclaré, naismith",
-        lambda: append_result(root, 1, _replaced(naismith)),
+        "ajout refusé : modèle non déclaré, candidate",
+        lambda: append_result(root, 1, _replaced(candidate)),
     )
 
 
@@ -263,7 +268,10 @@ def test_scored_outing_without_trace(tmp_path: Path) -> None:
         lambda: append_result(root, 1, outcomes()),
     )
     unscored = (Exclusion(P03_ID, "sortie non tracée"),)
-    assert append_result(root, 1, outcomes()[:2], unscored=unscored).number == 2
+    event = append_result(
+        root, 1, outcomes()[:2], unscored=unscored, references=references()
+    )
+    assert event.number == 2
 
 
 @pytest.mark.parametrize(
@@ -326,7 +334,7 @@ def test_parameters_of_a_model_without_rule(tmp_path: Path) -> None:
     )
     ruled = replace(V0_RAW, parameters=effort, estimation_rule="calage de 0010 D9.2")
     other = _declared(tmp_path / "règle", models=(ruled,))
-    assert append_result(other, 1, outcomes()).number == 2
+    assert append_result(other, 1, outcomes(), references=references()).number == 2
 
 
 def test_forecasts_name_declared_files_of_their_outing(tmp_path: Path) -> None:
@@ -378,10 +386,20 @@ def test_curve_of_the_forecasts(tmp_path: Path) -> None:
     )
     baseline = _declared(tmp_path / "baseline", models=(naismith,), **changes)
     scored = tuple(
-        replace(item, scores=((ModelKind.NAISMITH, item.scores[0][1]),))
+        replace(
+            item,
+            scores=(
+                (
+                    ModelKind.NAISMITH,
+                    not_calibrated(
+                        item.outing_id, ModelKind.NAISMITH, v0_of(item.outing_id)
+                    ),
+                ),
+            ),
+        )
         for item in outcomes()
     )
-    assert append_result(baseline, 1, scored).number == 2
+    assert append_result(baseline, 1, scored, references=references()).number == 2
 
 
 # ---------------------------------------------------------------------------
@@ -491,7 +509,7 @@ def test_control_names_the_first_of_two_traces(tmp_path: Path) -> None:
         for outing in (q20, Q27, P03)
     )
     root = _declared(tmp_path, performances=performances)
-    scores = outcome(Q20_ID).scores[0][1]
+    scores = v0_of(Q20_ID)
     on_second = replace(scores, control=_on(scores.control, second.source))
     _refused(
         root,
@@ -499,7 +517,7 @@ def test_control_names_the_first_of_two_traces(tmp_path: Path) -> None:
         "première trace déclarée de la sortie",
         lambda: append_result(root, 1, _replaced(_scored(Q20_ID, on_second))),
     )
-    assert append_result(root, 1, outcomes()).number == 2
+    assert append_result(root, 1, outcomes(), references=references()).number == 2
 
 
 def test_every_outing_of_a_multi_outing_day_has_a_fate(tmp_path: Path) -> None:
@@ -524,7 +542,15 @@ def test_every_outing_of_a_multi_outing_day_has_a_fate(tmp_path: Path) -> None:
         lambda: append_result(root, 1, outcomes()),
     )
     unscored = (Exclusion("q-2026-05-20-b", "trace illisible"),)
-    assert append_result(root, 1, outcomes(), unscored=unscored).number == 2
+    # Le 2026-05-20 est un jour multi-sorties de r1 (M4c-2 : jours exacts).
+    multi = d8_reference(
+        REFERENCE_R1.artifact.source,
+        [replace(DEUX_JOURS[0], multi=True), DEUX_JOURS[1]],
+    )
+    event = append_result(
+        root, 1, outcomes(), unscored=unscored, references=(("r1", multi),)
+    )
+    assert event.number == 2
 
 
 def test_d8_day_of_a_multi_outing_day_on_two_routes(tmp_path: Path) -> None:
@@ -544,8 +570,13 @@ def test_d8_day_of_a_multi_outing_day_on_two_routes(tmp_path: Path) -> None:
     )
     root = _declared(tmp_path, performances=(day, *others))
     unscored = (Exclusion("p-2026-05-20", "trace illisible"),)
+    # Le 2026-05-20 est un jour multi-sorties de r1 (M4c-2 : jours exacts).
+    multi = d8_reference(
+        REFERENCE_R1.artifact.source,
+        [replace(DEUX_JOURS[0], multi=True), DEUX_JOURS[1]],
+    )
     event = append_result(
-        root, 1, outcomes(), unscored=unscored, references=references()
+        root, 1, outcomes(), unscored=unscored, references=(("r1", multi),)
     )
     assert event.number == 2
 
@@ -554,7 +585,7 @@ def test_altered_document_is_left_as_is(tmp_path: Path) -> None:
     """§ 6.3, étape 7, et § 7.4 : rien n'est écrit au refus d'un document altéré — le
     document altéré non plus."""
     root = _declared(tmp_path)
-    observation = outcome(Q20_ID).scores[0][1].observation
+    observation = v0_of(Q20_ID).observation
     sha = content_hash(encode_document(observation))
     path = root / DOCUMENTS_DIR / f"{sha}{DOCUMENT_SUFFIX}"
     path.parent.mkdir()
@@ -577,11 +608,11 @@ def test_trace_before_models(tmp_path: Path) -> None:
     )
     root = _declared(tmp_path, performances=performances)
     p03 = outcome(P03_ID)
-    naismith = replace(p03, scores=((ModelKind.NAISMITH, p03.scores[0][1]),))
+    candidate = replace(p03, scores=((ModelKind.CANDIDATE, v0_of(P03_ID)),))
     _refused(
         root,
         "ajout refusé : 'p-2026-06-03', une sortie scorée a au moins une trace",
-        lambda: append_result(root, 1, _replaced(naismith)),
+        lambda: append_result(root, 1, _replaced(candidate)),
     )
 
 
@@ -589,13 +620,13 @@ def test_declared_model_before_usage(tmp_path: Path) -> None:
     """§ 6.3, accord sans documents, 3 : un modèle non déclaré se signale avant un usage
     absent."""
     root = _declared(tmp_path)
-    scores = outcome(Q20_ID).scores[0][1]
+    scores = v0_of(Q20_ID)
     without_usage = replace(scores, usage=None)
-    naismith = replace(outcome(Q20_ID), scores=((ModelKind.NAISMITH, without_usage),))
+    candidate = replace(outcome(Q20_ID), scores=((ModelKind.CANDIDATE, without_usage),))
     _refused(
         root,
-        "ajout refusé : modèle non déclaré, naismith",
-        lambda: append_result(root, 1, _replaced(naismith)),
+        "ajout refusé : modèle non déclaré, candidate",
+        lambda: append_result(root, 1, _replaced(candidate)),
     )
 
 
