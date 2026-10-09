@@ -4,6 +4,10 @@
 > de l'attaquer — écrire le détail du jalon 7 aujourd'hui, c'est du travail jeté.
 > Les idées qui arrivent en cours de route vont dans `BACKLOG.md`, pas ici.
 
+Deux pistes partagent ce dépôt et sa méthode : le **moteur de prédiction** (jalons
+`M<n>`, ci-dessous) et la **piste analyse** (jalons `AN<n>`, en fin de fichier), qui
+analyse les données d'entraînement, de récupération et de sommeil de l'athlète.
+
 ---
 
 ## Les trois principes qui gouvernent l'ordre
@@ -141,17 +145,29 @@ qui n'améliorent rien sont soit retirés, soit conservés avec une raison écri
 ---
 
 ### M6b — Ingestion Garmin + courbe personnelle ∥
-L'autre moitié de la tranche verticale. Parallélisable avec M6a.
+L'autre moitié de la tranche verticale. Parallélisable avec M6a. **Partagé avec la
+piste analyse** : elle écrit l'ingestion, le moteur estime la courbe.
 
-- acquisition : reprendre le script d'export de l'ancien projet (placé dans
-  `legacy/`, ne pas le réécrire depuis zéro) → `raw/`, immuable, reprise après coupure
-- parsing des streams → schémas M1 → `interim/` puis `processed/`
-- **estimation robuste de la courbe** : binning par pente, filtrage par bande de FC,
-  traitement des valeurs aberrantes, et surtout **une mesure de dispersion**
-  (elle servira aux intervalles en M8)
-- la courbe personnelle remplace la courbe figée ; le backtest dit de combien on gagne
+- **À la piste analyse** (AN1, puis à la demande) :
+  - acquisition : reprendre le script d'export de l'ancien projet (placé dans
+    `legacy/`, ne pas le réécrire depuis zéro) → `raw/`, immuable, reprise après
+    coupure ; elle attend la première mise à jour des données ;
+  - ingestion : `raw/` → contrats → `interim/`, dans `src/mountain_perf/ingest/`, aux
+    conventions du moteur (m/s, distance de `gpx/geo.py`, profil de
+    `gpx/profile.py`) ; les séries d'activité viennent des FIT, à pleine résolution
+    (`docs/decisions/0013`) ;
+  - les détecteurs de qualité (`QualityFlag`, écrêtage des pics).
+- **Au moteur** :
+  - **estimation robuste de la courbe**, sur les positions à pleine résolution et avec
+    la chaîne du profil : binning par pente, filtrage par bande de FC, traitement des
+    valeurs aberrantes, et surtout **une mesure de dispersion** (elle servira aux
+    intervalles en M8) ;
+  - la courbe personnelle remplace la courbe figée ; le backtest dit de combien on
+    gagne.
+- Le moteur lit `interim/` par ses contrats, jamais `processed/`, qui appartient à la
+  piste analyse.
 
-**Fini quand** : `mperf curve --hr-center 150` régénère une courbe depuis les
+**Fini quand** : `mperf curve --hr-center <bpm>` régénère une courbe depuis les
 données brutes, et le backtest mesure l'effet du changement de courbe.
 
 **Test de non-régression offert** : la nouvelle implémentation doit retrouver
@@ -179,7 +195,8 @@ Le jalon « maths ».
   allure↔pente et l'erreur résiduelle mesurée au backtest donnent des quantiles.
   On remplace « j'ai bidouillé trois scénarios » par un intervalle calibré.
 - **deux courbes de descente** : roulant / faux-plat descendant vs raide.
-  (Faiblesse déjà chiffrée sur l'athlète : −37 % sur le roulant vs −23 % sur le raide.)
+  (L'écart entre roulant et raide est à mesurer : sous-classes de descente du rapport
+  D15, et question Q4 de la piste analyse.)
 - vérifier la **calibration** de l'intervalle : sur N courses, ~80 % des temps
   réels doivent tomber dans l'intervalle P80. Sinon l'intervalle ment.
 
@@ -201,6 +218,15 @@ M0 → M1 → M2 → M3 → M4 → M5
 ```
 
 M6a et M6b sont indépendants l'un de l'autre : rien de l'un ne bloque l'autre.
+L'estimation de la courbe (M6b) attend l'ingestion des activités, écrite par la piste
+analyse en AN1.
+
+```
+AN0 → AN1 → AN2 → AN3 …
+       └── interim/ ──→ M6b (courbe)
+```
+
+M7 attend aussi AN2, qui ingère les nuits et les jours (sommeil, Body Battery).
 
 ---
 
@@ -208,9 +234,66 @@ M6a et M6b sont indépendants l'un de l'autre : rien de l'un ne bloque l'autre.
 
 Noté ici pour que ce soit clair que ce n'est pas oublié, mais volontairement écarté :
 
-- VTT et ski de randonnée (le modèle allure↔pente ne se transpose pas tel quel)
-- corrélations santé (HRV, sommeil) × entraînement
-- déploiement en ligne et gestion des données d'autres utilisateurs
+- VTT et ski de randonnée **pour le moteur** (le modèle allure↔pente ne se transpose
+  pas tel quel) ; la piste analyse les étudie
+- déploiement en ligne et gestion des données d'autres utilisateurs (la piste analyse
+  vise un usage local par un autre athlète, sur ses propres données : un athlète, un
+  `MPA_DATA_DIR`)
 - planification d'entraînement
 
 Ces sujets vivent dans `BACKLOG.md`.
+
+---
+
+## La piste analyse (AN)
+
+Décidée le 2026-10-06. Même dépôt, même méthode (brief relu, mode plan, PR relue),
+jalons `AN<n>`. Sa méthode est dans `docs/analyse/CHARTE.md`, ses questions dans
+`docs/analyse/QUESTIONS.md`. Deux principes la gouvernent en plus des trois du
+moteur :
+
+- **Pour tout athlète.** Rien de propre à un athlète ni à sa montre dans le code : les
+  seuils personnels se calculent depuis ses données ou se déclarent dans sa
+  configuration.
+- **Permanent.** Une question livre une commande ou une page qui se recalcule à
+  chaque mise à jour des données, pas un rapport unique.
+
+Elle partage avec le moteur l'ingestion et `interim/` (M6b). Elle a en propre
+`processed/` (les tables d'analyse), ses résultats, et ses dépendances, déclarées à
+part du cœur (`docs/decisions/0011`).
+
+### AN0 — Cadrage
+Examen des données (hors du dépôt), questions, charte, bibliothèques, et cette
+documentation.
+
+**Fini quand** : la PR de documentation est fusionnée et le brief d'AN1 est écrit.
+
+---
+
+### AN1 — Activités et montées
+- avant le code : le codec rendu commun, dans une PR à part, avec l'accord du moteur
+  (`docs/decisions/0013`, point 4)
+- ingestion des activités : index de l'export et séries des FIT, contrats et lecteur
+  d'`interim/` sans dépendance (`docs/decisions/0013`)
+- vues `Activity` et `TrackPointStream` pour M6b, et table des types de la source vers
+  `Sport`, relue par le moteur
+- tables `activités` et `montées` de `processed/`, avec une définition de la montée
+  dont on contrôle la stabilité
+- figure descriptive de Q1 : la vitesse ascensionnelle à pente, durée et altitude
+  comparables
+
+**Fini quand** : une commande régénère `interim/` et `processed/` depuis `raw/`, les
+vues du moteur se calculent depuis `interim/`, et la figure de Q1 se recalcule.
+
+---
+
+### AN2 — Données journalières et tableau de bord
+- ingestion des nuits et des jours (sommeil, HRV, FC de repos, indicateurs de Garmin)
+- tableau de bord du suivi de la récupération
+
+---
+
+### AN3 et suivants — Une question par jalon
+Une question, ou deux très proches, par jalon, numéroté à son ouverture. Ordre prévu :
+Q2, Q3, Q4 ; les suivantes se choisissent à l'ouverture de chaque jalon. Chaque
+question a son plan d'analyse, relu avant le code (charte).
