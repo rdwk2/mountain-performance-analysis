@@ -16,6 +16,22 @@ Backtest (à partir de M4) : métrique avant → après.
 
 ---
 
+### 2026-10-10 · AN0 — Documentation de la piste analyse
+Ouverture de la piste analyse (jalons `AN<n>`, décidée le 2026-10-06) : son cadrage,
+sans code. Ajoutés : `docs/analyse/CHARTE.md` (méthode de la piste) et
+`docs/analyse/QUESTIONS.md` (questions, version 1) ; les decision records `0011`
+(bibliothèques, extras et clôtures d'import), `0012` (notebooks marimo et règle 7) et
+`0013` (ingestion des activités et format d'`interim/`). Modifiés :
+`docs/ROADMAP.md` (la piste et ses jalons, M6b partagé, hors-périmètre revu),
+`CLAUDE.md` (en-tête, règles 1, 7 et 8, structure), `docs/PIEGES_DATA.md` (pièges d'un
+export réel et des FIT) et `README.md` (liste des décisions et des documents). La règle
+1 élargie s'applique aux textes existants : `JOURNAL`, `BACKLOG.md`,
+`docs/MODELE_V1.md`, `0009`, `0010` et une docstring de
+`tests/fixtures/backtest_world.py` sont nettoyés, par un correctif écrit pour le moteur.
+Conclusion : `just check` vert, 3 945 tests, comme sur `main`.
+
+---
+
 ### 2026-10-08 · M4c-1 — correctifs de relecture
 Deux fichiers de tests neufs, sans rien changer à `src/`, après les deux relectures C de la
 PR #21 et le balayage de mutation de la conception : `test_backtest_calibration_guarantees.py`
