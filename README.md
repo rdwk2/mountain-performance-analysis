@@ -282,8 +282,8 @@ Jalons M0 à M3 livrés ; M4 (backtest) en cours.
 ## Décisions et documents
 
 Une décision structurante = un fichier dans [`docs/decisions/`](docs/decisions/),
-sur le gabarit [`0000-template.md`](docs/decisions/0000-template.md). Les dix
-décisions sont au statut « acceptée » :
+sur le gabarit [`0000-template.md`](docs/decisions/0000-template.md). Toutes
+sont au statut « acceptée », sauf 0013 (« proposée ») :
 
 - [0001 — Séparation stricte données / code](docs/decisions/0001-separation-data-code.md)
 - [0002 — Unités internes et unités d'affichage](docs/decisions/0002-unites.md)
@@ -295,6 +295,9 @@ décisions sont au statut « acceptée » :
 - [0008 — Géométrie, lissage et résolution des passages](docs/decisions/0008-geometrie-et-lissage.md)
 - [0009 — Moteur de projection v0](docs/decisions/0009-moteur-projection-v0.md)
 - [0010 — Protocole de backtest et métrique d'erreur](docs/decisions/0010-protocole-de-backtest.md)
+- [0011 — Bibliothèques de la piste analyse](docs/decisions/0011-bibliotheques-analyse.md)
+- [0012 — Notebooks et règle 7](docs/decisions/0012-notebooks-et-regle-7.md)
+- [0013 — Ingestion des activités et format d'`interim/`](docs/decisions/0013-ingestion-et-interim.md)
 
 Autres documents :
 
@@ -305,6 +308,7 @@ Autres documents :
   données, généré depuis les docstrings ;
 - [`docs/PIEGES_DATA.md`](docs/PIEGES_DATA.md) — les pièges déjà rencontrés dans
   les données Garmin ;
+- [`docs/analyse/`](docs/analyse/) — la charte et les questions de la piste analyse ;
 - [`CLAUDE.md`](CLAUDE.md) — les règles et les conventions du dépôt.
 
 ## Données

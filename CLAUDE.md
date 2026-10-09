@@ -6,7 +6,11 @@ Analyse de données de sport de montagne et modélisation de la performance.
 la courbe allure↔pente personnelle de l'athlète, et valider ces projections contre
 des performances réelles.
 
-Python. Usage personnel d'abord, projet portfolio ensuite. Le repo sera rendu public.
+**Piste analyse** (jalons `AN<n>`) : analyser les données d'entraînement, de
+récupération et de sommeil de l'athlète, des tableaux de bord jusqu'à
+l'apprentissage automatique (`docs/analyse/`).
+
+Python. Usage personnel d'abord, projet portfolio ensuite. Le repo est public.
 
 ---
 
@@ -14,8 +18,15 @@ Python. Usage personnel d'abord, projet portfolio ensuite. Le repo sera rendu pu
 
 1. **Aucune donnée personnelle dans le repo.**
    Pas de JSON/FIT Garmin, pas de CSV d'activités, pas de GPX de courses, pas
-   d'identifiants, pas de tokens. Tout ça vit hors du repo, dans le dossier pointé
-   par la variable d'environnement `MPA_DATA_DIR`.
+   d'identifiants, pas de tokens. Rien, tiré des données réelles, qui date ou situe
+   l'athlète : aucune date, aucun lieu ni nom de parcours, aucune valeur par sortie,
+   aucune valeur de santé, nulle part dans le repo (code, documentation, `JOURNAL`,
+   `BACKLOG`), ni dans les messages de commit et les descriptions de PR.
+   Un agrégat d'un protocole scellé (les erreurs du backtest par jeu, avec leur
+   effectif, même d'une seule sortie : une erreur du modèle ne date ni ne situe
+   l'athlète) peut y figurer ; la piste analyse n'y met aucun chiffre tiré des
+   données (`docs/analyse/CHARTE.md`). Tout le reste vit hors du repo, dans le dossier
+   pointé par la variable d'environnement `MPA_DATA_DIR`.
    Les tests n'utilisent **que** les fixtures synthétiques de `tests/fixtures/`,
    qui sont minuscules, inventées, et commitées.
 
@@ -43,14 +54,21 @@ Python. Usage personnel d'abord, projet portfolio ensuite. Le repo sera rendu pu
 
 7. **Pas de logique métier dans l'interface, ni dans un notebook.**
    L'UI et les notebooks appellent la bibliothèque. S'ils calculent quelque chose,
-   c'est que ça manque dans `src/`.
+   c'est que ça manque dans `src/`. Un notebook peut calculer pour explorer, mais ce
+   calcul est jetable : **tout chiffre rapporté** (compte rendu, décision, tableau de
+   bord, journal des essais, moteur) vient d'une fonction testée de `src/`. Les
+   notebooks sont des fichiers marimo (`.py`, sans sortie) qui ne lisent que
+   `processed/` et la configuration, jamais `raw/` (`docs/decisions/0012`).
 
 8. **Jamais de commit direct sur `main`.**
-   Une tâche = une branche (`<jalon>/<sujet>`, ex. `m2/gpx-profil`) = une pull
-   request. La PR est le moment de revue : c'est là que le diff se relit, avec la
-   CI verte à côté. Messages de commit préfixés : `feat:` `fix:` `docs:` `test:`
-   `refactor:` `build:` `ci:`.
-   Titre de PR : `M<n> — <nom du jalon>` (ex. `M1 — Contrats de données`). Avec
+   Une tâche = une branche (`<jalon>/<sujet>`, ex. `m2/gpx-profil`, `an1/ingestion`)
+   = une pull request. La PR est le moment de revue : c'est là que le diff se relit,
+   avec la CI verte à côté. Messages de commit préfixés : `feat:` `fix:` `docs:`
+   `test:` `refactor:` `build:` `ci:`.
+   Titre de PR : `M<n>` ou `AN<n>`, avec sous-jalon éventuel, puis le nom du jalon
+   (ex. `M1 — Contrats de données`, `M4b-5 — …`, `AN1 — …`). Les jalons `M` sont ceux
+   du moteur de prédiction, les jalons `AN` ceux de la piste analyse
+   (`docs/ROADMAP.md`). Avec
    « Squash and merge », ce titre devient le message du commit sur `main` : la
    liste des PR est donc la table des matières du projet.
 
@@ -175,7 +193,11 @@ src/mountain_perf/     le code de la bibliothèque
     report.py          valeurs du rapport D15, fonctions pures (M4b-5)
     calibration.py     baseline_scores, calibration_population, calibrate,
                        calibrated_scores, calibrate_performances : calage D9 (M4c-1)
-  ingest/              acquisition et normalisation Garmin (M6b)
+  ingest/              acquisition et normalisation Garmin, `raw/` → `interim/` (piste
+                       analyse, AN1 ; M6b) ; seul le lecteur FIT importe l'extra
+                       `ingest` (`docs/decisions/0011`)
+  analyse/             tables de `processed/` et méthodes statistiques de la piste
+                       analyse (AN1) ; extra `analyse`
   ui/                  interface — appelle la bibliothèque, ne calcule rien (M5)
   cli.py               mperf profile <fichier.gpx>, compte-rendu ou CSV sur stdout ;
                        mperf match <référence.gpx> <trace.gpx>, points de score (M4a-2a),
@@ -188,8 +210,10 @@ tests/
   fixtures/            données synthétiques minuscules, commitées
 scripts/               outillage du dépôt (ex. `just dictionary`), jamais de logique métier
 docs/                  ROADMAP, JOURNAL, PIEGES_DATA, MODELE_V1, decisions/,
+                       analyse/ (charte et questions de la piste analyse),
                        DICTIONNAIRE_DONNEES (généré — ne pas éditer à la main)
-notebooks/             exploration uniquement, jamais de logique
+notebooks/             exploration, fichiers marimo sans sortie ; calcul jetable, tout
+                       chiffre rapporté vient de `src/` (règle 7)
 ```
 
 Les données réelles vivent **hors du repo**, sous `MPA_DATA_DIR` :
@@ -203,6 +227,8 @@ $MPA_DATA_DIR/
   reference/    performances réelles (jeu de backtest)
   registre/     registre des expériences (0010 D14), écrit par just backtest seul
   rapports/     rapports D15 de just backtest, jamais réécrits
+  resultats/    résultats et journal des essais de la piste analyse (CHARTE, § 10)
+  athlete.toml, journal.csv, notes de sorties : tenus à la main (CHARTE, § 3)
 ```
 
 ---
