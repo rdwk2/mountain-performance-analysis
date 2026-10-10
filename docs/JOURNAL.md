@@ -16,6 +16,55 @@ Backtest (à partir de M4) : métrique avant → après.
 
 ---
 
+### 2026-10-10 · M4c-2 — correctifs de relecture
+Trois fichiers de tests neufs, sans rien changer à `src/`, après la relecture C de la PR
+#23 et le balayage de mutation de la conception : `test_backtest_registry_format2_guarantees.py`
+(l'accord durci sur une ligne du format 1 — modèles déclarés, une référence D8 par
+parcours ; une ligne du format 2 qui cite un document du format 1 ;
+`DOCUMENT_FIRST_FORMAT` en lecture seule ; l'ordre des contrôles du codec, des jours
+d'une référence et d'`OutingOutcome`), `test_schemas_calibrated_scores_guarantees.py` (la
+même observation pour chaque modèle d'un groupe ; l'ordre des contrôles de
+`CalibratedPerformance` et de `CalibratedScenarioScores`) et
+`test_backtest_five_models_guarantees.py` (la première ligne vidée aussitôt ; une
+interruption au clavier dans le calcul du rapport ; le statut `model_error` d'une horloge
+calée ; les deux notes de la ligne de calage ; objets gelés et tuples). Conclusion :
+`just check` vert, 4 083 tests.
+
+---
+
+### 2026-10-10 · M4c-2 — Backtest : just backtest à cinq modèles
+`just backtest` déclare et score les cinq modèles de `0010` D9.1, d'après
+`42_BRIEF_M4C-2.md` (révision 1) et le feu vert de sa relecture (sept précisions, dont
+une phrase de la précision de D14). Le registre passe au format 2, extension stricte du
+format 1 : un type de document de plus, `CalibratedScenarioScores` ; chaque document
+relu au format de l'événement qui le cite ; une ligne du format 1 qui porterait un
+modèle calé ne se vérifie pas ; l'accord, pour toute ligne, exige chaque modèle déclaré
+sur chaque sortie scorée et une référence D8 par parcours de répétabilité, aux jours
+exacts. Trois invariants des scores calés, recopiés de M4b-2. L'exécution calcule les
+baselines non calées et le calage de M4c-1 avant le RÉSULTAT, avec deux rappels :
+l'empreinte de la DÉCLARATION publiée dès son ajout (première ligne de la sortie
+standard), la synthèse et le corps du rapport calculés avant le RÉSULTAT (une erreur y
+est un ÉCHEC technique). Le rapport D15 à cinq modèles : ligne de calage, agrégats côte
+à côte, `|L|` sur l'ensemble commun, référence D8 à cinq colonnes, 30 tables, détail
+calé de chaque sortie sans enveloppe. Hygiène : `git --no-optional-locks status`,
+longueur de la référence de `baseline_scores` sans chronologie, docstring de
+`ProjectedTimeline`. Deux précisions de `0010` (D14, D15). Sur le monde synthétique
+de M4b-5 : le rapport complet (5 157 lignes) et ses deux synthèses identiques octet
+pour octet aux fixtures du paquet dès le premier essai, les valeurs calées de l'oracle
+reproduites. Les 75 contre-épreuves du § 8.2 (l'équivalente déclarée exclue), jouées
+une à une sans cache de bytecode sur des copies du dépôt : chacune rougit au moins un
+test nommé par le brief, aucune à la seule collecte ; deux n'en rougissent qu'une
+partie (une variante construisible de « baselines sans règle », le contrat de
+`DeclaredModel` refusant la mutation directe à l'import ; « autre empreinte »
+annoncée, sans le rapport complet).
+Conclusion : `just check` vert à chaque commit, 4 063 tests (3 945 + 118). Le contrôle
+réel reste à faire par rdw (§ 11 du brief). Rangé dans
+`src/mountain_perf/{schemas/registry,schemas/calibration,backtest/codec,backtest/registry,backtest/execution,backtest/report,cli}.py`,
+`tests/`, `docs/decisions/0010-protocole-de-backtest.md`, `README.md`, branche
+`m4c/cinq-modeles`.
+
+---
+
 ### 2026-10-08 · M4c-1 — correctifs de relecture
 Deux fichiers de tests neufs, sans rien changer à `src/`, après les deux relectures C de la
 PR #21 et le balayage de mutation de la conception : `test_backtest_calibration_guarantees.py`

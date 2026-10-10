@@ -1,0 +1,35 @@
+backtest     cinq modèles (v0 brut, v0 + effort recalé, vitesse constante, Naismith, Tobler), protocole 0010 — commit 0123456789ab ; Δ 250 m, ε 30 m, r_c 15 m
+registre     déclaration 1, résultat 2 ; dernière ligne sha256 <sceau>
+             à recopier au JOURNAL : l'empreinte de la dernière ligne scelle le registre
+manifeste    manifeste.json   sha256 87001248… — 2 sorties, 2 performances
+courbe       courbe_synthetique.csv   sha256 6767dd38… — estimée le 2026-02-01
+             âge au jour J : de +135 à +139 jours ; postérieure à l'origine de 0 performance sur 2
+             mouvement historique non harmonisé ; biais d'opérateur de pente (0009, 0010 D6)
+performances jour        sortie                      jeu            étiquette     couverture  préfixe    L v0        q_usage v0
+             2026-06-16  c-2026-06-16                développement  entraînement  non scorée : trace refusée (c16.gpx) : c16.gpx, trkpt[0].time : instant manquant.
+             2026-06-20  a-2026-06-20                développement  entraînement  non scorée : sortie non tracée
+calage       0010 D9.2 sur C_j (entraînements terminés avant o_j) ; écoulé, usage (contrôle sans référence) ; e : effort de v0, a : facteur
+             jour        C_j  C_j^eff  v0 + effort recalé  vitesse constante   Naismith            Tobler
+             2026-06-16  0    —        non scorée
+             2026-06-20  0    —        non scorée
+agrégats     usage, écoulé ; moyenne à poids égal par performance (effectif) ; |L| commun : performances où les cinq modèles ont une valeur ; détail et motifs : rapport complet
+             répétabilité    v0 brut             v0 + effort recalé  vitesse constante   Naismith            Tobler
+             L               — (0)               — (0)               — (0)               — (0)               — (0)
+             |L|             — (0)               — (0)               — (0)               — (0)               — (0)
+             max |C_k|       — (0)               — (0)               — (0)               — (0)               — (0)
+             q_usage         — (0)               — (0)               — (0)               — (0)               — (0)
+             |L| commun      — (0)               — (0)               — (0)               — (0)               — (0)
+             développement   v0 brut             v0 + effort recalé  vitesse constante   Naismith            Tobler
+             L               — (0)               — (0)               — (0)               — (0)               — (0)
+             |L|             — (0)               — (0)               — (0)               — (0)               — (0)
+             max |C_k|       — (0)               — (0)               — (0)               — (0)               — (0)
+             q_usage         — (0)               — (0)               — (0)               — (0)               — (0)
+             |L| commun      — (0)               — (0)               — (0)               — (0)               — (0)
+             confirmation    v0 brut             v0 + effort recalé  vitesse constante   Naismith            Tobler
+             L               — (0)               — (0)               — (0)               — (0)               — (0)
+             |L|             — (0)               — (0)               — (0)               — (0)               — (0)
+             max |C_k|       — (0)               — (0)               — (0)               — (0)               — (0)
+             q_usage         — (0)               — (0)               — (0)               — (0)               — (0)
+             |L| commun      — (0)               — (0)               — (0)               — (0)               — (0)
+diagnostics  descentes roulantes et raides au seuil 0.80 ; géométrie usage − contrôle : rapport complet
+rapport      rapports/backtest-0002.txt

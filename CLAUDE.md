@@ -98,7 +98,7 @@ just test       # pytest seul
 just lint       # ruff
 just fmt        # formatage
 just dictionary # régénère docs/DICTIONNAIRE_DONNEES.md depuis les docstrings
-just backtest courbe.csv  # backtest enregistré de v0 brut, rapport D15 (M4b-5) ; MPA_DATA_DIR/reference/
+just backtest courbe.csv  # backtest enregistré des cinq modèles, rapport D15 (M4b-5, M4c-2) ; MPA_DATA_DIR/reference/
 uv run mperf profile tests/fixtures/mini_11.gpx  # compte-rendu GPX (M2), --csv pour la grille
 uv run mperf project tests/fixtures/mini_11.gpx --curve tests/fixtures/courbe_synthetique.csv  # temps de passage (M3)
 uv run mperf match tests/fixtures/appariement_reference.gpx tests/fixtures/appariement_trace_x01.gpx  # points de score (M4a-2a)
@@ -170,8 +170,10 @@ src/mountain_perf/     le code de la bibliothèque
     repeatability.py   two_way_fit, contraction_rate, repeatability_reference : référence
                        D8 d'un parcours (M4b-3)
     codec.py           écriture canonique des contrats en JSON, documents (M4b-4)
-    registry.py        journal, documents, ajout, relecture, comptage des essais (M4b-4)
-    execution.py       git, domaine, déclaration, exécution enregistrée de just backtest (M4b-5)
+    registry.py        journal, documents, ajout, relecture, comptage des essais (M4b-4) ;
+                       format 2, accord des modèles déclarés et des références D8 (M4c-2)
+    execution.py       git, domaine, déclaration, exécution enregistrée de just backtest (M4b-5) ;
+                       cinq modèles et leur calage, calcul avant le RÉSULTAT (M4c-2)
     report.py          valeurs du rapport D15, fonctions pures (M4b-5)
     calibration.py     baseline_scores, calibration_population, calibrate,
                        calibrated_scores, calibrate_performances : calage D9 (M4c-1)
@@ -181,7 +183,8 @@ src/mountain_perf/     le code de la bibliothèque
                        mperf match <référence.gpx> <trace.gpx>, points de score (M4a-2a),
                        segments, couverture et horloges (M4a-2b), passages (M4a-3) ;
                        --curve, --no-reference : scores de v0 brut (M4b-2) ;
-                       mperf backtest <manifeste.json> --curve : backtest enregistré, rapport D15 (M4b-5)
+                       mperf backtest <manifeste.json> --curve : backtest enregistré, rapport D15 (M4b-5) ;
+                       cinq modèles (M4c-2)
 tests/
   conftest.py          MPA_DATA_DIR sur un dossier temporaire neuf pour chaque test (M4c-1)
   strategies.py        stratégies Hypothesis des contrats, réutilisées par tous les jalons

@@ -49,8 +49,13 @@ from test_backtest_execution import (
 )
 
 FIXTURES = Path(__file__).parent / "fixtures"
+DECLARED_LINE = re.compile(
+    r"déclaration  \d+ enregistrée ; dernière ligne sha256 [0-9a-f]{64}"
+)
+"""La ligne publiée dès l'ajout de la DÉCLARATION (M4c-2)."""
+
 SYNTHESIS = (FIXTURES / "backtest_synthese.txt").read_text(encoding="utf-8")
-EXTRACTS = (FIXTURES / "backtest_rapport_extraits.txt").read_text(encoding="utf-8")
+WORLD_REPORT = (FIXTURES / "backtest_rapport_monde.txt").read_text(encoding="utf-8")
 PACKAGE = Path(mountain_perf.__file__).resolve().parent
 REPORT = Path("rapports") / "backtest-0002.txt"
 
@@ -69,6 +74,22 @@ class Outcome:
         data = (self.data / name).read_bytes()
         assert b"\r" not in data
         return data.decode("utf-8")
+
+    @property
+    def synthesis(self) -> str:
+        """La sortie standard sans sa première ligne, « déclaration N enregistrée ;
+        dernière ligne sha256 … », publiée dès l'ajout de la DÉCLARATION (M4c-2), quand
+        elle y est."""
+        first, _, rest = self.out.partition("\n")
+        if DECLARED_LINE.fullmatch(first):
+            return rest
+        return self.out
+
+    @property
+    def declared(self) -> str | None:
+        """La ligne de la DÉCLARATION, ou ``None``."""
+        first = self.out.partition("\n")[0]
+        return first if DECLARED_LINE.fullmatch(first) else None
 
     def seal(self) -> str:
         """Le ``sha256`` de la dernière ligne du journal."""
@@ -161,8 +182,8 @@ def test_synthesis_is_the_expected_text(world: Outcome) -> None:
     l'empreinte de la dernière ligne du journal (précision de D14)."""
     assert (world.code, world.err) == (0, "")
     seal = world.seal()
-    assert f"dernière ligne sha256 {seal}\n" in world.out
-    assert world.out.replace(seal, "<sceau>") == SYNTHESIS
+    assert f"dernière ligne sha256 {seal}\n" in world.synthesis
+    assert world.synthesis.replace(seal, "<sceau>") == SYNTHESIS
 
 
 def test_git_state_of_the_executed_package(world: Outcome) -> None:
@@ -201,19 +222,21 @@ DETAIL_HEADS = [
 def test_report_and_its_section_heads(world: Outcome) -> None:
     """Précision de D15 (M4b-5), § 6.3 : le rapport ``rapports/backtest-0002.txt``,
     UTF-8 sans ``\\r``, commence par la synthèse ; ses têtes se suivent — six tables
-    d'agrégats, deux références, descentes, géométrie, douze détails (sans ``C_k``
-    ni ``K`` pour une sortie sans référence), deux non scorées, la légende ; 2 020
+    d'agrégats par modèle (M4c-2), deux références, descentes, géométrie, douze
+    détails (sans ``C_k`` ni ``K`` pour une sortie sans référence), chacun suivi de
+    son calage et des quatre modèles calés, deux non scorées, la légende ; 5 157
     lignes."""
     report = world.report()
-    assert report.startswith(world.out)
+    assert report.startswith(world.synthesis)
     lines = lines_of(report)
-    assert len(lines) == 2020
+    assert len(lines) == 5157
     assert all(line == line.rstrip() and line for line in lines)
     expected = _heads(lines_of(SYNTHESIS))
-    expected += ["agrégats"] * 6 + ["référence"] * 2 + ["descentes", "géométrie"]
+    expected += ["agrégats"] * 30 + ["référence"] * 2 + ["descentes", "géométrie"]
     for outing_id in SCORED:
         without = outing_id.startswith("libre-")
         expected += [h for h in DETAIL_HEADS if not (without and h in ("C_k", "K"))]
+        expected += ["calage", *(["modèle", "usage", "contrôle"] * 4)]
     expected += ["non scorée"] * 2 + ["légende"]
     assert _heads(lines) == expected
 
@@ -251,18 +274,14 @@ def test_detail_of_an_outing_is_the_match_output(
     assert match.code == 0
     expected = lines_of(match.out)
     assert lines[i + 3 : i + 3 + len(expected)] == expected
-    assert lines[i + 3 + len(expected)].startswith("performance  2026-06-04")
+    assert lines[i + 3 + len(expected)] == "calage       C_j 0 membre : aucun"
 
 
-def test_the_eight_extracts(world: Outcome) -> None:
-    """§ 7.4 : chacun des huit extraits est une suite contiguë des lignes du rapport,
-    le dernier à sa fin."""
-    lines = lines_of(world.report())
-    blocks = [block.split("\n") for block in EXTRACTS.rstrip("\n").split("\n\n")]
-    assert len(blocks) == 8
-    for block in blocks:
-        assert contiguous(block, lines), block[0]
-    assert lines[-len(blocks[-1]) :] == blocks[-1]
+def test_full_report_of_the_world(world: Outcome) -> None:
+    """Hygiène de M4c-2 (ligne de ``BACKLOG.md`` de la relecture de la PR #20) : le
+    rapport du monde, tenu **en entier**, au caractère près ; le sceau remplacé par
+    ``<sceau>``."""
+    assert world.report().replace(world.seal(), "<sceau>") == WORLD_REPORT
 
 
 def test_causes_of_unavailable_fold_levels(world: Outcome) -> None:
@@ -350,11 +369,13 @@ def test_second_execution(
     first = backtest(monkeypatch, data, manifest)
     second = backtest(monkeypatch, data, manifest)
     assert (first.code, second.code) == (0, 0)
-    assert "registre     déclaration 3, résultat 4 ;" in second.out
-    assert "rapport      rapports/backtest-0004.txt\n" in second.out
+    assert "registre     déclaration 3, résultat 4 ;" in second.synthesis
+    assert "rapport      rapports/backtest-0004.txt\n" in second.synthesis
     assert second.kinds() == (EventKind.DECLARATION, EventKind.RESULT) * 2
-    assert first.report().startswith(first.out)
-    assert second.report(Path("rapports") / "backtest-0004.txt").startswith(second.out)
+    assert first.report().startswith(first.synthesis)
+    assert second.report(Path("rapports") / "backtest-0004.txt").startswith(
+        second.synthesis
+    )
 
 
 def test_descent_threshold(
@@ -370,7 +391,7 @@ def test_descent_threshold(
     assert (
         "diagnostics  descentes roulantes et raides au seuil 0.60 ; géométrie usage − "
         "contrôle : rapport complet\n"
-    ) in outcome.out
+    ) in outcome.synthesis
     lines = lines_of(outcome.report())
     assert (
         "descentes    roulantes et raides au seuil 0.60 (0010 D6) ; diagnostic, ni "
@@ -399,17 +420,22 @@ def test_route_without_any_day(
     head: str,
 ) -> None:
     """Décision Q18 : ``b-2026-06-04`` et ``b-2026-06-08`` sans trace, avec puis sans
-    ``b-2026-06-12`` — la synthèse publie ses ``F`` en support insuffisant, à côté de
-    v0 sans valeur ; le rapport, une seule tête de sa référence, « aucun jour »."""
+    ``b-2026-06-12`` — la synthèse publie ses ``F`` en support insuffisant, à côté des
+    cinq modèles sans valeur (M4c-2) ; le rapport, une seule tête de sa référence,
+    « aucun jour »."""
     manifest = world_variant(
         tmp_path / "monde", route_b_without_day(with_multi_outing_day)
     )
     outcome = backtest(monkeypatch, data, manifest)
     assert outcome.code == 0
     assert (
-        "             b — 0 jour ; écoulé, usage : F du parcours, v0 sur ses jours\n"
-        "             |L|             F support insuffisant (m 0)  v0 — (0)\n"
-    ) in outcome.out
+        "             b — 0 jour ; écoulé, usage : F du parcours, les cinq modèles sur "
+        "ses jours\n"
+        "                             F du parcours              v0 brut             "
+        "v0 + effort recalé  vitesse constante   Naismith            Tobler\n"
+        "             |L|             support insuffisant (m 0)  — (0)               — "
+        "(0)               — (0)               — (0)               — (0)\n"
+    ) in outcome.synthesis
     lines = lines_of(outcome.report())
     heads = [line for line in lines if line.startswith("référence    b ")]
     assert heads == [head]
@@ -437,7 +463,7 @@ def test_curve_age_is_always_signed(
     assert (
         "             âge au jour J : de −7 à +17 jours ; postérieure à l'origine de 9 "
         "performances sur 12"
-    ) in lines_of(outcome.out)
+    ) in lines_of(outcome.synthesis)
     assert (
         lines_of(outcome.report()).count(
             "             origine o_j 2026-06-03 00:00 (Paris) ; âge de la courbe +0 "
@@ -567,7 +593,8 @@ def test_no_performance_publishes_the_failure_hash(
         manifest["domain_start_date"] = "2026-07-01"
 
     outcome = backtest(monkeypatch, data, world_variant(tmp_path / "monde", july))
-    assert (outcome.code, outcome.out) == (1, "")
+    assert (outcome.code, outcome.synthesis) == (1, "")
+    assert outcome.declared is not None
     assert outcome.err == (
         "Erreur : aucune performance dans le domaine : ÉCHEC enregistré (événement 2 ; "
         f"dernière ligne sha256 {outcome.seal()}).\n"
@@ -587,7 +614,8 @@ def test_keyboard_interrupt_during_the_computation(
 
     monkeypatch.setattr(execution, "v0_scores", interrupted)
     outcome = backtest(monkeypatch, data, write_world(tmp_path / "monde"))
-    assert (outcome.code, outcome.out) == (1, "")
+    assert (outcome.code, outcome.synthesis) == (1, "")
+    assert outcome.declared is not None
     assert outcome.err == (
         "Erreur : échec de l'exécution, ÉCHEC enregistré (événement 2 ; dernière ligne "
         f"sha256 {outcome.seal()}) : KeyboardInterrupt\n"
@@ -602,7 +630,7 @@ def _reports_is_a_file(data: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 
 def _report_raises(error: BaseException) -> Callable[[Path, pytest.MonkeyPatch], None]:
     def change(data: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        def raising(run: BacktestRun, summary: object, threshold: float) -> str:
+        def raising(*arguments: object) -> str:
             raise error
 
         monkeypatch.setattr(cli, "_full_report", raising)
@@ -634,7 +662,8 @@ def test_report_not_written_publishes_the_seal(
     clavier — publie le sceau dans l'erreur de la commande ; aucun rapport."""
     change(data, monkeypatch)
     outcome = backtest(monkeypatch, data, write_world(tmp_path / "monde"))
-    assert (outcome.code, outcome.out) == (1, "")
+    assert (outcome.code, outcome.synthesis) == (1, "")
+    assert outcome.declared is not None
     assert outcome.err == (
         "Erreur : RÉSULTAT enregistré (événement 2 ; dernière ligne sha256 "
         f"{outcome.seal()}) ; rapport rapports/backtest-0002.txt non écrit : {reason}\n"
@@ -647,55 +676,11 @@ def test_report_not_written_publishes_the_seal(
 # Correctifs de la relecture de la PR #20
 # ---------------------------------------------------------------------------
 
-NO_SCORED_SYNTHESIS = (
-    "backtest     v0 brut, protocole 0010 — commit 0123456789ab ; Δ 250 m, ε 30 m, "
-    "r_c 15 m\n"
-    "registre     déclaration 1, résultat 2 ; dernière ligne sha256 <sceau>\n"
-    "             à recopier au JOURNAL : l'empreinte de la dernière ligne scelle le "
-    "registre\n"
-    "manifeste    manifeste.json   sha256 87001248… — 2 sorties, 2 performances\n"
-    "courbe       courbe_synthetique.csv   sha256 6767dd38… — estimée le 2026-02-01\n"
-    "             âge au jour J : de +135 à +139 jours ; postérieure à l'origine de 0 "
-    "performance sur 2\n"
-    "             mouvement historique non harmonisé ; biais d'opérateur de pente "
-    "(0009, 0010 D6)\n"
-    "performances jour        sortie                      jeu            étiquette     "
-    "couverture  préfixe    L           q_usage\n"
-    "             2026-06-16  c-2026-06-16                développement  entraînement  "
-    "non scorée : trace refusée (c16.gpx) : c16.gpx, trkpt[0].time : instant "
-    "manquant.\n"
-    "             2026-06-20  a-2026-06-20                développement  entraînement  "
-    "non scorée : sortie non tracée\n"
-    "agrégats     usage, écoulé ; moyenne à poids égal par performance (effectif) ; "
-    "détail et motifs : rapport complet\n"
-    "                             répétabilité        développement       "
-    "confirmation\n"
-    "             L               — (0)               — (0)               — (0)\n"
-    "             |L|             — (0)               — (0)               — (0)\n"
-    "             A               — (0)               — (0)               — (0)\n"
-    "             W               — (0)               — (0)               — (0)\n"
-    "             B               — (0)               — (0)               — (0)\n"
-    "             C_comp          — (0)               — (0)               — (0)\n"
-    "             montée E_R−L    — (0)               — (0)               — (0)\n"
-    "             montée |E_R|    — (0)               — (0)               — (0)\n"
-    "             montée D_R      — (0)               — (0)               — (0)\n"
-    "             plat E_R−L      — (0)               — (0)               — (0)\n"
-    "             plat |E_R|      — (0)               — (0)               — (0)\n"
-    "             plat D_R        — (0)               — (0)               — (0)\n"
-    "             descente E_R−L  — (0)               — (0)               — (0)\n"
-    "             descente |E_R|  — (0)               — (0)               — (0)\n"
-    "             descente D_R    — (0)               — (0)               — (0)\n"
-    "             mixte E_R−L     — (0)               — (0)               — (0)\n"
-    "             mixte |E_R|     — (0)               — (0)               — (0)\n"
-    "             mixte D_R       — (0)               — (0)               — (0)\n"
-    "             max |C_k|       — (0)               — (0)               — (0)\n"
-    "             q_usage         — (0)               — (0)               — (0)\n"
-    "diagnostics  descentes roulantes et raides au seuil 0.80 ; géométrie usage − "
-    "contrôle : rapport complet\n"
-    "rapport      rapports/backtest-0002.txt\n"
+NO_SCORED_SYNTHESIS = (FIXTURES / "backtest_synthese_sans_sortie.txt").read_text(
+    encoding="utf-8"
 )
-"""La synthèse d'une exécution sans sortie scorée (K1) : celle du prototype de la
-conception ; aucune ligne « référence » sans parcours de répétabilité."""
+"""La synthèse d'une exécution sans sortie scorée (K1 ; cinq modèles depuis M4c-2) :
+aucune ligne « référence » sans parcours de répétabilité."""
 
 
 def test_run_without_any_scored_outing_writes_its_report(
@@ -716,7 +701,7 @@ def test_run_without_any_scored_outing_writes_its_report(
     outcome = backtest(monkeypatch, data, manifest)
     assert (outcome.code, outcome.err) == (0, "")
     assert outcome.kinds() == (EventKind.DECLARATION, EventKind.RESULT)
-    assert outcome.out.replace(outcome.seal(), "<sceau>") == NO_SCORED_SYNTHESIS
+    assert outcome.synthesis.replace(outcome.seal(), "<sceau>") == NO_SCORED_SYNTHESIS
     lines = lines_of(outcome.report())
     assert "             total : 0 roulante, 0 raide, 0 non départagée" in lines
     block = [
@@ -753,7 +738,7 @@ def test_unscored_outing_of_a_multi_outing_day(
     assert outcome.code == 0
     day = [
         line
-        for line in lines_of(outcome.out)
+        for line in lines_of(outcome.synthesis)
         if line.startswith("             2026-06-12  ")
     ]
     assert day == [
@@ -766,6 +751,9 @@ def test_unscored_outing_of_a_multi_outing_day(
         "             2026-06-12  libre-2026-06-12            développement  "
         "entraînement  non scorée : trace refusée (libre12.gpx) : libre12.gpx, "
         "trkpt[0].time : instant manquant. (jour multi-sorties)",
+        "             2026-06-12  2    2        e 1.032806          "
+        "a 0.529643          a 0.517033          a 0.578027 "
+        "(jour multi-sorties, a-2026-06-12)",
     ]
 
 
@@ -801,7 +789,8 @@ def test_interrupted_write_leaves_no_report(
 
     monkeypatch.setattr(Path, "open", opened)
     outcome = backtest(monkeypatch, data, write_world(tmp_path / "monde"))
-    assert (outcome.code, outcome.out) == (1, "")
+    assert (outcome.code, outcome.synthesis) == (1, "")
+    assert outcome.declared is not None
     assert outcome.err == (
         "Erreur : RÉSULTAT enregistré (événement 2 ; dernière ligne sha256 "
         f"{outcome.seal()}) ; rapport rapports/backtest-0002.txt non écrit : "
@@ -826,7 +815,8 @@ def test_report_created_meanwhile_is_never_rewritten(
 
     monkeypatch.setattr(cli, "run_backtest", then_a_report)
     outcome = backtest(monkeypatch, data, write_world(tmp_path / "monde"))
-    assert (outcome.code, outcome.out) == (1, "")
+    assert (outcome.code, outcome.synthesis) == (1, "")
+    assert outcome.declared is not None
     assert outcome.err == (
         "Erreur : RÉSULTAT enregistré (événement 2 ; dernière ligne sha256 "
         f"{outcome.seal()}) ; rapport rapports/backtest-0002.txt non écrit : "
@@ -945,7 +935,8 @@ def test_failed_removal_keeps_the_published_error(
     monkeypatch.setattr(Path, "open", opened)
     monkeypatch.setattr(Path, "unlink", unlink)
     outcome = backtest(monkeypatch, data, write_world(tmp_path / "monde"))
-    assert (outcome.code, outcome.out) == (1, "")
+    assert (outcome.code, outcome.synthesis) == (1, "")
+    assert outcome.declared is not None
     assert outcome.err == (
         "Erreur : RÉSULTAT enregistré (événement 2 ; dernière ligne sha256 "
         f"{outcome.seal()}) ; rapport rapports/backtest-0002.txt non écrit : "
@@ -970,7 +961,7 @@ def test_scored_outing_without_set_or_label(
     assert (
         "             2026-06-15  libre-2026-06-15            —              —        "
         "     100.00 %    2.63 km    +0.007733   sans référence"
-    ) in lines_of(outcome.out)
+    ) in lines_of(outcome.synthesis)
     assert (
         "performance  2026-06-15 — libre-2026-06-15 ; parcours — ; jeu — ; sans "
         "étiquette"
@@ -998,7 +989,7 @@ def test_unscored_outing_first_in_its_day_keeps_the_others(
     assert outcome.code == 0
     day = [
         line
-        for line in lines_of(outcome.out)
+        for line in lines_of(outcome.synthesis)
         if line.startswith("             2026-06-12  ")
     ]
     assert day == [
@@ -1010,4 +1001,7 @@ def test_unscored_outing_first_in_its_day_keeps_the_others(
         "             2026-06-12  libre-2026-06-12            développement  "
         "entraînement  100.00 %    2.62 km    +0.025011   sans référence "
         "(jour multi-sorties)",
+        "             2026-06-12  2    2        e 1.032806          "
+        "a 0.529643          a 0.517033          a 0.578027 "
+        "(jour multi-sorties, b-2026-06-12)",
     ]

@@ -20,6 +20,7 @@ from mountain_perf.backtest import (
     encode_document,
 )
 from mountain_perf.schemas import (
+    CalibratedScenarioScores,
     OutingObservation,
     RepeatabilityReference,
     ScenarioScores,
@@ -35,12 +36,18 @@ def _refused(data: bytes, fragment: str) -> None:
 
 
 def test_document_types_are_exact() -> None:
-    """D14 : observations, scores avec leurs prévisions, références D8."""
-    assert (OutingObservation, ScenarioScores, RepeatabilityReference) == DOCUMENT_TYPES
+    """D14 : observations, scores avec leurs prévisions, références D8 ; depuis le
+    format 2, scores calés (M4c-2)."""
+    assert (
+        OutingObservation,
+        ScenarioScores,
+        RepeatabilityReference,
+        CalibratedScenarioScores,
+    ) == DOCUMENT_TYPES
 
 
 def test_document_envelope_comes_first() -> None:
-    assert DOCUMENT.startswith(b'{"type":"OutingObservation","format":1,"data":{')
+    assert DOCUMENT.startswith(b'{"type":"OutingObservation","format":2,"data":{')
 
 
 def test_documents_read_back() -> None:
@@ -66,7 +73,10 @@ def test_document_of_another_type_is_refused() -> None:
 
 
 def test_document_of_another_format_is_refused() -> None:
-    _refused(DOCUMENT.replace(b'"format":1', b'"format":2', 1), "document au format 2")
+    _refused(
+        DOCUMENT.replace(b'"format":2', b'"format":1', 1),
+        "document au format 1, 2 attendu",
+    )
 
 
 def test_document_envelope_is_exact() -> None:

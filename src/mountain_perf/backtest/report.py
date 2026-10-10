@@ -1,9 +1,10 @@
-"""Les valeurs du rapport D15 de ``just backtest`` (M4b-5) : agrégats, référence D8 à
-côté de v0, sous-classes de descente, géométrie, provenance.
+"""Les valeurs du rapport D15 de ``just backtest`` (M4b-5, M4c-2) : agrégats des cinq
+modèles, ensemble commun, référence D8 à côté des modèles, sous-classes de descente,
+géométrie, provenance.
 
-Protocole : ``docs/decisions/0010`` D15 (et sa précision de M4b-5), D3, D5.4, D6,
-D7, D8. Fonctions pures sur les objets d'une exécution : aucune lecture, aucune
-écriture — la mise en forme est dans ``cli.py``.
+Protocole : ``docs/decisions/0010`` D15 (et ses précisions de M4b-5 et M4c-2), D3,
+D5.4, D6, D7, D8, D9. Fonctions pures sur les objets d'une exécution : aucune lecture,
+aucune écriture — la mise en forme est dans ``cli.py``.
 """
 
 from __future__ import annotations
@@ -16,7 +17,7 @@ from datetime import date, datetime
 from enum import StrEnum
 
 from mountain_perf.backtest.calendar import available_at_origin, civil_date
-from mountain_perf.backtest.execution import BacktestRun
+from mountain_perf.backtest.execution import BacktestEvaluation, BacktestRun
 from mountain_perf.backtest.metrics import (
     is_invalid_model_output,
     is_underrepresented,
@@ -25,12 +26,17 @@ from mountain_perf.backtest.metrics import (
 from mountain_perf.backtest.scoring import report_clocks
 from mountain_perf.backtest.segments import REGIME_GRADE_THRESHOLD, fine_overlaps
 from mountain_perf.schemas import (
+    CALIBRATED_MODELS,
     CLOCKS,
     AdmittedSegment,
+    CalibratedOutingScores,
+    CalibrationPopulation,
     Clock,
+    ClockScores,
     DataSet,
     MatchResult,
     MetricValue,
+    ModelKind,
     OutingObservation,
     OutingScores,
     ParameterSpec,
@@ -135,6 +141,10 @@ MISSING_ORDER = (
 """L'ordre des motifs d'une valeur manquante : ceux de ``Unavailability`` (D0), dans
 leur ordre, puis ceux du rapport."""
 
+REPORT_MODELS: tuple[ModelKind, ...] = (ModelKind.V0_RAW, *CALIBRATED_MODELS)
+"""Les cinq modèles du rapport, dans l'ordre de ``0010`` D9.1 (précision de D15,
+M4c-2)."""
+
 _ROLE_INDEX = {ClockRole.ELAPSED: 0, ClockRole.LOW: 1, ClockRole.HIGH: 2}
 _INSUFFICIENT = Unavailability.INSUFFICIENT_SUPPORT
 
@@ -173,7 +183,9 @@ def aggregate(values: Sequence[float | str]) -> Aggregate:
 class ScoredPerformance:
     """Une performance déclarée vue par le rapport : son jour, les jeux de ses
     sorties, les parcours de ses sorties de répétabilité, les scores de sa sortie et
-    ses horloges du rapport — ou le motif qui les remplace."""
+    ses horloges du rapport — ou le motif qui les remplace —, puis (M4c-2) les scores
+    calés de sa sortie, un couple par modèle de ``CALIBRATED_MODELS`` dans l'ordre
+    (vides sans scores), et sa population ``C_j``."""
 
     civil_date: date
     datasets: tuple[DataSet, ...]
@@ -181,15 +193,29 @@ class ScoredPerformance:
     scores: OutingScores | None
     clocks: tuple[Clock, ...]
     missing: str | None
+    calibrated: tuple[tuple[ModelKind, CalibratedOutingScores], ...] = ()
+    population: CalibrationPopulation | None = None
 
 
-def scored_performances(run: BacktestRun) -> tuple[ScoredPerformance, ...]:
+def scored_performances(
+    run: BacktestRun | BacktestEvaluation,
+) -> tuple[ScoredPerformance, ...]:
     """Une entrée par performance déclarée, dans l'ordre (``0010`` D0, D5.4, D15) :
     les jeux de **ses sorties** (une performance compte dans chacun), dans l'ordre de
     ``DataSet`` ; les parcours de ses sorties de répétabilité, triés ; une
     performance de plusieurs sorties, au motif ``jour multi-sorties`` ; une sortie non
-    scorée, au motif ``not_scored`` ; sinon ses scores et ``report_clocks``."""
+    scorée, au motif ``not_scored`` ; sinon ses scores, ``report_clocks`` et ses scores
+    calés (D9.2, M4c-2). La population ``C_j`` de chaque performance, toujours."""
     scored = {outing.outing.outing_id: outing for outing in run.outings}
+    populations = {
+        performance.population.civil_date: performance.population
+        for performance in run.calibration
+    }
+    calibrated = {
+        (entry.outing_id, entry.control.model): entry
+        for performance in run.calibration
+        for entry in performance.outings
+    }
     entries: list[ScoredPerformance] = []
     for declared in run.preparation.declaration.performances:
         performance = declared.performance
@@ -205,19 +231,32 @@ def scored_performances(run: BacktestRun) -> tuple[ScoredPerformance, ...]:
             )
         )
         day = performance.civil_date
+        population = populations[day]
         if performance.is_multi_outing:
             missing = Unavailability.MULTI_OUTING_DAY.value
-            entries.append(ScoredPerformance(day, datasets, routes, None, (), missing))
+            entries.append(
+                ScoredPerformance(
+                    day, datasets, routes, None, (), missing, population=population
+                )
+            )
             continue
-        outing = scored.get(performance.outings[0].outing_id)
+        outing_id = performance.outings[0].outing_id
+        outing = scored.get(outing_id)
         if outing is None:
             entries.append(
-                ScoredPerformance(day, datasets, routes, None, (), NOT_SCORED)
+                ScoredPerformance(
+                    day, datasets, routes, None, (), NOT_SCORED, population=population
+                )
             )
             continue
         clocks = report_clocks(outing.match)
+        models = tuple(
+            (model, calibrated[(outing_id, model)]) for model in CALIBRATED_MODELS
+        )
         entries.append(
-            ScoredPerformance(day, datasets, routes, outing.scores, clocks, None)
+            ScoredPerformance(
+                day, datasets, routes, outing.scores, clocks, None, models, population
+            )
         )
     return tuple(entries)
 
@@ -240,27 +279,58 @@ def _number(metric: MetricValue, absolute: bool = False) -> float | str:
     return abs(metric.value) if absolute else metric.value
 
 
-def performance_values(
-    entry: ScoredPerformance, scenario: Scenario, role: ClockRole
-) -> dict[tuple[ReportMetric, RegimeClass | None], float | str]:
-    """Les valeurs d'une performance sous un scénario et le rôle d'une horloge
-    (précision de D15, M4b-5 ; D5.4, D7.5) — les six métriques du support, les trois
-    de chaque classe, puis, en usage seulement, ``max |C_k|`` et ``q_usage``. Un motif
-    partout : celui de la performance ; ``no_reference`` pour l'usage d'une sortie
-    sans référence ; ``insufficient_support`` si l'horloge du rôle manque. Une classe
-    trop peu représentée donne ``underrepresented`` à ses valeurs disponibles."""
-    keys = _keys(scenario)
+def role_clock_scores(
+    entry: ScoredPerformance, scenario: Scenario, role: ClockRole, model: ModelKind
+) -> ClockScores | str:
+    """Les scores d'un modèle sous un scénario et le rôle d'une horloge, ou le motif
+    qui les remplace (précisions de D15, M4b-5 et M4c-2 ; D5.4, D9.2), **dans cet
+    ordre** : le motif de la performance ; son scénario absent, ``no_reference`` ; le
+    rôle au-delà des horloges du rapport, ``insufficient_support`` ; pour un modèle
+    calé, une horloge non calée, la valeur de son statut (``not_calibrated``,
+    ``model_error``). L'horloge du rôle se lit parmi les onze (``CLOCKS``) ; un modèle
+    calé se lit sur ses scores calés, v0 brut sur les siens."""
     scores = entry.scores
     if entry.missing is not None or scores is None:
-        motif = entry.missing if entry.missing is not None else NOT_SCORED
-        return dict.fromkeys(keys, motif)
-    scenario_scores = scores.usage if scenario is Scenario.USAGE else scores.control
-    if scenario_scores is None:
-        return dict.fromkeys(keys, NO_REFERENCE)
+        return entry.missing if entry.missing is not None else NOT_SCORED
     index = _ROLE_INDEX[role]
+    usage = scenario is Scenario.USAGE
+    if model is ModelKind.V0_RAW:
+        raw = scores.usage if usage else scores.control
+        if raw is None:
+            return NO_REFERENCE
+        if index >= len(entry.clocks):
+            return _INSUFFICIENT.value
+        return raw.clocks[CLOCKS.index(entry.clocks[index])]
+    scaled = dict(entry.calibrated)[model]
+    calibrated = scaled.usage if usage else scaled.control
+    if calibrated is None:
+        return NO_REFERENCE
     if index >= len(entry.clocks):
-        return dict.fromkeys(keys, _INSUFFICIENT.value)
-    clock_scores = scenario_scores.clocks[CLOCKS.index(entry.clocks[index])]
+        return _INSUFFICIENT.value
+    clock = calibrated.clocks[CLOCKS.index(entry.clocks[index])]
+    if clock.scores is None:
+        status = clock.calibration.unavailability
+        assert status is not None  # contrat de CalibratedClockScores
+        return status.value
+    return clock.scores
+
+
+def performance_values(
+    entry: ScoredPerformance,
+    scenario: Scenario,
+    role: ClockRole,
+    model: ModelKind = ModelKind.V0_RAW,
+) -> dict[tuple[ReportMetric, RegimeClass | None], float | str]:
+    """Les valeurs d'un modèle pour une performance sous un scénario et le rôle d'une
+    horloge (précisions de D15, M4b-5 et M4c-2 ; D5.4, D7.5) — les six métriques du
+    support, les trois de chaque classe, puis, en usage seulement, ``max |C_k|`` et
+    ``q_usage``. Un motif partout, s'il y en a un : celui de ``role_clock_scores``.
+    Une classe trop peu représentée donne ``underrepresented`` à ses valeurs
+    disponibles."""
+    keys = _keys(scenario)
+    clock_scores = role_clock_scores(entry, scenario, role, model)
+    if isinstance(clock_scores, str):
+        return dict.fromkeys(keys, clock_scores)
     support = clock_scores.support
     values: dict[tuple[ReportMetric, RegimeClass | None], float | str] = {
         (ReportMetric.LEVEL, None): _number(support.log_ratio),
@@ -301,12 +371,16 @@ class AggregateRow:
 
 
 def aggregate_table(
-    entries: Sequence[ScoredPerformance], scenario: Scenario, role: ClockRole
+    entries: Sequence[ScoredPerformance],
+    scenario: Scenario,
+    role: ClockRole,
+    model: ModelKind = ModelKind.V0_RAW,
 ) -> tuple[AggregateRow, ...]:
-    """Une table d'agrégats (précision de D15, M4b-5 ; décision Q3) : une ligne par
-    clé de ``performance_values``, un agrégat par jeu, à poids égal par performance,
-    jamais mélangés — une performance compte dans chacun des jeux de ses sorties."""
-    values = [performance_values(entry, scenario, role) for entry in entries]
+    """La table d'agrégats d'un modèle (précisions de D15, M4b-5 et M4c-2 ; décision
+    Q3) : une ligne par clé de ``performance_values``, un agrégat par jeu, à poids égal
+    par performance, jamais mélangés — une performance compte dans chacun des jeux de
+    ses sorties."""
+    values = [performance_values(entry, scenario, role, model) for entry in entries]
     return tuple(
         AggregateRow(
             metric,
@@ -326,40 +400,94 @@ def aggregate_table(
     )
 
 
+@dataclass(frozen=True)
+class CommonRow:
+    """Une métrique sur l'**ensemble commun** (précision de D15, M4c-2 ; décision
+    Q5) : la métrique, sa classe (``None`` hors classe), et par jeu, dans l'ordre de
+    ``DataSet``, un agrégat par modèle de ``REPORT_MODELS``."""
+
+    metric: ReportMetric
+    regime_class: RegimeClass | None
+    by_set: tuple[tuple[Aggregate, ...], ...]
+
+
+def common_row(
+    entries: Sequence[ScoredPerformance],
+    scenario: Scenario,
+    role: ClockRole,
+    metric: ReportMetric,
+    regime: RegimeClass | None = None,
+) -> CommonRow:
+    """Une métrique sur l'ensemble commun de chaque jeu (précision de D15, M4c-2 ;
+    décision Q5) : les performances de ce jeu où **chacun des cinq modèles** a un
+    nombre pour ``(metric, regime)`` ; puis, pour chaque modèle, l'agrégat de ses
+    valeurs sur elles — même effectif pour les cinq, aucun motif compté. Un jeu sans
+    telle performance : cinq agrégats vides."""
+    key = (metric, regime)
+    values = [
+        [
+            performance_values(entry, scenario, role, model)[key]
+            for model in REPORT_MODELS
+        ]
+        for entry in entries
+    ]
+    by_set: list[tuple[Aggregate, ...]] = []
+    for dataset in DataSet:
+        common = [
+            row
+            for entry, row in zip(entries, values, strict=True)
+            if dataset in entry.datasets
+            and not any(isinstance(value, str) for value in row)
+        ]
+        by_set.append(
+            tuple(
+                aggregate([row[m] for row in common]) for m in range(len(REPORT_MODELS))
+            )
+        )
+    return CommonRow(metric, regime, tuple(by_set))
+
+
 # ---------------------------------------------------------------------------
-# Référence D8 à côté de v0 (décision Q4)
+# Référence D8 à côté des modèles (décision Q4)
 # ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
 class RouteComparison:
     """Un parcours de répétabilité : ses jours, « un seul contraste », et par ligne
-    la métrique, la classe, le ``F`` du parcours sous l'écoulé et l'agrégat de v0 en
-    usage sous l'écoulé sur ses jours."""
+    la métrique, la classe, le ``F`` du parcours sous l'écoulé et l'agrégat en usage
+    sous l'écoulé sur ses jours de chaque modèle de ``REPORT_MODELS`` (v0 brut en
+    premier ; M4c-2)."""
 
     route_id: str
     days: int
     single_contrast: bool
-    rows: tuple[tuple[ReportMetric, RegimeClass | None, MetricValue, Aggregate], ...]
+    rows: tuple[
+        tuple[ReportMetric, RegimeClass | None, MetricValue, tuple[Aggregate, ...]],
+        ...,
+    ]
 
 
 def route_comparisons(
     entries: Sequence[ScoredPerformance],
     references: Sequence[tuple[str, RepeatabilityReference]],
 ) -> tuple[RouteComparison, ...]:
-    """Pour chaque parcours à référence, dans l'ordre (précision de D15, M4b-5 ;
-    ``0010`` D8) : sous l'écoulé, ``F_|L|`` à côté de l'agrégat de ``|L|`` en usage
-    sur les performances de ce parcours, puis par classe ``F_|E_R|`` et ``F_D_R`` à
-    côté de ``|E_R|`` et ``D_R`` — supports différents : ``F`` pli par pli, v0 sur le
-    support admis de chaque jour."""
+    """Pour chaque parcours à référence, dans l'ordre (précisions de D15, M4b-5 et
+    M4c-2 ; ``0010`` D8) : sous l'écoulé, ``F_|L|`` à côté de l'agrégat de ``|L|`` en
+    usage de chaque modèle sur les performances de ce parcours, puis par classe
+    ``F_|E_R|`` et ``F_D_R`` à côté de ``|E_R|`` et ``D_R`` — supports différents :
+    ``F`` pli par pli, les modèles sur le support admis de chaque jour."""
     comparisons: list[RouteComparison] = []
     for route_id, reference in references:
         elapsed = reference.clocks[0]
-        values = [
-            performance_values(entry, Scenario.USAGE, ClockRole.ELAPSED)
-            for entry in entries
-            if route_id in entry.routes
-        ]
+        values = {
+            model: [
+                performance_values(entry, Scenario.USAGE, ClockRole.ELAPSED, model)
+                for entry in entries
+                if route_id in entry.routes
+            ]
+            for model in REPORT_MODELS
+        }
         pairs: list[tuple[ReportMetric, RegimeClass | None, MetricValue]] = [
             (ReportMetric.ABS_LEVEL, None, elapsed.level)
         ]
@@ -373,7 +501,10 @@ def route_comparisons(
                 metric,
                 regime,
                 f,
-                aggregate([value[(metric, regime)] for value in values]),
+                tuple(
+                    aggregate([value[(metric, regime)] for value in values[model]])
+                    for model in REPORT_MODELS
+                ),
             )
             for metric, regime, f in pairs
         )

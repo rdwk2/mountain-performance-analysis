@@ -44,6 +44,7 @@ def test_execution_imports_the_named_modules_only() -> None:
     """§ 6.0 : l'exécution enchaîne les modules fusionnés, sans calcul neuf."""
     assert _project(EXECUTION) <= {
         "mountain_perf.backtest.calendar",
+        "mountain_perf.backtest.calibration",
         "mountain_perf.backtest.clocks",
         "mountain_perf.backtest.geometry",
         "mountain_perf.backtest.manifest",
@@ -62,6 +63,7 @@ def test_execution_imports_the_named_modules_only() -> None:
     }
     assert _outside(EXECUTION) <= {
         "collections",
+        "collections.abc",
         "dataclasses",
         "datetime",
         "math",
@@ -71,8 +73,8 @@ def test_execution_imports_the_named_modules_only() -> None:
 
 
 def test_report_imports_the_named_modules_only() -> None:
-    """§ 6.0 : le rapport, des fonctions pures — de l'exécution, ``BacktestRun``
-    seul ; ni ``pathlib`` ni registre."""
+    """§ 6.0 : le rapport, des fonctions pures — de l'exécution, ``BacktestRun`` et,
+    depuis M4c-2, ``BacktestEvaluation`` ; ni ``pathlib`` ni registre."""
     imported = _imports(REPORT)
     assert _project(REPORT) <= {
         "mountain_perf.backtest.calendar",
@@ -82,7 +84,10 @@ def test_report_imports_the_named_modules_only() -> None:
         "mountain_perf.backtest.segments",
         "mountain_perf.schemas",
     }
-    assert imported["mountain_perf.backtest.execution"] == {"BacktestRun"}
+    assert imported["mountain_perf.backtest.execution"] == {
+        "BacktestEvaluation",
+        "BacktestRun",
+    }
     assert _outside(REPORT) <= {
         "collections",
         "collections.abc",
