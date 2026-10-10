@@ -34,7 +34,7 @@ dictionary:
 figure:
     uv run python scripts/readme_figure.py
 
-# Backtest enregistré de v0 brut et rapport D15 (0010 D14, D15) : le manifeste
+# Backtest enregistré des cinq modèles et rapport D15 (0010 D9, D14, D15) : le manifeste
 # MPA_DATA_DIR/reference/manifeste.json et la courbe <curve> du même dossier ;
 # registre et rapport sous MPA_DATA_DIR. Exemple : just backtest courbe.csv
 backtest curve:
