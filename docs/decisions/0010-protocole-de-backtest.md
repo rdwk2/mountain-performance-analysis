@@ -916,6 +916,25 @@ dernières lignes se voit alors contre l'historique git. Un processus tué (fen�
 coupure) n'enregistre rien de plus : entre la DÉCLARATION et le RÉSULTAT, il laisse la
 DÉCLARATION sans réponse, qui compte pour un essai ; après le RÉSULTAT, un RÉSULTAT sans
 rapport ; dans les deux cas, l'empreinte de la dernière ligne n'est publiée nulle part.
+*(précision, M4c-2)* `just backtest` déclare les cinq modèles de D9.1 : v0 brut ; v0 +
+effort recalé, aux paramètres de départ de v0 avec la règle de calage de D9.2 ; les trois
+baselines, sans paramètre fixé, avec cette règle. Le registre passe au **format 2**, qui
+étend le format 1 sans changer la forme d'aucun de ses contrats : les scores d'un modèle
+calé, dans un scénario, sont un document de plus — sa prévision non calée, et sous chacune
+des onze horloges son calage (population effective, retraits, `β`, facteur ou effort,
+saturation, statut) et ses scores calés ; la prévision calée s'en déduit (D9.2). Les
+lignes et les documents des formats 1 et 2 se relisent par les mêmes contrats, chaque
+document au format de l'événement qui le cite ; au format 1, aucun modèle n'était calé :
+une ligne du format 1 qui porterait un modèle calé ne se vérifie pas : ses scores ne sont
+pas relus. Un RÉSULTAT porte, pour chaque sortie scorée, chaque modèle déclaré, statut
+`non calé` ou `erreur du modèle` compris (D0) ; chaque parcours du jeu de répétabilité a
+sa référence D8, dont les jours sont exactement ceux d'une seule sortie scorée de ce jeu
+sur ce parcours, et ses jours multi-sorties ceux de ce jeu sur ce parcours. La commande
+publie l'empreinte de la ligne de la DÉCLARATION dès son ajout — un processus tué entre la
+DÉCLARATION et le RÉSULTAT laisse donc publiée l'empreinte de la DÉCLARATION, ce qui
+remplace, pour ce cas, le « n'est publiée nulle part » de la précision de M4b-5 ; après le
+RÉSULTAT, rien ne change — et calcule son rapport avant le RÉSULTAT : une erreur de ce
+calcul est un ÉCHEC technique.
 
 ### D15 — Rapport de `just backtest`
 
@@ -953,6 +972,18 @@ l'origine `o_j` ne suit pas strictement son instant de disponibilité). La réf�
 répétabilité se publie entière, causes d'un `|L|` de pli indisponible comprises (aucun
 diagnostic neuf) ; une troisième horloge égale à l'écoulé, faute d'arrêt confirmé sur le
 support, se signale d'une ligne.
+*(précision, M4c-2)* Le rapport porte les cinq modèles de D9.1. Sa synthèse ajoute, par
+performance, une ligne de calage (`C_j`, `C_j^eff`, l'effort de v0 et le facteur de chaque
+baseline, ou leur statut, sous l'écoulé, en usage — en contrôle pour une sortie sans
+référence —, lus sur la première sortie scorée) ; ses agrégats d'usage sous l'écoulé
+montrent les cinq modèles côte à côte (`L`, `|L|`, `max |C_k|`, `q_usage`), chacun sur son
+propre effectif, puis `|L|` sur l'**ensemble commun** du jeu : les performances où les
+cinq ont une valeur, les cinq moyennes y portant sur les mêmes performances ; la référence
+de répétabilité met les cinq modèles à côté de ses `F`. Le rapport complet a les tables
+d'agrégats de chaque modèle et, par sortie scorée, après le détail de v0 brut, `C_j` et
+chaque modèle calé : son calage sous chaque horloge du rapport, ses métriques,
+`max |C_k|`, `max C_k`, `min C_k` et `q_usage`, sans enveloppe (D9.2). Il se calcule
+**avant** le RÉSULTAT (précision de D14, M4c-2).
 
 ### D16 — Découpage
 
