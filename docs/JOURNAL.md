@@ -16,6 +16,22 @@ Backtest (à partir de M4) : métrique avant → après.
 
 ---
 
+### 2026-10-10 · M4c-2 — correctifs de relecture
+Trois fichiers de tests neufs, sans rien changer à `src/`, après la relecture C de la PR
+#23 et le balayage de mutation de la conception : `test_backtest_registry_format2_guarantees.py`
+(l'accord durci sur une ligne du format 1 — modèles déclarés, une référence D8 par
+parcours ; une ligne du format 2 qui cite un document du format 1 ;
+`DOCUMENT_FIRST_FORMAT` en lecture seule ; l'ordre des contrôles du codec, des jours
+d'une référence et d'`OutingOutcome`), `test_schemas_calibrated_scores_guarantees.py` (la
+même observation pour chaque modèle d'un groupe ; l'ordre des contrôles de
+`CalibratedPerformance` et de `CalibratedScenarioScores`) et
+`test_backtest_five_models_guarantees.py` (la première ligne vidée aussitôt ; une
+interruption au clavier dans le calcul du rapport ; le statut `model_error` d'une horloge
+calée ; les deux notes de la ligne de calage ; objets gelés et tuples). Conclusion :
+`just check` vert, 4 083 tests.
+
+---
+
 ### 2026-10-10 · M4c-2 — Backtest : just backtest à cinq modèles
 `just backtest` déclare et score les cinq modèles de `0010` D9.1, d'après
 `42_BRIEF_M4C-2.md` (révision 1) et le feu vert de sa relecture (sept précisions, dont
