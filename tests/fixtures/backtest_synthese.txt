@@ -1,4 +1,4 @@
-backtest     v0 brut, protocole 0010 — commit 0123456789ab ; Δ 250 m, ε 30 m, r_c 15 m
+backtest     cinq modèles (v0 brut, v0 + effort recalé, vitesse constante, Naismith, Tobler), protocole 0010 — commit 0123456789ab ; Δ 250 m, ε 30 m, r_c 15 m
 registre     déclaration 1, résultat 2 ; dernière ligne sha256 <sceau>
              à recopier au JOURNAL : l'empreinte de la dernière ligne scelle le registre
 manifeste    manifeste.json   sha256 aedb8754… — 22 sorties, 12 performances
@@ -13,7 +13,7 @@ courbe       courbe_synthetique.csv   sha256 6767dd38… — estimée le 2026-02
 écartée      plat-2026-06-11 — hors domaine : D+/km 4.8, sous 40
 écartée      x-2026-06-18 — hors domaine : D+/km inconnu (profil de domaine illisible (x18.gpx) : Aucun <trkpt> dans le fichier GPX.)
 écartée      autre-2026-06-05 — refusée : athlete_ref différent de celui du manifeste : ce n'est pas une sortie de l'athlète (0010 D2.6).
-performances jour        sortie                      jeu            étiquette     couverture  préfixe    L           q_usage
+performances jour        sortie                      jeu            étiquette     couverture  préfixe    L v0        q_usage v0
              2026-06-03  a-2026-06-03                répétabilité   entraînement  100.00 %    4.26 km    +0.018701   0.032531
              2026-06-04  b-2026-06-04                répétabilité   entraînement  100.00 %    3.64 km    +0.045858   0.044823
              2026-06-06  a-2026-06-06                répétabilité   entraînement  100.00 %    4.26 km    −0.081382   0.081224
@@ -28,48 +28,61 @@ performances jour        sortie                      jeu            étiquette  
              2026-06-20  a-2026-06-20                développement  entraînement  non scorée : sortie non tracée
              2026-06-25  b-2026-06-25                confirmation   entraînement  99.96 %     3.64 km    +0.104660   0.099369
              2026-06-27  a-2026-06-27                confirmation   entraînement  100.00 %    4.26 km    +0.066124   0.078102
-agrégats     usage, écoulé ; moyenne à poids égal par performance (effectif) ; détail et motifs : rapport complet
-                             répétabilité        développement       confirmation
-             L               +0.025018 (5)       +0.132283 (1)       +0.085392 (2)
-             |L|             0.057571 (5)        0.132283 (1)        0.085392 (2)
-             A               0.063728 (5)        0.049652 (1)        0.045991 (2)
-             W               0.054481 (5)        0.041733 (1)        0.035731 (2)
-             B               0.046219 (5)        0.033660 (1)        0.033570 (2)
-             C_comp          0.036972 (5)        0.025742 (1)        0.023310 (2)
-             montée E_R−L    +0.044707 (5)       +0.034018 (1)       +0.033775 (2)
-             montée |E_R|    0.069725 (5)        0.166300 (1)        0.119167 (2)
-             montée D_R      0.027060 (5)        0.031552 (1)        0.028522 (2)
-             plat E_R−L      −0.025438 (2)       — (0)               −0.026020 (1)
-             plat |E_R|      0.039921 (2)        — (0)               0.078640 (1)
-             plat D_R        0.014951 (2)        — (0)               0.014982 (1)
-             descente E_R−L  −0.056609 (5)       −0.032291 (1)       −0.037190 (2)
-             descente |E_R|  0.061567 (5)        0.099991 (1)        0.048202 (2)
-             descente D_R    0.091809 (5)        0.038735 (1)        0.043326 (2)
-             mixte E_R−L     −0.022759 (3)       −0.039835 (1)       −0.038215 (1)
-             mixte |E_R|     0.030421 (3)        0.092447 (1)        0.027909 (1)
-             mixte D_R       0.088017 (3)        0.088017 (1)        0.088017 (1)
-             max |C_k|       132.4 (5)           301.6 (1)           177.4 (2)
-             q_usage         0.059984 (4)        0.136219 (1)        0.088736 (2)
+calage       0010 D9.2 sur C_j (entraînements terminés avant o_j) ; écoulé, usage (contrôle sans référence) ; e : effort de v0, a : facteur
+             jour        C_j  C_j^eff  v0 + effort recalé  vitesse constante   Naismith            Tobler
+             2026-06-03  0    0        non calé            non calé            non calé            non calé
+             2026-06-04  0    0        non calé            non calé            non calé            non calé
+             2026-06-06  0    0        non calé            non calé            non calé            non calé
+             2026-06-08  0    0        non calé            non calé            non calé            non calé
+             2026-06-10  0    0        non calé            non calé            non calé            non calé
+             2026-06-12  2    2        e 1.032806          a 0.529643          a 0.517033          a 0.578027 (jour multi-sorties, a-2026-06-12)
+             2026-06-14  3    3        e 0.994408          a 0.557052          a 0.540004          a 0.599883
+             2026-06-15  3    3        e 1.005992          a 0.546608          a 0.532632          a 0.593522 (contrôle)
+             2026-06-16  4    —        non scorée
+             2026-06-20  6    —        non scorée
+             2026-06-25  8    6        e 1.022058          a 0.540342          a 0.521925          a 0.586222
+             2026-06-27  8    6        e 1.022058          a 0.540342          a 0.521925          a 0.586222
+agrégats     usage, écoulé ; moyenne à poids égal par performance (effectif) ; |L| commun : performances où les cinq modèles ont une valeur ; détail et motifs : rapport complet
+             répétabilité    v0 brut             v0 + effort recalé  vitesse constante   Naismith            Tobler
+             L               +0.025018 (5)       — (0)               — (0)               — (0)               — (0)
+             |L|             0.057571 (5)        — (0)               — (0)               — (0)               — (0)
+             max |C_k|       132.4 (5)           — (0)               — (0)               — (0)               — (0)
+             q_usage         0.059984 (4)        — (0)               — (0)               — (0)               — (0)
+             |L| commun      — (0)               — (0)               — (0)               — (0)               — (0)
+             développement   v0 brut             v0 + effort recalé  vitesse constante   Naismith            Tobler
+             L               +0.132283 (1)       +0.137890 (1)       +0.112756 (1)       +0.126724 (1)       +0.139436 (1)
+             |L|             0.132283 (1)        0.137890 (1)        0.112756 (1)        0.126724 (1)        0.139436 (1)
+             max |C_k|       301.6 (1)           315.2 (1)           292.2 (1)           287.7 (1)           319.0 (1)
+             q_usage         0.136219 (1)        0.141843 (1)        0.120012 (1)        0.144985 (1)        0.121469 (1)
+             |L| commun      0.132283 (1)        0.137890 (1)        0.112756 (1)        0.126724 (1)        0.139436 (1)
+             confirmation    v0 brut             v0 + effort recalé  vitesse constante   Naismith            Tobler
+             L               +0.085392 (2)       +0.063574 (2)       +0.073070 (2)       +0.062541 (2)       +0.067179 (2)
+             |L|             0.085392 (2)        0.063574 (2)        0.073070 (2)        0.062541 (2)        0.067179 (2)
+             max |C_k|       177.4 (2)           132.8 (2)           225.2 (2)           192.1 (2)           151.0 (2)
+             q_usage         0.088736 (2)        0.067154 (2)        0.091030 (2)        0.073195 (2)        0.066100 (2)
+             |L| commun      0.085392 (2)        0.063574 (2)        0.073070 (2)        0.062541 (2)        0.067179 (2)
 référence    répétabilité (0010 D8)
-             a — 3 jours ; écoulé, usage : F du parcours, v0 sur ses jours
-             |L|             F 0.070502 (m 3)             v0 0.052378 (3)
-             montée |E_R|    F 0.037898 (m 3)             v0 0.048638 (3)
-             montée D_R      F 0.001653 (m 3)             v0 0.032631 (3)
-             plat |E_R|      F support insuffisant (m 0)  v0 — (0)
-             plat D_R        F support insuffisant (m 0)  v0 — (0)
-             descente |E_R|  F 0.139014 (m 3)             v0 0.089063 (3)
-             descente D_R    F 0.184919 (m 3)             v0 0.119747 (3)
-             mixte |E_R|     F 0.037068 (m 3)             v0 0.030421 (3)
-             mixte D_R       F 0.000000 (m 3)             v0 0.088017 (3)
-             b — 2 jours, un seul contraste ; écoulé, usage : F du parcours, v0 sur ses jours
-             |L|             F 0.039002 (m 2)             v0 0.065359 (2)
-             montée |E_R|    F 0.039243 (m 2)             v0 0.101354 (2)
-             montée D_R      F 0.000048 (m 2)             v0 0.018703 (2)
-             plat |E_R|      F 0.039140 (m 2)             v0 0.039921 (2)
-             plat D_R        F 0.000118 (m 2)             v0 0.014951 (2)
-             descente |E_R|  F 0.038542 (m 2)             v0 0.020323 (2)
-             descente D_R    F 0.001230 (m 2)             v0 0.049903 (2)
-             mixte |E_R|     F support insuffisant (m 0)  v0 — (0)
-             mixte D_R       F support insuffisant (m 0)  v0 — (0)
+             a — 3 jours ; écoulé, usage : F du parcours, les cinq modèles sur ses jours
+                             F du parcours              v0 brut             v0 + effort recalé  vitesse constante   Naismith            Tobler
+             |L|             0.070502 (m 3)             0.052378 (3)        — (0)               — (0)               — (0)               — (0)
+             montée |E_R|    0.037898 (m 3)             0.048638 (3)        — (0)               — (0)               — (0)               — (0)
+             montée D_R      0.001653 (m 3)             0.032631 (3)        — (0)               — (0)               — (0)               — (0)
+             plat |E_R|      support insuffisant (m 0)  — (0)               — (0)               — (0)               — (0)               — (0)
+             plat D_R        support insuffisant (m 0)  — (0)               — (0)               — (0)               — (0)               — (0)
+             descente |E_R|  0.139014 (m 3)             0.089063 (3)        — (0)               — (0)               — (0)               — (0)
+             descente D_R    0.184919 (m 3)             0.119747 (3)        — (0)               — (0)               — (0)               — (0)
+             mixte |E_R|     0.037068 (m 3)             0.030421 (3)        — (0)               — (0)               — (0)               — (0)
+             mixte D_R       0.000000 (m 3)             0.088017 (3)        — (0)               — (0)               — (0)               — (0)
+             b — 2 jours, un seul contraste ; écoulé, usage : F du parcours, les cinq modèles sur ses jours
+                             F du parcours              v0 brut             v0 + effort recalé  vitesse constante   Naismith            Tobler
+             |L|             0.039002 (m 2)             0.065359 (2)        — (0)               — (0)               — (0)               — (0)
+             montée |E_R|    0.039243 (m 2)             0.101354 (2)        — (0)               — (0)               — (0)               — (0)
+             montée D_R      0.000048 (m 2)             0.018703 (2)        — (0)               — (0)               — (0)               — (0)
+             plat |E_R|      0.039140 (m 2)             0.039921 (2)        — (0)               — (0)               — (0)               — (0)
+             plat D_R        0.000118 (m 2)             0.014951 (2)        — (0)               — (0)               — (0)               — (0)
+             descente |E_R|  0.038542 (m 2)             0.020323 (2)        — (0)               — (0)               — (0)               — (0)
+             descente D_R    0.001230 (m 2)             0.049903 (2)        — (0)               — (0)               — (0)               — (0)
+             mixte |E_R|     support insuffisant (m 0)  — (0)               — (0)               — (0)               — (0)               — (0)
+             mixte D_R       support insuffisant (m 0)  — (0)               — (0)               — (0)               — (0)               — (0)
 diagnostics  descentes roulantes et raides au seuil 0.80 ; géométrie usage − contrôle : rapport complet
 rapport      rapports/backtest-0002.txt

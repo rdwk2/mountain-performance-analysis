@@ -224,46 +224,53 @@ usage        appariement_reference.gpx ; 3 segments admis : montée 0, plat 3, d
 
 Le rayon de regroupement `r_c` n'a pas d'option : il reste à son défaut, 15 m.
 
-### `just backtest` — le backtest enregistré de v0 brut
+### `just backtest` — le backtest enregistré des cinq modèles
 
 `just backtest <courbe.csv>` lance `mperf backtest` sur le manifeste
 `MPA_DATA_DIR/reference/manifeste.json` et la courbe nommée, du même dossier
-([`0010`](docs/decisions/0010-protocole-de-backtest.md), D14 et D15) : sorties
-retenues, domaine et performances ; appariement et scores de v0 brut de chaque sortie ;
+([`0010`](docs/decisions/0010-protocole-de-backtest.md), D9, D14 et D15) : sorties
+retenues, domaine et performances ; appariement et scores de chaque sortie sous cinq
+modèles — v0 brut, v0 + effort recalé, vitesse constante, Naismith et Tobler, les quatre
+derniers calés sur les entraînements terminés avant l'origine de chaque performance ;
 référence de répétabilité de chaque parcours. L'exécution est enregistrée dans
-`MPA_DATA_DIR/registre/` (une DÉCLARATION avant le calcul, puis un RÉSULTAT ou un
-ÉCHEC) ; le rapport complet est écrit dans `MPA_DATA_DIR/rapports/backtest-<n° du
-RÉSULTAT>.txt`, jamais réécrit ; la synthèse s'affiche, avec l'empreinte de la dernière
-ligne du registre, à recopier au journal. La commande refuse un arbre de travail
-modifié : elle enregistre le commit du code exécuté.
+`MPA_DATA_DIR/registre/` (une DÉCLARATION avant le calcul, dont l'empreinte s'affiche
+aussitôt, puis un RÉSULTAT ou un ÉCHEC) ; le rapport complet est écrit dans
+`MPA_DATA_DIR/rapports/backtest-<n° du RÉSULTAT>.txt`, jamais réécrit ; la synthèse
+s'affiche, avec l'empreinte de la dernière ligne du registre, à recopier au journal. La
+commande refuse un arbre de travail modifié : elle enregistre le commit du code exécuté.
 
 ```bash
 just backtest courbe.csv
 ```
 
 Extrait de la synthèse, sur le monde synthétique des tests
-(`tests/fixtures/backtest_world.py`) : une ligne par sortie déclarée, puis les
-agrégats d'usage sous l'écoulé, à poids égal par performance et par jeu.
+(`tests/fixtures/backtest_world.py`) : le calage de chaque performance (effort de v0,
+facteur de chaque baseline), puis les agrégats d'usage sous l'écoulé des cinq modèles,
+à poids égal par performance et par jeu, et `|L|` sur les performances où les cinq ont
+une valeur.
 
 ```text
-performances jour        sortie                      jeu            étiquette     couverture  préfixe    L           q_usage
-             2026-06-03  a-2026-06-03                répétabilité   entraînement  100.00 %    4.26 km    +0.018701   0.032531
-             2026-06-04  b-2026-06-04                répétabilité   entraînement  100.00 %    3.64 km    +0.045858   0.044823
-             2026-06-06  a-2026-06-06                répétabilité   entraînement  100.00 %    4.26 km    −0.081382   0.081224
-             2026-06-08  b-2026-06-08                répétabilité   entraînement  100.00 %    3.64 km    +0.084860   0.081359
-             2026-06-10  a-2026-06-10                répétabilité   entraînement  88.26 %     2.75 km    +0.057051   support insuffisant
-             2026-06-12  a-2026-06-12                répétabilité   entraînement  100.00 %    4.26 km    −0.002133   0.014189 (jour multi-sorties)
-             2026-06-12  b-2026-06-12                répétabilité   entraînement  99.96 %     3.64 km    +0.015959   0.015832 (jour multi-sorties)
-             2026-06-12  libre-2026-06-12            développement  entraînement  100.00 %    2.62 km    +0.025011   sans référence (jour multi-sorties)
-             2026-06-14  a-2026-06-14                développement  course        100.00 %    4.26 km    +0.132283   0.136219
-             2026-06-15  libre-2026-06-15            développement  entraînement  100.00 %    2.63 km    +0.007733   sans référence
-             2026-06-16  c-2026-06-16                développement  entraînement  non scorée : trace refusée (c16.gpx) : c16.gpx, trkpt[0].time : instant manquant.
-             2026-06-20  a-2026-06-20                développement  entraînement  non scorée : sortie non tracée
-             2026-06-25  b-2026-06-25                confirmation   entraînement  99.96 %     3.64 km    +0.104660   0.099369
-             2026-06-27  a-2026-06-27                confirmation   entraînement  100.00 %    4.26 km    +0.066124   0.078102
-agrégats     usage, écoulé ; moyenne à poids égal par performance (effectif) ; détail et motifs : rapport complet
-                             répétabilité        développement       confirmation
-             L               +0.025018 (5)       +0.132283 (1)       +0.085392 (2)
+calage       0010 D9.2 sur C_j (entraînements terminés avant o_j) ; écoulé, usage (contrôle sans référence) ; e : effort de v0, a : facteur
+             jour        C_j  C_j^eff  v0 + effort recalé  vitesse constante   Naismith            Tobler
+             2026-06-03  0    0        non calé            non calé            non calé            non calé
+             2026-06-04  0    0        non calé            non calé            non calé            non calé
+             2026-06-06  0    0        non calé            non calé            non calé            non calé
+             2026-06-08  0    0        non calé            non calé            non calé            non calé
+             2026-06-10  0    0        non calé            non calé            non calé            non calé
+             2026-06-12  2    2        e 1.032806          a 0.529643          a 0.517033          a 0.578027 (jour multi-sorties, a-2026-06-12)
+             2026-06-14  3    3        e 0.994408          a 0.557052          a 0.540004          a 0.599883
+             2026-06-15  3    3        e 1.005992          a 0.546608          a 0.532632          a 0.593522 (contrôle)
+             2026-06-16  4    —        non scorée
+             2026-06-20  6    —        non scorée
+             2026-06-25  8    6        e 1.022058          a 0.540342          a 0.521925          a 0.586222
+             2026-06-27  8    6        e 1.022058          a 0.540342          a 0.521925          a 0.586222
+agrégats     usage, écoulé ; moyenne à poids égal par performance (effectif) ; |L| commun : performances où les cinq modèles ont une valeur ; détail et motifs : rapport complet
+             répétabilité    v0 brut             v0 + effort recalé  vitesse constante   Naismith            Tobler
+             L               +0.025018 (5)       — (0)               — (0)               — (0)               — (0)
+             |L|             0.057571 (5)        — (0)               — (0)               — (0)               — (0)
+             max |C_k|       132.4 (5)           — (0)               — (0)               — (0)               — (0)
+             q_usage         0.059984 (4)        — (0)               — (0)               — (0)               — (0)
+             |L| commun      — (0)               — (0)               — (0)               — (0)               — (0)
 ```
 
 | Option de `mperf backtest` | Rôle | Défaut |
