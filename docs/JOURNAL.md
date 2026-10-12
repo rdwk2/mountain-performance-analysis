@@ -16,6 +16,17 @@ Backtest (à partir de M4) : métrique avant → après.
 
 ---
 
+### 2026-10-12 · AN0 — correctifs de relecture
+Après la relecture C de la PR #22 : la charte (§ 8, une affirmation du README ne porte
+aucun chiffre ; § 3, un type `demenagement` au journal des événements ; § 10, les plans
+d'analyse vivent hors du dépôt) et `0013` (`retrieved_at` n'a pas le même sens chez tous
+les producteurs ; `GPS_GAP` ne marque que les trous de positions). Un second correctif
+du moteur, appliqué tel quel, retire du `BACKLOG.md` deux valeurs d'une seule sortie.
+L'entrée AN0 cite aussi deux nettoyages de la règle 1 faits hors du correctif du moteur.
+Conclusion : `just check` vert, 3 945 tests.
+
+---
+
 ### 2026-10-10 · AN0 — Documentation de la piste analyse
 Ouverture de la piste analyse (jalons `AN<n>`, décidée le 2026-10-06) : son cadrage,
 sans code. Ajoutés : `docs/analyse/CHARTE.md` (méthode de la piste) et
@@ -27,7 +38,8 @@ sans code. Ajoutés : `docs/analyse/CHARTE.md` (méthode de la piste) et
 export réel et des FIT) et `README.md` (liste des décisions et des documents). La règle
 1 élargie s'applique aux textes existants : `JOURNAL`, `BACKLOG.md`,
 `docs/MODELE_V1.md`, `0009`, `0010` et une docstring de
-`tests/fixtures/backtest_world.py` sont nettoyés, par un correctif écrit pour le moteur.
+`tests/fixtures/backtest_world.py` sont nettoyés, par un correctif écrit pour le moteur ;
+la ligne du M8 de la ROADMAP et un exemple de nom de fichier de `PIEGES_DATA` aussi.
 Conclusion : `just check` vert, 3 945 tests, comme sur `main`.
 
 ---

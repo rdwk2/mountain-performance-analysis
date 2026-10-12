@@ -73,12 +73,13 @@ commande de préremplissage) :
   fixer (identifiant, fuseau de référence, FC max déclarée, sports pris en compte).
   Toute valeur absente se calcule depuis les données, avec sa méthode écrite.
 - **`journal.csv`** : les événements que Garmin ne contient pas. Une ligne par
-  événement : `debut`, `fin`, `type` (`maladie`, `blessure`, `course`, `deplacement`,
-  `sejour_altitude`, `etalon`, `autre`), `note`. Chaque question dit quels types elle
-  exclut ou contrôle. Les jours `maladie` et `blessure` sont exclus par défaut des
-  normales et des relations ; un plan peut faire autrement s'il le dit, et un plan
-  dont le facteur est la charge rapporte l'estimation avec et sans ces jours, et
-  regarde la maladie aussi comme une issue (§ 5).
+  événement : `debut`, `fin`, `type` (`maladie`, `blessure`, `course`, `deplacement`
+  (une absence temporaire), `demenagement` (un changement durable de lieu de vie, donc
+  de terrain), `sejour_altitude`, `etalon`, `autre`), `note`. Chaque question dit
+  quels types elle exclut ou contrôle. Les jours `maladie` et `blessure` sont exclus
+  par défaut des normales et des relations ; un plan peut faire autrement s'il le dit,
+  et un plan dont le facteur est la charge rapporte l'estimation avec et sans ces
+  jours, et regarde la maladie aussi comme une issue (§ 5).
 - **Les notes de sorties** (facultatives) : une ligne par sortie, pour ce que Garmin
   ne mesure pas (l'export n'a ni effort perçu ni ressenti) : intention (`facile`,
   `endurance`, `seance`, `course`), décidée la veille ou le jour même, capteur de FC
@@ -176,7 +177,7 @@ qualité de mesure.
 - **Charge récente** : charges aiguë et chronique recalculées depuis les activités,
   par une méthode écrite. **Pas de rapport couplé** : elles entrent séparément, ou la
   chronique exclut la fenêtre aiguë.
-- **Maladie, blessure, déplacements** : par le journal (§ 3).
+- **Maladie, blessure, déplacements, déménagements** : par le journal (§ 3).
 - **Firmware** : pour toute mesure calculée par la montre (§ 11).
 - **Intention de la sortie** : par les notes de sorties (§ 3) si l'athlète les tient ;
   sinon le plan propose comment l'approcher (FC moyenne, durée, étiquette Garmin).
@@ -299,9 +300,10 @@ est aussi une saison.
     l'échéance ne changent. Une déclaration ne se retire pas et ne se prolonge pas : à
     l'échéance, son résultat s'écrit, « non tranchée » compris.
   - **Valeur transmise.** Une règle affichée ou une affirmation écrite prend la valeur
-    estimée sur les données de vérification. Pour le moteur, son protocole décide
-    (0010, D10) ; on lui déclare une règle d'estimation (D10.1) plutôt que la valeur
-    de découverte.
+    estimée sur les données de vérification ; dans le dépôt (le README), l'affirmation
+    ne porte aucun chiffre (règle 1, § 10) : sa valeur reste dans le compte rendu,
+    hors du dépôt. Pour le moteur, son protocole décide (0010, D10) ; on lui déclare
+    une règle d'estimation (D10.1) plutôt que la valeur de découverte.
   - **En attente**, une règle affichée porte la mention « provisoire ».
   - **Par athlète.** Une lecture se promeut et se vérifie athlète par athlète. Chez un
     autre athlète, la même règle repart exploratoire ; elle peut s'afficher « vérifiée
@@ -338,7 +340,7 @@ la lettre, interdit l'exploration. Précision (`docs/decisions/0012`) :
 | résultats d'une question | `MPA_DATA_DIR/resultats/<question>/<date>_<empreinte>/` : tableau, figure, et un petit fichier qui dit la commande, la version du code, la période, l'empreinte des données, les seuils figés et la graine de toute simulation ou bootstrap | écrasés |
 | journal des essais de la piste | `MPA_DATA_DIR/resultats/essais.jsonl`, en ajout seul, lignes chaînées par empreinte (§ 8) | réécrit |
 | ce que l'athlète a déjà vu (§ 6) | `MPA_DATA_DIR/resultats/deja_vu.csv`, tenu à la main : une ligne par question ou relation regardée avant son plan, avec la date et l'endroit (notebook, tableau de bord) | dans le dépôt |
-| comptes rendus et arbitrages | hors du dépôt, avec les notes de conception | dans le dépôt |
+| plans d'analyse, comptes rendus et arbitrages | hors du dépôt, avec les notes de conception (un plan porte des calculs sur les données réelles, § 6) | dans le dépôt |
 | dans le dépôt | le code, les tests, des fixtures synthétiques, des figures faites sur données synthétiques | une figure ou un chiffre de vraies données |
 
 ## 11. Les mesures calculées par la montre

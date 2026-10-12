@@ -123,9 +123,10 @@ sans dépendance et testées :
   le moteur ; un type absent de la table n'a pas de vue ;
 - `TrackPointStream`, aux seuls instants où tous les canaux demandés sont présents
   (les positions toujours ; l'altitude, la FC, la distance, la vitesse à la demande).
-  Les instants écartés se comptent, et un trou plus long qu'un seuil porte `GPS_GAP`
-  (seuil fixé par le brief d'AN1, relu par le moteur) ; un enregistrement sans aucun
-  instant complet n'a pas de vue.
+  Les instants écartés se comptent ; un trou de positions plus long qu'un seuil porte
+  `GPS_GAP` (seuil fixé par le brief d'AN1, relu par le moteur), et un instant écarté
+  faute d'un autre canal demandé se compte, sans drapeau ; un enregistrement sans
+  aucun instant complet n'a pas de vue.
 
 Le moteur lit `interim/` par ces vues et par le lecteur d'`interim/`, jamais en
 ouvrant les fichiers lui-même. Les distances et les profils se recalculent sur les
@@ -160,8 +161,10 @@ importe le module commun, jamais `backtest/`.
   la commande d'acquisition, ou à la main pour un export manuel ; forme fixée par le
   brief d'AN1), lu par l'ingestion et recopié dans l'index, d'où les vues le
   reprennent ; jamais l'instant de l'ingestion ou d'une lecture, ni la date de
-  modification d'un fichier. Un export sans instant d'acquisition est refusé, et le
-  rapport le dit.
+  modification d'un fichier. Les lecteurs de fichiers du moteur y mettent, eux,
+  l'instant de lecture : un consommateur ne compare pas les `retrieved_at` de
+  producteurs différents (le contrat le dira si le moteur le demande, condition (a)).
+  Un export sans instant d'acquisition est refusé, et le rapport le dit.
 - Lecture stricte des FIT (`0011`) : un fichier refusé n'a pas d'enregistrement,
   son activité reste dans l'index, et le rapport dit pourquoi.
 - Le contrat est strict, l'ingestion tolérante et tracée : un échantillon hors plage,
