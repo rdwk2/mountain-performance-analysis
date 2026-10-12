@@ -24,7 +24,11 @@ from enum import StrEnum
 from itertools import pairwise
 from types import MappingProxyType
 
-from mountain_perf.schemas.calibration import ModelKind
+from mountain_perf.schemas.calibration import (
+    CALIBRATED_MODELS,
+    CalibratedOutingScores,
+    ModelKind,
+)
 from mountain_perf.schemas.clock import CLOCKS, Clock
 from mountain_perf.schemas.common import SourceRef
 from mountain_perf.schemas.matching import Coverage
@@ -44,13 +48,20 @@ from mountain_perf.validation import (
     require_non_empty,
 )
 
-REGISTRY_FORMAT_VERSION = 1
-"""Version du format des événements et des documents du registre (``0010`` D14).
+REGISTRY_FORMAT_VERSION = 2
+"""Version du format que l'ajout d'un événement ou d'un document écrit (``0010`` D14).
 
 Chaque document la porte, chaque événement aussi (``format_version``). Le registre
 relit ses lignes et ses documents par les contrats du jour, strictement : un contrat
 stocké qui change de forme demande d'augmenter cette version, et de dire comment
-relire l'ancien format."""
+relire l'ancien format. Le format 2 (M4c-2) étend le format 1 sans changer la forme
+d'aucun de ses contrats : il ajoute le document des scores calés
+(``CalibratedScenarioScores``) ; une ligne ou un document du format 1 se relit donc par
+les contrats du jour (précision de D14, M4c-2)."""
+
+REGISTRY_READABLE_FORMATS: tuple[int, ...] = (1, 2)
+"""Les formats que le registre relit, dans l'ordre (précision de D14, M4c-2) : chaque
+ligne au sien, chaque document au format de l'événement qui le cite."""
 
 CURVE_REF_HASH_LENGTH = 12
 """Nombre de caractères de l'empreinte ``sha256`` du CSV recopiés dans ``curve_ref``
@@ -959,7 +970,8 @@ class ModelResult:
     ------
     - ``model`` — sans unité — la nature du modèle.
     - ``control`` — sans unité — le ``sha256`` du document ``ScenarioScores`` du
-      contrôle, prévision comprise.
+      contrôle, prévision comprise ; depuis le format 2, ``CalibratedScenarioScores``
+      pour un modèle calé (M4c-2).
     - ``usage`` — sans unité — celui de l'usage ; absent sans référence (D3).
 
     Invariants
@@ -1191,7 +1203,7 @@ class RegistryEvent:
     ----------
     1. ``recorded_at`` porte un fuseau, normalisé en UTC ; ``previous_hash`` présent :
        un ``sha256`` ; ``correction_reason`` présent : non vide ;
-    2. ``format_version == REGISTRY_FORMAT_VERSION`` ;
+    2. ``format_version`` dans ``REGISTRY_READABLE_FORMATS`` (1 ou 2, M4c-2) ;
     3. ``number >= 1`` ;
     4. ``previous_hash`` absent **si et seulement si** ``number == 1`` ;
     5. le contenu présent est celui du type, et lui seul ;
@@ -1232,10 +1244,10 @@ class RegistryEvent:
         if self.previous_hash is not None:
             _require_sha256(self.previous_hash, "previous_hash")
         _require_optional_text(self.correction_reason, "correction_reason")
-        if self.format_version != REGISTRY_FORMAT_VERSION:
+        if self.format_version not in REGISTRY_READABLE_FORMATS:
+            formats = ", ".join(map(str, REGISTRY_READABLE_FORMATS))
             raise ContractError(
-                f"format_version vaut {REGISTRY_FORMAT_VERSION}, reçu "
-                f"{self.format_version}."
+                f"format_version vaut l'un de {formats}, reçu {self.format_version}."
             )
         if self.number < 1:
             raise ContractError(
@@ -1433,12 +1445,16 @@ class OutingOutcome:
     - ``outing_id`` — sans unité — la sortie.
     - ``coverage`` — sans unité — sa couverture (D4.11).
     - ``scores`` — sans unité — les scores de chaque modèle, couples
-      ``(modèle, scores)``.
+      ``(modèle, scores)`` : ``OutingScores`` pour v0 brut et le candidat,
+      ``CalibratedOutingScores`` pour un modèle calé (M4c-2).
 
     Invariants
     ----------
     - ``outing_id`` non vide ; ``scores`` est un tuple de couples (tuples) ;
     - ``scores`` non vide, de modèles distincts ;
+    - un modèle de ``CALIBRATED_MODELS`` porte des ``CalibratedOutingScores``, de ce
+      modèle (``control.model``) et de cette sortie ; un autre modèle, des
+      ``OutingScores`` (M4c-2) ;
     - **la même observation** (``==``) pour tous les modèles (D7.1 : le support ne
       dépend que de l'observation).
 
@@ -1457,7 +1473,7 @@ class OutingOutcome:
 
     outing_id: str
     coverage: Coverage
-    scores: tuple[tuple[ModelKind, OutingScores], ...]
+    scores: tuple[tuple[ModelKind, OutingScores | CalibratedOutingScores], ...]
 
     def __post_init__(self) -> None:
         require_non_empty(self.outing_id, "outing_id")
@@ -1475,6 +1491,8 @@ class OutingOutcome:
             [kind for kind, _ in self.scores],
             "les modèles d'une sortie sont distincts, reçu {} deux fois.",
         )
+        for kind, scores in self.scores:
+            self._check_scores_type(kind, scores)
         first_kind, first = self.scores[0]
         for kind, scores in self.scores[1:]:
             if scores.observation != first.observation:
@@ -1482,6 +1500,32 @@ class OutingOutcome:
                     f"les scores de {kind} portent une autre observation que ceux de "
                     f"{first_kind} : le support ne dépend que de l'observation (D7.1)."
                 )
+
+    def _check_scores_type(
+        self, kind: ModelKind, scores: OutingScores | CalibratedOutingScores
+    ) -> None:
+        """Le type des scores d'un modèle (M4c-2) : calés pour un modèle calé, de ce
+        modèle et de cette sortie ; non calés sinon."""
+        if kind in CALIBRATED_MODELS:
+            if not isinstance(scores, CalibratedOutingScores):
+                raise ContractError(
+                    f"{kind} est un modèle calé : ses scores sont des "
+                    "CalibratedOutingScores."
+                )
+            if scores.control.model is not kind:
+                raise ContractError(
+                    f"les scores calés de {kind} portent le modèle "
+                    f"{scores.control.model}."
+                )
+            if scores.outing_id != self.outing_id:
+                raise ContractError(
+                    f"les scores calés de {kind} portent la sortie "
+                    f"{scores.outing_id!r}, {self.outing_id!r} attendue."
+                )
+        elif not isinstance(scores, OutingScores):
+            raise ContractError(
+                f"{kind} n'est pas un modèle calé : ses scores sont des OutingScores."
+            )
 
 
 @dataclass(frozen=True)

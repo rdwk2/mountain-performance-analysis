@@ -33,6 +33,7 @@ from mountain_perf.schemas import (
     MODEL_KIND_DESCRIPTIONS,
     REFERENCE_SOURCE_DESCRIPTIONS,
     REGISTRY_FORMAT_VERSION,
+    REGISTRY_READABLE_FORMATS,
     ArtifactRef,
     ArtifactRole,
     Declaration,
@@ -184,9 +185,15 @@ USAGE_EXPERIMENT = replace(
 # ---------------------------------------------------------------------------
 
 
-def test_registry_format_version_is_1() -> None:
-    """``0010`` D14 : la version du format des événements et des documents."""
-    assert REGISTRY_FORMAT_VERSION == 1
+def test_registry_format_version_is_2() -> None:
+    """``0010`` D14 et sa précision de M4c-2 : le format écrit, et les formats relus."""
+    assert REGISTRY_FORMAT_VERSION == 2
+    assert REGISTRY_READABLE_FORMATS == (1, 2)
+
+
+def test_event_of_format_1_is_accepted() -> None:
+    """M4c-2 : une ligne du format 1 se relit par les contrats du jour."""
+    assert replace(DECLARED, format_version=1).format_version == 1
 
 
 def test_curve_ref_hash_length_is_the_m3_rule() -> None:
@@ -951,7 +958,7 @@ def test_event_recorded_at_is_normalized_to_utc() -> None:
 @pytest.mark.parametrize(
     ("instance", "changes", "fragment"),
     [
-        (DECLARED, {"format_version": 2}, "format_version vaut 1, reçu 2"),
+        (DECLARED, {"format_version": 3}, "format_version vaut l'un de 1, 2, reçu 3"),
         (
             DECLARED,
             {"number": 0, "previous_hash": HASH},
@@ -1023,7 +1030,7 @@ def test_event_recorded_at_is_normalized_to_utc() -> None:
         ),
     ],
     ids=[
-        "format-2",
+        "format-3",
         "number-0",
         "hash-absent-at-2",
         "hash-present-at-1",
@@ -1196,7 +1203,7 @@ OUTCOME = OutingOutcome("q-2026-05-20", COVERAGE, ((ModelKind.V0_RAW, SCORES),))
 
 
 def test_outcome_same_observation_under_two_models_is_accepted() -> None:
-    both = ((ModelKind.V0_RAW, SCORES), (ModelKind.NAISMITH, SCORES))
+    both = ((ModelKind.V0_RAW, SCORES), (ModelKind.CANDIDATE, SCORES))
     assert replace(OUTCOME, scores=both).scores == both
 
 
@@ -1234,8 +1241,8 @@ def test_outcome_one_observation_for_all_models() -> None:
     other = scoring.scores("Passages")
     _raises(
         OUTCOME,
-        "les scores de naismith portent une autre observation que ceux de v0_raw",
-        scores=((ModelKind.V0_RAW, SCORES), (ModelKind.NAISMITH, other)),
+        "les scores de candidate portent une autre observation que ceux de v0_raw",
+        scores=((ModelKind.V0_RAW, SCORES), (ModelKind.CANDIDATE, other)),
     )
 
 

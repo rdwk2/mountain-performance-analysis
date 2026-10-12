@@ -547,7 +547,15 @@ class CalibratedScenarioScores:
     1. ``model`` dans ``CALIBRATED_MODELS`` ;
     2. ``forecast.scenario is scenario`` ;
     3. ``clocks`` est un tuple ; ses horloges sont ``CLOCKS``, dans l'ordre ;
-    4. chaque calage porte ce ``model`` et ce ``scenario``.
+    4. chaque calage porte ce ``model`` et ce ``scenario`` ;
+    5. sous les horloges dont les scores sont présents (calées), comme
+       ``ScenarioScores`` : ``support.segment_count == len(forecast.segment_s)``, les
+       mêmes effectifs de classe et le même ``support.model_error`` (la première
+       horloge calée sert de référence) ;
+    6. sous ces mêmes horloges, comme ``ScenarioScores`` : ``passage_errors`` présent
+       **si et seulement si** ``scenario == USAGE`` ; en usage,
+       ``len(errors_s) == len(forecast.point_s)`` et
+       ``len(usage_target.comparable) == len(forecast.target_s)``.
 
     Producteur
     ----------
@@ -559,8 +567,10 @@ class CalibratedScenarioScores:
 
     Non promis
     ----------
-    Aucune enveloppe (D5.4 ; décision 8) : la prévision calée change d'une horloge à
-    l'autre.
+    - Aucune enveloppe (D5.4 ; décision 8) : la prévision calée change d'une horloge à
+      l'autre ;
+    - une horloge non calée n'a pas de scores et n'entre dans aucune comparaison des
+      invariants 5 et 6 (décision Q2 de M4c-2).
     """
 
     model: ModelKind
@@ -590,6 +600,57 @@ class CalibratedScenarioScores:
                     f"le calage sous {calibration.clock} doit porter le modèle "
                     f"{self.model} et le scénario {self.scenario}."
                 )
+        present = [entry.scores for entry in self.clocks if entry.scores is not None]
+        if present:
+            self._check_supports(present)
+            self._check_passages(present)
+
+    def _check_supports(self, present: list[ClockScores]) -> None:
+        """Invariant 5, recopié de ``ScenarioScores`` (décision Q2 de M4c-2)."""
+        segment_count = len(self.forecast.segment_s)
+        first = present[0].support
+        counts = [regime.segment_count for regime in first.classes]
+        for scores in present:
+            support = scores.support
+            if support.segment_count != segment_count:
+                raise ContractError(
+                    f"support.segment_count ({support.segment_count}) sous "
+                    f"{scores.clock} doit valoir len(forecast.segment_s) "
+                    f"({segment_count})."
+                )
+            if [regime.segment_count for regime in support.classes] != counts:
+                raise ContractError(
+                    f"les effectifs de classe sous {scores.clock} doivent être ceux "
+                    "des autres horloges."
+                )
+            if support.model_error != first.model_error:
+                raise ContractError(
+                    f"support.model_error sous {scores.clock} doit être celui des "
+                    "autres horloges (D7.1)."
+                )
+
+    def _check_passages(self, present: list[ClockScores]) -> None:
+        """Invariant 6, recopié de ``ScenarioScores`` (décision Q2 de M4c-2)."""
+        usage = self.scenario is Scenario.USAGE
+        for scores in present:
+            errors, target = scores.passage_errors, scores.usage_target
+            if (errors is not None) != usage:
+                raise ContractError(
+                    f"passage_errors sous {scores.clock} est présent si et seulement "
+                    f"si le scénario est l'usage, reçu {self.scenario}."
+                )
+            if errors is None or target is None:
+                continue
+            if len(errors.errors_s) != len(self.forecast.point_s):
+                raise ContractError(
+                    f"passage_errors sous {scores.clock} porte une erreur par point "
+                    f"({len(self.forecast.point_s)}), reçu {len(errors.errors_s)}."
+                )
+            if len(target.comparable) != len(self.forecast.target_s):
+                raise ContractError(
+                    f"usage_target sous {scores.clock} porte un élément par cumulé de "
+                    f"K ({len(self.forecast.target_s)}), reçu {len(target.comparable)}."
+                )
 
 
 @dataclass(frozen=True)
@@ -611,7 +672,10 @@ class CalibratedOutingScores:
     1. ``control.scenario is CONTROL`` ;
     2. ``usage`` présent : ``usage.scenario is USAGE``, même modèle que ``control`` ;
     3. pour chaque scénario présent,
-       ``len(forecast.segment_s) == len(observation.segments)``.
+       ``len(forecast.segment_s) == len(observation.segments)`` ;
+    4. en usage, comme ``OutingScores`` : ``len(point_s) ==
+       len(observation.error_points)`` et ``len(target_s) ==
+       len(observation.targets)``.
 
     Producteur
     ----------
@@ -654,6 +718,19 @@ class CalibratedOutingScores:
                     f"{scores.scenario} : {projections} projections pour {segments} "
                     "segments admis."
                 )
+        if self.usage is not None:
+            forecast = self.usage.forecast
+            observation = self.observation
+            if len(forecast.point_s) != len(observation.error_points):
+                raise ContractError(
+                    f"usage : {len(forecast.point_s)} cumulés pour "
+                    f"{len(observation.error_points)} points de C_k."
+                )
+            if len(forecast.target_s) != len(observation.targets):
+                raise ContractError(
+                    f"usage : {len(forecast.target_s)} cumulés pour "
+                    f"{len(observation.targets)} éléments de K."
+                )
 
 
 @dataclass(frozen=True)
@@ -672,7 +749,9 @@ class CalibratedPerformance:
     1. ``outings`` est un tuple ; sa longueur est un multiple de quatre ;
     2. par groupes consécutifs de quatre : les modèles (``control.model``) sont
        ``CALIBRATED_MODELS``, dans l'ordre ; un seul ``outing_id`` par groupe ; deux
-       groupes n'ont pas le même ``outing_id``.
+       groupes n'ont pas le même ``outing_id`` ;
+    3. dans chaque groupe, **la même observation** (``==``) pour les quatre modèles
+       (D7.1 : le support ne dépend que de l'observation ; décision Q2 de M4c-2).
 
     Producteur
     ----------
@@ -712,6 +791,11 @@ class CalibratedPerformance:
                 raise ContractError(
                     "un groupe porte une seule sortie, reçu "
                     f"[{', '.join(identifiers)}]."
+                )
+            if any(entry.observation != group[0].observation for entry in group[1:]):
+                raise ContractError(
+                    f"les quatre modèles de la sortie {identifiers[0]} portent la même "
+                    "observation (D7.1)."
                 )
             if identifiers[0] in seen:
                 raise ContractError(f"la sortie {identifiers[0]} a deux groupes.")

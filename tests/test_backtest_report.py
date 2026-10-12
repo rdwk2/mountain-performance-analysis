@@ -361,7 +361,10 @@ def test_route_comparisons_of_the_world(
         days, single, rows = COMPARISONS[comparison.route_id]
         assert (comparison.days, comparison.single_contrast) == (days, single)
         assert len(comparison.rows) == len(rows)
-        for (metric, regime, f, v0), wanted in zip(comparison.rows, rows, strict=True):
+        for (metric, regime, f, by_model), wanted in zip(
+            comparison.rows, rows, strict=True
+        ):
+            v0 = by_model[0]
             w_metric, w_regime, w_f, w_m, (w_value, w_count, w_missing) = wanted
             assert (metric.value, None if regime is None else regime.value) == (
                 w_metric,

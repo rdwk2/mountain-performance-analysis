@@ -4800,7 +4800,8 @@ Les documents des scores d'un modèle sur une sortie (`0010` D14).
 
 - `model` — sans unité — la nature du modèle.
 - `control` — sans unité — le `sha256` du document `ScenarioScores` du
-  contrôle, prévision comprise.
+  contrôle, prévision comprise ; depuis le format 2, `CalibratedScenarioScores`
+  pour un modèle calé (M4c-2).
 - `usage` — sans unité — celui de l'usage ; absent sans référence (D3).
 
 #### Invariants
@@ -5016,7 +5017,7 @@ Un événement du registre, une ligne du journal (`0010` D14).
 
 1. `recorded_at` porte un fuseau, normalisé en UTC ; `previous_hash` présent :
    un `sha256` ; `correction_reason` présent : non vide ;
-2. `format_version == REGISTRY_FORMAT_VERSION` ;
+2. `format_version` dans `REGISTRY_READABLE_FORMATS` (1 ou 2, M4c-2) ;
 3. `number >= 1` ;
 4. `previous_hash` absent **si et seulement si** `number == 1` ;
 5. le contenu présent est celui du type, et lui seul ;
@@ -5094,7 +5095,7 @@ fichiers, pas par le contrat.
 |---|---|---|
 | `outing_id` | `str` | — |
 | `coverage` | `Coverage` | — |
-| `scores` | `tuple[tuple[ModelKind, OutingScores], ...]` | — |
+| `scores` | `tuple[tuple[ModelKind, OutingScores \| CalibratedOutingScores], ...]` | — |
 
 Ce qu'une exécution a produit pour une sortie (`0010` D14, D7.1).
 
@@ -5103,12 +5104,16 @@ Ce qu'une exécution a produit pour une sortie (`0010` D14, D7.1).
 - `outing_id` — sans unité — la sortie.
 - `coverage` — sans unité — sa couverture (D4.11).
 - `scores` — sans unité — les scores de chaque modèle, couples
-  `(modèle, scores)`.
+  `(modèle, scores)` : `OutingScores` pour v0 brut et le candidat,
+  `CalibratedOutingScores` pour un modèle calé (M4c-2).
 
 #### Invariants
 
 - `outing_id` non vide ; `scores` est un tuple de couples (tuples) ;
 - `scores` non vide, de modèles distincts ;
+- un modèle de `CALIBRATED_MODELS` porte des `CalibratedOutingScores`, de ce
+  modèle (`control.model`) et de cette sortie ; un autre modèle, des
+  `OutingScores` (M4c-2) ;
 - **la même observation** (`==`) pour tous les modèles (D7.1 : le support ne
   dépend que de l'observation).
 
@@ -5509,7 +5514,15 @@ horloges (`0010` D9.2, D7 ; précision de M4c-1).
 1. `model` dans `CALIBRATED_MODELS` ;
 2. `forecast.scenario is scenario` ;
 3. `clocks` est un tuple ; ses horloges sont `CLOCKS`, dans l'ordre ;
-4. chaque calage porte ce `model` et ce `scenario`.
+4. chaque calage porte ce `model` et ce `scenario` ;
+5. sous les horloges dont les scores sont présents (calées), comme
+   `ScenarioScores` : `support.segment_count == len(forecast.segment_s)`, les
+   mêmes effectifs de classe et le même `support.model_error` (la première
+   horloge calée sert de référence) ;
+6. sous ces mêmes horloges, comme `ScenarioScores` : `passage_errors` présent
+   **si et seulement si** `scenario == USAGE` ; en usage,
+   `len(errors_s) == len(forecast.point_s)` et
+   `len(usage_target.comparable) == len(forecast.target_s)`.
 
 #### Producteur
 
@@ -5521,8 +5534,10 @@ horloges (`0010` D9.2, D7 ; précision de M4c-1).
 
 #### Non promis
 
-Aucune enveloppe (D5.4 ; décision 8) : la prévision calée change d'une horloge à
-l'autre.
+- Aucune enveloppe (D5.4 ; décision 8) : la prévision calée change d'une horloge à
+  l'autre ;
+- une horloge non calée n'a pas de scores et n'entre dans aucune comparaison des
+  invariants 5 et 6 (décision Q2 de M4c-2).
 
 ---
 
@@ -5554,7 +5569,10 @@ D9.2).
 1. `control.scenario is CONTROL` ;
 2. `usage` présent : `usage.scenario is USAGE`, même modèle que `control` ;
 3. pour chaque scénario présent,
-   `len(forecast.segment_s) == len(observation.segments)`.
+   `len(forecast.segment_s) == len(observation.segments)` ;
+4. en usage, comme `OutingScores` : `len(point_s) ==
+   len(observation.error_points)` et `len(target_s) ==
+   len(observation.targets)`.
 
 #### Producteur
 
@@ -5594,7 +5612,9 @@ Le calage d'une performance évaluée et les scores calés de ses sorties scoré
 1. `outings` est un tuple ; sa longueur est un multiple de quatre ;
 2. par groupes consécutifs de quatre : les modèles (`control.model`) sont
    `CALIBRATED_MODELS`, dans l'ordre ; un seul `outing_id` par groupe ; deux
-   groupes n'ont pas le même `outing_id`.
+   groupes n'ont pas le même `outing_id` ;
+3. dans chaque groupe, **la même observation** (`==`) pour les quatre modèles
+   (D7.1 : le support ne dépend que de l'observation ; décision Q2 de M4c-2).
 
 #### Producteur
 

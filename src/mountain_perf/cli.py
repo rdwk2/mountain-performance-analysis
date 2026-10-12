@@ -24,11 +24,13 @@ from mountain_perf.backtest import (
     NO_REFERENCE,
     NOT_SCORED,
     PARIS,
+    REPORT_MODELS,
     REPORT_PARAMETER_SPECS,
     UNDERREPRESENTED,
     Aggregate,
     AggregateRow,
     BacktestError,
+    BacktestEvaluation,
     BacktestRun,
     ClockRole,
     DescentSubclass,
@@ -42,6 +44,7 @@ from mountain_perf.backtest import (
     build_series,
     civil_date,
     clock_partition,
+    common_row,
     curve_age_days,
     descent_fractions,
     descent_subclasses,
@@ -86,9 +89,13 @@ from mountain_perf.model import (
     route_endpoints,
 )
 from mountain_perf.schemas import (
+    CALIBRATED_MODELS,
     CENTRAL_CONVENTION_INDEX,
     CLOCKS,
     AdmittedTotals,
+    CalibratedOutingScores,
+    CalibratedScenarioScores,
+    CalibrationPopulation,
     Clock,
     ClockKind,
     ClockScores,
@@ -98,6 +105,8 @@ from mountain_perf.schemas import (
     LogRatioEnvelope,
     MatchResult,
     MetricValue,
+    ModelCalibration,
+    ModelKind,
     ObservedPoint,
     OutingLabel,
     OutingObservation,
@@ -107,10 +116,12 @@ from mountain_perf.schemas import (
     PassageRole,
     PassageStatus,
     PointStatus,
+    PopulationExclusionReason,
     Projection,
     RecordedTrace,
     Regime,
     RegimeClass,
+    RegistryEvent,
     RepeatabilityReference,
     RouteProfile,
     Scenario,
@@ -1019,6 +1030,27 @@ SCENARIO_LABELS: Mapping[Scenario, str] = {
 }
 """Libellés d'affichage des scénarios (``0010`` D3)."""
 
+MODEL_LABELS: Mapping[ModelKind, str] = {
+    ModelKind.V0_RAW: "v0 brut",
+    ModelKind.V0_RECALIBRATED: "v0 + effort recalé",
+    ModelKind.CONSTANT_SPEED: "vitesse constante",
+    ModelKind.NAISMITH: "Naismith",
+    ModelKind.TOBLER: "Tobler",
+}
+"""Libellés d'affichage des cinq modèles du rapport (``0010`` D9.1 ; précision de
+D15, M4c-2)."""
+
+EXCLUSION_LABELS: Mapping[PopulationExclusionReason, str] = {
+    PopulationExclusionReason.RACE: "course",
+    PopulationExclusionReason.UNLABELLED: "étiquette manquante",
+}
+"""Libellés d'affichage des motifs d'exclusion de ``C_j`` (``0010`` D2.4)."""
+
+DECLARATION_RECORDED = "{label}{number} enregistrée ; dernière ligne sha256 {seal}"
+"""La première ligne de la sortie standard de ``mperf backtest``, imprimée dès l'ajout
+de la DÉCLARATION (précision de D14, M4c-2) : un processus tué avant le RÉSULTAT
+laisse publiée l'empreinte de la ligne de la DÉCLARATION."""
+
 LEGEND = (
     "lecture de la compensation : sur des régimes homogènes, C_comp et W restent "
     "proches de 0 même quand des erreurs de signe opposé se compensent dans le total ; "
@@ -1031,23 +1063,27 @@ LEGEND = (
     "âge de la courbe : jours du jour J (ou de o_j) depuis son estimation ; négatif, "
     "elle est postérieure au jour",
     "F (0010 D8) se calcule pli par pli, sur les segments du jour retiré qu'un autre "
-    "jour observe ; v0, sur le support admis de chaque jour : mêmes jours, supports "
-    "différents",
+    "jour observe ; les modèles, sur le support admis de chaque jour : mêmes jours, "
+    "supports différents",
     "temps nul sous un M θ : un segment admis sans temps en mouvement sous ce seuil, "
     "souvent le dernier d'une trace arrêtée à l'arrivée (fenêtre de 0010 D5.2) ; D8 ne "
     "l'ajuste pas (cellule nulle, choix M02) : |L| du pli et F indisponibles",
-    "v0 + effort recalé, vitesse constante, Naismith, Tobler : non implémentée dans ce "
-    "lot (M4c)",
-    "calage des modèles (0010 D9) : non implémentée dans ce lot (M4c)",
+    "modèles calés (0010 D9.2) : v0 + effort recalé, vitesse constante, Naismith, "
+    "Tobler, calés par performance, scénario et horloge sur C_j^eff (entraînements "
+    "terminés avant o_j) ; prévision = prévision non calée ÷ effort e (v0) ou × "
+    "facteur a (baselines) ; non calé : C_j^eff vide ; pas d'enveloppe",
+    "ensemble commun : par jeu, les performances où les cinq modèles ont une valeur ; "
+    "les cinq moyennes y portent sur les mêmes performances",
     "gains, garde-fous, admission d'un effet (0010 D10) : non implémentée dans ce lot "
-    "(M4c)",
+    "(M4c-3)",
     "fourchettes (0010 D11) : non implémentée dans ce lot (M4d)",
     "dérive de longue course (0010 D12) : non implémentée dans ce lot (M4d)",
     "sensibilité (0010 D13) : non implémentée dans ce lot (M4d)",
 )
-"""La légende du rapport (§ 6.3, point 8, et § 7.4 du brief M4b-5) : la lecture de la
-compensation, les scores rétrospectifs, l'âge de la courbe, les supports de F et de
-v0, le temps nul sous un ``M θ``, puis les six rubriques des lots futurs (D15)."""
+"""La légende du rapport (§ 6.3, point 8, et § 7.4 du brief M4b-5 ; § 6.6 du brief
+M4c-2) : la lecture de la compensation, les scores rétrospectifs, l'âge de la courbe,
+les supports de F et des modèles, le temps nul sous un ``M θ``, les modèles calés,
+l'ensemble commun, puis les quatre rubriques des lots futurs (D15)."""
 
 REPORTS_DIR = "rapports"
 """Le dossier des rapports D15 sous ``MPA_DATA_DIR``, jamais réécrits."""
@@ -1078,7 +1114,8 @@ REPORT_NOT_WRITTEN_ERROR = (
     "Erreur : RÉSULTAT enregistré (événement {number} ; dernière ligne sha256 {seal}) "
     "; rapport {name} non écrit : {reason}"
 )
-"""L'erreur d'un rapport qui ne se calcule ou ne s'écrit pas après le RÉSULTAT : elle
+"""L'erreur d'un rapport qui ne s'écrit pas après le RÉSULTAT (depuis M4c-2, le
+rapport se calcule avant le RÉSULTAT, et une erreur de ce calcul est un ÉCHEC) : elle
 publie le sceau (décisions Q15 et Q17 du brief M4b-5)."""
 
 
@@ -1149,14 +1186,14 @@ def _aggregate_lines(rows: Sequence[AggregateRow], *, with_missing: bool) -> lis
     return lines
 
 
-def _performance_lines(run: BacktestRun) -> list[str]:
+def _performance_lines(run: BacktestRun | BacktestEvaluation) -> list[str]:
     """Le tableau ``performances`` : une ligne par sortie déclarée, colonnes de
     largeur fixe (§ 6.3 du brief M4b-5)."""
     scored = {outing.outing.outing_id: outing for outing in run.outings}
     unscored = {exclusion.outing_id: exclusion.reason for exclusion in run.unscored}
     header = (
         f"{'jour':<12}{'sortie':<28}{'jeu':<15}{'étiquette':<14}{'couverture':<12}"
-        f"{'préfixe':<11}{'L':<12}q_usage"
+        f"{'préfixe':<11}{'L v0':<12}q_usage v0"
     )
     lines = [f"{'performances':<13}{header}"]
     for declared in run.preparation.declaration.performances:
@@ -1193,11 +1230,12 @@ def _performance_lines(run: BacktestRun) -> list[str]:
 
 
 def _comparison_lines(
-    run: BacktestRun, entries: Sequence[ScoredPerformance]
+    run: BacktestRun | BacktestEvaluation, entries: Sequence[ScoredPerformance]
 ) -> list[str]:
     """La référence de répétabilité dans la synthèse : par parcours, ses ``F`` sous
-    l'écoulé à côté de v0 sur ses jours ; une largeur par parcours. Sans parcours de
-    répétabilité, aucune ligne (comme « écartée » sans exclusion)."""
+    l'écoulé à côté des cinq modèles sur ses jours (précision de D15, M4c-2) ; la
+    colonne de ``F`` a une largeur par parcours. Sans parcours de répétabilité, aucune
+    ligne (comme « écartée » sans exclusion)."""
     comparisons = route_comparisons(entries, run.references)
     if not comparisons:
         return []
@@ -1207,41 +1245,158 @@ def _comparison_lines(
         single = ", un seul contraste" if comparison.single_contrast else ""
         lines.append(
             f"{_INDENT}{comparison.route_id} — {days}{single} ; écoulé, usage : F du "
-            "parcours, v0 sur ses jours"
+            "parcours, les cinq modèles sur ses jours"
         )
         cells = [
             (
                 _metric_label(metric, regime),
-                f"F {_label(f, _plain)} (m {f.count})",
-                f"v0 {_aggregate_cell(v0, _plain)}",
+                f"{_label(f, _plain)} (m {f.count})",
+                [_aggregate_cell(value, _plain) for value in by_model],
             )
-            for metric, regime, f, v0 in comparison.rows
+            for metric, regime, f, by_model in comparison.rows
         ]
         width = max(20, max(len(f) for _, f, _ in cells) + 2)
+        models = "".join(f"{MODEL_LABELS[model]:<20}" for model in REPORT_MODELS)
+        lines.append(
+            (_INDENT + " " * 16 + f"{'F du parcours':<{width}}" + models).rstrip()
+        )
         lines += [
-            (_INDENT + f"{label:<16}{f:<{width}}{v0}").rstrip()
-            for label, f, v0 in cells
+            (
+                _INDENT + f"{label:<16}{f:<{width}}" + "".join(f"{c:<20}" for c in row)
+            ).rstrip()
+            for label, f, row in cells
         ]
     return lines
 
 
-def _summary(run: BacktestRun, threshold: float, report_name: str) -> list[str]:
-    """La synthèse (§ 6.3 et § 7.3 du brief M4b-5) : provenance, numéros et sceau du
-    registre, sorties écartées, une ligne par sortie déclarée, agrégats d'usage sous
-    l'écoulé, référence de répétabilité, diagnostics, nom du rapport."""
+def _calibration_cell(calibration: ModelCalibration) -> str:
+    """La cellule d'un calage (précision de D15, M4c-2) : ``e <effort>`` pour v0,
+    suivi de `` saturé`` si l'effort est borné, ``a <facteur>`` pour une baseline, ou
+    le libellé de son statut (``non calé``, ``erreur du modèle``)."""
+    if calibration.unavailability is not None:
+        return MISSING_LABELS[calibration.unavailability.value]
+    if calibration.effort is not None:
+        saturated = " saturé" if calibration.saturated else ""
+        return f"e {_plain(calibration.effort)}{saturated}"
+    assert calibration.factor is not None  # contrat de ModelCalibration
+    return f"a {_plain(calibration.factor)}"
+
+
+def _calibration_lines(run: BacktestRun | BacktestEvaluation) -> list[str]:
+    """La ligne de calage de chaque performance (précision de D15, M4c-2 ; décision
+    11) : son jour, ``|C_j|``, puis, lus sur sa **première sortie scorée**, sous
+    l'écoulé, en usage — en contrôle sans référence, « (contrôle) » —, ``|C_j^eff|`` et
+    la cellule de chaque modèle calé ; un jour multi-sorties le dit, avec cette
+    sortie ; une performance sans sortie scorée, ``—`` et son motif."""
+    lines = [
+        f"{'calage':<13}0010 D9.2 sur C_j (entraînements terminés avant o_j) ; écoulé, "
+        "usage (contrôle sans référence) ; e : effort de v0, a : facteur",
+        (
+            _INDENT
+            + f"{'jour':<12}{'C_j':<5}{'C_j^eff':<9}"
+            + "".join(f"{MODEL_LABELS[model]:<20}" for model in CALIBRATED_MODELS)
+        ).rstrip(),
+    ]
+    multi = {
+        declared.performance.civil_date: declared.performance.is_multi_outing
+        for declared in run.preparation.declaration.performances
+    }
+    for performance in run.calibration:
+        population = performance.population
+        day = population.civil_date
+        start = f"{_INDENT}{day.isoformat():<12}{len(population.members):<5}"
+        if not performance.outings:
+            lines.append(f"{start}{'—':<9}{MISSING_LABELS[NOT_SCORED]}")
+            continue
+        group = performance.outings[: len(CALIBRATED_MODELS)]
+        control = group[0].usage is None
+        scenarios = [entry.control if control else entry.usage for entry in group]
+        elapsed = [scores.clocks[0].calibration for scores in scenarios if scores]
+        effective = len(elapsed[0].population)
+        cells = "".join(f"{_calibration_cell(c):<20}" for c in elapsed)
+        line = f"{start}{effective:<9}{cells}".rstrip()
+        notes = []
+        if control:
+            notes.append("contrôle")
+        if multi[day]:
+            notes.append(f"jour multi-sorties, {group[0].outing_id}")
+        if notes:
+            line += f" ({' ; '.join(notes)})"
+        lines.append(line)
+    return lines
+
+
+def _model_aggregate_lines(entries: Sequence[ScoredPerformance]) -> list[str]:
+    """Les agrégats d'usage sous l'écoulé de la synthèse (précision de D15, M4c-2) :
+    par jeu, les cinq modèles côte à côte — ``L``, ``|L|``, ``max |C_k|``,
+    ``q_usage``, chacun sur son propre effectif —, puis ``|L|`` sur l'ensemble commun
+    du jeu (``common_row``)."""
+    shown = (
+        ReportMetric.LEVEL,
+        ReportMetric.ABS_LEVEL,
+        ReportMetric.MAX_ABS_PASSAGE_ERROR,
+        ReportMetric.USAGE_TARGET,
+    )
+    tables = {
+        model: {
+            row.metric: row
+            for row in aggregate_table(
+                entries, Scenario.USAGE, ClockRole.ELAPSED, model
+            )
+            if row.regime_class is None
+        }
+        for model in REPORT_MODELS
+    }
+    common = common_row(
+        entries, Scenario.USAGE, ClockRole.ELAPSED, ReportMetric.ABS_LEVEL
+    )
+    lines = [
+        f"{'agrégats':<13}usage, écoulé ; moyenne à poids égal par performance "
+        "(effectif) ; |L| commun : performances où les cinq modèles ont une valeur ; "
+        "détail et motifs : rapport complet"
+    ]
+    for d, dataset in enumerate(DataSet):
+        lines.append(
+            _row(DATA_SET_LABELS[dataset], [MODEL_LABELS[m] for m in REPORT_MODELS])
+        )
+        for metric in shown:
+            formatted = _metric_format(metric)
+            lines.append(
+                _row(
+                    REPORT_METRIC_LABELS[metric],
+                    [
+                        _aggregate_cell(tables[model][metric].by_set[d], formatted)
+                        for model in REPORT_MODELS
+                    ],
+                )
+            )
+        lines.append(
+            _row(
+                "|L| commun",
+                [_aggregate_cell(value, _plain) for value in common.by_set[d]],
+            )
+        )
+    return lines
+
+
+def _summary_parts(
+    run: BacktestRun | BacktestEvaluation, threshold: float
+) -> tuple[list[str], list[str]]:
+    """La synthèse **sans ses lignes du registre ni sa ligne du rapport**, calculée
+    avant le RÉSULTAT (précision de D14, M4c-2 ; décision 10) : sa première ligne,
+    puis le reste — provenance, sorties écartées, une ligne par sortie déclarée,
+    calage, agrégats des cinq modèles, référence de répétabilité, diagnostics."""
     preparation = run.preparation
     declaration = preparation.declaration
     matching = declaration.matching
-    lines = [
-        f"{'backtest':<13}v0 brut, protocole {declaration.protocol_record} — commit "
-        f"{declaration.commit[:12]} ; Δ {matching['score_step_m']:g} m, "
-        f"ε {matching['lateral_tolerance_m']:g} m, "
+    models = ", ".join(MODEL_LABELS[model] for model in REPORT_MODELS)
+    head = [
+        f"{'backtest':<13}cinq modèles ({models}), protocole "
+        f"{declaration.protocol_record} — commit {declaration.commit[:12]} ; "
+        f"Δ {matching['score_step_m']:g} m, ε {matching['lateral_tolerance_m']:g} m, "
         f"r_c {matching['cluster_radius_m']:g} m",
-        f"{'registre':<13}déclaration {run.declaration_event.number}, résultat "
-        f"{run.result_event.number} ; dernière ligne sha256 {run.seal}",
-        f"{_INDENT}à recopier au JOURNAL : l'empreinte de la dernière ligne scelle le "
-        "registre",
     ]
+    lines: list[str] = []
     read = preparation.manifest
     present = {outing.outing_id for outing in read.outings}
     others = {entry.outing_id for entry in read.refused} - present
@@ -1273,20 +1428,35 @@ def _summary(run: BacktestRun, threshold: float, report_name: str) -> list[str]:
         for exclusion in declaration.exclusions
     ]
     lines += _performance_lines(run)
+    lines += _calibration_lines(run)
     entries = scored_performances(run)
-    lines.append(
-        f"{'agrégats':<13}usage, écoulé ; moyenne à poids égal par performance "
-        "(effectif) ; détail et motifs : rapport complet"
-    )
-    usage = aggregate_table(entries, Scenario.USAGE, ClockRole.ELAPSED)
-    lines += _aggregate_lines(usage, with_missing=False)
+    lines += _model_aggregate_lines(entries)
     lines += _comparison_lines(run, entries)
-    lines += [
+    lines.append(
         f"{'diagnostics':<13}descentes roulantes et raides au seuil {threshold:.2f} ; "
-        "géométrie usage − contrôle : rapport complet",
-        f"{'rapport':<13}{report_name}",
+        "géométrie usage − contrôle : rapport complet"
+    )
+    return head, lines
+
+
+def _summary(
+    parts: tuple[list[str], list[str]],
+    declaration: int,
+    result: int,
+    seal: str,
+    report_name: str,
+) -> list[str]:
+    """La synthèse (§ 6.3 et § 7.3 du brief M4b-5 ; § 6.6 du brief M4c-2) : les
+    parties calculées avant le RÉSULTAT, les deux lignes du registre insérées après la
+    première, puis la ligne du rapport."""
+    head, rest = parts
+    registry = [
+        f"{'registre':<13}déclaration {declaration}, résultat {result} ; dernière "
+        f"ligne sha256 {seal}",
+        f"{_INDENT}à recopier au JOURNAL : l'empreinte de la dernière ligne scelle le "
+        "registre",
     ]
-    return lines
+    return [*head, *registry, *rest, f"{'rapport':<13}{report_name}"]
 
 
 def _fold_causes(reference: RepeatabilityReference) -> list[str]:
@@ -1448,7 +1618,9 @@ def _subclass_count(count: int, subclass: DescentSubclass, under: bool) -> str:
     return text
 
 
-def _descent_lines(run: BacktestRun, threshold: float) -> list[str]:
+def _descent_lines(
+    run: BacktestRun | BacktestEvaluation, threshold: float
+) -> list[str]:
     """Les sous-classes de descente de chaque sortie scorée, puis leur total
     (précision de D6, M4b-5 ; diagnostic, ni cible ni garde-fou)."""
     lines = [
@@ -1509,7 +1681,7 @@ def _descent_lines(run: BacktestRun, threshold: float) -> list[str]:
     return lines
 
 
-def _geometry_lines(run: BacktestRun) -> list[str]:
+def _geometry_lines(run: BacktestRun | BacktestEvaluation) -> list[str]:
     """Le diagnostic de géométrie de chaque sortie scorée (précision de D3, M4b-5) :
     ``G`` et ses quatre classes, ou « sans référence »."""
     lines = [
@@ -1539,7 +1711,9 @@ def _geometry_lines(run: BacktestRun) -> list[str]:
     return lines
 
 
-def _detail_lines(run: BacktestRun, outing: OutingRun) -> list[str]:
+def _detail_lines(
+    run: BacktestRun | BacktestEvaluation, outing: OutingRun
+) -> list[str]:
     """Le détail d'une sortie scorée : son en-tête, puis les sections 1 à 13 de
     ``mperf match --curve``, écrites par leurs fonctions (au caractère près)."""
     preparation = run.preparation
@@ -1598,34 +1772,192 @@ def _detail_lines(run: BacktestRun, outing: OutingRun) -> list[str]:
     return lines + buffer.getvalue().splitlines()
 
 
-def _full_report(run: BacktestRun, summary: Sequence[str], threshold: float) -> str:
-    """Le rapport complet (§ 6.3 et § 7.4 du brief M4b-5) : la synthèse ; les six
-    tables d'agrégats ; la référence D8 de chaque parcours ; les descentes ; la
-    géométrie ; le détail de chaque sortie scorée ; les sorties non scorées ; la
-    légende. Aucune ligne vide, aucune espace en fin de ligne."""
-    lines = list(summary)
+def _population_line(population: CalibrationPopulation) -> str:
+    """``C_j`` d'une performance (``0010`` D2.4 ; précision de D15, M4c-2) : ses
+    membres, « aucun » sans membre, puis ses exclusions et leur motif s'il y en a."""
+    members = population.members
+    days = ", ".join(day.isoformat() for day in members) if members else "aucun"
+    line = f"{'calage':<13}C_j {_count(len(members), 'membre', 'membres')} : {days}"
+    if population.excluded:
+        excluded = ", ".join(
+            f"{exclusion.civil_date.isoformat()} {EXCLUSION_LABELS[exclusion.reason]}"
+            for exclusion in population.excluded
+        )
+        line += f" ; exclues : {excluded}"
+    return line
+
+
+def _calibration_text(calibration: ModelCalibration) -> str:
+    """Le calage sous une horloge (précision de D15, M4c-2) : ``C_j^eff``, ``β`` et la
+    cellule du calage ; ``non calé`` ; ``erreur du modèle, C_j^eff <n>`` ; suivi des
+    retraits et de leur motif s'il y en a."""
+    effective = len(calibration.population)
+    status = calibration.unavailability
+    if status is None:
+        assert calibration.beta is not None  # contrat de ModelCalibration
+        text = (
+            f"C_j^eff {effective}, β {_log(calibration.beta)}, "
+            f"{_calibration_cell(calibration)}"
+        )
+    elif status is Unavailability.NOT_CALIBRATED:
+        text = MISSING_LABELS[status.value]
+    else:
+        text = f"{MISSING_LABELS[status.value]}, C_j^eff {effective}"
+    if calibration.withdrawals:
+        withdrawals = ", ".join(
+            f"{withdrawal.civil_date.isoformat()} "
+            f"{MISSING_LABELS[withdrawal.reason.value]}"
+            for withdrawal in calibration.withdrawals
+        )
+        text += f" (retraits : {withdrawals})"
+    return text
+
+
+def _calibrated_scenario_lines(
+    label: str, scores: CalibratedScenarioScores, clocks: Sequence[Clock]
+) -> list[str]:
+    """Un scénario d'un modèle calé (précision de D15, M4c-2) : la source de sa
+    prévision, son calage sous chaque horloge du rapport, les dix-sept lignes de
+    métriques — le libellé du statut sous une horloge non calée —, puis, en usage,
+    ``max |C_k|``, ``max C_k``, ``min C_k`` et ``q_usage`` (D7.3, D7.4). Ni
+    enveloppe, ni diagnostic, ni détail des points (D9.2 ; décision 9)."""
+    shown = [scores.clocks[CLOCKS.index(clock)] for clock in clocks]
+    lines = [f"{label:<13}{scores.forecast.source.identifier}"]
+    lines += [
+        f"{_INDENT}{_clock_label(clock)} : {_calibration_text(entry.calibration)}"
+        for clock, entry in zip(clocks, shown, strict=True)
+    ]
+    status = [
+        None
+        if entry.calibration.unavailability is None
+        else MISSING_LABELS[entry.calibration.unavailability.value]
+        for entry in shown
+    ]
+
+    def cells(values: Sequence[str]) -> list[str]:
+        return [
+            value if motif is None else motif
+            for value, motif in zip(values, status, strict=True)
+        ]
+
+    supports = [None if e.scores is None else e.scores.support for e in shown]
+    lines.append(_row("", [_clock_label(clock) for clock in clocks]))
+    lines += [_row(name, cells(row)) for name, row in _support_rows(supports)]
+    if scores.scenario is not Scenario.USAGE:
+        return lines
+    errors = [None if e.scores is None else e.scores.passage_errors for e in shown]
+    targets = [None if e.scores is None else e.scores.usage_target for e in shown]
+    lines += [
+        _row(
+            "max |C_k|",
+            cells(
+                [
+                    "" if e is None else _cell(e.max_abs_error_s, _abs_seconds)
+                    for e in errors
+                ]
+            ),
+        ),
+        _row(
+            "max C_k",
+            cells(
+                ["" if e is None else _cell(e.max_error_s, _seconds) for e in errors]
+            ),
+        ),
+        _row(
+            "min C_k",
+            cells(
+                ["" if e is None else _cell(e.min_error_s, _seconds) for e in errors]
+            ),
+        ),
+        _row(
+            "q_usage",
+            cells(["" if t is None else _cell(t.q_usage, _plain) for t in targets]),
+        ),
+    ]
+    return lines
+
+
+_CALIBRATION_RULES: Mapping[ModelKind, str] = {
+    ModelKind.V0_RECALIBRATED: "v0 brut ÷ effort e",
+    ModelKind.CONSTANT_SPEED: "prévision non calée × facteur a",
+    ModelKind.NAISMITH: "prévision non calée × facteur a",
+    ModelKind.TOBLER: "prévision non calée × facteur a",
+}
+
+
+def _calibrated_detail_lines(
+    run: BacktestRun | BacktestEvaluation, outing: OutingRun
+) -> list[str]:
+    """Après le détail de v0 brut d'une sortie scorée (précision de D15, M4c-2) :
+    ``C_j`` de sa performance, puis chaque modèle calé — usage (ou « sans référence »)
+    et contrôle, sous les horloges du rapport."""
+    outing_id = outing.outing.outing_id
+    performance = next(
+        p for p in run.calibration if any(e.outing_id == outing_id for e in p.outings)
+    )
+    clocks = report_clocks(outing.match)
+    lines = [_population_line(performance.population)]
+    for entry in performance.outings:
+        if entry.outing_id != outing_id:
+            continue
+        lines += _calibrated_model_lines(entry, clocks)
+    return lines
+
+
+def _calibrated_model_lines(
+    entry: CalibratedOutingScores, clocks: Sequence[Clock]
+) -> list[str]:
+    model = entry.control.model
+    lines = [
+        f"{'modèle':<13}{MODEL_LABELS[model]} — {_CALIBRATION_RULES[model]} ; sans "
+        "enveloppe (0010 D9.2)"
+    ]
+    usage, control = SCENARIO_LABELS[Scenario.USAGE], SCENARIO_LABELS[Scenario.CONTROL]
+    if entry.usage is None:
+        lines.append(f"{usage:<13}sans référence : scénario contrôle seul (0010 D3)")
+    else:
+        lines += _calibrated_scenario_lines(usage, entry.usage, clocks)
+    lines += _calibrated_scenario_lines(control, entry.control, clocks)
+    return lines
+
+
+def _report_body(run: BacktestRun | BacktestEvaluation, threshold: float) -> list[str]:
+    """Le corps du rapport complet, calculé avant le RÉSULTAT (précision de D14,
+    M4c-2 ; § 6.6 du brief M4c-2) : les tables d'agrégats de chaque modèle (usage puis
+    contrôle, sous les trois rôles d'horloge) ; la référence D8 de chaque parcours ;
+    les descentes ; la géométrie ; le détail de chaque sortie scorée, v0 brut puis les
+    modèles calés ; les sorties non scorées ; la légende."""
+    lines: list[str] = []
     entries = scored_performances(run)
-    for scenario in (Scenario.USAGE, Scenario.CONTROL):
-        for role in ClockRole:
-            lines.append(
-                f"{'agrégats':<13}{SCENARIO_LABELS[scenario]}, "
-                f"{CLOCK_ROLE_LABELS[role]}"
-            )
-            table = aggregate_table(entries, scenario, role)
-            lines += _aggregate_lines(table, with_missing=True)
+    for model in REPORT_MODELS:
+        for scenario in (Scenario.USAGE, Scenario.CONTROL):
+            for role in ClockRole:
+                lines.append(
+                    f"{'agrégats':<13}{MODEL_LABELS[model]} — "
+                    f"{SCENARIO_LABELS[scenario]}, {CLOCK_ROLE_LABELS[role]}"
+                )
+                table = aggregate_table(entries, scenario, role, model)
+                lines += _aggregate_lines(table, with_missing=True)
     for route_id, reference in run.references:
         lines += _reference_lines(route_id, reference)
     lines += _descent_lines(run, threshold)
     lines += _geometry_lines(run)
     for outing in run.outings:
         lines += _detail_lines(run, outing)
+        lines += _calibrated_detail_lines(run, outing)
     lines += [
         f"{'non scorée':<13}{exclusion.outing_id} — {exclusion.reason}"
         for exclusion in run.unscored
     ]
     lines.append(f"{'légende':<13}{LEGEND[0]}")
     lines += [f"{_INDENT}{text}" for text in LEGEND[1:]]
-    return "\n".join(lines) + "\n"
+    return lines
+
+
+def _full_report(summary: Sequence[str], body: Sequence[str]) -> str:
+    """Le rapport complet (§ 6.3 et § 7.4 du brief M4b-5 ; § 6.6 du brief M4c-2) : la
+    synthèse, puis le corps. Aucune ligne vide, aucune espace en fin de ligne."""
+    return "\n".join([*summary, *body]) + "\n"
 
 
 def _given(args: argparse.Namespace, options: dict[str, str]) -> dict[str, float]:
@@ -1705,12 +2037,14 @@ def _run_match(args: argparse.Namespace) -> None:
 
 
 def _run_backtest(args: argparse.Namespace) -> int:
-    """``mperf backtest`` (§ 6.3 du brief M4b-5), dans cet ordre : le seuil des
-    descentes ; ``MPA_DATA_DIR`` ; l'état git du paquet exécuté, un arbre modifié
-    refusé ; le nom du rapport prévu, refusé s'il existe ; la préparation et
-    l'exécution enregistrée ; la synthèse et le rapport calculés, puis le rapport
-    écrit (une erreur ou une interruption y publie le sceau, et retire le fichier
-    commencé) ; la synthèse."""
+    """``mperf backtest`` (§ 6.3 du brief M4b-5 ; § 6.6 du brief M4c-2), dans cet
+    ordre : le seuil des descentes ; ``MPA_DATA_DIR`` ; l'état git du paquet exécuté,
+    un arbre modifié refusé ; le nom du rapport prévu, refusé s'il existe ; la
+    préparation ; l'exécution enregistrée, qui publie l'empreinte de la DÉCLARATION
+    dès son ajout (première ligne de la sortie standard) et calcule la synthèse et le
+    corps du rapport avant le RÉSULTAT (une erreur y est un ÉCHEC technique) ; puis
+    le rapport écrit (une erreur ou une interruption y publie le sceau, et retire le
+    fichier commencé) ; la synthèse."""
     given = {}
     if args.descent_threshold is not None:
         given["descent_subclass_threshold"] = args.descent_threshold
@@ -1731,12 +2065,29 @@ def _run_backtest(args: argparse.Namespace) -> int:
     preparation = prepare_backtest(
         args.manifest, args.curve, commit=state.commit, tree_modified=False
     )
-    run = run_backtest(preparation, registry)
+    computed: list[tuple[tuple[list[str], list[str]], list[str]]] = []
+
+    def announce(event: RegistryEvent, seal: str) -> None:
+        line = DECLARATION_RECORDED.format(
+            label=f"{'déclaration':<13}", number=event.number, seal=seal
+        )
+        print(line, flush=True)
+
+    def compute(evaluation: BacktestEvaluation) -> None:
+        parts = _summary_parts(evaluation, threshold)
+        computed.append((parts, _report_body(evaluation, threshold)))
+
+    run = run_backtest(
+        preparation, registry, on_declaration=announce, before_result=compute
+    )
+    ((parts, body),) = computed
     name = _report_name(run.result_event.number)
+    summary = _summary(
+        parts, run.declaration_event.number, run.result_event.number, run.seal, name
+    )
     created: Path | None = None
     try:
-        summary = _summary(run, threshold, name)
-        text = _full_report(run, summary, threshold)
+        text = _full_report(summary, body)
         (data / REPORTS_DIR).mkdir(exist_ok=True)
         with (data / name).open("x", encoding="utf-8", newline="\n") as report:
             created = data / name

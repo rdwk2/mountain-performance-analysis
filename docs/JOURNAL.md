@@ -16,6 +16,49 @@ Backtest (à partir de M4) : métrique avant → après.
 
 ---
 
+### 2026-10-12 · M4c-2 — contrôle réel
+Contrôle réel (rdw, sur `1087e34`, tête de la branche de la PR #23 après la fusion de
+`main`, arbre propre) : `just backtest` sur le manifeste et la courbe réels, code 0 en
+trois minutes environ. Au registre réel, la DÉCLARATION 3 et le RÉSULTAT 4, au format 2,
+à la suite de la DÉCLARATION 1 et du RÉSULTAT 2 de M4b-5 ; `verify_registry` relit les
+quatre lignes (formats 1, 1, 2, 2) ; sceau (empreinte de la dernière ligne)
+`0df73a8364b1cc62521f9d0975ddb51c5cc469e840607291a7364bda0c348705` ; rapport
+`rapports/backtest-0004.txt` (5 516 lignes). La DÉCLARATION 3 porte le commit de la
+branche, `1087e343100d59d6a357e69d63bcd4ffe7fffcc7`, que `refs/pull/23/head` garde
+joignable ; `main` reçoit la PR en un seul commit (« Squash and merge »), celui de la
+PR #23. Relecture de la conception, en lecture seule : les 660 `β` du RÉSULTAT 4 égaux à
+ceux de l'oracle de M4c-1 à 4,4e−16 près, mêmes statuts ; synthèse et rapport
+identiques, hors du commit et du sceau, à ceux du prototype sur le même manifeste et la
+même courbe ; les documents ne diffèrent de ceux de la même exécution sous Linux que par
+les instants de lecture et de calcul et, sur quelques flottants, d'au plus 1,1e−13 en
+valeur relative (arrondis des fonctions mathématiques, qui diffèrent d'une plateforme à
+l'autre). Le registre réel est désormais au format 2 : le code de `main` d'avant cette PR
+ne le relit plus. Agrégats d'usage sous l'écoulé, par jeu (moyenne à poids égal par
+performance, effectif ; `|L|` commun : performances où les cinq modèles ont une valeur)
+— la synthèse par sortie reste dans le rapport, hors du dépôt (règle 1 de `CLAUDE.md`) :
+```text
+             répétabilité    v0 brut             v0 + effort recalé  vitesse constante   Naismith            Tobler
+             L               −0.062994 (8)       +0.084572 (4)       +0.114472 (4)       +0.082429 (4)       +0.082068 (4)
+             |L|             0.090563 (8)        0.110488 (4)        0.114472 (4)        0.115668 (4)        0.121213 (4)
+             max |C_k|       430.6 (8)           664.9 (4)           988.7 (4)           848.1 (4)           668.7 (4)
+             q_usage         0.048133 (2)        0.126769 (2)        0.127930 (2)        0.176743 (2)        0.102106 (2)
+             |L| commun      0.066520 (4)        0.110488 (4)        0.114472 (4)        0.115668 (4)        0.121213 (4)
+             développement   v0 brut             v0 + effort recalé  vitesse constante   Naismith            Tobler
+             L               −0.127489 (3)       −0.064495 (3)       −0.007878 (3)       −0.068026 (3)       −0.080463 (3)
+             |L|             0.127489 (3)        0.086416 (3)        0.066512 (3)        0.091007 (3)        0.107031 (3)
+             max |C_k|       193.8 (3)           191.5 (3)           855.5 (3)           346.7 (3)           196.7 (3)
+             q_usage         0.044795 (1)        0.020672 (1)        0.089799 (1)        0.069847 (1)        0.035566 (1)
+             |L| commun      0.127489 (3)        0.086416 (3)        0.066512 (3)        0.091007 (3)        0.107031 (3)
+             confirmation    v0 brut             v0 + effort recalé  vitesse constante   Naismith            Tobler
+             L               — (0)               — (0)               — (0)               — (0)               — (0)
+             |L|             — (0)               — (0)               — (0)               — (0)               — (0)
+             max |C_k|       — (0)               — (0)               — (0)               — (0)               — (0)
+             q_usage         — (0)               — (0)               — (0)               — (0)               — (0)
+             |L| commun      — (0)               — (0)               — (0)               — (0)               — (0)
+```
+
+---
+
 ### 2026-10-12 · AN0 — correctifs de relecture
 Après la relecture C de la PR #22 : la charte (§ 8, une affirmation du README ne porte
 aucun chiffre ; § 3, un type `demenagement` au journal des événements ; § 10, les plans
@@ -24,6 +67,55 @@ les producteurs ; `GPS_GAP` ne marque que les trous de positions). Un second cor
 du moteur, appliqué tel quel, retire du `BACKLOG.md` deux valeurs d'une seule sortie.
 L'entrée AN0 cite aussi deux nettoyages de la règle 1 faits hors du correctif du moteur.
 Conclusion : `just check` vert, 3 945 tests.
+
+---
+
+### 2026-10-10 · M4c-2 — correctifs de relecture
+Trois fichiers de tests neufs, sans rien changer à `src/`, après la relecture C de la PR
+#23 et le balayage de mutation de la conception : `test_backtest_registry_format2_guarantees.py`
+(l'accord durci sur une ligne du format 1 — modèles déclarés, une référence D8 par
+parcours ; une ligne du format 2 qui cite un document du format 1 ;
+`DOCUMENT_FIRST_FORMAT` en lecture seule ; l'ordre des contrôles du codec, des jours
+d'une référence et d'`OutingOutcome`), `test_schemas_calibrated_scores_guarantees.py` (la
+même observation pour chaque modèle d'un groupe ; l'ordre des contrôles de
+`CalibratedPerformance` et de `CalibratedScenarioScores`) et
+`test_backtest_five_models_guarantees.py` (la première ligne vidée aussitôt ; une
+interruption au clavier dans le calcul du rapport ; le statut `model_error` d'une horloge
+calée ; les deux notes de la ligne de calage ; objets gelés et tuples). Conclusion :
+`just check` vert, 4 083 tests.
+
+---
+
+### 2026-10-10 · M4c-2 — Backtest : just backtest à cinq modèles
+`just backtest` déclare et score les cinq modèles de `0010` D9.1, d'après
+`42_BRIEF_M4C-2.md` (révision 1) et le feu vert de sa relecture (sept précisions, dont
+une phrase de la précision de D14). Le registre passe au format 2, extension stricte du
+format 1 : un type de document de plus, `CalibratedScenarioScores` ; chaque document
+relu au format de l'événement qui le cite ; une ligne du format 1 qui porterait un
+modèle calé ne se vérifie pas ; l'accord, pour toute ligne, exige chaque modèle déclaré
+sur chaque sortie scorée et une référence D8 par parcours de répétabilité, aux jours
+exacts. Trois invariants des scores calés, recopiés de M4b-2. L'exécution calcule les
+baselines non calées et le calage de M4c-1 avant le RÉSULTAT, avec deux rappels :
+l'empreinte de la DÉCLARATION publiée dès son ajout (première ligne de la sortie
+standard), la synthèse et le corps du rapport calculés avant le RÉSULTAT (une erreur y
+est un ÉCHEC technique). Le rapport D15 à cinq modèles : ligne de calage, agrégats côte
+à côte, `|L|` sur l'ensemble commun, référence D8 à cinq colonnes, 30 tables, détail
+calé de chaque sortie sans enveloppe. Hygiène : `git --no-optional-locks status`,
+longueur de la référence de `baseline_scores` sans chronologie, docstring de
+`ProjectedTimeline`. Deux précisions de `0010` (D14, D15). Sur le monde synthétique
+de M4b-5 : le rapport complet (5 157 lignes) et ses deux synthèses identiques octet
+pour octet aux fixtures du paquet dès le premier essai, les valeurs calées de l'oracle
+reproduites. Les 75 contre-épreuves du § 8.2 (l'équivalente déclarée exclue), jouées
+une à une sans cache de bytecode sur des copies du dépôt : chacune rougit au moins un
+test nommé par le brief, aucune à la seule collecte ; deux n'en rougissent qu'une
+partie (une variante construisible de « baselines sans règle », le contrat de
+`DeclaredModel` refusant la mutation directe à l'import ; « autre empreinte »
+annoncée, sans le rapport complet).
+Conclusion : `just check` vert à chaque commit, 4 063 tests (3 945 + 118). Le contrôle
+réel reste à faire par rdw (§ 11 du brief). Rangé dans
+`src/mountain_perf/{schemas/registry,schemas/calibration,backtest/codec,backtest/registry,backtest/execution,backtest/report,cli}.py`,
+`tests/`, `docs/decisions/0010-protocole-de-backtest.md`, `README.md`, branche
+`m4c/cinq-modeles`.
 
 ---
 

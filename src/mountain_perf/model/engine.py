@@ -189,8 +189,10 @@ class ProjectedTimeline:
 
     Non promis
     ----------
-    - une allure non finie ou ``<= 0`` est refusée à la construction : une baseline
-      qui en produirait lèverait au lieu d'un statut « erreur du modèle » (D7.1) ;
+    - une allure non finie ou ``<= 0`` est refusée à la construction (la classe
+      lève) ; une baseline n'en construit jamais : ``baseline_timeline`` rend alors
+      ``None``, et la baseline n'a aucune prévision sur ce profil, « erreur du
+      modèle » (D7.1, précision de D9.1 ; M4c-1) ;
     - :meth:`time_at` ne prolonge pas au-delà de ``L``.
     """
 

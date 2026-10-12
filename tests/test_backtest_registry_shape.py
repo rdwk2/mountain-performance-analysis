@@ -64,8 +64,11 @@ def _shape() -> tuple[int, str]:
 
 
 def test_shape_of_the_stored_contracts() -> None:
-    """D14 : 44 contrats stockés, et leur empreinte de forme d'aujourd'hui."""
+    """D14 : 48 contrats stockés, et leur empreinte de forme d'aujourd'hui — le format
+    2 ajoute ``CalibratedScenarioScores``, ``CalibratedClockScores``,
+    ``ModelCalibration`` et ``CalibrationWithdrawal`` (M4c-2) ; les 44 du format 1
+    gardent leur forme (``test_backtest_registry_format2.py``)."""
     assert _shape() == (
-        44,
-        "4e2f2b5569ef8b6cdf9a1ea6d7c952bd1c14e5bb409f2f9653c43847dcb6d2ed",
+        48,
+        "b369da4cbb1781823e8b48d0f73d55e5acc042251df4f45e6484b1251508ac84",
     )

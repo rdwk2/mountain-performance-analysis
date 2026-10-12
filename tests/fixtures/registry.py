@@ -8,17 +8,21 @@ from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 from fixtures import scoring
-from fixtures.repeatability import case_reference
+from fixtures.repeatability import REFERENCE, DaySpec, case_reference, days_of
 from mountain_perf.backtest import (
     MATCHING_PARAMETER_SPECS,
     curve_artifacts,
     declared_performance,
+    repeatability_reference,
 )
 from mountain_perf.model.engine import ENGINE_VERSION, PROJECTION_PARAMETER_SPECS
 from mountain_perf.schemas import (
     CLOCKS,
     ArtifactRef,
     ArtifactRole,
+    CalibratedClockScores,
+    CalibratedOutingScores,
+    CalibratedScenarioScores,
     DataSet,
     Declaration,
     DeclaredEffect,
@@ -30,6 +34,7 @@ from mountain_perf.schemas import (
     ExperimentMetric,
     FrozenReference,
     MetricValue,
+    ModelCalibration,
     ModelKind,
     Outing,
     OutingLabel,
@@ -46,6 +51,7 @@ from mountain_perf.schemas import (
     SourceRef,
     Sport,
     TargetMember,
+    Unavailability,
 )
 
 COMMIT = "0123456789abcdef0123456789abcdef01234567"
@@ -184,23 +190,29 @@ def _on(scores: ScenarioScores, source: SourceRef) -> ScenarioScores:
     return dataclasses.replace(scores, forecast=forecast)
 
 
-def outcome(outing_id: str) -> OutingOutcome:
+def v0_of(outing_id: str) -> OutingScores:
     """Les scores de v0 brut du cas de M4b-2 de la sortie, ses prévisions portées sur
     ses fichiers déclarés (§ 6.3) : la première trace en contrôle, la référence en
     usage."""
     outing = next(o for o in OUTINGS if o.outing_id == outing_id)
-    name = SCORING_CASE[outing_id]
-    chain = scoring.chain("Régimes" if name == "Régimes sans référence" else name)
-    case = scoring.scores(name)
+    case = scoring.scores(SCORING_CASE[outing_id])
     reference, usage = outing.reference, case.usage
-    scores = OutingScores(
+    return OutingScores(
         case.observation,
         _on(case.control, outing.traces[0].source),
         None
         if reference is None or usage is None
         else _on(usage, reference.artifact.source),
     )
-    return OutingOutcome(outing_id, chain.match.coverage, ((ModelKind.V0_RAW, scores),))
+
+
+def outcome(outing_id: str) -> OutingOutcome:
+    """Les scores de v0 brut de la sortie (``v0_of``) et sa couverture."""
+    name = SCORING_CASE[outing_id]
+    chain = scoring.chain("Régimes" if name == "Régimes sans référence" else name)
+    return OutingOutcome(
+        outing_id, chain.match.coverage, ((ModelKind.V0_RAW, v0_of(outing_id)),)
+    )
 
 
 def outcomes() -> tuple[OutingOutcome, ...]:
@@ -214,6 +226,55 @@ def references() -> tuple[tuple[str, RepeatabilityReference], ...]:
     reference = case_reference("Deux jours")
     source = REFERENCE_R1.artifact.source
     return (("r1", dataclasses.replace(reference, reference=source)),)
+
+
+def d8_reference(source: SourceRef, specs: list[DaySpec]) -> RepeatabilityReference:
+    """Une référence D8 des jours ``specs`` du § 7.2 de M4b-3, son fichier remplacé par
+    ``source`` (M4c-2 : les jours d'une référence sont exactement ceux du jeu)."""
+    reference = repeatability_reference(REFERENCE, days_of(specs))
+    return dataclasses.replace(reference, reference=source)
+
+
+def _not_calibrated(
+    model: ModelKind, scores: ScenarioScores
+) -> CalibratedScenarioScores:
+    return CalibratedScenarioScores(
+        model,
+        scores.scenario,
+        scores.forecast,
+        tuple(
+            CalibratedClockScores(
+                ModelCalibration(
+                    model,
+                    scores.scenario,
+                    clock,
+                    (),
+                    (),
+                    None,
+                    None,
+                    None,
+                    False,
+                    Unavailability.NOT_CALIBRATED,
+                ),
+                None,
+            )
+            for clock in CLOCKS
+        ),
+    )
+
+
+def not_calibrated(
+    outing_id: str, model: ModelKind, scores: OutingScores
+) -> CalibratedOutingScores:
+    """Les scores d'un modèle calé ``non calé`` sous les onze horloges, de prévision
+    non calée celle de ``scores`` (M4c-2) : la forme la plus simple d'un document
+    calé, pour les tests du registre."""
+    return CalibratedOutingScores(
+        outing_id,
+        scores.observation,
+        _not_calibrated(model, scores.control),
+        None if scores.usage is None else _not_calibrated(model, scores.usage),
+    )
 
 
 def experiment(**changes: object) -> ExperimentDeclaration:

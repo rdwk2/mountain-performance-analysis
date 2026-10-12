@@ -20,12 +20,13 @@ from fixtures.registry import (
     RETRIEVED_AT,
     _outing,
     at,
+    d8_reference,
     declaration,
     outcomes,
     references,
     registry_root,
 )
-from fixtures.repeatability import case_reference
+from fixtures.repeatability import MULTI, case_reference
 from mountain_perf.backtest import (
     DOCUMENTS_DIR,
     EVENTS_FILE,
@@ -398,12 +399,15 @@ def test_outings_of_another_set_or_route_are_not_held(tmp_path: Path) -> None:
         ),
     )
     root = _declared_with(tmp_path, day)
+    # w-2026-05-24 fait de r2 un parcours du jeu de répétabilité : sa référence D8 n'a
+    # que ce jour multi-sorties (M4c-2 : une référence par parcours, jours exacts).
+    r2 = d8_reference(OTHER.artifact.source, [MULTI[1]])
     append_result(
         root,
         1,
         outcomes(),
         unscored=_unscored(day),
-        references=_multi_reference(),
+        references=(*_multi_reference(), ("r2", r2)),
         recorded_at=at(1),
     )
     verify_registry(root)

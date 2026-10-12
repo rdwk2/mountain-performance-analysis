@@ -95,6 +95,13 @@ def _baseline_forecast(
             engine_version=BASELINE_VERSION,
         )
     usage = scenario is Scenario.USAGE
+    # Comme usage_forecast pour une chronologie : la ligne « (M4c-2) `baseline_scores`
+    # sans chronologie » de BACKLOG.md.
+    if usage and profile.distance_m[-1] != observation.reference_length_m:
+        raise ValueError(
+            f"baseline_scores : le profil a la longueur {profile.distance_m[-1]}, "
+            f"l'observation L = {observation.reference_length_m} : un autre tracé."
+        )
     return ModelForecast(
         scenario=scenario,
         source=profile.source,
@@ -130,7 +137,9 @@ def baseline_scores(
     décision 13) ; absente, la prévision elle-même. ``generated_at`` absent :
     maintenant, en UTC.
 
-    Précondition (``ValueError``) : ``baseline`` est l'une de ``BASELINES``.
+    Préconditions (``ValueError``) : ``baseline`` est l'une de ``BASELINES`` ; en
+    usage, ``reference`` a la longueur ``L`` de l'observation (un autre tracé sinon),
+    avec ou sans chronologie (M4c-2).
     """
     if baseline not in BASELINES:
         raise ValueError(f"baseline_scores : {baseline} n'est pas une baseline (D9.1).")

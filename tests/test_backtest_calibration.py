@@ -25,6 +25,7 @@ M4c-1 ; ``0010`` D9 et ses précisions de M4c-1, D2.4, D2.5, D3, D7.1, D7.4).
 import functools
 import math
 import random
+import re
 from dataclasses import replace
 from datetime import UTC, date, datetime
 from typing import Any
@@ -986,3 +987,34 @@ def test_june_16_has_member_days_before_its_origin_only() -> None:
         late = performance.civil_date.isoformat() in LATE_DAYS
         finished = performance.end_time < origin(J)
         assert late is not finished
+
+
+# ---------------------------------------------------------------------------
+# M4c-2 : la référence d'une baseline sans chronologie (ligne 162 de BACKLOG.md)
+# ---------------------------------------------------------------------------
+
+
+def test_reference_of_another_route_without_timeline() -> None:
+    """Brief M4c-2, § 6.4 (relecture C de la PR #21, D1) : en usage, une référence
+    d'une autre longueur que ``L`` lève ``ValueError`` avec ou sans chronologie —
+    Tobler sans chronologie par ``baseline_scores``, Naismith par ``usage_forecast`` ;
+    à la bonne longueur, Tobler reste en erreur du modèle."""
+    observation = _a0601()
+    length = observation.reference_length_m
+    other = _extreme_profile(length + 100.0)
+    with pytest.raises(
+        ValueError,
+        match=re.escape(
+            f"baseline_scores : le profil a la longueur {length + 100.0}, "
+            f"l'observation L = {length} : un autre tracé."
+        ),
+    ):
+        baseline_scores(observation, other, other, ModelKind.TOBLER, generated_at=AT)
+    with pytest.raises(ValueError, match=re.escape("usage_forecast : la chronologie")):
+        baseline_scores(observation, other, other, ModelKind.NAISMITH, generated_at=AT)
+    same = _extreme_profile(length)
+    tobler = baseline_scores(
+        observation, same, other, ModelKind.TOBLER, generated_at=AT
+    )
+    assert tobler.usage is not None
+    assert tobler.control.forecast.segment_s == (None,) * 3
