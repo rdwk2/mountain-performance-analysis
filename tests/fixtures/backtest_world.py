@@ -119,7 +119,7 @@ ROUTE_A = Itinerary(
 )
 """Le parcours ``a`` : montée, plat, descente roulante, descente raide, montée ;
 4 260 m : son dernier segment de 10 m tombe dans les 15 dernières secondes des traces
-(temps nul sous les ``M θ``, comme Q1 sur le réel)."""
+(temps nul sous les ``M θ``, comme sur des traces réelles arrêtées à l'arrivée)."""
 
 ROUTE_B = Itinerary(
     x0_m=0.0,
