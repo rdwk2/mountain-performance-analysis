@@ -68,7 +68,7 @@ se confondrait avec la forme de la courbe elle-même.
 
 ### D8 — d'où vient la provenance de la courbe
 
-**A. Déduire les dates du nom de fichier.** `courbe_2026-05-20_2026-06-26.csv` les
+**A. Déduire les dates du nom de fichier.** `courbe_<début>_<fin>.csv` les
 contient, mais pas la tolérance de FC, ni le type d'activité, ni la largeur de
 tranche — et un fichier renommé mentirait sans que rien ne le détecte.
 

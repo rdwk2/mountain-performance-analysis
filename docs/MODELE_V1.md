@@ -108,15 +108,13 @@ courbe unique l'absorbe en moyenne. C'est le sujet du M8.
 
 ## 4. Repères physiologiques de référence
 
-Valeurs mesurées sur la saison précédente, utiles comme ordres de grandeur et
-comme tests de vraisemblance (une projection qui les contredit franchement est
-suspecte). **Ce sont des repères datés, pas des constantes du modèle.**
-
-- intensité d'entraînement habituelle : ~150 bpm, ~9,5 km/h à plat à cette FC
-- FC max observée en course : 171 ; FC moyenne sur l'ultra : 137
-- VAM : ~570 m/h au départ, ~535 m/h en milieu de journée par forte chaleur,
-  ~660 m/h de nuit au frais
-- efficience de grimpe (VAM ÷ FC) : de ~3,5 dans le creux à ~4,6 au frais
+Des valeurs mesurées sur la saison précédente servent d'ordres de grandeur et de
+tests de vraisemblance (une projection qui les contredit franchement est suspecte) :
+l'intensité d'entraînement habituelle et la vitesse à plat qui lui correspond, la FC
+en course, la VAM selon l'heure et la chaleur, l'efficience de grimpe (VAM ÷ FC).
+**Ce sont des repères datés, pas des constantes du modèle** ; tirés des données de
+l'athlète, ils vivent avec elles, hors du dépôt (`MPA_DATA_DIR`, règle 1 de
+`CLAUDE.md`).
 
 ---
 
