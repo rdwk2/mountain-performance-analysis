@@ -16,6 +16,49 @@ Backtest (à partir de M4) : métrique avant → après.
 
 ---
 
+### 2026-10-12 · M4c-2 — contrôle réel
+Contrôle réel (rdw, sur `1087e34`, tête de la branche de la PR #23 après la fusion de
+`main`, arbre propre) : `just backtest` sur le manifeste et la courbe réels, code 0 en
+trois minutes environ. Au registre réel, la DÉCLARATION 3 et le RÉSULTAT 4, au format 2,
+à la suite de la DÉCLARATION 1 et du RÉSULTAT 2 de M4b-5 ; `verify_registry` relit les
+quatre lignes (formats 1, 1, 2, 2) ; sceau (empreinte de la dernière ligne)
+`0df73a8364b1cc62521f9d0975ddb51c5cc469e840607291a7364bda0c348705` ; rapport
+`rapports/backtest-0004.txt` (5 516 lignes). La DÉCLARATION 3 porte le commit de la
+branche, `1087e343100d59d6a357e69d63bcd4ffe7fffcc7`, que `refs/pull/23/head` garde
+joignable ; `main` reçoit la PR en un seul commit (« Squash and merge »), celui de la
+PR #23. Relecture de la conception, en lecture seule : les 660 `β` du RÉSULTAT 4 égaux à
+ceux de l'oracle de M4c-1 à 4,4e−16 près, mêmes statuts ; synthèse et rapport
+identiques, hors du commit et du sceau, à ceux du prototype sur le même manifeste et la
+même courbe ; les documents ne diffèrent de ceux de la même exécution sous Linux que par
+les instants de lecture et de calcul et, sur quelques flottants, d'au plus 1,1e−13 en
+valeur relative (arrondis des fonctions mathématiques, qui diffèrent d'une plateforme à
+l'autre). Le registre réel est désormais au format 2 : le code de `main` d'avant cette PR
+ne le relit plus. Agrégats d'usage sous l'écoulé, par jeu (moyenne à poids égal par
+performance, effectif ; `|L|` commun : performances où les cinq modèles ont une valeur)
+— la synthèse par sortie reste dans le rapport, hors du dépôt (règle 1 de `CLAUDE.md`) :
+```text
+             répétabilité    v0 brut             v0 + effort recalé  vitesse constante   Naismith            Tobler
+             L               −0.062994 (8)       +0.084572 (4)       +0.114472 (4)       +0.082429 (4)       +0.082068 (4)
+             |L|             0.090563 (8)        0.110488 (4)        0.114472 (4)        0.115668 (4)        0.121213 (4)
+             max |C_k|       430.6 (8)           664.9 (4)           988.7 (4)           848.1 (4)           668.7 (4)
+             q_usage         0.048133 (2)        0.126769 (2)        0.127930 (2)        0.176743 (2)        0.102106 (2)
+             |L| commun      0.066520 (4)        0.110488 (4)        0.114472 (4)        0.115668 (4)        0.121213 (4)
+             développement   v0 brut             v0 + effort recalé  vitesse constante   Naismith            Tobler
+             L               −0.127489 (3)       −0.064495 (3)       −0.007878 (3)       −0.068026 (3)       −0.080463 (3)
+             |L|             0.127489 (3)        0.086416 (3)        0.066512 (3)        0.091007 (3)        0.107031 (3)
+             max |C_k|       193.8 (3)           191.5 (3)           855.5 (3)           346.7 (3)           196.7 (3)
+             q_usage         0.044795 (1)        0.020672 (1)        0.089799 (1)        0.069847 (1)        0.035566 (1)
+             |L| commun      0.127489 (3)        0.086416 (3)        0.066512 (3)        0.091007 (3)        0.107031 (3)
+             confirmation    v0 brut             v0 + effort recalé  vitesse constante   Naismith            Tobler
+             L               — (0)               — (0)               — (0)               — (0)               — (0)
+             |L|             — (0)               — (0)               — (0)               — (0)               — (0)
+             max |C_k|       — (0)               — (0)               — (0)               — (0)               — (0)
+             q_usage         — (0)               — (0)               — (0)               — (0)               — (0)
+             |L| commun      — (0)               — (0)               — (0)               — (0)               — (0)
+```
+
+---
+
 ### 2026-10-12 · AN0 — correctifs de relecture
 Après la relecture C de la PR #22 : la charte (§ 8, une affirmation du README ne porte
 aucun chiffre ; § 3, un type `demenagement` au journal des événements ; § 10, les plans
