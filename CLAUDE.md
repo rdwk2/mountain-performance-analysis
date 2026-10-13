@@ -132,6 +132,8 @@ uv run mperf match tests/fixtures/appariement_reference.gpx tests/fixtures/appar
 ```
 src/mountain_perf/     le code de la bibliothèque
   validation.py        vérifications partagées des contrats, ContractError (M1)
+  codec.py             écriture canonique des contrats en JSON et enveloppe des documents,
+                       commune au moteur et à la piste analyse (M4b-4, AN1-0)
   schemas/             les contrats de données (M1) — aucune E/S, aucun algorithme
     common.py          Sport, QualityFlag, SourceRef, plages physiques
     parameters.py      ParameterSpec, ParameterSet
@@ -187,7 +189,8 @@ src/mountain_perf/     le code de la bibliothèque
                        clock_scores, realized_profile (M4c-1)
     repeatability.py   two_way_fit, contraction_rate, repeatability_reference : référence
                        D8 d'un parcours (M4b-3)
-    codec.py           écriture canonique des contrats en JSON, documents (M4b-4)
+    codec.py           documents du registre : types, premier format, écriture et relecture
+                       par le codec commun (M4b-4, AN1-0)
     registry.py        journal, documents, ajout, relecture, comptage des essais (M4b-4) ;
                        format 2, accord des modèles déclarés et des références D8 (M4c-2)
     execution.py       git, domaine, déclaration, exécution enregistrée de just backtest (M4b-5) ;
