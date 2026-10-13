@@ -8,9 +8,9 @@ D7.4, D9.1, D9.2, D10.1, D10.3, D10.7. Le registre est un journal, une ligne par
 répond ; une correction est un événement neuf du même type, qui nomme celui qu'il
 corrige.
 
-Aucune entrée/sortie ici : l'écriture canonique vit dans
-``mountain_perf.backtest.codec``, le registre sur disque dans
-``mountain_perf.backtest.registry``.
+Aucune entrée/sortie ici : l'écriture canonique vit dans ``mountain_perf.codec``, les
+documents du registre dans ``mountain_perf.backtest.codec``, le registre sur disque
+dans ``mountain_perf.backtest.registry``.
 """
 
 from __future__ import annotations

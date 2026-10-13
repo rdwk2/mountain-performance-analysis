@@ -1,9 +1,11 @@
 """Imports du registre (§ 6 et § 8.1, test 13, du brief M4b-4).
 
-Les contrats n'importent ni ``backtest`` ni ``model`` ; l'écriture canonique n'importe
-du projet que ``mountain_perf.schemas`` ; le registre, ses seuls modules nommés ; aucune
-dépendance nouvelle ; aucun module existant n'importe le codec ni le registre, hors
-l'export de ``backtest/__init__.py`` (et le registre, qui importe le codec).
+Les contrats n'importent ni ``backtest`` ni ``model`` ; les documents du registre
+(``backtest/codec.py``) n'importent du projet que ``mountain_perf.schemas`` et, depuis
+AN1-0, le codec commun ``mountain_perf.codec`` (``tests/test_codec.py``) ; le registre,
+ses seuls modules nommés ; aucune dépendance nouvelle ; aucun module existant n'importe
+le codec ni le registre, hors l'export de ``backtest/__init__.py`` (et le registre, qui
+importe le codec).
 """
 
 import ast
@@ -12,6 +14,7 @@ from pathlib import Path
 
 import mountain_perf
 import mountain_perf.backtest as backtest
+import mountain_perf.backtest.codec as backtest_codec
 import mountain_perf.schemas as schemas
 from test_backtest_metrics_reuse import _defined_names, _imported_modules, _package
 
@@ -78,8 +81,9 @@ def test_contracts_import_only_the_named_contracts() -> None:
     assert imported["mountain_perf.schemas.scoring"] <= {"OutingScores", "Scenario"}
 
 
-def test_codec_imports_schemas_only() -> None:
-    assert _project(CODEC_MODULE) == {"mountain_perf.schemas"}
+def test_codec_imports_schemas_and_the_common_codec_only() -> None:
+    """Depuis AN1-0, aussi le codec commun, dont la partie générique est réexportée."""
+    assert _project(CODEC_MODULE) == {"mountain_perf.codec", "mountain_perf.schemas"}
     assert _outside(CODEC_MODULE) <= {
         "collections.abc",
         "dataclasses",
@@ -131,10 +135,13 @@ def test_no_module_imports_codec_or_registry_but_the_backtest_package() -> None:
     """§ 6 : seuls ``backtest/__init__.py`` (export) et le registre (qui importe le
     codec) les importent — et, depuis M4b-5, l'exécution, qui écrit au registre, et
     ``cli.py``, qui lit le nombre d'événements avant tout écrit (§ 6.0 du brief
-    M4b-5)."""
-    defined = _defined_names(
-        ast.parse(CODEC_MODULE.read_text(encoding="utf-8"))
-    ) | _defined_names(ast.parse(REGISTRY_MODULE.read_text(encoding="utf-8")))
+    M4b-5). Depuis AN1-0, les noms que ``backtest/codec.py`` réexporte du codec commun
+    comptent comme les siens."""
+    defined = (
+        _defined_names(ast.parse(CODEC_MODULE.read_text(encoding="utf-8")))
+        | set(backtest_codec.__all__)
+        | _defined_names(ast.parse(REGISTRY_MODULE.read_text(encoding="utf-8")))
+    )
     init = SOURCE / "backtest" / "__init__.py"
     importers = []
     for path in sorted(SOURCE.rglob("*.py")):
