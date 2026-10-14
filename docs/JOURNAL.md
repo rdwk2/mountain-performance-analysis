@@ -16,6 +16,18 @@ Backtest (à partir de M4) : métrique avant → après.
 
 ---
 
+### 2026-10-14 · AN1-0 — correctifs de relecture
+Des tests neufs dans `tests/test_codec.py`, sans rien changer à `src/`, après la
+relecture de la PR #24 et un balayage de mutation : l'ordre des contrôles de
+l'enveloppe, sur des documents qui violent deux contrôles voisins ; le texte exact de
+ses refus, à l'écriture comme à la relecture ; le chemin de la valeur en tête des
+messages d'erreur de la partie générique (élément d'un tuple, valeur d'une table, à
+l'écriture comme à la relecture) ; les annotations non prises en charge, nommées.
+L'entrée AN1-0 dit que deux tests d'imports du codec sont amendés. Conclusion :
+`just check` vert, 4 111 tests.
+
+---
+
 ### 2026-10-13 · AN1-0 — Codec commun
 La partie générique de l'écriture canonique (`encode_value`, `decode_value`,
 `encode_contract`, `decode_contract`, `canonical_bytes`, `content_hash`, `CodecError`,
@@ -26,8 +38,8 @@ admis, le premier format de chacun et le numéro de format (`docs/decisions/0013
 et `encode_document` et `decode_document` ; `mountain_perf.backtest` garde ses exports,
 et ceux de la partie générique sont les objets du module commun. La docstring de
 `schemas/registry.py` dit où vit désormais l'écriture canonique. Aucun changement de
-comportement : les tests du registre sont inchangés, sauf le test d'imports du codec,
-amendé ; tests neufs dans `tests/test_codec.py` (imports, identité des objets
+comportement : les tests du registre sont inchangés, sauf deux tests d'imports du
+codec, amendés ; tests neufs dans `tests/test_codec.py` (imports, identité des objets
 réexportés, enveloppe sous une autre configuration que celle du registre).
 Conclusion : `just check` vert, 4 096 tests.
 
