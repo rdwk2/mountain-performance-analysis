@@ -232,7 +232,6 @@ def test_valid_baseline_not_calibrated_and_in_error() -> None:
 VIOLATIONS: list[tuple[str, dict[str, Any]]] = [
     # 1. le modèle
     ("model doit être un modèle calé", {"model": ModelKind.V0_RAW}),
-    ("model doit être un modèle calé", {"model": ModelKind.CANDIDATE}),
     # 2. population et retraits
     ("population doit être une séquence immuable", {"population": [D1]}),
     ("withdrawals doit être une séquence immuable", {"withdrawals": []}),
@@ -631,7 +630,7 @@ def test_calibrated_outing_scores_invariants() -> None:
 def test_calibrated_performance_invariants() -> None:
     """§ 6.2, ``CalibratedPerformance`` : quatre modèles par sortie, dans l'ordre de
     ``CALIBRATED_MODELS`` ; une seule sortie par groupe ; deux groupes de sorties
-    distinctes."""
+    distinctes ; ``models`` non vide, de modèles distincts, chacun calé (M4c-3)."""
     performance = _monde()[date(2026, 6, 18)]
     entries = performance.outings
     population = performance.population
@@ -639,11 +638,35 @@ def test_calibrated_performance_invariants() -> None:
     def build(outings: Any) -> CalibratedPerformance:
         return CalibratedPerformance(population, outings)
 
+    def declared(models: Any) -> CalibratedPerformance:
+        return CalibratedPerformance(population, entries, models)
+
+    _raises(
+        "models : des modèles calés distincts, un au moins, reçu [].",
+        declared,
+        models=(),
+    )
+    _raises(
+        "models : des modèles calés distincts, un au moins, reçu "
+        "[v0_recalibrated, v0_recalibrated].",
+        declared,
+        models=(ModelKind.V0_RECALIBRATED, ModelKind.V0_RECALIBRATED),
+    )
+    _raises(
+        "model doit être un modèle calé (D9.1), reçu v0_raw.",
+        declared,
+        models=(ModelKind.V0_RAW,),
+    )
     assert build(entries).outings == entries
     _raises("outings doit être une séquence immuable", build, outings=list(entries))
     _raises("modèles par sortie", build, outings=entries[:7])
     swapped = (entries[1], entries[0], *entries[2:])
-    _raises("suivent CALIBRATED_MODELS", build, outings=swapped)
+    _raises(
+        "les modèles d'une sortie suivent [v0_recalibrated, constant_speed, naismith, "
+        "tobler]",
+        build,
+        outings=swapped,
+    )
     renamed = (*entries[:3], replace(entries[3], outing_id="j3b-0618"), *entries[4:])
     _raises("une seule sortie", build, outings=renamed)
     _raises("deux groupes", build, outings=(*entries[:4], *entries[:4]))

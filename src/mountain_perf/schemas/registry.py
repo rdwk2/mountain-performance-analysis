@@ -25,7 +25,7 @@ from itertools import pairwise
 from types import MappingProxyType
 
 from mountain_perf.schemas.calibration import (
-    CALIBRATED_MODELS,
+    CALIBRATED_KINDS,
     CalibratedOutingScores,
     ModelKind,
 )
@@ -48,7 +48,7 @@ from mountain_perf.validation import (
     require_non_empty,
 )
 
-REGISTRY_FORMAT_VERSION = 2
+REGISTRY_FORMAT_VERSION = 3
 """Version du format que l'ajout d'un événement ou d'un document écrit (``0010`` D14).
 
 Chaque document la porte, chaque événement aussi (``format_version``). Le registre
@@ -57,11 +57,19 @@ stocké qui change de forme demande d'augmenter cette version, et de dire commen
 relire l'ancien format. Le format 2 (M4c-2) étend le format 1 sans changer la forme
 d'aucun de ses contrats : il ajoute le document des scores calés
 (``CalibratedScenarioScores``) ; une ligne ou un document du format 1 se relit donc par
-les contrats du jour (précision de D14, M4c-2)."""
+les contrats du jour (précision de D14, M4c-2). Le format 3 (M4c-3) ajoute le document
+d'admission (``Admission``) et deux champs, ``Result.admission`` et
+``ExperimentDeclaration.reference_documents`` : une ligne d'un format antérieur se relit
+sans eux — le registre les ajoute absents avant le décodage, et les retire à la
+réécriture canonique (précision de D14, M4c-3)."""
 
-REGISTRY_READABLE_FORMATS: tuple[int, ...] = (1, 2)
-"""Les formats que le registre relit, dans l'ordre (précision de D14, M4c-2) : chaque
-ligne au sien, chaque document au format de l'événement qui le cite."""
+REGISTRY_READABLE_FORMATS: tuple[int, ...] = (1, 2, 3)
+"""Les formats que le registre relit, dans l'ordre (précisions de D14, M4c-2 et
+M4c-3) : chaque ligne au sien, chaque document au format de l'événement qui le cite."""
+
+ADMISSION_FIRST_FORMAT = 3
+"""Le premier format dont le RÉSULTAT d'une expérience cite un document d'admission et
+dont l'expérience fige ses documents D8 (précision de D14, M4c-3)."""
 
 CURVE_REF_HASH_LENGTH = 12
 """Nombre de caractères de l'empreinte ``sha256`` du CSV recopiés dans ``curve_ref``
@@ -470,7 +478,8 @@ class DeclaredUsageTarget:
     ----------
     - ``route_id`` non vide ; ``members`` est un tuple, ``weights`` aussi s'il est
       présent ;
-    - ``members`` non vide ; le dernier élément est l'arrivée, et lui seul ;
+    - ``members`` non vide ; au plus une arrivée, en dernier si elle est présente —
+      D7.4 n'exige l'arrivée que du ``K`` par défaut (décision E4 de M4c-3) ;
     - les ``occurrence_index`` présents sont **strictement** croissants ;
     - ``weights`` présents : un poids par élément, chacun fini et ``>= 0``, de somme 1
       à ``WEIGHT_SUM_TOLERANCE`` près — la règle de ``UsageTarget`` (M4b-1), écrite de
@@ -505,14 +514,12 @@ class DeclaredUsageTarget:
 
     def _check_members(self) -> None:
         if not self.members:
-            raise ContractError(
-                "members ne doit pas être vide : K porte au moins l'arrivée."
-            )
+            raise ContractError("members ne doit pas être vide : K non vide (D7.4).")
         arrivals = [i for i, member in enumerate(self.members) if member.arrival]
-        if arrivals != [len(self.members) - 1]:
+        if arrivals not in ([], [len(self.members) - 1]):
             raise ContractError(
-                "le dernier membre de K est l'arrivée, et lui seul, reçu l'arrivée "
-                f"aux rangs {arrivals} sur {len(self.members)}."
+                "K porte au plus une arrivée, en dernier, reçu l'arrivée aux rangs "
+                f"{arrivals} sur {len(self.members)}."
             )
         indices = [
             member.occurrence_index
@@ -637,6 +644,9 @@ class ExperimentDeclaration:
     - ``usage_targets`` — sans unité — ``K`` et ses poids, par parcours ; vide : le
       ``K`` par défaut.
     - ``frozen_references`` — sans unité — les références figées et leur source.
+    - ``reference_documents`` — sans unité — l'empreinte du document D8 de chaque
+      parcours dont une référence figée vient (décision E6 de M4c-3) ; absent avant
+      le format 3.
     - ``analysis_date`` — date civile — la date d'analyse fixée d'avance (D10.7) ;
       absente pour une admission exploratoire.
 
@@ -645,14 +655,17 @@ class ExperimentDeclaration:
     - ``usage_targets`` et ``frozen_references`` sont des tuples ;
     - ``target`` n'est pas ``LEVEL`` (``|L|`` n'est pas une cible) ;
     - ``base`` vaut ``V0_RECALIBRATED`` ; ``candidate`` vaut ``CANDIDATE`` ;
+    - ``scenario`` vaut ``USAGE`` : une expérience se déclare en usage, le garde-fou
+      des passages n'existant qu'en usage (D10.4 ; précision de D10.1, M4c-3) ;
     - ``usage_targets`` non vide ⇒ ``target`` vaut ``USAGE`` ;
-    - ``target`` vaut ``USAGE`` ⇒ ``scenario`` vaut ``USAGE`` (``q_usage`` ne se
-      calcule qu'en usage, D7.4) ;
     - les parcours des ``usage_targets`` sont distincts ;
     - les clés ``(metric, clock, source, route_id)`` des références figées sont
       distinctes ;
     - chaque donneur d'une référence empruntée a une référence locale de même
-      ``metric``, de même ``clock``, pour ce parcours, disponible.
+      ``metric``, de même ``clock``, pour ce parcours, disponible ;
+    - ``reference_documents`` présent : un tuple, de parcours distincts, exactement
+      les parcours des références figées (le ``route_id`` des locales, les donneurs
+      des empruntées ; E6).
 
     Producteur
     ----------
@@ -677,6 +690,7 @@ class ExperimentDeclaration:
     candidate: ModelKind
     usage_targets: tuple[DeclaredUsageTarget, ...]
     frozen_references: tuple[FrozenReference, ...]
+    reference_documents: tuple[RepeatabilityRecord, ...] | None
     analysis_date: date | None
 
     def __post_init__(self) -> None:
@@ -697,6 +711,7 @@ class ExperimentDeclaration:
             "distinctes, reçu {} deux fois.",
         )
         self._check_donors()
+        self._check_documents()
 
     def _check_roles(self) -> None:
         if self.target is ExperimentMetric.LEVEL:
@@ -711,16 +726,16 @@ class ExperimentDeclaration:
             )
 
     def _check_usage(self) -> None:
-        usage = self.target is ExperimentMetric.USAGE
-        if self.usage_targets and not usage:
+        if self.scenario is not Scenario.USAGE:
+            raise ContractError(
+                "une expérience se déclare en usage : le garde-fou des passages "
+                "n'existe qu'en usage (D10.4 ; M4c-3), reçu le scénario "
+                f"{self.scenario}."
+            )
+        if self.usage_targets and self.target is not ExperimentMetric.USAGE:
             raise ContractError(
                 "un K déclaré n'existe que pour la cible q_usage (D10.1), reçu la "
                 f"cible {self.target}."
-            )
-        if usage and self.scenario is not Scenario.USAGE:
-            raise ContractError(
-                "la cible q_usage ne se calcule qu'en usage (D7.4), reçu le scénario "
-                f"{self.scenario}."
             )
 
     def _check_donors(self) -> None:
@@ -739,6 +754,28 @@ class ExperimentDeclaration:
                         f"{ref.metric} sous {ref.clock} n'a pas de référence locale "
                         "disponible de même métrique et de même horloge (D10.3)."
                     )
+
+    def _check_documents(self) -> None:
+        documents = self.reference_documents
+        if documents is None:
+            return
+        require_immutable_sequence(documents, "reference_documents")
+        _require_distinct(
+            [document.route_id for document in documents],
+            "les documents D8 figés portent sur des parcours distincts, reçu {!r} "
+            "deux fois.",
+        )
+        routes = {document.route_id for document in documents}
+        contributors: set[str] = set()
+        for ref in self.frozen_references:
+            if ref.source is ReferenceSource.LOCAL and ref.route_id is not None:
+                contributors.add(ref.route_id)
+            contributors.update(ref.donors)
+        if routes != contributors:
+            raise ContractError(
+                "les documents D8 figés sont ceux des parcours des références figées "
+                f"(E6), reçu {sorted(routes)} pour {sorted(contributors)}."
+            )
 
 
 @dataclass(frozen=True)
@@ -1102,13 +1139,16 @@ class Result:
     - ``outings`` — sans unité — les sorties scorées.
     - ``unscored`` — sans unité — les sorties déclarées non scorées, avec leur motif.
     - ``references`` — sans unité — les références D8 des parcours.
+    - ``admission`` — sans unité — le ``sha256`` du document d'admission d'une
+      expérience (format 3, M4c-3) ; absent sans expérience.
 
     Invariants
     ----------
     - ``outings``, ``unscored`` et ``references`` sont des tuples ;
     - les identifiants de ``outings`` et de ``unscored``, pris ensemble, sont
       distincts ;
-    - les parcours de ``references`` sont distincts.
+    - les parcours de ``references`` sont distincts ;
+    - ``admission`` présent : un ``sha256``.
 
     Producteur
     ----------
@@ -1122,14 +1162,15 @@ class Result:
     Non promis
     ----------
     - l'accord avec la déclaration est vérifié par le registre, pas par le contrat ;
-    - gains, dommages et verdict (M4c) n'y sont pas encore : une version du format
-      les ajoutera ;
+    - le document d'admission n'est pas lu par le contrat : la relecture du registre
+      le décode et recoupe sa cible et son horloge (M4c-3) ;
     - l'ordre des sorties est celui de l'appelant.
     """
 
     outings: tuple[OutingResult, ...]
     unscored: tuple[Exclusion, ...]
     references: tuple[RepeatabilityRecord, ...]
+    admission: str | None = None
 
     def __post_init__(self) -> None:
         for name in ("outings", "unscored", "references"):
@@ -1144,6 +1185,8 @@ class Result:
             "les références D8 portent sur des parcours distincts, reçu {!r} deux "
             "fois.",
         )
+        if self.admission is not None:
+            _require_sha256(self.admission, "admission")
 
 
 @dataclass(frozen=True)
@@ -1203,7 +1246,9 @@ class RegistryEvent:
     ----------
     1. ``recorded_at`` porte un fuseau, normalisé en UTC ; ``previous_hash`` présent :
        un ``sha256`` ; ``correction_reason`` présent : non vide ;
-    2. ``format_version`` dans ``REGISTRY_READABLE_FORMATS`` (1 ou 2, M4c-2) ;
+    2. ``format_version`` dans ``REGISTRY_READABLE_FORMATS`` (1, 2 ou 3, M4c-3) ;
+       avant le format 3, ni ``Result.admission``, ni ``reference_documents`` d'une
+       expérience (vérifié en dernier) ;
     3. ``number >= 1`` ;
     4. ``previous_hash`` absent **si et seulement si** ``number == 1`` ;
     5. le contenu présent est celui du type, et lui seul ;
@@ -1261,6 +1306,25 @@ class RegistryEvent:
             )
         self._check_content()
         self._check_links()
+        self._check_before_format_3()
+
+    def _check_before_format_3(self) -> None:
+        """Invariant 2, avant le format 3 : ni document d'admission, ni documents D8
+        figés (précision de D14, M4c-3)."""
+        version = self.format_version
+        if version >= ADMISSION_FIRST_FORMAT:
+            return
+        if self.result is not None and self.result.admission is not None:
+            raise ContractError(
+                f"un RÉSULTAT du format {version} ne cite pas de document d'admission "
+                "(format 3)."
+            )
+        experiment = None if self.declaration is None else self.declaration.experiment
+        if experiment is not None and experiment.reference_documents is not None:
+            raise ContractError(
+                f"une expérience du format {version} ne fige pas de documents D8 "
+                "(format 3)."
+            )
 
     def _check_content(self) -> None:
         present = {
@@ -1445,16 +1509,17 @@ class OutingOutcome:
     - ``outing_id`` — sans unité — la sortie.
     - ``coverage`` — sans unité — sa couverture (D4.11).
     - ``scores`` — sans unité — les scores de chaque modèle, couples
-      ``(modèle, scores)`` : ``OutingScores`` pour v0 brut et le candidat,
-      ``CalibratedOutingScores`` pour un modèle calé (M4c-2).
+      ``(modèle, scores)`` : ``OutingScores`` pour v0 brut,
+      ``CalibratedOutingScores`` pour un modèle calé (M4c-2), dont le candidat
+      (M4c-3).
 
     Invariants
     ----------
     - ``outing_id`` non vide ; ``scores`` est un tuple de couples (tuples) ;
     - ``scores`` non vide, de modèles distincts ;
-    - un modèle de ``CALIBRATED_MODELS`` porte des ``CalibratedOutingScores``, de ce
-      modèle (``control.model``) et de cette sortie ; un autre modèle, des
-      ``OutingScores`` (M4c-2) ;
+    - un modèle de ``CALIBRATED_KINDS`` porte des ``CalibratedOutingScores``, de ce
+      modèle (``control.model``) et de cette sortie ; v0 brut, des ``OutingScores``
+      (M4c-2 ; le candidat est calé depuis M4c-3) ;
     - **la même observation** (``==``) pour tous les modèles (D7.1 : le support ne
       dépend que de l'observation).
 
@@ -1506,7 +1571,7 @@ class OutingOutcome:
     ) -> None:
         """Le type des scores d'un modèle (M4c-2) : calés pour un modèle calé, de ce
         modèle et de cette sortie ; non calés sinon."""
-        if kind in CALIBRATED_MODELS:
+        if kind in CALIBRATED_KINDS:
             if not isinstance(scores, CalibratedOutingScores):
                 raise ContractError(
                     f"{kind} est un modèle calé : ses scores sont des "

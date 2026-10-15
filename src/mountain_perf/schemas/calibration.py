@@ -105,6 +105,15 @@ CALIBRATED_MODELS: tuple[ModelKind, ...] = (
 )
 """Les quatre modèles calés de ``0010`` D9.1, dans l'ordre du protocole."""
 
+CALIBRATED_KINDS: tuple[ModelKind, ...] = (*CALIBRATED_MODELS, ModelKind.CANDIDATE)
+"""Les natures dont les scores sont calés : les quatre modèles de D9.1 et le candidat
+d'une expérience, « base + effet » calé par la règle de v0 (``0010`` D9.3, D10.1 ;
+décision Q2 de M4c-3)."""
+
+EFFORT_MODELS: tuple[ModelKind, ...] = (ModelKind.V0_RECALIBRATED, ModelKind.CANDIDATE)
+"""Les natures calées par un effort borné (``0010`` D9.2, règle de v0) : v0 + effort
+recalé et le candidat ; les baselines le sont par un facteur."""
+
 
 def _close(value: float, expected: float) -> bool:
     """``value`` vaut ``expected`` à ``τ·max(1, |expected|)`` près, ``τ`` =
@@ -123,7 +132,7 @@ def _require_increasing_days(days: tuple[date, ...], name: str) -> None:
 
 
 def _require_calibrated_model(model: ModelKind) -> None:
-    if model not in CALIBRATED_MODELS:
+    if model not in CALIBRATED_KINDS:
         raise ContractError(f"model doit être un modèle calé (D9.1), reçu {model}.")
 
 
@@ -339,7 +348,7 @@ class ModelCalibration:
     Dans l'ordre, ``τ = METRIC_RELATIVE_TOLERANCE`` (``1e−12``), ``_close(x, y)`` :
     ``|x − y| <= τ·max(1, |y|)`` :
 
-    1. ``model`` dans ``CALIBRATED_MODELS`` ;
+    1. ``model`` dans ``CALIBRATED_KINDS`` ;
     2. ``population`` et ``withdrawals`` : tuples, strictement croissants par jour,
        sans jour commun ;
     3. ``unavailability`` absent, ``NOT_CALIBRATED`` ou ``MODEL_ERROR`` ;
@@ -347,7 +356,8 @@ class ModelCalibration:
     5. calé (``unavailability`` absent) : ``beta`` fini, dans le domaine d'``exp``
        (``exp(beta)`` et ``exp(−beta)`` ne débordent pas) ; ``factor`` fini et
        ``> 0`` ; baseline : ni ``effort`` ni saturation, ``_close(factor,
-       exp(beta))`` ; v0, ``(low, high) = EFFORT_BOUNDS`` : ``effort`` présent dans
+       exp(beta))`` ; v0 et le candidat (``EFFORT_MODELS``, M4c-3),
+       ``(low, high) = EFFORT_BOUNDS`` : ``effort`` présent dans
        ``[low ; high]``, ``factor == 1 / effort`` **au bit**, ``saturated`` seulement
        si ``effort`` vaut ``low`` ou ``high``, ``_close(effort, min(max(exp(−beta),
        low), high))``, et ``saturated`` vaut ``exp(−beta)`` hors de ``[low ; high]``
@@ -442,7 +452,7 @@ class ModelCalibration:
         if not self.factor > 0:
             raise ContractError(f"factor doit être > 0, reçu {self.factor!r}.")
         tolerance = f"{METRIC_RELATIVE_TOLERANCE:g}"
-        if self.model is not ModelKind.V0_RECALIBRATED:
+        if self.model not in EFFORT_MODELS:
             if self.effort is not None or self.saturated:
                 raise ContractError("une baseline n'a ni effort ni saturation (D9.2).")
             if not _close(self.factor, growth):
@@ -544,7 +554,7 @@ class CalibratedScenarioScores:
 
     Invariants
     ----------
-    1. ``model`` dans ``CALIBRATED_MODELS`` ;
+    1. ``model`` dans ``CALIBRATED_KINDS`` ;
     2. ``forecast.scenario is scenario`` ;
     3. ``clocks`` est un tuple ; ses horloges sont ``CLOCKS``, dans l'ordre ;
     4. chaque calage porte ce ``model`` et ce ``scenario`` ;
@@ -742,15 +752,20 @@ class CalibratedPerformance:
     ------
     - ``population`` — sans unité — ``C_j``.
     - ``outings`` — sans unité — par sortie scorée, dans l'ordre de la performance,
-      les scores calés des quatre modèles, dans l'ordre de ``CALIBRATED_MODELS``.
+      les scores calés de chaque modèle de ``models``, dans cet ordre.
+    - ``models`` — sans unité — les modèles calés : les quatre de
+      ``CALIBRATED_MODELS`` pour ``just backtest``, (0) et (1) pour une expérience
+      (M4c-3).
 
     Invariants
     ----------
-    1. ``outings`` est un tuple ; sa longueur est un multiple de quatre ;
-    2. par groupes consécutifs de quatre : les modèles (``control.model``) sont
-       ``CALIBRATED_MODELS``, dans l'ordre ; un seul ``outing_id`` par groupe ; deux
+    1. ``outings`` et ``models`` sont des tuples ; ``models`` non vide, de modèles
+       distincts, chacun dans ``CALIBRATED_KINDS`` ; la longueur d'``outings`` est un
+       multiple de ``len(models)`` ;
+    2. par groupes consécutifs de ``len(models)`` : les modèles (``control.model``)
+       sont ``models``, dans l'ordre ; un seul ``outing_id`` par groupe ; deux
        groupes n'ont pas le même ``outing_id`` ;
-    3. dans chaque groupe, **la même observation** (``==``) pour les quatre modèles
+    3. dans chaque groupe, **la même observation** (``==``) pour tous les modèles
        (D7.1 : le support ne dépend que de l'observation ; décision Q2 de M4c-2).
 
     Producteur
@@ -759,20 +774,30 @@ class CalibratedPerformance:
 
     Consommateurs
     -------------
-    L'exécution et le rapport à cinq modèles (M4c-2).
+    L'exécution et le rapport à cinq modèles (M4c-2) ; l'expérience (M4c-3).
 
     Non promis
     ----------
     Les sorties non scorées n'y figurent pas ; les calages ne sont pas recoupés d'une
-    sortie à l'autre d'une même performance.
+    sortie à l'autre d'une même performance. Ce contrat n'est pas stocké : sa forme
+    peut changer.
     """
 
     population: CalibrationPopulation
     outings: tuple[CalibratedOutingScores, ...]
+    models: tuple[ModelKind, ...] = CALIBRATED_MODELS
 
     def __post_init__(self) -> None:
         require_immutable_sequence(self.outings, "outings")
-        size = len(CALIBRATED_MODELS)
+        require_immutable_sequence(self.models, "models")
+        if not self.models or len(set(self.models)) != len(self.models):
+            raise ContractError(
+                "models : des modèles calés distincts, un au moins, reçu "
+                f"[{', '.join(self.models)}]."
+            )
+        for model in self.models:
+            _require_calibrated_model(model)
+        size = len(self.models)
         if len(self.outings) % size:
             raise ContractError(
                 f"outings porte {size} modèles par sortie, reçu {len(self.outings)}."
@@ -781,10 +806,10 @@ class CalibratedPerformance:
         for start in range(0, len(self.outings), size):
             group = self.outings[start : start + size]
             models = tuple(entry.control.model for entry in group)
-            if models != CALIBRATED_MODELS:
+            if models != self.models:
                 raise ContractError(
-                    "les modèles d'une sortie suivent CALIBRATED_MODELS, reçu "
-                    f"[{', '.join(models)}]."
+                    f"les modèles d'une sortie suivent [{', '.join(self.models)}], "
+                    f"reçu [{', '.join(models)}]."
                 )
             identifiers = sorted({entry.outing_id for entry in group})
             if len(identifiers) != 1:
@@ -794,7 +819,7 @@ class CalibratedPerformance:
                 )
             if any(entry.observation != group[0].observation for entry in group[1:]):
                 raise ContractError(
-                    f"les quatre modèles de la sortie {identifiers[0]} portent la même "
+                    f"les modèles de la sortie {identifiers[0]} portent la même "
                     "observation (D7.1)."
                 )
             if identifiers[0] in seen:

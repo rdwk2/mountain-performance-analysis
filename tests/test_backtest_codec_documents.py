@@ -20,6 +20,8 @@ from mountain_perf.backtest import (
     encode_document,
 )
 from mountain_perf.schemas import (
+    REGISTRY_FORMAT_VERSION,
+    Admission,
     CalibratedScenarioScores,
     OutingObservation,
     RepeatabilityReference,
@@ -28,6 +30,14 @@ from mountain_perf.schemas import (
 
 OBSERVATION = scoring.scores("Régimes").observation
 DOCUMENT = encode_document(OBSERVATION)
+FORMAT = f'"format":{REGISTRY_FORMAT_VERSION}'.encode()
+
+
+def _altered(data: bytes, old: bytes, new: bytes) -> bytes:
+    """``data`` où ``old``, présent une fois, devient ``new`` : un remplacement qui ne
+    trouverait rien ferait passer le test à vide (relecture C de la PR #24)."""
+    assert data.count(old) == 1
+    return data.replace(old, new)
 
 
 def _refused(data: bytes, fragment: str) -> None:
@@ -37,17 +47,19 @@ def _refused(data: bytes, fragment: str) -> None:
 
 def test_document_types_are_exact() -> None:
     """D14 : observations, scores avec leurs prévisions, références D8 ; depuis le
-    format 2, scores calés (M4c-2)."""
+    format 2, scores calés (M4c-2) ; depuis le format 3, document d'admission
+    (M4c-3)."""
     assert (
         OutingObservation,
         ScenarioScores,
         RepeatabilityReference,
         CalibratedScenarioScores,
+        Admission,
     ) == DOCUMENT_TYPES
 
 
 def test_document_envelope_comes_first() -> None:
-    assert DOCUMENT.startswith(b'{"type":"OutingObservation","format":2,"data":{')
+    assert DOCUMENT.startswith(b'{"type":"OutingObservation",' + FORMAT + b',"data":{')
 
 
 def test_documents_read_back() -> None:
@@ -74,8 +86,8 @@ def test_document_of_another_type_is_refused() -> None:
 
 def test_document_of_another_format_is_refused() -> None:
     _refused(
-        DOCUMENT.replace(b'"format":2', b'"format":1', 1),
-        "document au format 1, 2 attendu",
+        _altered(DOCUMENT, FORMAT, b'"format":1'),
+        f"document au format 1, {REGISTRY_FORMAT_VERSION} attendu",
     )
 
 
@@ -119,13 +131,21 @@ def test_document_with_a_z_offset_is_not_canonical() -> None:
 
 
 def test_type_is_checked_before_format() -> None:
-    """§ 6.2, ``decode_document`` : le type se vérifie avant le format."""
+    """§ 6.2, ``decode_document`` : le type se vérifie avant le format. Un document
+    écrit au format 1 et relu au format du jour, sous un autre type, viole les deux
+    contrôles (vérifié : sous son type, le format est refusé) ; le type est refusé
+    d'abord (redressé en M4c-3 : depuis M4c-2, le remplacement de ``"format":1`` ne
+    trouvait rien, et seul le type était faux)."""
+    older = encode_document(OBSERVATION, 1)
+    with pytest.raises(
+        CodecError,
+        match=re.escape(f"document au format 1, {REGISTRY_FORMAT_VERSION} attendu"),
+    ):
+        decode_document(older, OutingObservation)
     with pytest.raises(
         CodecError,
         match=re.escape(
             "document de type 'OutingObservation', 'ScenarioScores' attendu"
         ),
     ):
-        decode_document(
-            DOCUMENT.replace(b'"format":1', b'"format":2', 1), ScenarioScores
-        )
+        decode_document(older, ScenarioScores)

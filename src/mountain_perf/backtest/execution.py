@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import math
 import subprocess
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
@@ -77,6 +77,7 @@ from mountain_perf.schemas import (
     MatchResult,
     ModelKind,
     Outing,
+    OutingObservation,
     OutingOutcome,
     OutingScores,
     ParameterSet,
@@ -468,20 +469,35 @@ def failure_reason(error: BaseException) -> str:
     return f"{name} : {message}" if message else name
 
 
-def _score(
+@dataclass(frozen=True)
+class TracedOuting:
+    """Une sortie tracée, observée par la chaîne de ``mperf match``, sans prévision
+    (M4c-3) : la sortie ; le profil de sa référence, le scénario d'usage (absent sans
+    référence) ; le profil apparié, sa géométrie ; la trace, sa série, sa partition
+    des horloges ; l'appariement et les passages."""
+
+    outing: Outing
+    usage: RouteProfile | None
+    profile: RouteProfile
+    geometry: ReferenceGeometry
+    trace: RecordedTrace
+    series: TraceSeries
+    partition: ClockPartition
+    match: MatchResult
+    passages: PassageMatchResult
+
+
+def trace_outing(
     read: ManifestReadResult,
-    curve: CurveReadResult,
     outing: Outing,
     trace: RecordedTrace,
     profiles: dict[Path, tuple[RouteProfile, ReferenceGeometry]],
-    generated_at: datetime,
-) -> OutingRun:
-    """La chaîne de ``mperf match --curve`` sur une sortie tracée (``0010`` D3) : avec
-    référence, le tracé de son fichier (lu une fois par chemin) et l'usage sur ce
-    profil ; sans référence, la grille sur sa trace enregistrée, sans usage. Puis les
-    scores non calés des trois baselines (D9.1, M4c-2) : contrôle sur le profil de la
-    trace, usage sur celui de la référence, de base la prévision d'usage de v0 brut
-    (D7.4), datés comme ceux de v0."""
+) -> TracedOuting:
+    """La chaîne de ``mperf match`` sur une sortie tracée (``0010`` D3), sans
+    prévision : avec référence, le tracé de son fichier (lu une fois par chemin,
+    ``profiles`` servant de mémoire) et l'usage sur ce profil ; sans référence, la
+    grille sur sa trace enregistrée, sans usage. Partagée par ``just backtest`` et
+    l'expérience (M4c-3)."""
     reference = outing.reference
     usage: RouteProfile | None = None
     if reference is not None:
@@ -509,12 +525,25 @@ def _score(
         ParameterSet(MATCHING_PARAMETER_SPECS),
     )
     passages = observe_passages(match, geometry, profile, trace, series, partition)
+    return TracedOuting(
+        outing, usage, profile, geometry, trace, series, partition, match, passages
+    )
+
+
+def _score(
+    curve: CurveReadResult, traced: TracedOuting, generated_at: datetime
+) -> OutingRun:
+    """Les scores d'une sortie tracée : v0 brut (``v0_scores``), puis les scores non
+    calés des trois baselines (D9.1, M4c-2) : contrôle sur le profil de la trace, usage
+    sur celui de la référence, de base la prévision d'usage de v0 brut (D7.4), datés
+    comme ceux de v0."""
+    usage, trace = traced.usage, traced.trace
     scores = v0_scores(
         usage,
         trace,
-        match,
-        passages,
-        partition,
+        traced.match,
+        traced.passages,
+        traced.partition,
         curve.curve,
         curve_ref=curve.curve_ref,
         generated_at=generated_at,
@@ -536,27 +565,31 @@ def _score(
         for kind in BASELINES
     )
     return OutingRun(
-        outing,
-        profile,
-        geometry,
+        traced.outing,
+        traced.profile,
+        traced.geometry,
         trace,
-        series,
-        partition,
-        match,
-        passages,
+        traced.series,
+        traced.partition,
+        traced.match,
+        traced.passages,
         scores,
         baselines,
     )
 
 
-def _references(
-    performances: tuple[Performance, ...], scored: dict[str, OutingRun]
+def repeatability_references(
+    performances: tuple[Performance, ...],
+    observations: Mapping[str, OutingObservation],
 ) -> tuple[tuple[str, RepeatabilityReference], ...]:
     """La référence D8 de chaque parcours du jeu de répétabilité, dans l'ordre des noms
     (``0010`` D8 ; précisions de D8.1 et de D14, M4b-5 ; décisions Q16 et Q18) : un
     jour de plusieurs sorties entre sans segments ; un jour d'une sortie scorée, avec
-    ses segments admis ; un jour d'une sortie non scorée n'entre pas ; un parcours dont
-    aucun jour n'entre garde une référence vide."""
+    les segments admis de son observation ; un jour d'une sortie non scorée n'entre
+    pas ; un parcours dont aucun jour n'entre garde une référence vide.
+
+    Une fonction des seules observations (M4c-3 : figée avant la DÉCLARATION d'une
+    expérience)."""
     declared = _repeatability_references(performances)
     days: dict[str, list[RepeatabilityDay]] = {route_id: [] for route_id in declared}
     for performance in performances:
@@ -571,11 +604,12 @@ def _references(
             if performance.is_multi_outing:
                 day = RepeatabilityDay(performance, declared[route_id], None)
             else:
-                run = scored.get(performance.outings[0].outing_id)
-                if run is None:
+                observation = observations.get(performance.outings[0].outing_id)
+                if observation is None:
                     continue
-                segments = run.scores.observation.segments
-                day = RepeatabilityDay(performance, declared[route_id], segments)
+                day = RepeatabilityDay(
+                    performance, declared[route_id], observation.segments
+                )
             days[route_id].append(day)
     return tuple(
         (route_id, repeatability_reference(declared[route_id], days[route_id]))
@@ -601,18 +635,11 @@ def _evaluate(preparation: Preparation, declared: RegistryEvent) -> BacktestEval
                 reason = refused.get(outing.outing_id, _UNTRACED)
                 unscored.append(Exclusion(outing.outing_id, reason))
                 continue
-            runs.append(
-                _score(
-                    read,
-                    preparation.curve,
-                    outing,
-                    trace,
-                    profiles,
-                    declared.recorded_at,
-                )
-            )
-    references = _references(
-        preparation.performances, {run.outing.outing_id: run for run in runs}
+            traced = trace_outing(read, outing, trace, profiles)
+            runs.append(_score(preparation.curve, traced, declared.recorded_at))
+    references = repeatability_references(
+        preparation.performances,
+        {run.outing.outing_id: run.scores.observation for run in runs},
     )
     unscaled = {
         run.outing.outing_id: {ModelKind.V0_RAW: run.scores, **dict(run.baselines)}

@@ -26,6 +26,7 @@ from mountain_perf.codec import (
 )
 from mountain_perf.schemas import (
     REGISTRY_FORMAT_VERSION,
+    Admission,
     CalibratedScenarioScores,
     OutingObservation,
     RepeatabilityReference,
@@ -52,11 +53,13 @@ DOCUMENT_TYPES: tuple[type, ...] = (
     ScenarioScores,
     RepeatabilityReference,
     CalibratedScenarioScores,
+    Admission,
 )
 """Les contrats que le registre range en documents, nommés par leur empreinte
 (``0010`` D14) : l'observation d'une sortie, les scores d'un scénario (prévision
 comprise), la référence D8 d'un parcours ; depuis le format 2, les scores calés d'un
-modèle dans un scénario (prévision non calée et calages compris, M4c-2)."""
+modèle dans un scénario (prévision non calée et calages compris, M4c-2) ; depuis le
+format 3, le document d'admission d'une expérience (M4c-3)."""
 
 DOCUMENT_FIRST_FORMAT: Mapping[type, int] = types.MappingProxyType(
     {
@@ -64,6 +67,7 @@ DOCUMENT_FIRST_FORMAT: Mapping[type, int] = types.MappingProxyType(
         ScenarioScores: 1,
         RepeatabilityReference: 1,
         CalibratedScenarioScores: 2,
+        Admission: 3,
     }
 )
 """Le premier format du registre qui connaît chaque type de document (précision de

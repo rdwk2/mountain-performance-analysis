@@ -286,7 +286,7 @@ def test_one_observation_per_outing() -> None:
     other = replace(first, observation=changed)
     with pytest.raises(
         ContractError,
-        match=r"les quatre modèles de la sortie j1-0616 portent la même observation "
+        match=r"les modèles de la sortie j1-0616 portent la même observation "
         r"\(D7\.1\)\.",
     ):
         CalibratedPerformance(performance.population, (other, *others))

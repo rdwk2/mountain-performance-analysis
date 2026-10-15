@@ -21,6 +21,31 @@ from types import MappingProxyType
 from typing import Any
 
 from mountain_perf.schemas.activity import Activity, TrackPointStream
+from mountain_perf.schemas.admission import (
+    ADMISSION_RESERVE_DESCRIPTIONS,
+    ADMISSION_VERDICT_DESCRIPTIONS,
+    FAILED_CONDITION_DESCRIPTIONS,
+    GUARD_STATUS_DESCRIPTIONS,
+    NON_EVALUABLE_DESCRIPTIONS,
+    REVIEW_CAUSE_DESCRIPTIONS,
+    THRESHOLD_SOURCE_DESCRIPTIONS,
+    Admission,
+    AdmissionReserve,
+    AdmissionVerdict,
+    EffortValue,
+    FailedCheck,
+    FailedCondition,
+    GuardOutcome,
+    GuardStatus,
+    GuardValue,
+    NonEvaluable,
+    PassageGuardOutcome,
+    PassageValue,
+    PerformanceAssessment,
+    ReviewCause,
+    ReviewReason,
+    ThresholdSource,
+)
 from mountain_perf.schemas.calibration import (
     MODEL_KIND_DESCRIPTIONS,
     POPULATION_EXCLUSION_DESCRIPTIONS,
@@ -291,6 +316,22 @@ DOCUMENTED_TYPES: tuple[type, ...] = (
     CalibratedScenarioScores,
     CalibratedOutingScores,
     CalibratedPerformance,
+    AdmissionVerdict,
+    AdmissionReserve,
+    ThresholdSource,
+    NonEvaluable,
+    GuardStatus,
+    ReviewCause,
+    FailedCondition,
+    EffortValue,
+    PerformanceAssessment,
+    GuardValue,
+    GuardOutcome,
+    PassageValue,
+    PassageGuardOutcome,
+    ReviewReason,
+    FailedCheck,
+    Admission,
 )
 """Types publiés dans le dictionnaire, dans l'ordre de lecture."""
 
@@ -322,6 +363,13 @@ ENUM_DESCRIPTIONS: Mapping[type[Enum], Mapping[Any, str]] = MappingProxyType(
         ReferenceSource: REFERENCE_SOURCE_DESCRIPTIONS,
         FailureKind: FAILURE_KIND_DESCRIPTIONS,
         PopulationExclusionReason: POPULATION_EXCLUSION_DESCRIPTIONS,
+        AdmissionVerdict: ADMISSION_VERDICT_DESCRIPTIONS,
+        AdmissionReserve: ADMISSION_RESERVE_DESCRIPTIONS,
+        ThresholdSource: THRESHOLD_SOURCE_DESCRIPTIONS,
+        NonEvaluable: NON_EVALUABLE_DESCRIPTIONS,
+        GuardStatus: GUARD_STATUS_DESCRIPTIONS,
+        ReviewCause: REVIEW_CAUSE_DESCRIPTIONS,
+        FailedCondition: FAILED_CONDITION_DESCRIPTIONS,
     }
 )
 """Description des membres de chaque énumération publiée."""

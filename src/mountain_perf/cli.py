@@ -1074,8 +1074,8 @@ LEGEND = (
     "facteur a (baselines) ; non calé : C_j^eff vide ; pas d'enveloppe",
     "ensemble commun : par jeu, les performances où les cinq modèles ont une valeur ; "
     "les cinq moyennes y portent sur les mêmes performances",
-    "gains, garde-fous, admission d'un effet (0010 D10) : non implémentée dans ce lot "
-    "(M4c-3)",
+    "gains, garde-fous, admission d'un effet (0010 D10) : just backtest ne déclare pas "
+    "d'expérience ; expérience enregistrée par l'API (M4c-3), commande en M6a",
     "fourchettes (0010 D11) : non implémentée dans ce lot (M4d)",
     "dérive de longue course (0010 D12) : non implémentée dans ce lot (M4d)",
     "sensibilité (0010 D13) : non implémentée dans ce lot (M4d)",

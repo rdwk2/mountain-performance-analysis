@@ -5151,7 +5151,7 @@ légende      lecture de la compensation : sur des régimes homogènes, C_comp e
              temps nul sous un M θ : un segment admis sans temps en mouvement sous ce seuil, souvent le dernier d'une trace arrêtée à l'arrivée (fenêtre de 0010 D5.2) ; D8 ne l'ajuste pas (cellule nulle, choix M02) : |L| du pli et F indisponibles
              modèles calés (0010 D9.2) : v0 + effort recalé, vitesse constante, Naismith, Tobler, calés par performance, scénario et horloge sur C_j^eff (entraînements terminés avant o_j) ; prévision = prévision non calée ÷ effort e (v0) ou × facteur a (baselines) ; non calé : C_j^eff vide ; pas d'enveloppe
              ensemble commun : par jeu, les performances où les cinq modèles ont une valeur ; les cinq moyennes y portent sur les mêmes performances
-             gains, garde-fous, admission d'un effet (0010 D10) : non implémentée dans ce lot (M4c-3)
+             gains, garde-fous, admission d'un effet (0010 D10) : just backtest ne déclare pas d'expérience ; expérience enregistrée par l'API (M4c-3), commande en M6a
              fourchettes (0010 D11) : non implémentée dans ce lot (M4d)
              dérive de longue course (0010 D12) : non implémentée dans ce lot (M4d)
              sensibilité (0010 D13) : non implémentée dans ce lot (M4d)

@@ -39,7 +39,9 @@ from mountain_perf.backtest import (
 from mountain_perf.schemas import Exclusion
 from test_backtest_registry import filled, journal_lines, snapshot
 
-FIRST_LINE_SHA256 = "603f00f753f5ebd6626957b97c948addba4660c5ccb9cbba108b5dd274e37367"
+FIRST_LINE_SHA256 = "2e93ac2c5d1e5ce481d602f4fd615b3322537ec76e8b7b055d0a019b75a171e6"
+"""Au format 3 (M4c-3) : la ligne du format 2 (``603f00f7…``), ``"format_version":3``
+au lieu de 2, rien d'autre (vérifié en conception)."""
 
 
 def test_first_line_of_the_journal(tmp_path: Path) -> None:

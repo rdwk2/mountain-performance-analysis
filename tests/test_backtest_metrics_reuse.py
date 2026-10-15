@@ -112,7 +112,9 @@ def test_no_module_imports_metrics_but_the_backtest_package() -> None:
     d'un pli (§ 6 du brief M4b-3) — et, depuis M4b-5, ``backtest/report.py``, qui
     mesure les sous-classes de descente (§ 6.0 du brief M4b-5) — et, depuis M4c-1,
     ``backtest/calibration.py``, qui juge les sorties de modèle d'un membre du calage
-    (``is_invalid_model_output``, § 2 du brief M4c-1)."""
+    (``is_invalid_model_output``, § 2 du brief M4c-1) — et, depuis M4c-3,
+    ``backtest/admission.py``, qui calcule ``q_usage`` sur ``K`` et juge les prévisions
+    aux passages (``usage_target``, ``is_invalid_model_output``)."""
     defined = _defined_names(METRICS)
     importers = []
     allowed = (
@@ -122,6 +124,7 @@ def test_no_module_imports_metrics_but_the_backtest_package() -> None:
         PACKAGE / "repeatability.py",
         PACKAGE / "report.py",
         PACKAGE / "calibration.py",
+        PACKAGE / "admission.py",
     )
     for path in sorted(SOURCE.rglob("*.py")):
         if path in allowed:

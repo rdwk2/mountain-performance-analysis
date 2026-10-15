@@ -116,7 +116,8 @@ def test_no_module_imports_backtest_scoring_but_the_package_and_the_command() ->
     chaîne de ``mperf match --curve`` sortie par sortie, et ``backtest/report.py``,
     qui lit les horloges du rapport (§ 6.0 du brief M4b-5) — et, depuis M4c-1, par
     ``backtest/calibration.py``, qui score les baselines et les prévisions calées
-    (§ 2 du brief M4c-1)."""
+    (§ 2 du brief M4c-1) — et, depuis M4c-3, par ``backtest/experiment.py``, qui score
+    v0 brut et le candidat d'une expérience."""
     scoring = SOURCE / "backtest" / "scoring.py"
     defined = _defined_names(ast.parse(scoring.read_text(encoding="utf-8")))
     importers = []
@@ -135,6 +136,7 @@ def test_no_module_imports_backtest_scoring_but_the_package_and_the_command() ->
         "backtest/__init__.py",
         "backtest/calibration.py",
         "backtest/execution.py",
+        "backtest/experiment.py",
         "backtest/report.py",
         "cli.py",
     }

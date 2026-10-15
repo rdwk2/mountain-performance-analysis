@@ -35,9 +35,11 @@ from mountain_perf.model.baselines import (
     baseline_timeline,
 )
 from mountain_perf.schemas import (
+    CALIBRATED_KINDS,
     CALIBRATED_MODELS,
     CLOCKS,
     EFFORT_BOUNDS,
+    EFFORT_MODELS,
     CalibratedClockScores,
     CalibratedOutingScores,
     CalibratedPerformance,
@@ -62,10 +64,6 @@ from mountain_perf.schemas import (
 BASELINE_CURVE_REF = "aucune courbe"
 """Le ``curve_ref`` des prévisions d'une baseline : elle ne lit pas la courbe
 (décision 7 du brief M4c-1)."""
-
-_UNSCALED: tuple[ModelKind, ...] = (ModelKind.V0_RAW, *BASELINES)
-"""Les quatre modèles non calés d'une sortie scorée : v0 brut et les baselines."""
-
 
 # ---------------------------------------------------------------------------
 # Scores non calés d'une baseline (brief M4c-1, § 6.4)
@@ -258,16 +256,18 @@ def calibrate(
     modèle`` (l'observation passe avant le modèle, D7.1). Population effective vide :
     ``non calé``. Sinon ``β = fsum(ln(T_c / P_c)) / |C_j^eff|`` ; v0 : effort
     ``min(max(exp(−β), 0,5), 1,5)``, facteur ``1 / effort``, saturé si et seulement si
-    ``exp(−β)`` est hors de ``[0,5 ; 1,5]`` ; baseline : facteur ``exp(β)``.
+    ``exp(−β)`` est hors de ``[0,5 ; 1,5]`` — de même pour le candidat, calé par la
+    règle de v0 (``EFFORT_MODELS`` ; décision Q2 de M4c-3) ; baseline : facteur
+    ``exp(β)``.
 
-    Préconditions (``ValueError``) : ``model`` dans ``CALIBRATED_MODELS`` ;
+    Préconditions (``ValueError``) : ``model`` dans ``CALIBRATED_KINDS`` ;
     ``0 <= clock_index < len(CLOCKS)`` ; une entrée de ``members`` pour chaque membre.
 
     Non promis : hors du domaine des métriques de M4b-1 (temps et projections dans
     ``[1e−6 ; 1e12]``, décision 14), un rapport ``T_c / P_c`` peut sous-dépasser ou
     déborder, et ``fsum`` lever ``OverflowError``, au lieu d'un statut.
     """
-    if model not in CALIBRATED_MODELS:
+    if model not in CALIBRATED_KINDS:
         raise ValueError(f"calibrate : {model} n'est pas un modèle calé (D9.1).")
     if not 0 <= clock_index < len(CLOCKS):
         raise ValueError(
@@ -301,7 +301,7 @@ def calibrate(
     saturated = False
     if unavailability is None:
         beta = math.fsum(logs) / len(logs)
-        if model is ModelKind.V0_RECALIBRATED:
+        if model in EFFORT_MODELS:
             low, high = EFFORT_BOUNDS
             unbounded = math.exp(-beta)
             effort = min(max(unbounded, low), high)
@@ -421,7 +421,8 @@ def calibrated_scores(
 
 def _source(model: ModelKind) -> ModelKind:
     """Le modèle non calé dont un modèle calé reprend les scores : v0 brut pour
-    v0 + effort recalé, la baseline elle-même sinon (D9.1)."""
+    v0 + effort recalé, le modèle lui-même sinon (D9.1) — une baseline, ou le candidat,
+    dont la source est sa prévision non calée « v0 + effet » à l'effort 1 (M4c-3)."""
     return ModelKind.V0_RAW if model is ModelKind.V0_RECALIBRATED else model
 
 
@@ -458,26 +459,33 @@ def _cached(
 def calibrate_performances(
     performances: Sequence[Performance],
     scores: Mapping[str, Mapping[ModelKind, OutingScores]],
+    *,
+    models: tuple[ModelKind, ...] = CALIBRATED_MODELS,
 ) -> tuple[CalibratedPerformance, ...]:
     """Le calage de chaque performance et les scores calés de ses sorties scorées,
     dans l'ordre reçu (``0010`` D9.2 ; D7.4).
 
+    ``models`` : les modèles calés — les quatre de ``CALIBRATED_MODELS`` par défaut
+    (``just backtest``), (0) et (1) pour une expérience (M4c-3).
     ``scores[outing_id]`` : les scores non calés d'une sortie scorée, sous ``V0_RAW``
-    et les trois baselines ; une sortie non scorée n'y figure pas. Pour chaque
-    performance : ``C_j`` ; pour chaque sortie présente dans ``scores``, dans l'ordre
-    de la performance, et chaque modèle de ``CALIBRATED_MODELS``, les scores non calés
-    de sa source (v0 brut pour v0 + effort recalé) ; contrôle, et usage s'il est
-    présent ; pour chacun, les onze calages, puis les scores calés — en usage, de base
-    la prévision d'usage de v0 brut de la sortie (D7.4 ; décision 13). Un calage se
-    calcule une fois par performance, modèle et scénario, et sert à toutes les sorties
-    de la performance : il ne dépend que des sorties des membres, jamais de la sortie
-    évaluée.
+    et la source de chaque modèle de ``models`` ; une sortie non scorée n'y figure
+    pas. Pour chaque performance : ``C_j`` ; pour chaque sortie présente dans
+    ``scores``, dans l'ordre de la performance, et chaque modèle de ``models``, les
+    scores non calés de sa source (v0 brut pour v0 + effort recalé) ; contrôle, et
+    usage s'il est présent ; pour chacun, les onze calages, puis les scores calés — en
+    usage, de base la prévision d'usage de v0 brut de la sortie (D7.4 ; décision 13).
+    Un calage se calcule une fois par performance, modèle et scénario, et sert à toutes
+    les sorties de la performance : il ne dépend que des sorties des membres, jamais de
+    la sortie évaluée. En usage, la base de ``q_usage`` des scores calés reste la
+    prévision d'usage de v0 brut (D7.4 au rapport) : l'admission recalcule ses
+    ``q_usage`` sur la prévision calée de (0) (M4c-3).
 
-    Préconditions (``ValueError``) : chaque sortie de ``scores`` a ses quatre modèles ;
-    puis celles de ``calibration_population``.
+    Préconditions (``ValueError``) : chaque sortie de ``scores`` porte v0 brut et la
+    source de chaque modèle de ``models`` ; puis celles de ``calibration_population``.
     """
+    required = list(dict.fromkeys((ModelKind.V0_RAW, *map(_source, models))))
     for outing_id, by_model in scores.items():
-        absent = [model for model in _UNSCALED if model not in by_model]
+        absent = [model for model in required if model not in by_model]
         if absent:
             raise ValueError(
                 f"calibrate_performances : {outing_id} sans les modèles "
@@ -495,7 +503,7 @@ def calibrate_performances(
             unscaled_by_model = scores[outing.outing_id]
             v0_usage = unscaled_by_model[ModelKind.V0_RAW].usage
             base = None if v0_usage is None else v0_usage.forecast
-            for model in CALIBRATED_MODELS:
+            for model in models:
                 unscaled = unscaled_by_model[_source(model)]
                 observation = unscaled.observation
                 control = calibrated_scores(
@@ -518,5 +526,5 @@ def calibrate_performances(
                         outing.outing_id, observation, control, usage
                     )
                 )
-        results.append(CalibratedPerformance(population, tuple(outings)))
+        results.append(CalibratedPerformance(population, tuple(outings), models))
     return tuple(results)

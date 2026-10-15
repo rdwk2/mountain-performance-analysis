@@ -171,12 +171,17 @@ EXPERIMENT = ExperimentDeclaration(
     candidate=ModelKind.CANDIDATE,
     usage_targets=(),
     frozen_references=(LOCAL, BORROWED),
+    reference_documents=(RepeatabilityRecord("r1", HASH),),
     analysis_date=None,
 )
 MEMBERS = (TargetMember(0, False), TargetMember(2, False), TargetMember(None, True))
 TARGET = DeclaredUsageTarget("r1", MEMBERS, (0.25, 0.25, 0.5))
 USAGE_EXPERIMENT = replace(
-    EXPERIMENT, target=M.USAGE, usage_targets=(TARGET,), frozen_references=()
+    EXPERIMENT,
+    target=M.USAGE,
+    usage_targets=(TARGET,),
+    frozen_references=(),
+    reference_documents=(),
 )
 
 
@@ -185,10 +190,11 @@ USAGE_EXPERIMENT = replace(
 # ---------------------------------------------------------------------------
 
 
-def test_registry_format_version_is_2() -> None:
-    """``0010`` D14 et sa précision de M4c-2 : le format écrit, et les formats relus."""
-    assert REGISTRY_FORMAT_VERSION == 2
-    assert REGISTRY_READABLE_FORMATS == (1, 2)
+def test_registry_format_version_is_3() -> None:
+    """``0010`` D14 et ses précisions de M4c-2 et M4c-3 : le format écrit, et les
+    formats relus."""
+    assert REGISTRY_FORMAT_VERSION == 3
+    assert REGISTRY_READABLE_FORMATS == (1, 2, 3)
 
 
 def test_event_of_format_1_is_accepted() -> None:
@@ -397,22 +403,27 @@ def test_usage_target_members_not_empty() -> None:
     [
         ((TargetMember(None, True), TargetMember(0, False)), "[0] sur 2"),
         ((TargetMember(0, True), TargetMember(None, True)), "[0, 1] sur 2"),
-        ((TargetMember(0, False), TargetMember(1, False)), "[] sur 2"),
     ],
-    ids=["arrival-first", "two-arrivals", "no-arrival"],
+    ids=["arrival-first", "two-arrivals"],
 )
-def test_usage_target_arrival_is_last_and_only(
+def test_usage_target_arrival_is_last_and_at_most_once(
     members: tuple[TargetMember, ...], ranks: str
 ) -> None:
-    """D7.4 : le dernier élément est l'arrivée, et lui seul (la règle et le message
-    d'``OutingObservation``)."""
+    """D7.4 : un ``K`` déclaré porte au plus une arrivée, en dernier (décision E4 de
+    M4c-3 : l'arrivée n'est obligatoire que dans le ``K`` par défaut)."""
     _raises(
         TARGET,
-        f"le dernier membre de K est l'arrivée, et lui seul, reçu l'arrivée aux rangs "
-        f"{ranks}",
+        f"K porte au plus une arrivée, en dernier, reçu l'arrivée aux rangs {ranks}",
         members=members,
         weights=None,
     )
+
+
+def test_usage_target_without_arrival_is_accepted() -> None:
+    """Décision E4 de M4c-3 : un ``K`` de préfixe, sans l'arrivée, déclaré avant
+    résultat (D7.4)."""
+    members = (TargetMember(0, False), TargetMember(1, False))
+    assert replace(TARGET, members=members, weights=None).members == members
 
 
 def test_usage_target_equal_ranks_are_refused() -> None:
@@ -540,19 +551,22 @@ def test_experiment_k_only_for_q_usage() -> None:
     )
 
 
-def test_experiment_q_usage_only_in_usage() -> None:
-    """D7.4 : ``q_usage`` ne se calcule qu'en usage ; refusée sous le contrôle."""
+@pytest.mark.parametrize("experiment", [EXPERIMENT, USAGE_EXPERIMENT])
+def test_experiment_only_in_usage(experiment: ExperimentDeclaration) -> None:
+    """D10.4 et la ligne « (M4c, avant la première expérience) » de ``BACKLOG.md`` :
+    une expérience se déclare en usage, quelle que soit sa cible ; refusée sous le
+    contrôle (M4c-3)."""
     _raises(
-        USAGE_EXPERIMENT,
-        "la cible q_usage ne se calcule qu'en usage (D7.4), reçu le scénario control",
+        experiment,
+        "une expérience se déclare en usage : le garde-fou des passages n'existe "
+        "qu'en usage (D10.4 ; M4c-3), reçu le scénario control",
         scenario=Scenario.CONTROL,
     )
 
 
-def test_experiment_q_usage_in_usage_and_descent_in_control_are_accepted() -> None:
+def test_experiment_q_usage_and_descent_in_usage_are_accepted() -> None:
     assert USAGE_EXPERIMENT.usage_targets == (TARGET,)
-    control = replace(EXPERIMENT, scenario=Scenario.CONTROL)
-    assert control.target is M.DESCENT_LEVEL
+    assert EXPERIMENT.scenario is Scenario.USAGE
 
 
 def test_experiment_k_routes_distinct() -> None:
@@ -958,7 +972,11 @@ def test_event_recorded_at_is_normalized_to_utc() -> None:
 @pytest.mark.parametrize(
     ("instance", "changes", "fragment"),
     [
-        (DECLARED, {"format_version": 3}, "format_version vaut l'un de 1, 2, reçu 3"),
+        (
+            DECLARED,
+            {"format_version": 4},
+            "format_version vaut l'un de 1, 2, 3, reçu 4",
+        ),
         (
             DECLARED,
             {"number": 0, "previous_hash": HASH},
@@ -1203,7 +1221,8 @@ OUTCOME = OutingOutcome("q-2026-05-20", COVERAGE, ((ModelKind.V0_RAW, SCORES),))
 
 
 def test_outcome_same_observation_under_two_models_is_accepted() -> None:
-    both = ((ModelKind.V0_RAW, SCORES), (ModelKind.CANDIDATE, SCORES))
+    candidate = registry.not_calibrated(OUTCOME.outing_id, ModelKind.CANDIDATE, SCORES)
+    both = ((ModelKind.V0_RAW, SCORES), (ModelKind.CANDIDATE, candidate))
     assert replace(OUTCOME, scores=both).scores == both
 
 
@@ -1239,10 +1258,11 @@ def test_outcome_models_distinct() -> None:
 def test_outcome_one_observation_for_all_models() -> None:
     """D7.1 : le support ne dépend que de l'observation."""
     other = scoring.scores("Passages")
+    candidate = registry.not_calibrated(OUTCOME.outing_id, ModelKind.CANDIDATE, other)
     _raises(
         OUTCOME,
         "les scores de candidate portent une autre observation que ceux de v0_raw",
-        scores=((ModelKind.V0_RAW, SCORES), (ModelKind.CANDIDATE, other)),
+        scores=((ModelKind.V0_RAW, SCORES), (ModelKind.CANDIDATE, candidate)),
     )
 
 

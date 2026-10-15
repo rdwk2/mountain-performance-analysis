@@ -44,12 +44,15 @@ def test_trial_counts_of_the_registry(tmp_path: Path) -> None:
             effect=DeclaredEffect("pente", "opérateur de pente", None, "règle"),
             target=ExperimentMetric.ASCENT_LEVEL,
             frozen_references=(),
+            reference_documents=(),
         ),
     )
     dispersion = declaration(
         models=CALIBRATED_MODELS,
         experiment=experiment(
-            target=ExperimentMetric.DESCENT_DISPERSION, frozen_references=()
+            target=ExperimentMetric.DESCENT_DISPERSION,
+            frozen_references=(),
+            reference_documents=(),
         ),
     )
     append_declaration(root, declaration(), recorded_at=at(0))

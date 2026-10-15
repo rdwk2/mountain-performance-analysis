@@ -17,7 +17,6 @@ from fixtures.registry import (
     CALIBRATED_MODELS,
     at,
     declaration,
-    experiment,
     not_calibrated,
     outcomes,
     references,
@@ -37,7 +36,14 @@ from mountain_perf.backtest import (
     read_registry,
     verify_registry,
 )
-from mountain_perf.schemas import Failure, FailureKind, ModelKind, RegistryEvent, Result
+from mountain_perf.schemas import (
+    REGISTRY_FORMAT_VERSION,
+    Failure,
+    FailureKind,
+    ModelKind,
+    RegistryEvent,
+    Result,
+)
 from test_backtest_registry import (
     filled,
     journal_lines,
@@ -193,8 +199,9 @@ def test_altered_then_missing_document(tmp_path: Path) -> None:
     name = f"{DOCUMENTS_DIR}/{usage}{DOCUMENT_SUFFIX}"
     path = root / name
     data = path.read_bytes()
-    assert data.count(b'"format":2') == 1
-    path.write_bytes(data.replace(b'"format":2', b'"format":2 '))
+    current = f'"format":{REGISTRY_FORMAT_VERSION}'.encode()
+    assert data.count(current) == 1
+    path.write_bytes(data.replace(current, current + b" "))
     _refused(root, re.escape(f"{name} : document altéré"))
     path.unlink()
     _refused(root, re.escape(f"{name} : document introuvable"))
@@ -432,7 +439,7 @@ def test_forecasts_are_checked_model_by_model(tmp_path: Path) -> None:
     """§ 6.3, accord par les documents : les prévisions d'une sortie se recoupent
     modèle par modèle — celles du premier avant le décodage des documents du second."""
     root = registry_root(tmp_path)
-    declared = declaration(models=CALIBRATED_MODELS, experiment=experiment())
+    declared = declaration(models=CALIBRATED_MODELS)
     append_declaration(root, declared, recorded_at=at(0))
     two_models = tuple(
         replace(
@@ -445,7 +452,12 @@ def test_forecasts_are_checked_model_by_model(tmp_path: Path) -> None:
                         o.outing_id, ModelKind.V0_RECALIBRATED, v0_of(o.outing_id)
                     ),
                 ),
-                (ModelKind.CANDIDATE, v0_of(o.outing_id)),
+                (
+                    ModelKind.CANDIDATE,
+                    not_calibrated(
+                        o.outing_id, ModelKind.CANDIDATE, v0_of(o.outing_id)
+                    ),
+                ),
             ),
         )
         for o in outcomes()

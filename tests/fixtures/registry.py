@@ -44,6 +44,7 @@ from mountain_perf.schemas import (
     Performance,
     ReferenceKind,
     ReferenceSource,
+    RepeatabilityRecord,
     RepeatabilityReference,
     RouteReference,
     Scenario,
@@ -308,6 +309,7 @@ def experiment(**changes: object) -> ExperimentDeclaration:
                 ("r1",),
             ),
         ),
+        reference_documents=(RepeatabilityRecord("r1", "d" * 64),),
         analysis_date=None,
     )
     fields.update(changes)
