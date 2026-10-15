@@ -727,6 +727,25 @@ cible) ; horloge (écoulé pour l'effet arrêts) ; performances évaluables et
 exclusions ; base `(0)` = **v0 + effort recalé** ; candidat `(1)` = base + effet,
 paramètres ou règle d'estimation ; `K` et poids si `q_usage` ; sources des seuils
 et valeurs de référence figées.
+*(précision, M4c-3)* Trois modèles sont déclarés : v0 brut, la base `(0)` — v0 + effort
+recalé (D9.2) — et le candidat `(1)` : la chronologie de v0 à l'effort 1, aux paramètres de
+départ, transformée par l'effet (paramètres fixés ; la règle d'estimation propre d'un effet,
+D9.3, vient avec M6a), puis **calée par la règle de v0** de D9.2 — même population, même
+`β`, effort borné à `[0,5 ; 1,5]`, saturation déclarée. Le scénario déclaré est l'**usage**.
+Les références figées sont calculées **avant** la DÉCLARATION, par D8, sur les seules
+observations du jeu de répétabilité, sous l'horloge déclarée, pour `|L|`, `|E_R|` et `D_R`
+des trois régimes : une **locale** par parcours de répétabilité, disponible ou au motif de son
+indisponibilité ; une **empruntée** par métrique si une locale au moins est disponible —
+moyenne à poids égal par parcours des locales disponibles, ses donneurs nommés, son effectif
+la somme de leurs `m_q`. La DÉCLARATION fige aussi l'empreinte `sha256` du document D8 de
+chaque parcours dont une référence figée provient (locale ou donneur) ; le RÉSULTAT publie
+exactement ces documents (D14). Une **exclusion d'admission** nomme une sortie : sa
+performance n'est pas évaluable (motif « exclue ») ; la sortie reste dans les `C_j` des
+autres et dans D8. Un `K` déclaré (cible `q_usage`) est non vide, inclus dans le `K` par
+défaut (départ exclu) de chaque sortie observée avec usage de son parcours, compte au plus
+une arrivée, en dernier ; l'arrivée y est **facultative** ; ses poids sont publiés tels
+quels. Ces conditions sont vérifiées avant la DÉCLARATION. Pas de figement pour confirmation (D10.7)
+en M4c-3.
 
 **D10.2 Gains.** `G_j = q_j^(0) − q_j^(1)`, même support, poids égal par
 performance. L'évaluabilité se décide sur **l'observation seule** : une
@@ -736,6 +755,23 @@ et, pour une cible de régime, si ce régime compte au moins 3 segments. Une
 verdict « à revoir » ; elle n'exclut jamais la performance. Une performance
 `jour multi-sorties` n'est pas évaluable. `n` = performances évaluables,
 **égalités `G_j = 0` comprises** (non-succès). `n = 0` : aucune décision.
+*(précision, M4c-3)* Une performance n'est pas évaluable, au **premier** motif dans cet
+ordre : exclue (D10.1) ; jour multi-sorties ; sortie non scorée ; sans scénario d'usage
+(pas de référence, D3) ; motif d'observation de la cible ; `non calé` — la population
+effective `C_j^eff` de `(0)` est vide sous l'horloge et le scénario déclarés (celle de `(1)`
+l'est alors aussi : elle ne dépend que du manifeste et de l'observation). Motif
+d'observation, sous l'horloge déclarée : cible de régime `R` — support admis vide ou `R`
+absent, `support insuffisant` ; un temps nul sur le support, même hors de `R` (D5.5),
+`temps nul` ; moins de 3 segments de `R`, `trop peu représenté` ; cible `q_usage` — un
+élément de `K` indisponible, même de poids nul, `passage indisponible` (un `T_k = 0`
+n'empêche pas le calcul). Valeurs : `|E_R|` est la valeur absolue de `E_R`, `D_R` tel quel,
+`|L|` la valeur absolue de `L`, toutes des prévisions calées de `(0)` et `(1)` sous
+l'horloge déclarée ; `q_usage` de `(0)`, de `(1)` et de v0 brut a pour dénominateur `P^(0)`
+la prévision **calée** de `(0)` sous l'horloge déclarée (D7.4). `G_j` est absent si `q^(0)`
+ou `q^(1)` l'est (erreur du modèle, à l'apprentissage ou au jour évalué) : la performance
+reste dans `n`, le verdict est « à revoir ». `n = 0` : aucun document d'admission ; la
+réponse est un ÉCHEC « non évaluable » dont le motif compte les performances par motif,
+dans l'ordre ci-dessus.
 
 **D10.3 Seuils par performance.** `δ_j = max(0,010 ; 0,25·F_j)` où `F_j` est, pour
 la métrique et l'horloge déclarées :
@@ -756,6 +792,22 @@ D2.1) dans `[50 ; 110]` (références de 66 à 87, bande élargie d'un quart de 
 côté). Frontières inclusives. Pour `q_usage` : `δ_j = 0,010` pour toutes les
 performances. Seuil de l'expérience `δ̄ = moyenne_j δ_j`. **Candidat provisoire**
 si `Ḡ ≥ δ̄`, `#{G_j > 0} ≥ ⌈3n/4⌉` et `G_j ≥ −δ_j` pour tout `j`.
+*(précision, M4c-3)* **Tolérance numérique** `ε = 10⁻⁶` : un succès est un `G_j > ε` ; les
+conditions se lisent `Ḡ ≥ δ̄ − ε` et `G_j ≥ −δ_j − ε` (et, en D10.4, `H̄_k ≤ η̄_k + ε`,
+`H_jk ≤ 2η_jk + ε`, dommage de passage `≤ 0,01 + ε`). Les frontières de « comparable » se
+comparent exactement. « Si elle existe » se lit « si elle est **disponible** » ; une locale
+indisponible mène à l'empruntée si `j` est comparable, sinon au seuil fixe ; le motif de la
+locale est publié quand elle n'est pas la source (`absent` sans locale du parcours) ; pour
+`q_usage`, la source est le seuil fixe, sans motif de locale. **Durée projetée** : la durée
+de v0 brut à l'effort 1 sur toute la portion déclarée de la référence (tout le profil sans
+portion déclarée), divisée par l'effort borné de `(0)` sous l'horloge déclarée ; `(0)`
+`non calé` : la durée de v0 brut ; `(0)` en `erreur du modèle` : la performance n'est **pas
+classée** (au motif de son calage), donc sans référence empruntée. Entraînement : toutes les
+sorties de la performance étiquetées entraînement. D+/km : celui du profil de domaine
+(D2.1) ; un jour multi-sorties n'en a pas. La classification est publiée pour toute
+performance d'une seule sortie scorée avec scénario d'usage, évaluable ou non. `Ḡ` est
+absent si un `G_j` manque ; la condition du gain moyen n'est alors pas jugée. Le vote échoue
+si `#{G_j > ε}` plus le nombre de `G_j` absents reste sous `⌈3n/4⌉`.
 
 **D10.4 Garde-fous** — liste figée : `|L|` ; `|E_R|` et `D_R` pour
 `R ∈ {montée, plat, descente}`, hors la cible ; passages.
@@ -774,16 +826,43 @@ si `Ḡ ≥ δ̄`, `#{G_j > 0} ≥ ⌈3n/4⌉` et `G_j ≥ −δ_j` pour tout `j
 - Un garde-fou de régime est exigé sur les performances où ce régime compte au
   moins 3 segments ; évaluable nulle part, il est rapporté « non évaluable » sans
   bloquer.
+*(précision, M4c-3)* `J_k` : pour `|L|`, toutes les performances évaluables ; pour un
+garde-fou de régime `R'`, les évaluables où `R'` compte au moins 3 segments admis (compte
+indépendant de l'horloge). `η_jk` suit la règle de source de D10.3 avec la métrique du
+garde-fou. Un `H_jk` indisponible, pour quelque motif que ce soit (temps nul compris), rend le
+garde-fou indisponible : « à revoir ». Une valeur d'un modèle dont le calage a échoué porte
+le motif de l'observation s'il y en a un (support insuffisant, temps nul), sinon celui du
+calage (précision de D7.1, M4b-1). Passages : `K` est celui de l'expérience pour le
+parcours (déclaré, ou par défaut) ; un passage est comparable s'il est observé (préfixe
+comparable, événements maintenus) avec `T_k > 0` sous l'horloge déclarée, poids nul
+compris ; `P^(0)` et `P^(1)` sont les prévisions calées sous cette horloge ; une prévision
+absente ou invalide à un passage comparable rend le garde-fou des passages indisponible.
+Toutes les conditions calculables qui échouent sont publiées, sous chacun des trois
+verdicts : un garde-fou indisponible dont un jour calculable dépasse `2η_jk` (ou `0,01`
+pour les passages) publie cet échec, ce jour-là ; un garde-fou violé en moyenne seulement
+ne nomme aucun jour.
 
 **D10.5 Comparaisons publiées** : contre la base `(0)` (décision) et contre v0
 brut (information). Un candidat qui **reproduit les prédictions du comparateur** a
 un gain nul. Quand l'effort du comparateur est saturé, un gain peut venir d'un
 simple recalage de niveau que la borne interdisait au comparateur : le verdict
 porte alors la réserve « comparateur saturé ».
+*(précision, M4c-3)* La comparaison contre v0 brut publie, par performance évaluable,
+`G_j^brut = q^(v0 brut) − q^(1)` (même dénominateur `P^(0)` pour `q_usage`) et leur
+moyenne, absente si l'un manque, avec le nombre de ceux qui existent ; information
+seulement. Les efforts de `(0)` et de `(1)` — libre `exp(−β)`, borné, saturé — sont
+publiés ; « comparateur saturé » si l'effort de `(0)` est saturé sur une performance
+évaluable au moins, « candidat saturé » de même pour `(1)` ; ni l'une ni l'autre ne change
+le verdict.
 
 **D10.6 Verdict à trois états** : **candidat provisoire exploratoire** /
 **rejeté** / **à revoir**. Tant que la sensibilité complète (D13) n'a pas tourné :
 « centrale, sensibilité restante ». Jamais une preuve.
+*(précision, M4c-3)* « À revoir » si la cible manque sur une évaluable, si un garde-fou de
+métrique est indisponible, si le garde-fou des passages est indisponible ou applicable sur
+aucune évaluable ; sinon « rejeté » si une condition de D10.3 ou de D10.4 échoue ; sinon
+« candidat provisoire exploratoire ». Les réserves : comparateur saturé, candidat saturé,
+puis « centrale, sensibilité restante », toujours.
 
 **D10.7 Figement pour confirmation.** Candidat, paramètres ou règle d'estimation,
 cible, horloge, exclusions, seuils et date d'analyse sont figés **ensemble** dans
@@ -936,6 +1015,20 @@ DÉCLARATION et le RÉSULTAT laisse donc publiée l'empreinte de la DÉCLARATION
 remplace, pour ce cas, le « n'est publiée nulle part » de la précision de M4b-5 ; après le
 RÉSULTAT, rien ne change — et calcule son rapport avant le RÉSULTAT : une erreur de ce
 calcul est un ÉCHEC technique.
+*(précision, M4c-3)* Une expérience d'admission (D10), par API, déclare v0 brut, la base et
+le candidat, et l'expérience. Le registre passe au **format 3**, qui étend le format 2 sans
+changer la forme d'aucun de ses contrats : le RÉSULTAT d'une expérience cite un document de
+plus, le **document d'admission** (évaluation de chaque performance, agrégats, garde-fous,
+causes de « à revoir », conditions qui échouent, verdict, réserves) ; l'expérience de la
+DÉCLARATION fige les empreintes de ses documents D8 (D10.1), que le RÉSULTAT publie. Les
+lignes des formats 1 et 2 se relisent sans ces deux champs, à une exception près : une
+expérience déclarée sous le scénario contrôle, valide avant le format 3, ne se relit plus
+(une expérience se déclare en usage, D10.1) ; aucune n'a été écrite, `just backtest` ne
+déclarant pas d'expérience ; une ligne d'un format antérieur
+au 3 qui porte l'un de ces deux champs n'est pas relue ; une ligne d'un format antérieur au 3 qui porte des
+scores du candidat ne se vérifie pas : ils ne sont pas relus ; une expérience déclarée avant
+le format 3 ne reçoit pas de RÉSULTAT. Une expérience sans performance évaluable
+reçoit un ÉCHEC « non évaluable ». `just backtest` ne déclare pas d'expérience.
 
 ### D15 — Rapport de `just backtest`
 
