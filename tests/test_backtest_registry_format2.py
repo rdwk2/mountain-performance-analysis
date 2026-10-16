@@ -1,5 +1,5 @@
 """Le registre au format 2 (§ 6.1 et § 8.1, test 1, du brief M4c-2 ; ``0010`` D14 et sa
-précision de M4c-2, D0, D8, D9.2).
+précision de M4c-2, D0, D8, D9.2), relu par le code du format 3 (M4c-3).
 
 Les versions ; la forme des 44 contrats du format 1, inchangée (décision 1) ; un
 document écrit et relu **au format de l'événement qui le cite** ; un registre du format
@@ -67,6 +67,7 @@ from mountain_perf.model.engine import ENGINE_VERSION
 from mountain_perf.schemas import (
     REGISTRY_FORMAT_VERSION,
     REGISTRY_READABLE_FORMATS,
+    Admission,
     CalibratedOutingScores,
     CalibratedScenarioScores,
     ContractError,
@@ -169,13 +170,30 @@ def _with_shas(result: Result, shas: Callable[[str], str]) -> Result:
     )
 
 
+def _line_at(event: RegistryEvent) -> bytes:
+    """La ligne canonique d'un événement à son format : avant le format 3, sans
+    ``admission`` au RÉSULTAT ni ``reference_documents`` à l'expérience (M4c-3), comme
+    le registre l'écrit et la relit."""
+    data = encode_contract(event)
+    assert isinstance(data, dict)
+    if event.format_version < 3:
+        result = data.get("result")
+        if isinstance(result, dict):
+            result.pop("admission")
+        declaration = data.get("declaration")
+        if isinstance(declaration, dict) and declaration.get("experiment"):
+            declaration["experiment"].pop("reference_documents")
+    return canonical_bytes(data)
+
+
 def _write_events(root: Path, events: list[RegistryEvent]) -> None:
-    """Le journal écrit depuis ``events``, la chaîne des empreintes recalculée."""
+    """Le journal écrit depuis ``events``, chaque ligne à son format, la chaîne des
+    empreintes recalculée."""
     previous: str | None = None
     lines = []
     for event in events:
         rewritten = replace(event, previous_hash=previous)
-        line = canonical_bytes(encode_contract(rewritten))
+        line = _line_at(rewritten)
         previous = content_hash(line)
         lines.append(line + b"\n")
     (root / EVENTS_FILE).write_bytes(b"".join(lines))
@@ -187,36 +205,68 @@ def _rewrite(root: Path, change: Callable[[RegistryEvent], RegistryEvent]) -> No
     _write_events(root, [change(event) for event in read_registry(root).events])
 
 
-def _to_format_1(
-    root: Path, change: Callable[[RegistryEvent], RegistryEvent] = lambda e: e
+def _to_format(
+    root: Path,
+    version: int,
+    change: Callable[[RegistryEvent], RegistryEvent] = lambda e: e,
 ) -> None:
-    """Le registre récrit au format 1, comme l'écrivait le code de M4b-5 : chaque
-    enveloppe de document à ``"format":1`` (son nom, son empreinte), chaque ligne à
-    ``format_version`` 1 citant ces documents, la chaîne recalculée ; ``change``
-    s'applique d'abord à chaque événement, au format 2."""
+    """Le registre récrit au format ``version``, comme l'écrivait le code de ce
+    format : chaque enveloppe de document à ``"format":<version>`` (son nom, son
+    empreinte), chaque ligne à ``format_version`` ``version`` citant ces documents, la
+    chaîne recalculée ; ``change`` s'applique d'abord à chaque événement, au format du
+    jour."""
     events = [change(event) for event in read_registry(root).events]
     renamed: dict[str, str] = {}
+    current = f'"format":{REGISTRY_FORMAT_VERSION},'.encode()
+    older = f'"format":{version},'.encode()
     for path in _documents(root):
         data = path.read_bytes()
-        head = re.match(rb'\{"type":"[A-Za-z]+","format":2,', data)
+        head = re.match(rb'\{"type":"[A-Za-z]+",' + current, data)
         assert head is not None
-        rewritten = (
-            head.group(0).replace(b'"format":2,', b'"format":1,') + data[head.end() :]
-        )
+        rewritten = head.group(0).replace(current, older) + data[head.end() :]
         sha = content_hash(rewritten)
         renamed[path.name.removesuffix(DOCUMENT_SUFFIX)] = sha
         path.unlink()
         (path.parent / f"{sha}{DOCUMENT_SUFFIX}").write_bytes(rewritten)
 
-    def to_1(event: RegistryEvent) -> RegistryEvent:
+    def to_older(event: RegistryEvent) -> RegistryEvent:
         result = (
             None
             if event.result is None
             else _with_shas(event.result, renamed.__getitem__)
         )
-        return replace(event, format_version=1, result=result)
+        return replace(event, format_version=version, result=result)
 
-    _write_events(root, [to_1(event) for event in events])
+    _write_events(root, [to_older(event) for event in events])
+
+
+def _to_format_1(
+    root: Path, change: Callable[[RegistryEvent], RegistryEvent] = lambda e: e
+) -> None:
+    """Le registre récrit au format 1, comme l'écrivait le code de M4b-5."""
+    _to_format(root, 1, change)
+
+
+def _with_naismith_as_v0(event: RegistryEvent) -> RegistryEvent:
+    """``event``, Naismith déclarée en plus de v0 brut et scorée par les documents de
+    v0 brut (des ``ScenarioScores``) : une ligne comme le code de M4b-5 l'écrivait pour
+    un modèle non calé."""
+    if event.declaration is not None:
+        models = (*event.declaration.models, NAISMITH)
+        return replace(event, declaration=replace(event.declaration, models=models))
+    if event.result is not None:
+        outings = tuple(
+            replace(
+                outing,
+                models=(
+                    *outing.models,
+                    replace(outing.models[0], model=ModelKind.NAISMITH),
+                ),
+            )
+            for outing in event.result.outings
+        )
+        return replace(event, result=replace(event.result, outings=outings))
+    return event
 
 
 def _models_of(
@@ -262,10 +312,15 @@ def _scored_models(
     _rewrite(root, on_result)
 
 
-def _shape(roots: list[type]) -> tuple[int, str]:
-    """L'empreinte de forme de ``test_backtest_registry_shape.py``, depuis ``roots``."""
+def _shape(
+    roots: list[type], without: dict[str, set[str]] | None = None
+) -> tuple[int, str]:
+    """L'empreinte de forme de ``test_backtest_registry_shape.py``, depuis ``roots`` ;
+    ``without`` : par contrat, des champs laissés de côté (ceux d'un format
+    ultérieur)."""
     seen: dict[str, str] = {}
     todo = list(roots)
+    skipped = without or {}
     while todo:
         cls = todo.pop()
         if cls.__name__ in seen:
@@ -273,6 +328,8 @@ def _shape(roots: list[type]) -> tuple[int, str]:
         hints = typing.get_type_hints(cls)
         parts = []
         for field in dataclasses.fields(cls):
+            if field.name in skipped.get(cls.__name__, set()):
+                continue
             annotation = hints[field.name]
             parts.append(f"{field.name}:{_render(annotation)}")
             stack = [annotation]
@@ -294,21 +351,29 @@ def _shape(roots: list[type]) -> tuple[int, str]:
 def test_versions() -> None:
     """§ 6.1 : le format écrit, les formats relus, le premier format de chaque type de
     document."""
-    assert REGISTRY_FORMAT_VERSION == 2
-    assert REGISTRY_READABLE_FORMATS == (1, 2)
+    assert REGISTRY_FORMAT_VERSION == 3
+    assert REGISTRY_READABLE_FORMATS == (1, 2, 3)
     assert dict(DOCUMENT_FIRST_FORMAT) == {
         OutingObservation: 1,
         ScenarioScores: 1,
         RepeatabilityReference: 1,
         CalibratedScenarioScores: 2,
+        Admission: 3,
     }
     assert tuple(DOCUMENT_FIRST_FORMAT) == DOCUMENT_TYPES
 
 
 def test_shape_of_format_1_is_unchanged() -> None:
     """Décision 1 : la forme de ``RegistryEvent`` et des trois documents du format 1
-    est celle de M4b-4 — 44 contrats, ``4e2f2b55…`` (le format 2 n'en change aucun)."""
-    assert _shape([RegistryEvent, *DOCUMENT_TYPES[:3]]) == (
+    est celle de M4b-4 — 44 contrats, ``4e2f2b55…`` : le format 2 n'en change aucun ;
+    le format 3 n'y ajoute que ``Result.admission`` et
+    ``ExperimentDeclaration.reference_documents``, absents des lignes antérieures
+    (M4c-3)."""
+    without = {
+        "Result": {"admission"},
+        "ExperimentDeclaration": {"reference_documents"},
+    }
+    assert _shape([RegistryEvent, *DOCUMENT_TYPES[:3]], without) == (
         44,
         "4e2f2b5569ef8b6cdf9a1ea6d7c952bd1c14e5bb409f2f9653c43847dcb6d2ed",
     )
@@ -382,27 +447,8 @@ def test_format_1_line_with_a_calibrated_model_is_not_verified(tmp_path: Path) -
     une ligne du format 1 qui en porte un — Naismith en ``ScenarioScores``, comme le
     code de M4b-5 l'écrivait — ne se vérifie pas : ses scores ne sont pas relus, le
     modèle nommé. ``read_registry`` ne décode pas les documents, et la relit."""
-    candidate = (ModelKind.CANDIDATE, v0_of(Q20_ID))
-    root = _registry(
-        tmp_path,
-        models=(V0_RAW, CANDIDATE),
-        outcomes_=tuple(
-            OutingOutcome(
-                item.outing_id,
-                item.coverage,
-                (item.scores[0], (ModelKind.CANDIDATE, v0_of(item.outing_id))),
-            )
-            for item in outcomes()
-        ),
-    )
-    assert candidate[1] == v0_of(Q20_ID)
-    _to_format_1(
-        root,
-        lambda event: _models_of(
-            event,
-            lambda kind: ModelKind.NAISMITH if kind is ModelKind.CANDIDATE else kind,
-        ),
-    )
+    root = _registry(tmp_path)
+    _to_format_1(root, _with_naismith_as_v0)
     log = read_registry(root)
     message = (
         "evenements.jsonl, ligne 2 : 'q-2026-05-20', naismith : un modèle calé n'a "
@@ -415,8 +461,8 @@ def test_format_1_line_with_a_calibrated_model_is_not_verified(tmp_path: Path) -
         load_outcomes(root, log, 2)
 
 
-def test_format_2_append_follows_format_1(tmp_path: Path) -> None:
-    """Précision de D14 (M4c-2) : un ajout du format 2 s'enchaîne à un registre du
+def test_append_follows_format_1(tmp_path: Path) -> None:
+    """Précision de D14 (M4c-2) : un ajout du format du jour s'enchaîne à un registre du
     format 1 — une DÉCLARATION et un RÉSULTAT à deux modèles, v0 brut et un modèle calé
     ``non calé`` ; le journal entier se vérifie, chaque ligne à son format, et chaque
     DÉCLARATION compte pour un essai."""
@@ -428,28 +474,30 @@ def test_format_2_append_follows_format_1(tmp_path: Path) -> None:
     written = _outcomes(ModelKind.V0_RECALIBRATED)
     append_result(root, 3, written, references=references(), recorded_at=at(3))
     log = verify_registry(root)
-    assert [event.format_version for event in log.events] == [1, 1, 2, 2]
+    current = REGISTRY_FORMAT_VERSION
+    assert [event.format_version for event in log.events] == [1, 1, current, current]
     assert count_trials(log).declarations == 2
     assert load_outcomes(root, log, 2) == outcomes()
     assert load_outcomes(root, log, 4) == written
 
 
-def test_format_1_line_citing_a_format_2_document(tmp_path: Path) -> None:
+def test_format_1_line_citing_a_current_document(tmp_path: Path) -> None:
     """Précision de D14 (M4c-2) : un document se relit au format de l'événement qui le
-    cite ; une ligne du format 1 qui cite un document du format 2 est refusée à la
-    vérification."""
+    cite ; une ligne du format 1 qui cite un document du format du jour est refusée à
+    la vérification."""
     root = _registry(tmp_path)
     _rewrite(root, lambda event: replace(event, format_version=1))
     read_registry(root)
     with pytest.raises(
-        RegistryError, match=re.escape("document au format 2, 1 attendu")
+        RegistryError,
+        match=re.escape(f"document au format {REGISTRY_FORMAT_VERSION}, 1 attendu"),
     ):
         verify_registry(root)
 
 
-def test_format_2_result_is_read_back_at_bit(tmp_path: Path) -> None:
-    """Précision de D14 (M4c-2) : un RÉSULTAT du format 2 à cinq modèles se relit égal,
-    au bit, aux objets écrits — les scores calés de chaque modèle, usage compris."""
+def test_result_is_read_back_at_bit(tmp_path: Path) -> None:
+    """Précision de D14 (M4c-2) : un RÉSULTAT à cinq modèles se relit égal, au bit, aux
+    objets écrits — les scores calés de chaque modèle, usage compris."""
     models = (
         V0_RAW,
         V0_RECALIBRATED,
@@ -508,8 +556,9 @@ def test_undeclared_model_is_named_before_an_absent_one(tmp_path: Path) -> None:
         root, declaration(models=(V0_RAW, V0_RECALIBRATED)), recorded_at=at(0)
     )
     first = outcome(Q20_ID)
+    candidate = not_calibrated(Q20_ID, ModelKind.CANDIDATE, v0_of(Q20_ID))
     extra = OutingOutcome(
-        Q20_ID, first.coverage, (*first.scores, (ModelKind.CANDIDATE, v0_of(Q20_ID)))
+        Q20_ID, first.coverage, (*first.scores, (ModelKind.CANDIDATE, candidate))
     )
     with pytest.raises(
         RegistryError, match=re.escape("ajout refusé : modèle non déclaré, candidate")
@@ -754,8 +803,9 @@ def test_reference_days_hold_for_every_format(tmp_path: Path) -> None:
         ),
         (
             ModelKind.CANDIDATE,
-            lambda: not_calibrated(Q20_ID, ModelKind.NAISMITH, v0_of(Q20_ID)),
-            "candidate n'est pas un modèle calé : ses scores sont des OutingScores.",
+            lambda: v0_of(Q20_ID),
+            "candidate est un modèle calé : ses scores sont des "
+            "CalibratedOutingScores.",
         ),
     ],
 )
@@ -764,8 +814,9 @@ def test_outing_outcome_refusals(
     scores: Callable[[], OutingScores | CalibratedOutingScores],
     message: str,
 ) -> None:
-    """§ 6.1, invariant neuf d'``OutingOutcome`` : un modèle calé porte des scores
-    calés, de ce modèle et de cette sortie ; un autre modèle, des ``OutingScores``."""
+    """§ 6.1, invariant neuf d'``OutingOutcome`` : un modèle calé — de D9.1 et, depuis
+    M4c-3, le candidat — porte des scores calés, de ce modèle et de cette sortie ; v0
+    brut, des ``OutingScores``."""
     first = outcome(Q20_ID)
     with pytest.raises(ContractError, match=re.escape(message)):
         OutingOutcome(Q20_ID, first.coverage, (*first.scores, (kind, scores())))

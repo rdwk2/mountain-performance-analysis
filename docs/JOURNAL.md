@@ -16,6 +16,56 @@ Backtest (à partir de M4) : métrique avant → après.
 
 ---
 
+### 2026-10-16 · M4c-3 — correctifs de relecture
+Un correctif de code et quatre fichiers de tests neufs, après les relectures C de la PR
+#25 et le balayage de mutation de la conception. Le code : `prepare_experiment` fige une
+copie en lecture seule des exclusions d'admission de la spécification et rend les
+sorties observées en lecture seule ; le calcul applique ainsi les exclusions que la
+DÉCLARATION enregistre, même si l'appelant modifie ensuite ce qu'il a passé (D14). Les
+tests : `test_backtest_admission_guarantees.py` (les garde-fous de régime et des passages
+sur des jours voisins, le `K` déclaré, une prévision invalide au passage, (0) en erreur
+du modèle sous `q_usage`, le repli sur l'observation, la précondition de `metric_value`,
+un gain égal à `ε`), `test_schemas_admission_guarantees.py` (un gain égal à `ε` n'est pas
+un succès, la durée projetée sans D+/km, l'ordre des contrôles),
+`test_backtest_experiment_guarantees.py` (l'ordre des refus, rien d'écrit sous
+`MPA_DATA_DIR`, l'instant de lecture et celui de chaque réponse, une interruption au
+clavier, une sortie non tracée en tête d'un jour de plusieurs sorties, la lecture seule,
+les exclusions figées par la préparation) et `test_backtest_registry_format3_guarantees.py`
+(l'ordre de l'accord, `reference_documents` même `null` sur une ligne ancienne, E6, un
+registre de forme réelle suivi d'une exécution au format 3). La précision de D10.1 sur
+les documents D8 figés dit désormais ce que la décision E6 a fixé : le RÉSULTAT les
+publie, chacun à son empreinte figée. Conclusion : `just check` vert, 4 692 tests.
+
+---
+
+### 2026-10-16 · M4c-3 — Backtest : admission exploratoire
+L'admission exploratoire de `0010` D10 calculée pour la première fois, par une API de
+bibliothèque, sur des candidats synthétiques, d'après `43_BRIEF_M4C-3.md` (révision 1)
+et trois précisions de la relecture du plan. Les contrats du document d'admission
+(`schemas/admission.py`), dont les invariants recalculent agrégats, causes de « à
+revoir », échecs, verdict et réserves ; le candidat calé par la règle de v0
+(`CALIBRATED_KINDS`, `EFFORT_MODELS`) ; le registre au format 3, extension stricte du
+format 2 (le RÉSULTAT d'une expérience cite son document d'admission, l'expérience fige
+les empreintes de ses documents D8 ; les lignes des formats 1 et 2 se relisent et se
+réécrivent à l'octet, sauf une expérience déclarée sous le scénario contrôle, que le
+format 3 refuse : aucune n'a été écrite) ; la règle (`backtest/admission.py`,
+fonctions pures) ;
+l'expérience (`backtest/experiment.py`), qui refait la chaîne de `just backtest`,
+observation partagée avec `backtest/execution.py`. Les sept fichiers de tests joints et
+le correctif des tests existants recopiés tels quels, empreintes vérifiées ; tous verts
+au premier passage, les dix documents d'admission du monde synthétique égaux à ceux de
+l'oracle indépendant. Les 138 contre-épreuves du § 8.2 (colonne « contrats actifs »),
+jouées une à une sans cache de bytecode sur des copies du dépôt : chacune rougit le
+fichier nommé, aucune à la seule collecte. Sept précisions de `0010` (D10.1 à D10.6,
+D14).
+Conclusion : `just check` vert à chaque commit, 4 641 tests (4 111 + 530). Un seul commit
+de code, +3 539 lignes dans `src/` (décision 18 du brief). Le contrôle réel reste à faire
+par la conception (§ 11 du brief), rien dans le vrai registre. Rangé dans
+`src/mountain_perf/{schemas/admission,schemas/calibration,schemas/registry,backtest/admission,backtest/experiment,backtest/execution,backtest/calibration,backtest/codec,backtest/registry,cli}.py`,
+`tests/`, `docs/decisions/0010-protocole-de-backtest.md`, branche `m4c/admission`.
+
+---
+
 ### 2026-10-14 · AN1-0 — correctifs de relecture
 Des tests neufs dans `tests/test_codec.py`, sans rien changer à `src/`, après la
 relecture de la PR #24 et un balayage de mutation : l'ordre des contrôles de

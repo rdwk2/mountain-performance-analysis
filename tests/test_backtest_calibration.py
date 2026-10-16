@@ -588,13 +588,12 @@ def test_an_invalid_projection_on_any_outing(specs: tuple[Any, Any]) -> None:
 
 
 def test_calibrate_preconditions() -> None:
-    """§ 6.4 : un modèle calé, un indice d'horloge dans ``[0 ; 11[``, une entrée pour
-    chaque membre."""
+    """§ 6.4 : un modèle calé — le candidat l'est depuis M4c-3, v0 brut jamais —, un
+    indice d'horloge dans ``[0 ; 11[``, une entrée pour chaque membre."""
     members = {D2: _scores_of(B1, model=ModelKind.V0_RAW)}
     population = _population_of(D2)
-    for model in (ModelKind.V0_RAW, ModelKind.CANDIDATE):
-        with pytest.raises(ValueError, match="n'est pas un modèle calé"):
-            calibrate(population, model, Scenario.CONTROL, 0, members)
+    with pytest.raises(ValueError, match="n'est pas un modèle calé"):
+        calibrate(population, ModelKind.V0_RAW, Scenario.CONTROL, 0, members)
     for clock_index in (-1, len(CLOCKS)):
         with pytest.raises(ValueError, match="clock_index"):
             calibrate(

@@ -157,10 +157,12 @@ src/mountain_perf/     le code de la bibliothèque
                        ClockReference, RepeatabilityReference : référence de
                        répétabilité (M4b-3)
     registry.py        EventKind, Declaration, Result, Failure, RegistryEvent,
-                       RegistryLog, TrialCounts… : registre des expériences (M4b-4)
+                       RegistryLog, TrialCounts… : registre des expériences (M4b-4) ;
+                       format 3 (M4c-3)
     calibration.py     ModelKind, CalibrationPopulation, ModelCalibration,
                        CalibratedScenarioScores, CalibratedPerformance… : calage des
-                       modèles de référence (M4c-1)
+                       modèles de référence (M4c-1) ; candidat calé (M4c-3)
+    admission.py       contrats du document d'admission (M4c-3)
     _dictionary.py     rendu du dictionnaire de données depuis les docstrings
   gpx/                 lecture GPX, profil, grille de pente (M2)
     geo.py             haversine 2D, polyligne dédoublonnée, projection point-segment
@@ -190,14 +192,19 @@ src/mountain_perf/     le code de la bibliothèque
     repeatability.py   two_way_fit, contraction_rate, repeatability_reference : référence
                        D8 d'un parcours (M4b-3)
     codec.py           documents du registre : types, premier format, écriture et relecture
-                       par le codec commun (M4b-4, AN1-0)
+                       par le codec commun (M4b-4, AN1-0) ; format 3 (M4c-3)
     registry.py        journal, documents, ajout, relecture, comptage des essais (M4b-4) ;
-                       format 2, accord des modèles déclarés et des références D8 (M4c-2)
+                       format 2, accord des modèles déclarés et des références D8 (M4c-2) ;
+                       format 3 (M4c-3)
     execution.py       git, domaine, déclaration, exécution enregistrée de just backtest (M4b-5) ;
-                       cinq modèles et leur calage, calcul avant le RÉSULTAT (M4c-2)
+                       cinq modèles et leur calage, calcul avant le RÉSULTAT (M4c-2) ;
+                       observation partagée (M4c-3)
     report.py          valeurs du rapport D15, fonctions pures (M4b-5)
     calibration.py     baseline_scores, calibration_population, calibrate,
-                       calibrated_scores, calibrate_performances : calage D9 (M4c-1)
+                       calibrated_scores, calibrate_performances : calage D9 (M4c-1) ;
+                       candidat calé (M4c-3)
+    admission.py       règle d'admission D10, fonctions pures (M4c-3)
+    experiment.py      expérience d'admission enregistrée, par API (M4c-3)
   ingest/              acquisition et normalisation Garmin, `raw/` → `interim/` (piste
                        analyse, AN1 ; M6b) ; seul le lecteur FIT importe l'extra
                        `ingest` (`docs/decisions/0011`)

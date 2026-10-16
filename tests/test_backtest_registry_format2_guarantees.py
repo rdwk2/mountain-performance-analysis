@@ -6,8 +6,8 @@ M4c-2 ; relecture C et balayage de mutation de la conception).
   une sortie scorée omet un modèle déclaré, ou qui n'a pas de référence D8 pour un
   parcours de répétabilité, est refusée.
 - **Chaque document se relit au format de l'événement qui le cite** (précision de D14,
-  M4c-2) : une ligne du format 2 qui cite un document du format 1, au contenu valable,
-  est refusée.
+  M4c-2) : une ligne du format du jour qui cite un document du format 1, au contenu
+  valable, est refusée.
 - ``DOCUMENT_FIRST_FORMAT`` est en lecture seule (§ 6.1, ``MappingProxyType``).
 - **Les contrôles se font dans l'ordre des listes** (§ 6) : sur une entrée qui viole
   deux contrôles voisins, le message est celui du premier — ``decode_document`` (le
@@ -50,6 +50,7 @@ from mountain_perf.backtest import (
     verify_registry,
 )
 from mountain_perf.schemas import (
+    REGISTRY_FORMAT_VERSION,
     CalibratedScenarioScores,
     ContractError,
     Exclusion,
@@ -60,7 +61,6 @@ from mountain_perf.schemas import (
 )
 from test_backtest_registry_format2 import (
     CANDIDATE,
-    V0_RAW,
     _declared,
     _multi_day,
     _registry,
@@ -77,36 +77,33 @@ SOURCE = REFERENCE_R1.artifact.source
 # ---------------------------------------------------------------------------
 
 
-def _with_candidate(item: OutingOutcome) -> OutingOutcome:
-    """``item``, scoré aussi par le candidat (des ``OutingScores``, comme v0 brut)."""
-    return OutingOutcome(
-        item.outing_id,
-        item.coverage,
-        (item.scores[0], (ModelKind.CANDIDATE, v0_of(item.outing_id))),
-    )
-
-
 def test_format_1_line_lacking_a_declared_model_is_refused(tmp_path: Path) -> None:
     """Décision 3 : une ligne du format 1 dont une sortie scorée omet un modèle déclaré
-    (le candidat) est refusée à la lecture, le modèle nommé."""
-    root = _registry(
-        tmp_path,
-        models=(V0_RAW, CANDIDATE),
-        outcomes_=tuple(_with_candidate(item) for item in outcomes()),
-    )
+    (le candidat, non calé jusqu'à M4c-2, scoré comme v0 brut) est refusée à la
+    lecture, le modèle nommé."""
+    root = _registry(tmp_path)
 
-    def without_candidate(event: RegistryEvent) -> RegistryEvent:
+    def candidate_but_on_q27(event: RegistryEvent) -> RegistryEvent:
+        if event.declaration is not None:
+            models = (*event.declaration.models, CANDIDATE)
+            return replace(event, declaration=replace(event.declaration, models=models))
         if event.result is None:
             return event
         outings = tuple(
-            replace(outing, models=outing.models[:1])
+            outing
             if outing.outing_id == Q27_ID
-            else outing
+            else replace(
+                outing,
+                models=(
+                    *outing.models,
+                    replace(outing.models[0], model=ModelKind.CANDIDATE),
+                ),
+            )
             for outing in event.result.outings
         )
         return replace(event, result=replace(event.result, outings=outings))
 
-    _to_format_1(root, without_candidate)
+    _to_format_1(root, candidate_but_on_q27)
     message = (
         "'q-2026-05-27', une sortie scorée l'est par chaque modèle déclaré "
         "(D0, D9.2) ; absent : candidate"
@@ -139,9 +136,9 @@ def test_format_1_line_without_d8_reference_is_refused(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_format_2_line_citing_a_format_1_document_is_refused(tmp_path: Path) -> None:
-    """Précision de D14 (M4c-2) : la référence D8 d'une ligne du format 2 récrite en
-    document du format 1, au contenu valable, est refusée à la vérification."""
+def test_current_line_citing_a_format_1_document_is_refused(tmp_path: Path) -> None:
+    """Précision de D14 (M4c-2) : la référence D8 d'une ligne du format du jour récrite
+    en document du format 1, au contenu valable, est refusée à la vérification."""
     root = _registry(tmp_path)
     log = read_registry(root)
     result = log.events[1].result
@@ -149,9 +146,10 @@ def test_format_2_line_citing_a_format_1_document_is_refused(tmp_path: Path) -> 
     sha = result.references[0].reference
     path = root / DOCUMENTS_DIR / f"{sha}{DOCUMENT_SUFFIX}"
     data = path.read_bytes()
-    head = re.match(rb'\{"type":"[A-Za-z]+","format":2,', data)
+    current = f'"format":{REGISTRY_FORMAT_VERSION},'.encode()
+    head = re.match(rb'\{"type":"[A-Za-z]+",' + current, data)
     assert head is not None
-    older = head.group(0).replace(b'"format":2,', b'"format":1,') + data[head.end() :]
+    older = head.group(0).replace(current, b'"format":1,') + data[head.end() :]
     renamed = content_hash(older)
     (root / DOCUMENTS_DIR / f"{renamed}{DOCUMENT_SUFFIX}").write_bytes(older)
 
@@ -166,7 +164,8 @@ def test_format_2_line_citing_a_format_1_document_is_refused(tmp_path: Path) -> 
     _rewrite(root, citing_it)
     read_registry(root)
     with pytest.raises(
-        RegistryError, match=re.escape("document au format 1, 2 attendu")
+        RegistryError,
+        match=re.escape(f"document au format 1, {REGISTRY_FORMAT_VERSION} attendu"),
     ):
         verify_registry(root)
 

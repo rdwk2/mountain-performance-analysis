@@ -3,9 +3,10 @@
 Les contrats n'importent ni ``backtest`` ni ``model`` ; les documents du registre
 (``backtest/codec.py``) n'importent du projet que ``mountain_perf.schemas`` et, depuis
 AN1-0, le codec commun ``mountain_perf.codec`` (``tests/test_codec.py``) ; le registre,
-ses seuls modules nommés ; aucune dépendance nouvelle ; aucun module existant n'importe
-le codec ni le registre, hors l'export de ``backtest/__init__.py`` (et le registre, qui
-importe le codec).
+ses seuls modules nommés ; aucune dépendance nouvelle ; aucun module n'importe le codec
+ni le registre, hors l'export de ``backtest/__init__.py``, le registre (qui importe le
+codec), l'exécution et ``cli.py`` (depuis M4b-5), et l'expérience (depuis M4c-3, qui
+importe les deux).
 """
 
 import ast
@@ -45,8 +46,9 @@ def _outside(path: Path) -> set[str]:
 def test_contracts_import_only_the_named_contracts() -> None:
     """§ 6 : les contrats du registre, ni ``backtest`` ni ``model`` ;
     ``ModelKind`` vient des contrats du calage depuis M4c-1 (§ 2 du brief M4c-1),
-    ``CALIBRATED_MODELS`` et ``CalibratedOutingScores`` depuis M4c-2
-    (``OutingOutcome``)."""
+    ``CalibratedOutingScores`` depuis M4c-2 (``OutingOutcome``), et
+    ``CALIBRATED_KINDS`` — les modèles de D9.1 et le candidat — depuis M4c-3, à la
+    place de ``CALIBRATED_MODELS``."""
     imported = _imports(SCHEMAS_MODULE)
     assert _project(SCHEMAS_MODULE) <= {
         "mountain_perf.validation",
@@ -60,7 +62,7 @@ def test_contracts_import_only_the_named_contracts() -> None:
         "mountain_perf.schemas.scoring",
     }
     assert imported["mountain_perf.schemas.calibration"] == {
-        "CALIBRATED_MODELS",
+        "CALIBRATED_KINDS",
         "CalibratedOutingScores",
         "ModelKind",
     }
@@ -135,8 +137,9 @@ def test_no_module_imports_codec_or_registry_but_the_backtest_package() -> None:
     """§ 6 : seuls ``backtest/__init__.py`` (export) et le registre (qui importe le
     codec) les importent — et, depuis M4b-5, l'exécution, qui écrit au registre, et
     ``cli.py``, qui lit le nombre d'événements avant tout écrit (§ 6.0 du brief
-    M4b-5). Depuis AN1-0, les noms que ``backtest/codec.py`` réexporte du codec commun
-    comptent comme les siens."""
+    M4b-5) — et, depuis M4c-3, l'expérience, qui écrit au registre et calcule
+    l'empreinte des documents D8 qu'elle fige (décision E6). Depuis AN1-0, les noms
+    que ``backtest/codec.py`` réexporte du codec commun comptent comme les siens."""
     defined = (
         _defined_names(ast.parse(CODEC_MODULE.read_text(encoding="utf-8")))
         | set(backtest_codec.__all__)
@@ -159,6 +162,8 @@ def test_no_module_imports_codec_or_registry_but_the_backtest_package() -> None:
                 importers.append((path.relative_to(SOURCE).as_posix(), module))
     assert importers == [
         ("backtest/execution.py", "mountain_perf.backtest.registry"),
+        ("backtest/experiment.py", "mountain_perf.backtest.codec"),
+        ("backtest/experiment.py", "mountain_perf.backtest.registry"),
         ("backtest/registry.py", "mountain_perf.backtest.codec"),
         ("cli.py", "mountain_perf.backtest.registry"),
     ]

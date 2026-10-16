@@ -47,8 +47,7 @@ def test_the_second_model_of_a_group_carries_the_same_observation() -> None:
     with pytest.raises(
         ContractError,
         match=re.escape(
-            "les quatre modèles de la sortie j1-0616 portent la même observation "
-            "(D7.1)."
+            "les modèles de la sortie j1-0616 portent la même observation (D7.1)."
         ),
     ):
         CalibratedPerformance(

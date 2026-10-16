@@ -115,6 +115,22 @@
 - `CalibratedScenarioScores`
 - `CalibratedOutingScores`
 - `CalibratedPerformance`
+- `AdmissionVerdict`
+- `AdmissionReserve`
+- `ThresholdSource`
+- `NonEvaluable`
+- `GuardStatus`
+- `ReviewCause`
+- `FailedCondition`
+- `EffortValue`
+- `PerformanceAssessment`
+- `GuardValue`
+- `GuardOutcome`
+- `PassageValue`
+- `PassageGuardOutcome`
+- `ReviewReason`
+- `FailedCheck`
+- `Admission`
 
 ---
 
@@ -4566,7 +4582,8 @@ Deux effets de même nom sont le même effet pour le comptage des essais.
 
 - `route_id` non vide ; `members` est un tuple, `weights` aussi s'il est
   présent ;
-- `members` non vide ; le dernier élément est l'arrivée, et lui seul ;
+- `members` non vide ; au plus une arrivée, en dernier si elle est présente —
+  D7.4 n'exige l'arrivée que du `K` par défaut (décision E4 de M4c-3) ;
 - les `occurrence_index` présents sont **strictement** croissants ;
 - `weights` présents : un poids par élément, chacun fini et `>= 0`, de somme 1
   à `WEIGHT_SUM_TOLERANCE` près — la règle de `UsageTarget` (M4b-1), écrite de
@@ -4646,6 +4663,7 @@ La valeur n'est pas recalculée, ni depuis D8, ni comme moyenne des donneurs.
 | `candidate` | `ModelKind` | — |
 | `usage_targets` | `tuple[DeclaredUsageTarget, ...]` | — |
 | `frozen_references` | `tuple[FrozenReference, ...]` | — |
+| `reference_documents` | `tuple[RepeatabilityRecord, ...] \| None` | — |
 | `analysis_date` | `date \| None` | — |
 
 La partie « expérience » d'une déclaration (`0010` D10.1, D10.3, D10.7).
@@ -4663,6 +4681,9 @@ La partie « expérience » d'une déclaration (`0010` D10.1, D10.3, D10.7).
 - `usage_targets` — sans unité — `K` et ses poids, par parcours ; vide : le
   `K` par défaut.
 - `frozen_references` — sans unité — les références figées et leur source.
+- `reference_documents` — sans unité — l'empreinte du document D8 de chaque
+  parcours dont une référence figée vient (décision E6 de M4c-3) ; absent avant
+  le format 3.
 - `analysis_date` — date civile — la date d'analyse fixée d'avance (D10.7) ;
   absente pour une admission exploratoire.
 
@@ -4671,14 +4692,17 @@ La partie « expérience » d'une déclaration (`0010` D10.1, D10.3, D10.7).
 - `usage_targets` et `frozen_references` sont des tuples ;
 - `target` n'est pas `LEVEL` (`|L|` n'est pas une cible) ;
 - `base` vaut `V0_RECALIBRATED` ; `candidate` vaut `CANDIDATE` ;
+- `scenario` vaut `USAGE` : une expérience se déclare en usage, le garde-fou
+  des passages n'existant qu'en usage (D10.4 ; précision de D10.1, M4c-3) ;
 - `usage_targets` non vide ⇒ `target` vaut `USAGE` ;
-- `target` vaut `USAGE` ⇒ `scenario` vaut `USAGE` (`q_usage` ne se
-  calcule qu'en usage, D7.4) ;
 - les parcours des `usage_targets` sont distincts ;
 - les clés `(metric, clock, source, route_id)` des références figées sont
   distinctes ;
 - chaque donneur d'une référence empruntée a une référence locale de même
-  `metric`, de même `clock`, pour ce parcours, disponible.
+  `metric`, de même `clock`, pour ce parcours, disponible ;
+- `reference_documents` présent : un tuple, de parcours distincts, exactement
+  les parcours des références figées (le `route_id` des locales, les donneurs
+  des empruntées ; E6).
 
 #### Producteur
 
@@ -4909,6 +4933,7 @@ Le contrat ne lit pas le document.
 | `outings` | `tuple[OutingResult, ...]` | — |
 | `unscored` | `tuple[Exclusion, ...]` | — |
 | `references` | `tuple[RepeatabilityRecord, ...]` | — |
+| `admission` | `str \| None` | `None` |
 
 Le contenu d'un RÉSULTAT (`0010` D14, D0).
 
@@ -4917,13 +4942,16 @@ Le contenu d'un RÉSULTAT (`0010` D14, D0).
 - `outings` — sans unité — les sorties scorées.
 - `unscored` — sans unité — les sorties déclarées non scorées, avec leur motif.
 - `references` — sans unité — les références D8 des parcours.
+- `admission` — sans unité — le `sha256` du document d'admission d'une
+  expérience (format 3, M4c-3) ; absent sans expérience.
 
 #### Invariants
 
 - `outings`, `unscored` et `references` sont des tuples ;
 - les identifiants de `outings` et de `unscored`, pris ensemble, sont
   distincts ;
-- les parcours de `references` sont distincts.
+- les parcours de `references` sont distincts ;
+- `admission` présent : un `sha256`.
 
 #### Producteur
 
@@ -4937,8 +4965,8 @@ registre ; le rapport (M4b-5).
 #### Non promis
 
 - l'accord avec la déclaration est vérifié par le registre, pas par le contrat ;
-- gains, dommages et verdict (M4c) n'y sont pas encore : une version du format
-  les ajoutera ;
+- le document d'admission n'est pas lu par le contrat : la relecture du registre
+  le décode et recoupe sa cible et son horloge (M4c-3) ;
 - l'ordre des sorties est celui de l'appelant.
 
 ---
@@ -5017,7 +5045,9 @@ Un événement du registre, une ligne du journal (`0010` D14).
 
 1. `recorded_at` porte un fuseau, normalisé en UTC ; `previous_hash` présent :
    un `sha256` ; `correction_reason` présent : non vide ;
-2. `format_version` dans `REGISTRY_READABLE_FORMATS` (1 ou 2, M4c-2) ;
+2. `format_version` dans `REGISTRY_READABLE_FORMATS` (1, 2 ou 3, M4c-3) ;
+   avant le format 3, ni `Result.admission`, ni `reference_documents` d'une
+   expérience (vérifié en dernier) ;
 3. `number >= 1` ;
 4. `previous_hash` absent **si et seulement si** `number == 1` ;
 5. le contenu présent est celui du type, et lui seul ;
@@ -5104,16 +5134,17 @@ Ce qu'une exécution a produit pour une sortie (`0010` D14, D7.1).
 - `outing_id` — sans unité — la sortie.
 - `coverage` — sans unité — sa couverture (D4.11).
 - `scores` — sans unité — les scores de chaque modèle, couples
-  `(modèle, scores)` : `OutingScores` pour v0 brut et le candidat,
-  `CalibratedOutingScores` pour un modèle calé (M4c-2).
+  `(modèle, scores)` : `OutingScores` pour v0 brut,
+  `CalibratedOutingScores` pour un modèle calé (M4c-2), dont le candidat
+  (M4c-3).
 
 #### Invariants
 
 - `outing_id` non vide ; `scores` est un tuple de couples (tuples) ;
 - `scores` non vide, de modèles distincts ;
-- un modèle de `CALIBRATED_MODELS` porte des `CalibratedOutingScores`, de ce
-  modèle (`control.model`) et de cette sortie ; un autre modèle, des
-  `OutingScores` (M4c-2) ;
+- un modèle de `CALIBRATED_KINDS` porte des `CalibratedOutingScores`, de ce
+  modèle (`control.model`) et de cette sortie ; v0 brut, des `OutingScores`
+  (M4c-2 ; le candidat est calé depuis M4c-3) ;
 - **la même observation** (`==`) pour tous les modèles (D7.1 : le support ne
   dépend que de l'observation).
 
@@ -5412,7 +5443,7 @@ horloge (`0010` D9.2 ; précision de M4c-1).
 Dans l'ordre, `τ = METRIC_RELATIVE_TOLERANCE` (`1e−12`), `_close(x, y)` :
 `|x − y| <= τ·max(1, |y|)` :
 
-1. `model` dans `CALIBRATED_MODELS` ;
+1. `model` dans `CALIBRATED_KINDS` ;
 2. `population` et `withdrawals` : tuples, strictement croissants par jour,
    sans jour commun ;
 3. `unavailability` absent, `NOT_CALIBRATED` ou `MODEL_ERROR` ;
@@ -5420,7 +5451,8 @@ Dans l'ordre, `τ = METRIC_RELATIVE_TOLERANCE` (`1e−12`), `_close(x, y)` :
 5. calé (`unavailability` absent) : `beta` fini, dans le domaine d'`exp`
    (`exp(beta)` et `exp(−beta)` ne débordent pas) ; `factor` fini et
    `> 0` ; baseline : ni `effort` ni saturation, `_close(factor,
-   exp(beta))` ; v0, `(low, high) = EFFORT_BOUNDS` : `effort` présent dans
+   exp(beta))` ; v0 et le candidat (`EFFORT_MODELS`, M4c-3),
+   `(low, high) = EFFORT_BOUNDS` : `effort` présent dans
    `[low ; high]`, `factor == 1 / effort` **au bit**, `saturated` seulement
    si `effort` vaut `low` ou `high`, `_close(effort, min(max(exp(−beta),
    low), high))`, et `saturated` vaut `exp(−beta)` hors de `[low ; high]`
@@ -5511,7 +5543,7 @@ horloges (`0010` D9.2, D7 ; précision de M4c-1).
 
 #### Invariants
 
-1. `model` dans `CALIBRATED_MODELS` ;
+1. `model` dans `CALIBRATED_KINDS` ;
 2. `forecast.scenario is scenario` ;
 3. `clocks` est un tuple ; ses horloges sont `CLOCKS`, dans l'ordre ;
 4. chaque calage porte ce `model` et ce `scenario` ;
@@ -5597,6 +5629,7 @@ différer).
 |---|---|---|
 | `population` | `CalibrationPopulation` | — |
 | `outings` | `tuple[CalibratedOutingScores, ...]` | — |
+| `models` | `tuple[ModelKind, ...]` | `(<ModelKind.V0_RECALIBRATED: 'v0_recalibrated'>, <ModelKind.CONSTANT_SPEED: 'constant_speed'>, <ModelKind.NAISMITH: 'naismith'>, <ModelKind.TOBLER: 'tobler'>)` |
 
 Le calage d'une performance évaluée et les scores calés de ses sorties scorées
 (`0010` D9.2).
@@ -5605,15 +5638,20 @@ Le calage d'une performance évaluée et les scores calés de ses sorties scoré
 
 - `population` — sans unité — `C_j`.
 - `outings` — sans unité — par sortie scorée, dans l'ordre de la performance,
-  les scores calés des quatre modèles, dans l'ordre de `CALIBRATED_MODELS`.
+  les scores calés de chaque modèle de `models`, dans cet ordre.
+- `models` — sans unité — les modèles calés : les quatre de
+  `CALIBRATED_MODELS` pour `just backtest`, (0) et (1) pour une expérience
+  (M4c-3).
 
 #### Invariants
 
-1. `outings` est un tuple ; sa longueur est un multiple de quatre ;
-2. par groupes consécutifs de quatre : les modèles (`control.model`) sont
-   `CALIBRATED_MODELS`, dans l'ordre ; un seul `outing_id` par groupe ; deux
+1. `outings` et `models` sont des tuples ; `models` non vide, de modèles
+   distincts, chacun dans `CALIBRATED_KINDS` ; la longueur d'`outings` est un
+   multiple de `len(models)` ;
+2. par groupes consécutifs de `len(models)` : les modèles (`control.model`)
+   sont `models`, dans l'ordre ; un seul `outing_id` par groupe ; deux
    groupes n'ont pas le même `outing_id` ;
-3. dans chaque groupe, **la même observation** (`==`) pour les quatre modèles
+3. dans chaque groupe, **la même observation** (`==`) pour tous les modèles
    (D7.1 : le support ne dépend que de l'observation ; décision Q2 de M4c-2).
 
 #### Producteur
@@ -5622,9 +5660,754 @@ Le calage d'une performance évaluée et les scores calés de ses sorties scoré
 
 #### Consommateurs
 
-L'exécution et le rapport à cinq modèles (M4c-2).
+L'exécution et le rapport à cinq modèles (M4c-2) ; l'expérience (M4c-3).
 
 #### Non promis
 
 Les sorties non scorées n'y figurent pas ; les calages ne sont pas recoupés d'une
-sortie à l'autre d'une même performance.
+sortie à l'autre d'une même performance. Ce contrat n'est pas stocké : sa forme
+peut changer.
+
+---
+
+## `AdmissionVerdict`
+
+*`mountain_perf.schemas.admission` · énumération*
+
+| Membre | Valeur | Description |
+|---|---|---|
+| `PROVISIONAL` | `provisional_candidate` | Candidat provisoire exploratoire : gain moyen, vote et pertes dans les seuils de D10.3, garde-fous de D10.4 satisfaits, rien à revoir. |
+| `REJECTED` | `rejected` | Rejeté : une condition calculable de D10.3 ou de D10.4 échoue, rien à revoir. |
+| `TO_REVIEW` | `to_review` | À revoir : une cible, un garde-fou exigé ou les passages ne se calculent pas, ou aucun passage comparable (D10.6). |
+
+Verdict d'une admission exploratoire (`0010` D10.6).
+
+#### Champs
+
+Valeurs décrites dans `ADMISSION_VERDICT_DESCRIPTIONS`.
+
+#### Invariants
+
+Énumération fermée, à trois états.
+
+#### Producteur
+
+`admit` (`mountain_perf.backtest.admission`).
+
+#### Consommateurs
+
+`Admission`.
+
+#### Non promis
+
+Jamais une preuve ; la confirmation (D10.7) n'est pas dans ce lot.
+
+---
+
+## `AdmissionReserve`
+
+*`mountain_perf.schemas.admission` · énumération*
+
+| Membre | Valeur | Description |
+|---|---|---|
+| `COMPARATOR_SATURATED` | `comparator_saturated` | Comparateur saturé : l'effort de (0) est borné sur une performance évaluable au moins (D10.5). |
+| `CANDIDATE_SATURATED` | `candidate_saturated` | Candidat saturé : de même pour (1) ; l'invariance au niveau ne vaut que si les deux efforts sont libres (décision E1). |
+| `SENSITIVITY_REMAINING` | `central_sensitivity_remaining` | Centrale, sensibilité restante : la sensibilité complète (D13) n'a pas tourné (D10.6). |
+
+Réserve d'un verdict d'admission (`0010` D10.5, D10.6 ; décision E1 de
+M4c-3).
+
+#### Champs
+
+Valeurs décrites dans `ADMISSION_RESERVE_DESCRIPTIONS`.
+
+#### Invariants
+
+Énumération fermée ; les réserves se cumulent, dans cet ordre.
+
+#### Producteur
+
+`admit` (`mountain_perf.backtest.admission`).
+
+#### Consommateurs
+
+`Admission`.
+
+#### Non promis
+
+Une réserve ne change pas le verdict.
+
+---
+
+## `ThresholdSource`
+
+*`mountain_perf.schemas.admission` · énumération*
+
+| Membre | Valeur | Description |
+|---|---|---|
+| `LOCAL` | `local` | Locale : la référence D8 du parcours, disponible (D10.3, 1). |
+| `BORROWED` | `borrowed` | Empruntée : la référence empruntée figée, pour une performance comparable (D10.3, 2). |
+| `FIXED` | `fixed` | Fixe : aucune référence, seuil plancher (D10.3, 3) ; toujours pour q_usage. |
+
+Source du seuil d'une performance ou d'une valeur de garde-fou (`0010` D10.3,
+D10.4).
+
+#### Champs
+
+Valeurs décrites dans `THRESHOLD_SOURCE_DESCRIPTIONS`.
+
+#### Invariants
+
+Énumération fermée, dans l'ordre de D10.3 : locale, empruntée, fixe.
+
+#### Producteur
+
+`assess_performances`, `admit` (`mountain_perf.backtest.admission`).
+
+#### Consommateurs
+
+`PerformanceAssessment`, `GuardValue`.
+
+#### Non promis
+
+L'ordre local → emprunté → fixe n'est pas recoupé avec les références figées de la
+déclaration (la règle est celle d'`admit`).
+
+---
+
+## `NonEvaluable`
+
+*`mountain_perf.schemas.admission` · énumération*
+
+| Membre | Valeur | Description |
+|---|---|---|
+| `EXCLUDED` | `excluded` | Exclue : une de ses sorties est l'objet d'une exclusion d'admission (D10.1). |
+| `MULTI_OUTING` | `multi_outing` | Jour multi-sorties (D10.2). |
+| `UNSCORED` | `unscored` | Sortie non scorée : pas d'observation. |
+| `NO_USAGE` | `no_usage` | Sans scénario d'usage : la sortie n'a pas de référence (D3). |
+| `INSUFFICIENT_SUPPORT` | `insufficient_support` | Support insuffisant : support admis vide, ou la classe de la cible absente. |
+| `ZERO_TIME` | `zero_time` | Temps nul sur le support, sous l'horloge déclarée, même hors de la classe de la cible (D5.5). |
+| `UNDERREPRESENTED` | `underrepresented` | Trop peu représentée : moins de 3 segments de la classe de la cible (D10.2). |
+| `PASSAGE_UNAVAILABLE` | `passage_unavailable` | Passage indisponible : un élément de K indisponible, même de poids nul (q_usage). |
+| `NOT_CALIBRATED` | `not_calibrated` | Non calée : la population effective de (0) est vide sous l'horloge et le scénario déclarés (décision Q1). |
+
+Motif d'une performance non évaluable (`0010` D10.2 ; précision de M4c-3).
+
+#### Champs
+
+Valeurs décrites dans `NON_EVALUABLE_DESCRIPTIONS`.
+
+#### Invariants
+
+Énumération fermée, dans l'ordre où la règle les essaie : le premier qui s'applique
+est le motif.
+
+#### Producteur
+
+`assess_performances` (`mountain_perf.backtest.admission`).
+
+#### Consommateurs
+
+`PerformanceAssessment` ; le motif de l'ÉCHEC « non évaluable »
+(`run_experiment`).
+
+#### Non promis
+
+Seul le premier motif est publié, pas les suivants.
+
+---
+
+## `GuardStatus`
+
+*`mountain_perf.schemas.admission` · énumération*
+
+| Membre | Valeur | Description |
+|---|---|---|
+| `SATISFIED` | `satisfied` | Satisfait : les conditions de D10.4 tiennent, à ε. |
+| `VIOLATED` | `violated` | Dépassé : la moyenne, ou un jour, dépasse son seuil au-delà de ε. |
+| `UNAVAILABLE` | `unavailable` | Indisponible : une valeur exigée manque ; « à revoir ». |
+| `NOT_EVALUABLE` | `not_evaluable` | Non évaluable : exigé nulle part ; pour les passages, « à revoir ». |
+
+État d'un garde-fou (`0010` D10.4).
+
+#### Champs
+
+Valeurs décrites dans `GUARD_STATUS_DESCRIPTIONS`.
+
+#### Invariants
+
+Énumération fermée.
+
+#### Producteur
+
+`admit` (`mountain_perf.backtest.admission`).
+
+#### Consommateurs
+
+`GuardOutcome`, `PassageGuardOutcome`.
+
+#### Non promis
+
+L'état ne dit pas quel jour dépasse : `FailedCheck` le dit.
+
+---
+
+## `ReviewCause`
+
+*`mountain_perf.schemas.admission` · énumération*
+
+| Membre | Valeur | Description |
+|---|---|---|
+| `TARGET_UNAVAILABLE` | `target_unavailable` | Cible manquante : une performance évaluable sans G_j (D10.2). |
+| `GUARD_UNAVAILABLE` | `guard_unavailable` | Garde-fou indisponible : une valeur exigée sans H_jk (D10.4). |
+| `PASSAGES_UNAVAILABLE` | `passages_unavailable` | Passages indisponibles : une prévision manque à un passage comparable (D10.4). |
+| `PASSAGES_NOT_APPLICABLE` | `passages_not_applicable` | Passages sans objet : aucune performance évaluable n'a de passage comparable (D10.4). |
+
+Cause d'un verdict « à revoir » (`0010` D10.2, D10.4).
+
+#### Champs
+
+Valeurs décrites dans `REVIEW_CAUSE_DESCRIPTIONS`.
+
+#### Invariants
+
+Énumération fermée, dans l'ordre des causes d'une admission.
+
+#### Producteur
+
+`admit` (`mountain_perf.backtest.admission`).
+
+#### Consommateurs
+
+`ReviewReason`.
+
+#### Non promis
+
+Une cause ne dit pas pourquoi la valeur manque : le motif de la valeur le dit.
+
+---
+
+## `FailedCondition`
+
+*`mountain_perf.schemas.admission` · énumération*
+
+| Membre | Valeur | Description |
+|---|---|---|
+| `MEAN_GAIN` | `mean_gain` | Gain moyen : Ḡ < δ̄ − ε (D10.3). |
+| `VOTE` | `vote` | Vote : moins de ⌈3n/4⌉ gains au-dessus de ε, même en comptant les gains absents (D10.3). |
+| `LOSS` | `loss` | Perte : G_j < −δ_j − ε sur une performance (D10.3). |
+| `GUARD` | `guard` | Garde-fou : H̄ > η̄ + ε, ou H_jk > 2η_jk + ε un jour (D10.4). |
+| `PASSAGES` | `passages` | Passages : un dommage relatif au-delà de 1 % + ε à un passage comparable (D10.4). |
+
+Condition calculable qui échoue (`0010` D10.3, D10.4 ; P13).
+
+#### Champs
+
+Valeurs décrites dans `FAILED_CONDITION_DESCRIPTIONS`.
+
+#### Invariants
+
+Énumération fermée, dans l'ordre des conditions d'une admission.
+
+#### Producteur
+
+`admit` (`mountain_perf.backtest.admission`).
+
+#### Consommateurs
+
+`FailedCheck`.
+
+#### Non promis
+
+Une condition non calculable n'échoue pas : elle rend le verdict « à revoir ».
+
+---
+
+## `EffortValue`
+
+*`mountain_perf.schemas.admission` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `free` | `float` | — |
+| `bounded` | `float` | — |
+| `saturated` | `bool` | — |
+
+L'effort calé d'un modèle sous l'horloge déclarée (`0010` D9.2, D10.5 ;
+décision E1 de M4c-3).
+
+#### Champs
+
+- `free` — sans unité — `exp(−β)`, l'effort libre.
+- `bounded` — sans unité — l'effort borné à `EFFORT_BOUNDS`, celui du calage.
+- `saturated` — sans unité — l'effort libre est hors de `EFFORT_BOUNDS`.
+
+#### Invariants
+
+Dans l'ordre, `(low, high) = EFFORT_BOUNDS`, `τ = METRIC_RELATIVE_TOLERANCE` :
+
+1. `free` et `bounded` finis ; `free > 0` ;
+2. `bounded` vaut `min(max(free, low), high)` à `τ·max(1, ·)` près ;
+3. hors du voisinage d'une borne (à la même tolérance), `saturated` vaut `free`
+   hors de `[low ; high]` — indifférent à `τ` près d'une borne, comme
+   `ModelCalibration`.
+
+#### Producteur
+
+`assess_performances` (`mountain_perf.backtest.admission`).
+
+#### Consommateurs
+
+`PerformanceAssessment` ; les réserves d'`Admission`.
+
+#### Non promis
+
+`free` n'est pas recoupé avec `β` (absent du document).
+
+---
+
+## `PerformanceAssessment`
+
+*`mountain_perf.schemas.admission` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `civil_date` | `date` | — |
+| `outing_ids` | `tuple[str, ...]` | — |
+| `motif` | `NonEvaluable \| None` | — |
+| `comparable` | `bool \| None` | — |
+| `comparable_unavailability` | `Unavailability \| None` | — |
+| `dplus_per_km` | `float \| None` | — |
+| `projected_s` | `float \| None` | — |
+| `source` | `ThresholdSource \| None` | — |
+| `local_unavailability` | `Unavailability \| None` | — |
+| `reference` | `float \| None` | — |
+| `threshold` | `float \| None` | — |
+| `base` | `MetricValue \| None` | — |
+| `candidate` | `MetricValue \| None` | — |
+| `raw` | `MetricValue \| None` | — |
+| `gain` | `float \| None` | — |
+| `raw_gain` | `float \| None` | — |
+| `base_effort` | `EffortValue \| None` | — |
+| `candidate_effort` | `EffortValue \| None` | — |
+
+L'évaluation d'une performance déclarée par une admission (`0010` D10.2,
+D10.3, D10.5 ; précisions et décisions de M4c-3).
+
+#### Champs
+
+- `civil_date` — jour civil — le jour.
+- `outing_ids` — sans unité — ses sorties, dans l'ordre de la performance.
+- `motif` — sans unité — pourquoi elle n'est pas évaluable ; absent : évaluable.
+- `comparable` — sans unité — « comparable » de D10.3 ; absent : non classée.
+- `comparable_unavailability` — sans unité — pourquoi elle n'est pas classée,
+  quand (0) est en erreur du modèle (décision E3).
+- `dplus_per_km` — m/km — le D+/km du profil de domaine (D2.1) ; absent pour un
+  jour multi-sorties.
+- `projected_s` — s — la durée projetée de « comparable » (décision Q7).
+- `source` — sans unité — la source de `F_j` (évaluable seulement).
+- `local_unavailability` — sans unité — le motif de la référence locale quand
+  elle n'est pas la source (`absent` sans locale du parcours).
+- `reference` — unité de la cible — `F_j`.
+- `threshold` — unité de la cible — `δ_j`.
+- `base` — unité de la cible — la cible de (0) sous l'horloge déclarée.
+- `candidate` — unité de la cible — la cible de (1).
+- `raw` — unité de la cible — la cible de v0 brut.
+- `gain` — unité de la cible — `G_j = q^(0) − q^(1)`.
+- `raw_gain` — unité de la cible — `G_j^brut = q^(v0 brut) − q^(1)` (D10.5).
+- `base_effort` — sans unité — l'effort de (0), s'il est calé (décision E1).
+- `candidate_effort` — sans unité — l'effort de (1), s'il est calé.
+
+#### Invariants
+
+Dans l'ordre :
+
+1. `outing_ids` : un tuple non vide de noms non vides, distincts ;
+2. `motif` présent : ni `source`, ni `local_unavailability`, ni
+   `reference`, ni `threshold`, ni cible, ni gain, ni effort ;
+3. évaluable : `source`, `threshold`, `base`, `candidate`, `raw`
+   présents ; la source et `F` s'accordent (`F` absent si et seulement si la
+   source est fixe ; `F` fini et `>= 0` ; une locale utilisée sans motif) ;
+   `threshold == max(0,010 ; 0,25·F)` (le plancher sans `F`), au bit ; `gain`
+   absent si `base` ou `candidate` l'est, sinon exactement `base −
+   candidate` ; de même `raw_gain` avec `raw` ;
+4. pour toute performance : `dplus_per_km` et `projected_s` présents finis et
+   `>= 0` ; `comparable_unavailability` présent : ni `comparable` ni
+   `projected_s` ; `comparable` vrai : D+/km dans `COMPARABLE_DPLUS_PER_KM`
+   et `projected_s <= COMPARABLE_MAX_S`, comparaisons exactes ; une source
+   empruntée demande `comparable` vrai.
+
+#### Producteur
+
+`assess_performances` (`mountain_perf.backtest.admission`).
+
+#### Consommateurs
+
+`Admission`.
+
+#### Non promis
+
+« Comparable » n'est pas recalculé (l'étiquette d'entraînement n'est pas
+publiée) ; la cible n'est pas recalculée depuis les scores.
+
+---
+
+## `GuardValue`
+
+*`mountain_perf.schemas.admission` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `civil_date` | `date` | — |
+| `base` | `MetricValue` | — |
+| `candidate` | `MetricValue` | — |
+| `harm` | `float \| None` | — |
+| `source` | `ThresholdSource` | — |
+| `local_unavailability` | `Unavailability \| None` | — |
+| `reference` | `float \| None` | — |
+| `threshold` | `float` | — |
+
+La valeur d'un garde-fou de métrique sur une performance de `J_k` (`0010`
+D10.4).
+
+#### Champs
+
+- `civil_date` — jour civil — le jour.
+- `base` — unité de la métrique — la métrique de (0) sous l'horloge déclarée.
+- `candidate` — unité de la métrique — la métrique de (1).
+- `harm` — unité de la métrique — `H_jk = (q^(1) − q^(0))_+` ; absent si une
+  des deux valeurs l'est.
+- `source` — sans unité — la source de `F_jk`.
+- `local_unavailability` — sans unité — le motif de la référence locale quand
+  elle n'est pas la source.
+- `reference` — unité de la métrique — `F_jk`, propre à ce garde-fou (P8).
+- `threshold` — unité de la métrique — `η_jk`.
+
+#### Invariants
+
+Dans l'ordre : la source et `F` s'accordent (comme `PerformanceAssessment`) ;
+`threshold == max(0,005 ; 0,10·F)` (le plancher sans `F`), au bit ; une des
+deux valeurs absente : `harm` absent ; sinon `harm == max(0, candidate −
+base)`, au bit.
+
+#### Producteur
+
+`admit` (`mountain_perf.backtest.admission`).
+
+#### Consommateurs
+
+`GuardOutcome`.
+
+#### Non promis
+
+La métrique n'est pas recalculée depuis les scores.
+
+---
+
+## `GuardOutcome`
+
+*`mountain_perf.schemas.admission` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `metric` | `ExperimentMetric` | — |
+| `values` | `tuple[GuardValue, ...]` | — |
+| `mean_harm` | `float \| None` | — |
+| `mean_threshold` | `float \| None` | — |
+| `status` | `GuardStatus` | — |
+
+Un garde-fou de métrique d'une admission (`0010` D10.4).
+
+#### Champs
+
+- `metric` — sans unité — la métrique du garde-fou.
+- `values` — sans unité — ses valeurs sur `J_k`, dans l'ordre des jours.
+- `mean_harm` — unité de la métrique — `H̄_k = fsum(H) / |J_k|` ; absent si
+  `J_k` est vide ou si un `H` manque.
+- `mean_threshold` — unité de la métrique — `η̄_k = fsum(η) / |J_k|` ; absent
+  si `J_k` est vide.
+- `status` — sans unité — son état.
+
+#### Invariants
+
+Dans l'ordre, `ε = NUMERIC_TOLERANCE` :
+
+1. `values` : un tuple de jours strictement croissants ;
+2. `mean_harm` et `mean_threshold` valent leurs moyennes, au bit, présentes
+   et absentes à leur place ;
+3. `status` : `NOT_EVALUABLE` si `J_k` est vide ; `UNAVAILABLE` si un
+   `H` manque ; sinon `SATISFIED` si et seulement si `H̄ <= η̄ + ε` et
+   `H <= 2·η + ε` pour chaque valeur, `VIOLATED` sinon.
+
+#### Producteur
+
+`admit` (`mountain_perf.backtest.admission`).
+
+#### Consommateurs
+
+`Admission`.
+
+#### Non promis
+
+`J_k` n'est pas recoupé avec l'observation.
+
+---
+
+## `PassageValue`
+
+*`mountain_perf.schemas.admission` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `civil_date` | `date` | — |
+| `passages` | `int` | — |
+| `worst` | `float \| None` | — |
+
+Le garde-fou des passages sur une performance évaluable (`0010` D10.4).
+
+#### Champs
+
+- `civil_date` — jour civil — le jour.
+- `passages` — sans unité — le nombre de ses passages comparables de `K`.
+- `worst` — sans unité — le plus grand dommage relatif
+  `(|P^(1)_k − T_k| − |P^(0)_k − T_k|)_+ / T_k` ; absent si une prévision manque.
+
+#### Invariants
+
+`passages >= 1` ; `worst` présent : fini et `>= 0`.
+
+#### Producteur
+
+`admit` (`mountain_perf.backtest.admission`).
+
+#### Consommateurs
+
+`PassageGuardOutcome`.
+
+#### Non promis
+
+Les dommages de chaque passage ne sont pas publiés (ils se recalculent depuis les
+documents du RÉSULTAT).
+
+---
+
+## `PassageGuardOutcome`
+
+*`mountain_perf.schemas.admission` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `values` | `tuple[PassageValue, ...]` | — |
+| `status` | `GuardStatus` | — |
+
+Le garde-fou des passages d'une admission (`0010` D10.4).
+
+#### Champs
+
+- `values` — sans unité — une valeur par performance évaluable qui a un passage
+  comparable, dans l'ordre des jours.
+- `status` — sans unité — son état.
+
+#### Invariants
+
+`values` : un tuple de jours strictement croissants ; `status` :
+`NOT_EVALUABLE` sans valeur ; `UNAVAILABLE` si un `worst` manque ; sinon
+`SATISFIED` si et seulement si chaque `worst <= PASSAGE_TOLERANCE + ε`,
+`VIOLATED` sinon.
+
+#### Producteur
+
+`admit` (`mountain_perf.backtest.admission`).
+
+#### Consommateurs
+
+`Admission`.
+
+#### Non promis
+
+Les passages comparables ne sont pas recoupés avec l'observation.
+
+---
+
+## `ReviewReason`
+
+*`mountain_perf.schemas.admission` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `cause` | `ReviewCause` | — |
+| `metric` | `ExperimentMetric \| None` | — |
+| `days` | `tuple[date, ...]` | — |
+
+Une cause du verdict « à revoir » (`0010` D10.2, D10.4).
+
+#### Champs
+
+- `cause` — sans unité — la cause.
+- `metric` — sans unité — le garde-fou indisponible (`GUARD_UNAVAILABLE`
+  seulement).
+- `days` — jours civils — les performances en cause : sans `G_j`, sans
+  `H_jk`, sans pire dommage ; aucune pour l'absence de passage comparable.
+
+#### Invariants
+
+`days` : un tuple strictement croissant ; `metric` présent si et seulement si
+la cause est `GUARD_UNAVAILABLE` ; `PASSAGES_NOT_APPLICABLE` ne nomme pas de
+jour, les autres en nomment.
+
+#### Producteur
+
+`admit` (`mountain_perf.backtest.admission`).
+
+#### Consommateurs
+
+`Admission`.
+
+#### Non promis
+
+Le motif de chaque valeur manquante n'est pas répété ici.
+
+---
+
+## `FailedCheck`
+
+*`mountain_perf.schemas.admission` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `condition` | `FailedCondition` | — |
+| `metric` | `ExperimentMetric \| None` | — |
+| `days` | `tuple[date, ...]` | — |
+
+Une condition calculable qui échoue (`0010` D10.3, D10.4 ; P13).
+
+#### Champs
+
+- `condition` — sans unité — la condition.
+- `metric` — sans unité — le garde-fou (`GUARD` seulement).
+- `days` — jours civils — les performances qui violent seules la condition :
+  perte au-delà de `δ_j`, `H_jk > 2·η_jk + ε`, passage au-delà de
+  `1 % + ε` ; aucune pour le gain moyen et le vote, ni pour un garde-fou dépassé
+  par sa seule moyenne.
+
+#### Invariants
+
+`days` : un tuple strictement croissant ; `metric` présent si et seulement si
+la condition est `GUARD` ; `MEAN_GAIN` et `VOTE` sans jour ; `LOSS` et
+`PASSAGES` avec des jours.
+
+#### Producteur
+
+`admit` (`mountain_perf.backtest.admission`).
+
+#### Consommateurs
+
+`Admission`.
+
+#### Non promis
+
+L'écart de chaque jour à son seuil n'est pas publié (il se lit sur les valeurs).
+
+---
+
+## `Admission`
+
+*`mountain_perf.schemas.admission` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `target` | `ExperimentMetric` | — |
+| `clock` | `Clock` | — |
+| `performances` | `tuple[PerformanceAssessment, ...]` | — |
+| `evaluable` | `int` | — |
+| `mean_gain` | `float \| None` | — |
+| `mean_threshold` | `float` | — |
+| `positive` | `int` | — |
+| `required` | `int` | — |
+| `mean_raw_gain` | `float \| None` | — |
+| `raw_gains` | `int` | — |
+| `guards` | `tuple[GuardOutcome, ...]` | — |
+| `passages` | `PassageGuardOutcome` | — |
+| `review` | `tuple[ReviewReason, ...]` | — |
+| `failures` | `tuple[FailedCheck, ...]` | — |
+| `verdict` | `AdmissionVerdict` | — |
+| `reserves` | `tuple[AdmissionReserve, ...]` | — |
+
+Le document d'admission d'une expérience (`0010` D10.2 à D10.6, D14 ;
+décision Q4 de M4c-3).
+
+#### Champs
+
+- `target` — sans unité — la cible déclarée.
+- `clock` — sans unité — son horloge.
+- `performances` — sans unité — chaque performance déclarée, dans l'ordre des
+  jours, évaluable ou non.
+- `evaluable` — sans unité — `n`, le nombre de performances évaluables.
+- `mean_gain` — unité de la cible — `Ḡ` ; absent si un `G_j` manque.
+- `mean_threshold` — unité de la cible — `δ̄`.
+- `positive` — sans unité — le nombre de `G_j > ε`.
+- `required` — sans unité — `⌈3n/4⌉`.
+- `mean_raw_gain` — unité de la cible — la moyenne des gains contre v0 brut ;
+  absente si l'un manque (décision E5).
+- `raw_gains` — sans unité — le nombre de gains contre v0 brut qui existent.
+- `guards` — sans unité — les garde-fous de `GUARD_METRICS` sans la cible,
+  dans cet ordre.
+- `passages` — sans unité — le garde-fou des passages.
+- `review` — sans unité — les causes de « à revoir ».
+- `failures` — sans unité — les conditions calculables qui échouent.
+- `verdict` — sans unité — le verdict.
+- `reserves` — sans unité — ses réserves.
+
+#### Invariants
+
+Dans l'ordre, `ε = NUMERIC_TOLERANCE`, « évaluables » = les performances sans
+motif, dans l'ordre :
+
+1. `performances`, `guards`, `review`, `failures`, `reserves` sont des
+   tuples ; `target` n'est pas `|L|` ; `performances` non vide, de jours
+   strictement croissants ;
+2. au moins une évaluable (`n = 0` : aucun document, un ÉCHEC « non
+   évaluable ») ; `evaluable` est leur nombre ; `required ==
+   required_successes(evaluable)` ;
+3. sous `q_usage`, aucun motif de support, de temps nul ou de sous-représentation
+   ; sous une autre cible, pas de `passage_unavailable` ; sous `q_usage`,
+   chaque évaluable a la source fixe sans motif de la locale ; sous une autre
+   cible, une source autre que locale porte le motif de la locale (P6) ;
+4. `(mean_threshold, mean_gain, positive, mean_raw_gain, raw_gains)` vaut, au
+   bit, `(fsum(δ)/n, fsum(G)/n` si les `n` existent sinon absent, `#{G > ε}`,
+   `fsum(G^brut)/n` si les `n` existent sinon absent, `#{G^brut présents})` ;
+5. les métriques des garde-fous sont `GUARD_METRICS` sans la cible, dans cet
+   ordre ; leurs jours sont évaluables ; `|L|` porte tous les jours évaluables ;
+   une valeur de source autre que locale porte le motif de la locale ; une source
+   empruntée demande une performance comparable ; les jours des passages sont
+   évaluables ;
+6. `review` vaut, dans cet ordre : `TARGET_UNAVAILABLE` (jours évaluables sans
+   `G_j`) s'il y en a ; un `GUARD_UNAVAILABLE` par garde-fou indisponible
+   (jours sans `H`) ; `PASSAGES_UNAVAILABLE` (jours sans `worst`) si les
+   passages sont indisponibles, ou `PASSAGES_NOT_APPLICABLE` s'ils ne sont pas
+   évaluables ;
+7. `failures` vaut, dans cet ordre : `MEAN_GAIN` si `Ḡ` existe et `Ḡ < δ̄ −
+   ε` ; `VOTE` si `positive` plus le nombre de `G_j` absents est sous
+   `required` ; `LOSS` (jours où `G_j < −δ_j − ε`) s'il y en a ; pour chaque
+   garde-fou, `GUARD` (jours où `H > 2·η + ε`) s'il est `VIOLATED` ou si de
+   tels jours existent ; `PASSAGES` (jours où `worst > 0,01 + ε`) de même ;
+8. `verdict` : `TO_REVIEW` si `review` n'est pas vide, sinon `REJECTED` si
+   `failures` n'est pas vide, sinon `PROVISIONAL` ;
+9. `reserves` : `COMPARATOR_SATURATED` si une évaluable a l'effort de (0)
+   saturé, `CANDIDATE_SATURATED` de même pour (1), puis
+   `SENSITIVITY_REMAINING`, dans cet ordre.
+
+#### Producteur
+
+`admit` (`mountain_perf.backtest.admission`).
+
+#### Consommateurs
+
+`append_result` (document cité par `Result.admission`) ; la relecture du
+registre.
+
+#### Non promis
+
+Les évaluations ne sont pas recalculées depuis les scores et les références (la
+règle est celle d'`admit`) ; la cible et l'horloge sont recoupées avec la
+déclaration par l'accord du registre.

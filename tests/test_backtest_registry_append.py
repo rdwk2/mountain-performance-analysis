@@ -220,7 +220,7 @@ def test_undeclared_outing(tmp_path: Path) -> None:
 
 def test_undeclared_model(tmp_path: Path) -> None:
     root = _declared(tmp_path)
-    scores = v0_of(Q20_ID)
+    scores = not_calibrated(Q20_ID, ModelKind.CANDIDATE, v0_of(Q20_ID))
     candidate = replace(outcome(Q20_ID), scores=((ModelKind.CANDIDATE, scores),))
     _refused(
         root,
@@ -608,7 +608,8 @@ def test_trace_before_models(tmp_path: Path) -> None:
     )
     root = _declared(tmp_path, performances=performances)
     p03 = outcome(P03_ID)
-    candidate = replace(p03, scores=((ModelKind.CANDIDATE, v0_of(P03_ID)),))
+    scores = not_calibrated(P03_ID, ModelKind.CANDIDATE, v0_of(P03_ID))
+    candidate = replace(p03, scores=((ModelKind.CANDIDATE, scores),))
     _refused(
         root,
         "ajout refusé : 'p-2026-06-03', une sortie scorée a au moins une trace",
@@ -620,8 +621,8 @@ def test_declared_model_before_usage(tmp_path: Path) -> None:
     """§ 6.3, accord sans documents, 3 : un modèle non déclaré se signale avant un usage
     absent."""
     root = _declared(tmp_path)
-    scores = v0_of(Q20_ID)
-    without_usage = replace(scores, usage=None)
+    scores = replace(v0_of(Q20_ID), usage=None)
+    without_usage = not_calibrated(Q20_ID, ModelKind.CANDIDATE, scores)
     candidate = replace(outcome(Q20_ID), scores=((ModelKind.CANDIDATE, without_usage),))
     _refused(
         root,

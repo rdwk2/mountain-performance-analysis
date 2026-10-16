@@ -39,8 +39,10 @@ from mountain_perf.backtest.codec import (
 )
 from mountain_perf.model.curve_io import META_SUFFIX, CurveReadResult
 from mountain_perf.schemas import (
-    CALIBRATED_MODELS,
+    ADMISSION_FIRST_FORMAT,
+    CALIBRATED_KINDS,
     REGISTRY_FORMAT_VERSION,
+    Admission,
     ArtifactRef,
     ArtifactRole,
     CalibratedOutingScores,
@@ -119,8 +121,21 @@ def _document_path(root: Path, sha: str) -> Path:
 
 
 def _line(event: RegistryEvent) -> bytes:
-    """La ligne d'un événement : son écriture canonique, sans fin de ligne."""
-    return canonical_bytes(encode_contract(event))
+    """La ligne d'un événement : son écriture canonique, sans fin de ligne, **à son
+    format** — avant le format 3, sans la clé ``admission`` du RÉSULTAT ni la clé
+    ``reference_documents`` de l'expérience, qui y valent ``null`` (précision de D14,
+    M4c-3) : chaque ligne ancienne se réécrit à l'octet."""
+    data = encode_contract(event)
+    if event.format_version < ADMISSION_FIRST_FORMAT and isinstance(data, dict):
+        result = data.get("result")
+        if isinstance(result, dict):
+            result.pop("admission", None)
+        declaration = data.get("declaration")
+        if isinstance(declaration, dict):
+            experiment = declaration.get("experiment")
+            if isinstance(experiment, dict):
+                experiment.pop("reference_documents", None)
+    return canonical_bytes(data)
 
 
 def line_hash(event: RegistryEvent) -> str:
@@ -183,11 +198,22 @@ def _read_events(data: bytes) -> tuple[RegistryEvent, ...]:
             # UnicodeDecodeError, JSONDecodeError, entier de plus de 4 300 chiffres.
             raise RegistryError(f"{prefix}JSON illisible") from None
         try:
-            event = decode_contract(RegistryEvent, raw)
+            event = decode_contract(RegistryEvent, _upgraded(raw))
         except (CodecError, ContractError) as error:
             raise RegistryError(f"{prefix}{error}") from error
         if _line(event) != line:
             raise RegistryError(f"{prefix}écriture non canonique")
+        declared = event.declaration
+        if (
+            event.format_version >= ADMISSION_FIRST_FORMAT
+            and declared is not None
+            and declared.experiment is not None
+            and declared.experiment.reference_documents is None
+        ):
+            raise RegistryError(
+                f"{prefix}une expérience du format {event.format_version} fige les "
+                "documents D8 de ses références (E6)"
+            )
         if event.number != number:
             raise RegistryError(
                 f"{prefix}porte le numéro {event.number}, {number} attendu"
@@ -202,6 +228,39 @@ def _read_events(data: bytes) -> tuple[RegistryEvent, ...]:
     return tuple(events)
 
 
+def _upgraded(raw: object) -> object:
+    """Une ligne JSON d'un format antérieur au 3, avant son décodage : son RÉSULTAT
+    reçoit ``"admission": null``, l'expérience de sa DÉCLARATION
+    ``"reference_documents": null`` (précision de D14, M4c-3). Une ligne qui porte déjà
+    l'une de ces clés, même ``null``, est refusée : champ inconnu à son format. Une
+    ligne du format 3, ou non lisible (pas un dictionnaire, version absente), passe
+    telle quelle : le décodage la juge."""
+    if not isinstance(raw, dict):
+        return raw
+    version = raw.get("format_version")
+    if type(version) is not int or version >= ADMISSION_FIRST_FORMAT:
+        return raw
+    result = raw.get("result")
+    if isinstance(result, dict):
+        if "admission" in result:
+            raise CodecError(
+                f"result : champ inconnu au format {version} : 'admission'"
+            )
+        raw = {**raw, "result": {**result, "admission": None}}
+    declaration = raw.get("declaration")
+    if isinstance(declaration, dict):
+        experiment = declaration.get("experiment")
+        if isinstance(experiment, dict):
+            if "reference_documents" in experiment:
+                raise CodecError(
+                    f"experiment : champ inconnu au format {version} : "
+                    "'reference_documents'"
+                )
+            experiment = {**experiment, "reference_documents": None}
+            raw = {**raw, "declaration": {**declaration, "experiment": experiment}}
+    return raw
+
+
 def _declaration_of(log: RegistryLog, event: RegistryEvent) -> Declaration:
     """La déclaration à laquelle répond ``event``."""
     assert event.answers is not None  # contrat de RegistryEvent
@@ -212,7 +271,8 @@ def _declaration_of(log: RegistryLog, event: RegistryEvent) -> Declaration:
 
 def _cited(result: Result) -> list[str]:
     """Les documents d'un résultat, dans l'ordre : par sortie, l'observation puis, par
-    modèle, le contrôle et l'usage ; puis les références."""
+    modèle, le contrôle et l'usage ; puis les références ; le document d'admission en
+    dernier (M4c-3)."""
     cited: list[str] = []
     for outing in result.outings:
         cited.append(outing.observation)
@@ -221,6 +281,8 @@ def _cited(result: Result) -> list[str]:
             if model.usage is not None:
                 cited.append(model.usage)
     cited.extend(record.reference for record in result.references)
+    if result.admission is not None:
+        cited.append(result.admission)
     return cited
 
 
@@ -241,7 +303,8 @@ def verify_registry(root: Path) -> RegistryLog:
     """``read_registry``, puis, résultat par résultat, l'accord par les documents :
     chaque document cité décodé **au format de l'événement qui le cite** (précision
     de D14, M4c-2), ses scores reconstruits, ses prévisions recoupées avec la
-    déclaration, ses références D8 avec les jours de répétabilité."""
+    déclaration, ses références D8 avec les jours de répétabilité, son document
+    d'admission avec l'expérience déclarée (M4c-3)."""
     log = read_registry(root)
     for event in log.events:
         if event.result is not None:
@@ -275,7 +338,11 @@ def _agree(declaration: Declaration, result: Result, prefix: str) -> None:
     modèles sont déclarés, son usage existe si et seulement si elle a une référence,
     et elle l'est par **chaque modèle déclaré**, statut « non calé » ou « erreur du
     modèle » compris (D0, D9.2 ; précision de D14, M4c-2 : toute ligne, de tout
-    format) ; les parcours des références D8 sont déclarés."""
+    format) ; les parcours des références D8 sont déclarés. Puis (M4c-3) : un
+    document d'admission est cité si et seulement si la déclaration porte une
+    expérience ; une expérience déclarée avant le format 3 (sans documents D8 figés)
+    ne reçoit pas de RÉSULTAT ; chaque document D8 figé est celui que le RÉSULTAT
+    publie pour ce parcours (E6)."""
     outings = _declared_outings(declaration)
     fates = [outing.outing_id for outing in result.outings]
     fates += [exclusion.outing_id for exclusion in result.unscored]
@@ -318,6 +385,26 @@ def _agree(declaration: Declaration, result: Result, prefix: str) -> None:
     for record in result.references:
         if record.route_id not in route_ids:
             raise RegistryError(f"{prefix}parcours non déclaré, {record.route_id!r}")
+    experiment = declaration.experiment
+    if (result.admission is not None) != (experiment is not None):
+        raise RegistryError(
+            f"{prefix}un RÉSULTAT cite un document d'admission si et seulement si sa "
+            "déclaration porte une expérience (M4c-3)"
+        )
+    if experiment is None:
+        return
+    if experiment.reference_documents is None:
+        raise RegistryError(
+            f"{prefix}une expérience déclarée avant le format 3 ne reçoit pas de "
+            "RÉSULTAT (ses documents D8 ne sont pas figés, E6)"
+        )
+    published = {record.route_id: record.reference for record in result.references}
+    for frozen in experiment.reference_documents:
+        if published.get(frozen.route_id) != frozen.reference:
+            raise RegistryError(
+                f"{prefix}le document D8 de {frozen.route_id!r} n'est pas celui que "
+                "la déclaration a figé (E6)"
+            )
 
 
 def _decoded[T](
@@ -345,17 +432,28 @@ def _model_scores(
     """Les scores de chaque modèle d'une sortie scorée, reconstruits depuis ses
     documents au format ``format_version`` : l'observation, puis, modèle par modèle,
     le contrôle et l'usage — en ``CalibratedScenarioScores`` puis
-    ``CalibratedOutingScores`` pour un modèle calé, de ce modèle ; en
-    ``ScenarioScores`` puis ``OutingScores`` pour v0 brut et le candidat.
+    ``CalibratedOutingScores`` pour un modèle calé (``CALIBRATED_KINDS``, le
+    candidat compris depuis M4c-3), de ce modèle ; en ``ScenarioScores`` puis
+    ``OutingScores`` pour v0 brut.
 
-    Au format 1, aucun modèle n'était calé : une ligne d'un format antérieur au
-    document calé (``DOCUMENT_FIRST_FORMAT``) qui en porte un est refusée, avant tout
-    décodage de ses scores (précision de D14, M4c-2)."""
+    Un candidat n'existe qu'à partir du format 3 : une ligne antérieure qui en porte un
+    est refusée, avant tout décodage de ses scores (précision de D14, M4c-3). Au
+    format 1, aucun modèle n'était calé : une ligne d'un format antérieur au document
+    calé (``DOCUMENT_FIRST_FORMAT``) qui en porte un est refusée, avant tout décodage
+    de ses scores (précision de D14, M4c-2)."""
     observation = _decoded(
         read, scored.observation, OutingObservation, document_prefix, format_version
     )
     for model in scored.models:
-        if model.model in CALIBRATED_MODELS:
+        if (
+            model.model is ModelKind.CANDIDATE
+            and format_version < ADMISSION_FIRST_FORMAT
+        ):
+            raise RegistryError(
+                f"{prefix}{scored.outing_id!r}, {model.model} : un candidat n'existe "
+                "qu'à partir du format 3 (M4c-3)"
+            )
+        if model.model in CALIBRATED_KINDS:
             if format_version < DOCUMENT_FIRST_FORMAT[CalibratedScenarioScores]:
                 raise RegistryError(
                     f"{prefix}{scored.outing_id!r}, {model.model} : un modèle calé "
@@ -445,8 +543,10 @@ def _agree_documents(
     la déclaration de leur modèle et nomment un fichier déclaré de leur sortie ; pour
     chaque référence D8, ses jours sont exactement ceux du jeu de répétabilité sur son
     parcours, puis son fichier est recoupé avec la référence déclarée des sorties de
-    répétabilité de ce parcours (précision de D14, M4b-5) ; en dernier, chaque
-    parcours du jeu de répétabilité a sa référence D8 (précision de D14, M4c-2)."""
+    répétabilité de ce parcours (précision de D14, M4b-5) ; puis le document
+    d'admission, décodé au même format, porte la cible et l'horloge de l'expérience
+    déclarée (M4c-3) ; en dernier, chaque parcours du jeu de répétabilité a sa
+    référence D8 (précision de D14, M4c-2)."""
     outings = _declared_outings(declaration)
     models = {model.kind: model for model in declaration.models}
     for scored in result.outings:
@@ -465,6 +565,19 @@ def _agree_documents(
         )
         _check_reference_days(declaration, result, record.route_id, reference, prefix)
         _check_reference_outings(declaration, record.route_id, reference, prefix)
+    experiment = declaration.experiment
+    if result.admission is not None and experiment is not None:
+        admission = _decoded(
+            read, result.admission, Admission, document_prefix, format_version
+        )
+        if (admission.target, admission.clock) != (
+            experiment.target,
+            experiment.clock,
+        ):
+            raise RegistryError(
+                f"{prefix}l'admission porte une autre cible ou une autre horloge que "
+                "l'expérience déclarée"
+            )
     referenced = {record.route_id for record in result.references}
     for route_id in sorted(_repeatability_routes(declaration)):
         if route_id not in referenced:
@@ -631,7 +744,16 @@ def append_declaration(
 
     Une correction est une DÉCLARATION neuve qui nomme celle qu'elle corrige et son
     motif ; chaque DÉCLARATION compte pour un essai, corrections comprises.
+
+    Précondition (``ValueError``), avant tout accès au registre : une expérience fige
+    les documents D8 de ses références (``reference_documents``, E6 ; M4c-3).
     """
+    experiment = declaration.experiment
+    if experiment is not None and experiment.reference_documents is None:
+        raise ValueError(
+            "append_declaration : une expérience fige les documents D8 de ses "
+            "références (reference_documents, E6)."
+        )
     return _append(
         root,
         EventKind.DECLARATION,
@@ -651,6 +773,7 @@ def append_result(
     *,
     unscored: tuple[Exclusion, ...] = (),
     references: tuple[tuple[str, RepeatabilityReference], ...] = (),
+    admission: Admission | None = None,
     recorded_at: datetime | None = None,
     corrects: int | None = None,
     correction_reason: str | None = None,
@@ -660,9 +783,12 @@ def append_result(
 
     Les observations, les scores (prévisions comprises) et les références D8 sont
     écrits en documents, cités par empreinte ; chaque sortie déclarée est scorée
-    (``outcomes``) ou écartée avec un motif (``unscored``).
+    (``outcomes``) ou écartée avec un motif (``unscored``). Le document d'admission
+    d'une expérience (``admission``) est écrit en dernier et cité par
+    ``Result.admission`` (M4c-3) ; l'accord à l'ajout est celui de la vérification,
+    documents compris.
     """
-    result, documents = _result_documents(outcomes, unscored, references)
+    result, documents = _result_documents(outcomes, unscored, references, admission)
     return _append(
         root,
         EventKind.RESULT,
@@ -702,9 +828,11 @@ def _result_documents(
     outcomes: tuple[OutingOutcome, ...],
     unscored: tuple[Exclusion, ...],
     references: tuple[tuple[str, RepeatabilityReference], ...],
+    admission: Admission | None = None,
 ) -> tuple[Result, dict[str, bytes]]:
     """Étape 0 de l'ajout d'un résultat, avant tout accès au registre : les documents
-    écrits en mémoire, dans l'ordre, chacun une fois ; le ``Result`` qui les cite."""
+    écrits en mémoire, dans l'ordre, chacun une fois — le document d'admission en
+    dernier (M4c-3) ; le ``Result`` qui les cite."""
     documents: dict[str, bytes] = {}
 
     def store(value: object) -> str:
@@ -734,7 +862,8 @@ def _result_documents(
         RepeatabilityRecord(route_id, store(reference))
         for route_id, reference in references
     )
-    return Result(tuple(outings), unscored, records), documents
+    cited = None if admission is None else store(admission)
+    return Result(tuple(outings), unscored, records, cited), documents
 
 
 def _append(
