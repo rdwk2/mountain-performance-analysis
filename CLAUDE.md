@@ -28,7 +28,10 @@ Python. Usage personnel d'abord, projet portfolio ensuite. Le repo est public.
    données (`docs/analyse/CHARTE.md`). Tout le reste vit hors du repo, dans le dossier
    pointé par la variable d'environnement `MPA_DATA_DIR`.
    Les tests n'utilisent **que** les fixtures synthétiques de `tests/fixtures/`,
-   qui sont minuscules, inventées, et commitées.
+   qui sont minuscules, inventées, et commitées. Claude Code ne lit ni n'écrit rien
+   sous `MPA_DATA_DIR` : le hook de `.claude/settings.json` le refuse, et les
+   commandes sur les données réelles (`just ingest`, `just backtest`) sont lancées
+   par l'humain.
 
 2. **`just check` doit être vert avant tout commit.**
    Si tu n'arrives pas à le rendre vert, tu t'arrêtes et tu le dis. Tu ne
@@ -117,6 +120,7 @@ just lint       # ruff
 just fmt        # formatage
 just dictionary # régénère docs/DICTIONNAIRE_DONNEES.md depuis les docstrings
 just backtest courbe.csv  # backtest enregistré des cinq modèles, rapport D15 (M4b-5, M4c-2) ; MPA_DATA_DIR/reference/
+just ingest     # raw/ → interim/activities/, extra ingest (AN1-1) ; MPA_DATA_DIR
 uv run mperf profile tests/fixtures/mini_11.gpx  # compte-rendu GPX (M2), --csv pour la grille
 uv run mperf project tests/fixtures/mini_11.gpx --curve tests/fixtures/courbe_synthetique.csv  # temps de passage (M3)
 uv run mperf match tests/fixtures/appariement_reference.gpx tests/fixtures/appariement_trace_x01.gpx  # points de score (M4a-2a)
@@ -163,6 +167,8 @@ src/mountain_perf/     le code de la bibliothèque
                        CalibratedScenarioScores, CalibratedPerformance… : calage des
                        modèles de référence (M4c-1) ; candidat calé (M4c-3)
     admission.py       contrats du document d'admission (M4c-3)
+    interim.py         IndexedActivity, ActivityIndex, ActivityRecording et ses canaux,
+                       IngestionReport : contrats d'interim/ (AN1-1)
     _dictionary.py     rendu du dictionnaire de données depuis les docstrings
   gpx/                 lecture GPX, profil, grille de pente (M2)
     geo.py             haversine 2D, polyligne dédoublonnée, projection point-segment
@@ -205,9 +211,14 @@ src/mountain_perf/     le code de la bibliothèque
                        candidat calé (M4c-3)
     admission.py       règle d'admission D10, fonctions pures (M4c-3)
     experiment.py      expérience d'admission enregistrée, par API (M4c-3)
-  ingest/              acquisition et normalisation Garmin, `raw/` → `interim/` (piste
-                       analyse, AN1 ; M6b) ; seul le lecteur FIT importe l'extra
-                       `ingest` (`docs/decisions/0011`)
+  ingest/              ingestion Garmin, `raw/` → `interim/` (piste analyse, AN1-1 ;
+                       M6b) ; seul `fit.py` importe l'extra `ingest` (`0011`, `0013`)
+    types.py           SOURCE_TYPE_SPORTS : types de la source → Sport
+    views.py           activity_view, stream_view : vues Activity et TrackPointStream
+    interim.py         documents d'interim/ : écriture et relecture par le codec commun
+    index.py           read_index : l'index de l'export
+    fit.py             read_fit : le lecteur FIT, lecture stricte
+    export.py          ingest_export : raw/ → interim/activities/
   analyse/             tables de `processed/` et méthodes statistiques de la piste
                        analyse (AN1) ; extra `analyse`
   ui/                  interface — appelle la bibliothèque, ne calcule rien (M5)
@@ -216,12 +227,15 @@ src/mountain_perf/     le code de la bibliothèque
                        segments, couverture et horloges (M4a-2b), passages (M4a-3) ;
                        --curve, --no-reference : scores de v0 brut (M4b-2) ;
                        mperf backtest <manifeste.json> --curve : backtest enregistré, rapport D15 (M4b-5) ;
-                       cinq modèles (M4c-2)
+                       cinq modèles (M4c-2) ;
+                       mperf ingest : raw/ → interim/activities/ (AN1-1)
 tests/
   conftest.py          MPA_DATA_DIR sur un dossier temporaire neuf pour chaque test (M4c-1)
   strategies.py        stratégies Hypothesis des contrats, réutilisées par tous les jalons
   fixtures/            données synthétiques minuscules, commitées
-scripts/               outillage du dépôt (ex. `just dictionary`), jamais de logique métier
+scripts/               outillage du dépôt (ex. `just dictionary`), jamais de logique métier ;
+  hooks/               proteger_donnees.py : le hook de `.claude/settings.json`, qui refuse
+                       à Claude Code l'accès à `MPA_DATA_DIR` (AN1-1)
 docs/                  ROADMAP, JOURNAL, PIEGES_DATA, MODELE_V1, decisions/,
                        analyse/ (charte et questions de la piste analyse),
                        DICTIONNAIRE_DONNEES (généré — ne pas éditer à la main)

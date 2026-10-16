@@ -401,7 +401,7 @@ relit.
 
 | Produit | Référence du relecteur | Cycle |
 |---|---|---|
-| code de `src/` (contrats, ingestion, fonctions d'analyse, calculs du tableau de bord) | le brief, puis le plan | brief relu → plan de l'agent de code relu → PR → relecture profonde → correctifs → relecture bornée → fusion. Pour l'ingestion, deux relectures profondes indépendantes |
+| code de `src/` (contrats, ingestion, fonctions d'analyse, calculs du tableau de bord) | le brief, puis le plan | brief relu → plan de l'agent de code relu → PR → relecture profonde → correctifs → relecture bornée → fusion. Une relecture profonde, plus un balayage par mutation ; deux si une seconde famille de modèles relit, ou si une erreur serait très coûteuse |
 | plan d'analyse d'une question | la liste des questions et cette charte | relecture experte → plan relu → code → relecture de la PR contre le plan |
 | notebook d'exploration | aucune | pas de relecture ; aucun de ses chiffres n'est un résultat (§ 9) |
 | tableau de bord | le brief (pages et sources) | brief relu, puis une relecture de la PR qui vérifie qu'il ne calcule rien (règle 7) |

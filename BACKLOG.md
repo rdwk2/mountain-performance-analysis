@@ -74,7 +74,9 @@ Format : `- [ ] (jalon visé) idée — pourquoi`
 - [ ] (M2/M6b) Aides `raw_dir()`, `interim_dir()`, `processed_dir()`, `routes_dir()`, `reference_dir()` dérivées de `config.data_dir()` quand un premier lecteur en aura besoin
 - [ ] (M9) README — une section « Méthode » assumant l'usage de Claude Code : ce qui relève de mes décisions (architecture, modèle, métrique, protocole de validation), ce qui relève de l'implémentation assistée, et le fait que chaque PR est relue avant fusion. Renvoyer vers `docs/decisions/`
 - [ ] (M9, optionnel) Signature SSH des commits pour les badges « Verified » — nécessitera de configurer la signature côté Claude Code aussi
-- [ ] (M4/M6b) Hook `PreToolUse` refusant toute écriture dans le dossier de données, à poser au moment où `--add-dir` donnera accès à `mpa-data` (non versionné, donc sans filet git)
+- [x] ~~(M4/M6b) Hook `PreToolUse` refusant toute écriture dans le dossier de données, à poser au moment où `--add-dir` donnera accès à `mpa-data` (non versionné, donc sans filet git)~~ — fait par la PR AN1-1 : `.claude/settings.json` et `scripts/hooks/proteger_donnees.py` (lecture comprise)
+- [ ] (AN1) README : décrire `mperf ingest` et `just ingest` — le README ne cite que les commandes du moteur
+- [ ] (AN1) `mperf ingest` garde en mémoire tous les enregistrements jusqu'à l'écriture d'`interim/` — à revoir quand un export dépassera quelques milliers d'activités
 - [ ] (M6a) Envisager un worktree git quand M6a et M6b tourneront en parallèle
 - [ ] (M6a) Écrire une skill pour la boucle « ajouter un effet → backtest → comparer → entrée de JOURNAL », après l'avoir faite deux fois à la main
 - [ ] Tester le chemin `cached_property` de `_render_dataclass` — la branche existe depuis M1a mais n'est exercée par rien tant qu'aucune propriété n'est mémoïsée

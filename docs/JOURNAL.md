@@ -16,6 +16,27 @@ Backtest (à partir de M4) : métrique avant → après.
 
 ---
 
+### 2026-10-16 · AN1-1 — Ingestion des activités
+`mperf ingest` (`just ingest`, extra `ingest`) lit l'export rangé sous
+`MPA_DATA_DIR/raw/` (index `activities/activities.json`, une archive par FIT dans
+`activity_fit/`, instant d'acquisition dans `acquisition.json`) et écrit
+`interim/activities/` : l'index de toutes les activités, un enregistrement par FIT
+lisible (un canal par grandeur, chacun avec ses instants, température du capteur
+comprise, sessions, événements du chronomètre et leur déclencheur, appareil et ses
+capteurs, écarts comptés par motif) et le rapport de l'ingestion (fichiers
+et entrées refusés, activités sans vue `Activity`, désaccords entre un FIT et son
+entrée ; `docs/decisions/0013`, acceptée avec ses précisions). Contrats dans
+`schemas/interim.py` ; documents relus par le codec commun, sans dépendance ; vues
+`Activity` et `TrackPointStream` pour M6b (`ingest/views.py`, `GPS_GAP` au-delà de 10 s
+entre deux instants de la vue), table des types de la source vers `Sport` (`ingest/types.py`).
+fitdecode n'entre que par `ingest/fit.py`, en lecture stricte (TID251, test d'imports) ;
+CI en deux temps, sans puis avec les extras. Un hook versionné refuse à Claude Code
+l'accès à `MPA_DATA_DIR`. Tests sur des FIT synthétiques, écrits par un écrivain FIT de
+test. La charte demande désormais une relecture profonde et un balayage par mutation.
+Conclusion : `just check` vert, 5 122 tests ; le contrôle réel suit (rdw).
+
+---
+
 ### 2026-10-16 · M4c-3 — correctifs de relecture
 Un correctif de code et quatre fichiers de tests neufs, après les relectures C de la PR
 #25 et le balayage de mutation de la conception. Le code : `prepare_experiment` fige une

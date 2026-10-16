@@ -1,7 +1,7 @@
 # 0013 — Ingestion des activités et format d'`interim/`
 
 - **Date** : 2026-10-09
-- **Statut** : proposée
+- **Statut** : acceptée (AN1-1), avec les précisions de fin de document
 
 ## Contexte
 
@@ -216,3 +216,77 @@ en AN1.
   jamais avant ; les données journalières, à AN2 ; la nature 2D ou 3D de la distance
   de la source (`BACKLOG`, M6b), que les canaux de positions et de distance permettent
   de mesurer.
+
+## Précisions d'AN1-1
+
+*Ajoutées par la PR AN1-1, qui fait passer ce record de « proposée » à « acceptée ».
+Mesurées sur un export réel, sans chiffre ici (règle 1).*
+
+1. **Modules.** Les contrats sont dans `schemas/interim.py` : l'index
+   (`IndexedActivity`, `ActivityIndex`), l'enregistrement (`ActivityRecording`, ses
+   canaux `PositionChannel`, `ElevationChannel`, `DistanceChannel`, `HeartRateChannel`,
+   `SpeedChannel`, `TemperatureChannel`, ses sessions `RecordingSession`, ses événements `TimerEvent`, son
+   appareil `DeviceProvenance`, ses écarts `DiscardCount`) et le rapport
+   (`IngestionReport`, avec `ViewRefusalCount` et `RecordingMismatch`). Le code est
+   dans `ingest/` : `types.py` (la table des types),
+   `views.py` (les vues), `interim.py` (les documents), `index.py`, `fit.py` (seul
+   importeur de fitdecode) et `export.py` (l'ingestion d'un export).
+2. **Plusieurs sessions.** Un FIT multisport porte plusieurs sessions : l'enregistrement
+   en porte la suite, et son départ est celui de la plus ancienne ; tous ses temps en
+   partent.
+3. **Instants.** Ceux de l'enregistrement sont en UTC ; l'heure locale d'une activité
+   est celle de l'index, seule source de vérité pour elle.
+4. **Le champ écrit.** fitdecode déduit `enhanced_altitude` d'`altitude`, et
+   `enhanced_speed` de `speed`, par expansion de composants : seul un champ écrit dans
+   le fichier compte. L'altitude vient d'`enhanced_altitude` si un `record` du fichier
+   y écrit une valeur, sinon d'`altitude` ; la vitesse, d'`enhanced_speed`, sinon de `speed` ; le
+   champ retenu est dit, et l'autre ne s'y mêle pas ; une valeur écrite dans l'autre
+   champ, sans le champ retenu, est comptée. Une valeur invalide du FIT n'est pas une
+   valeur.
+5. **Écarts, dans cet ordre, par canal** : échantillon sans horodatage ; instant avant
+   le départ ; instant qui ne suit pas strictement celui du dernier échantillon gardé,
+   compté comme doublon s'il en répète la valeur à cet instant ; latitude sans
+   longitude ou l'inverse ; zéro brut du codage FIT (altitude de −500 m exactement,
+   position (0°, 0°)) ; valeur non finie ou hors plage ; distance inférieure à la
+   dernière gardée. Un échantillon écarté ne devient pas le dernier gardé. Les
+   événements du chronomètre : sans horodatage ; avant le départ ; antérieur au dernier
+   gardé (deux événements au même instant sont gardés) ; type inconnu. Un champ de
+   l'index inutilisable est omis et nommé dans son entrée (`omitted_fields`) ; le
+   rapport ne le compte pas (ce qui précise « omis et compté », plus haut).
+6. **Drapeaux.** L'enregistrement n'en porte pas. Seul `GPS_GAP` existe en AN1-1 : la
+   vue `TrackPointStream` le pose quand deux de ses instants consécutifs sont séparés de
+   plus de 10 s, le trou du moteur (`0010` D4.4) ; les trous du canal des positions y
+   sont tous, plus ceux que l'intersection avec les canaux demandés crée (ce qui précise
+   le point 2 : un instant écarté faute d'un autre canal n'a pas de drapeau propre, mais
+   le trou qu'il laisse dans la vue pose `GPS_GAP`). Une pause du chronomètre de plus
+   de 10 s le pose aussi : il ne sert pas à écarter un flux, les trous se lisent sur les
+   instants, leur cause sur les événements du chronomètre. Les autres détecteurs
+   viendront avec leur usage.
+7. **Table des types** : `ingest/types.py` (`SOURCE_TYPE_SPORTS`), relue par le moteur ;
+   les exclusions voulues sont écrites dans sa docstring. Le rapport compte les
+   entrées sans vue `Activity`, par motif et par type de la source (point 2), et
+   `mperf ingest` les affiche : un type absent de la table se voit au premier export
+   qui le porte.
+8. **Fichiers** : `interim/activities/index.json`, `report.json` et
+   `recordings/<identifiant>.json`, écrits dans un dossier voisin puis mis en place
+   ensemble.
+9. **Instant d'acquisition** : `raw/acquisition.json`, un objet à la seule clé
+   `retrieved_at` (instant ISO 8601 avec fuseau). Absent ou illisible, `mperf ingest`
+   s'arrête et n'écrit rien (plutôt qu'un rapport, point 5).
+10. **Un seul export**, à la racine de `raw/` ; plusieurs exports, et lequel fait foi,
+    viendront avec l'acquisition. Un identifiant répété dans l'index fait refuser
+    toutes ses entrées ; plusieurs archives au même nom sans extension sont toutes
+    refusées.
+11. **`SourceRef`** : sa docstring dit que chaque producteur met dans `retrieved_at` son
+    propre instant d'acquisition (condition (a), accord du moteur).
+12. **L'index et le FIT.** Le rapport compte les enregistrements dont le départ, ou la
+    somme des temps écoulés des sessions, diffère de plus de 1 s de ceux de l'entrée ;
+    rien n'est refusé. L'index dit si Garmin Connect a recalé l'altitude
+    (`elevation_corrected`) : son D+ vient alors d'un modèle de terrain, et ne se
+    compare pas à l'altitude du FIT, que la correction ne change pas.
+13. **Capteurs, pauses, température.** L'appareil dit si le fichier décrit un baromètre
+    parmi ses capteurs internes, et un capteur de FC externe (ANT+ ou Bluetooth Low
+    Energy) ; chaque événement du chronomètre, son déclencheur (l'athlète, la pause
+    automatique, un appareil de fitness) quand le fichier l'écrit. La température du
+    capteur de la montre est un canal : chauffée par le corps, ce n'est pas celle de
+    l'air (charte, § 12) ; la vue `TrackPointStream` ne la porte pas.

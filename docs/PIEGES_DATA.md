@@ -30,7 +30,10 @@ la même sortie ne se comparent qu'après le même rééchantillonnage et le mê
 
 **`raw/activities/*.json`** — la *liste* des activités (index). Champs utiles :
 `activityId`, `startTimeLocal`, `activityType.typeKey`, `distance`, `duration`,
-`movingDuration`, `elevationGain`, `averageHR`, `maxHR`.
+`movingDuration`, `elevationGain`, `averageHR`, `maxHR`. **`duration` est le temps du
+chronomètre** ; le temps écoulé est `elapsedDuration` : ils diffèrent quand la montre a
+été arrêtée en route. `movingDuration` vaut 0 pour une activité sans déplacement
+(escalade, renforcement…), et la distance, le D+ et le D− y manquent.
 
 **`raw/activity_details/*.json`** — les streams point par point, sous-échantillonnés
 (voir plus bas). La structure est indirecte et c'est le principal piège :
@@ -132,6 +135,38 @@ Les champs `unknown_<n>` sont propres à la montre : ne pas s'en servir.
 
 **Un export peut contenir le FIT d'une autre marque** (`file_id.manufacturer`) : ne
 rien supposer de la montre.
+
+**fitdecode déduit des champs par expansion** : `enhanced_altitude` tiré d'`altitude`,
+`enhanced_speed` tiré de `speed` (`FieldData.is_expanded`). Une montre qui n'écrit que
+`speed` paraît écrire `enhanced_speed` : ne compter que les champs écrits.
+
+**Un FIT peut contenir la sortie deux fois** : après l'arrêt final, le chronomètre
+repart au départ et les enregistrements se répètent, à des instants déjà vus et avec
+les mêmes valeurs (presque toutes). La distance d'un FIT peut aussi reculer
+ponctuellement. On garde le premier passage, et l'on compte ce qu'on écarte, en
+séparant le doublon de la mesure perdue.
+
+**La valeur invalide est fréquente** : un record sans point GPS écrit souvent ses
+positions à la valeur invalide de leur type (fitdecode rend `None`), plutôt que de les
+omettre. Ce n'est pas une valeur. Le brut 0, lui, en est une pour le décodeur : une
+altitude de −500 m (le codage a un décalage de 500 m), une position (0°, 0°) ; des
+écrivains de FIT l'emploient pour « pas de valeur », comme `avgElevation = -500` dans
+l'index.
+
+**La correction d'altitude de Garmin Connect ne touche pas le FIT** : quand
+`elevationCorrected` est vrai dans l'index, son D+ vient d'un modèle de terrain, et le
+FIT garde l'altitude de la montre (ou n'en a pas).
+
+**La pause automatique se déclenche aussi en montée raide**, quand la vitesse
+horizontale passe sous son seuil : la montre cesse d'enregistrer pendant que l'athlète
+monte. Le D+ gagné pendant une pause ne se divise pas par un temps de mouvement qui
+l'exclut. Le déclencheur de chaque pause est écrit dans l'événement du chronomètre
+(`timer_trigger` : `manual` ou `auto`).
+
+**Un FIT multisport porte plusieurs sessions** (message `session`).
+
+**Chaque FIT est dans une archive** `activity_fit/<identifiant>.zip`, à un seul membre
+`.fit`.
 
 ---
 
