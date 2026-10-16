@@ -5,9 +5,14 @@ Analyse de données de sport de montagne et modélisation de la performance.
 Premier outil : projeter les temps de passage sur un tracé GPX à partir de la
 courbe allure↔pente de l'athlète, et valider ces projections contre des
 performances réelles. Aujourd'hui, `mperf` construit le profil d'un GPX, y projette
-des temps de passage avec une courbe lue dans un fichier, et apparie une trace
-réalisée à un tracé pour en calculer les scores. En Python, pour un usage
-personnel d'abord ; le dépôt ne contient aucune donnée personnelle.
+des temps de passage avec une courbe lue dans un fichier, apparie une trace
+réalisée à un tracé pour en calculer les scores, et enregistre le backtest de v0 et
+de quatre autres modèles sur les performances réelles de l'athlète. En Python, pour
+un usage personnel d'abord ; le dépôt ne contient aucune donnée personnelle.
+
+Une seconde piste partage le dépôt et sa méthode : l'analyse des données
+d'entraînement, de récupération et de sommeil de l'athlète, des tableaux de bord
+jusqu'à l'apprentissage automatique (jalons `AN`, [`docs/analyse/`](docs/analyse/)).
 
 ![La chaîne de mountain-performance-analysis sur des données synthétiques : courbe allure↔pente, profil d'un tracé avec temps de passage projetés par v0 et réalisés, écart mesuré tous les 250 m](docs/img/chaine.svg)
 
@@ -19,29 +24,37 @@ Les règles classiques sont les mêmes pour tous les coureurs : Naismith, par
 exemple, compte 5 km/h plus 1 h par 600 m de D+. Ici, la vitesse vient d'une
 courbe vitesse = f(pente) propre à l'athlète, appliquée pas à pas le long du tracé.
 
-- **Livré (moteur v0)** : `v = pace(pente) × effort`, avec un effort constant et
+- **Livré (moteur v0)** : `v = vitesse(pente) × effort`, avec un effort constant et
   sans dégradation : ni fatigue, ni altitude, ni chaleur. La courbe est lue dans
   un fichier ; la construire depuis les données Garmin de l'athlète est prévu au
-  M6b.
+  M6b, sur les activités qu'ingère la piste analyse.
 - **Prévu (M6a)** : la dégradation au fil de la course, dont la fatigue en
   descente selon la **profondeur** de la descente en cours, pas seulement selon
   l'avancement.
 
-Un effet n'entrera dans le modèle que s'il fait baisser l'erreur mesurée par le
-backtest, ou avec une justification écrite. Le backtest comparera aussi v0 à des
-modèles de référence (vitesse constante, Naismith, Tobler :
-[`0010`](docs/decisions/0010-protocole-de-backtest.md), D9).
+Le backtest compare v0 à quatre autres modèles : v0 + effort recalé, et trois
+modèles de référence — vitesse constante, Naismith, Tobler —, chacun calé sur les
+entraînements terminés avant l'origine de la performance évaluée, à 00:00 sept jours
+avant son jour ([`0010`](docs/decisions/0010-protocole-de-backtest.md), D2.5 et D9).
+Un effet n'entrera dans le modèle que s'il fait baisser l'erreur mesurée, ou avec une
+justification écrite : la règle d'admission (D10) compare le modèle avec et sans
+l'effet, performance par performance, sur une cible déclarée d'avance, et vérifie que
+le reste de l'erreur ne se dégrade pas au-delà de tolérances fixées d'avance (les
+garde-fous). Son verdict reste exploratoire, jamais une preuve.
 
 ## Installation
 
-Prérequis : [`uv`](https://docs.astral.sh/uv/) et `git` ; Python 3.12 ou plus (uv l'installe au besoin).
+Prérequis : [`uv`](https://docs.astral.sh/uv/) et `git`. Python 3.12, la version de
+la CI, que uv installe au besoin : la suite n'est verte que sous 3.12 (sous 3.13 et
+3.14, un test de l'écriture canonique échoue ; ligne « La suite n'est verte que sous
+Python 3.12 » de [`BACKLOG.md`](BACKLOG.md)), d'où le `--python 3.12` ci-dessous.
 
 ```bash
-git clone git@github.com:rdwk2/mountain-performance-analysis.git
+git clone https://github.com/rdwk2/mountain-performance-analysis.git
 cd mountain-performance-analysis
-uv tool install rust-just   # la commande `just`
-uv sync --locked            # .venv et dépendances, aux versions de uv.lock
-just check                  # lint + types + tests : doit être vert
+uv tool install rust-just       # la commande `just`
+uv sync --locked --python 3.12  # .venv en Python 3.12, dépendances aux versions de uv.lock
+just check                      # lint + types + tests : doit être vert
 ```
 
 Aucune dépendance de calcul : la seule dépendance d'exécution est `tzdata`, sous
@@ -54,16 +67,18 @@ Windows. `just check` enchaîne trois recettes :
 | `just test` | `pytest` |
 
 `just fmt` formate et corrige ; `just dictionary` régénère
-[`docs/DICTIONNAIRE_DONNEES.md`](docs/DICTIONNAIRE_DONNEES.md). La CI
+[`docs/DICTIONNAIRE_DONNEES.md`](docs/DICTIONNAIRE_DONNEES.md) ; `just figure`
+régénère la figure ci-dessus. La CI
 ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) lance `just check` sur
-une machine vierge à chaque push et à chaque pull request.
+une machine vierge, sous Python 3.12, à chaque push et à chaque pull request.
 
 `MPA_DATA_DIR`, le dossier des données personnelles hors du dépôt, sert au seul
 backtest enregistré (`just backtest` : manifeste, courbe, registre, rapports) ;
-les autres commandes ne le lisent pas.
-Pour le renseigner, copier [`.env.example`](.env.example) en `.env` ;
-`just` charge `.env` s'il existe. Sous Windows, écrire le chemin avec des barres
-obliques.
+les autres commandes ne le lisent pas, les tests non plus
+([`tests/conftest.py`](tests/conftest.py) le pose sur un dossier temporaire neuf
+pour chaque test). Pour le renseigner, copier [`.env.example`](.env.example) en
+`.env` ; `just` charge `.env` s'il existe. Sous Windows, écrire le chemin avec des
+barres obliques.
 
 ## Utilisation : `mperf`
 
@@ -232,12 +247,23 @@ Le rayon de regroupement `r_c` n'a pas d'option : il reste à son défaut, 15 m.
 retenues, domaine et performances ; appariement et scores de chaque sortie sous cinq
 modèles — v0 brut, v0 + effort recalé, vitesse constante, Naismith et Tobler, les quatre
 derniers calés sur les entraînements terminés avant l'origine de chaque performance ;
-référence de répétabilité de chaque parcours. L'exécution est enregistrée dans
+référence de répétabilité (D8) de chaque parcours du jeu de répétabilité. Une sortie
+peut être déclarée au manifeste dans un jeu (répétabilité, développement ou
+confirmation, D2.3) ; les agrégats se publient jeu par jeu, et une performance sans
+jeu n'entre dans aucun. L'exécution est enregistrée dans
 `MPA_DATA_DIR/registre/` (une DÉCLARATION avant le calcul, dont l'empreinte s'affiche
 aussitôt, puis un RÉSULTAT ou un ÉCHEC) ; le rapport complet est écrit dans
-`MPA_DATA_DIR/rapports/backtest-<n° du RÉSULTAT>.txt`, jamais réécrit ; la synthèse
-s'affiche, avec l'empreinte de la dernière ligne du registre, à recopier au journal. La
-commande refuse un arbre de travail modifié : elle enregistre le commit du code exécuté.
+`MPA_DATA_DIR/rapports/backtest-<n° du RÉSULTAT>.txt`, jamais réécrit. La synthèse
+s'affiche avec le sceau du registre, l'empreinte de sa dernière ligne : l'entrée du
+[`JOURNAL`](docs/JOURNAL.md) d'une exécution réelle recopie ce sceau et, au plus, les
+agrégats par jeu, jamais la synthèse par sortie, qui date et nomme les sorties (règle 1
+de [`CLAUDE.md`](CLAUDE.md)). Le code exécuté doit être celui d'un clone git, installé
+par `uv sync` : la commande refuse un clone dont un fichier suivi est modifié, et
+enregistre le commit du code exécuté. Le manifeste décrit chaque sortie (`0010` D2.6 ;
+lecture : [`backtest/manifest.py`](src/mountain_perf/backtest/manifest.py)) ; exemples
+synthétiques : [`tests/fixtures/manifeste/`](tests/fixtures/manifeste/README.md), et le
+monde de [`tests/fixtures/backtest_world.py`](tests/fixtures/backtest_world.py),
+exécutable de bout en bout.
 
 ```bash
 just backtest courbe.csv
@@ -245,9 +271,11 @@ just backtest courbe.csv
 
 Extrait de la synthèse, sur le monde synthétique des tests
 (`tests/fixtures/backtest_world.py`) : le calage de chaque performance (effort de v0,
-facteur de chaque baseline), puis les agrégats d'usage sous l'écoulé des cinq modèles,
-à poids égal par performance et par jeu, et `|L|` sur les performances où les cinq ont
-une valeur.
+facteur de chaque baseline), puis, jeu par jeu, les agrégats d'usage sous l'écoulé des
+cinq modèles, à poids égal par performance, et `|L|` sur les performances où les cinq
+ont une valeur. Aucun entraînement n'est terminé avant l'origine des cinq premières
+performances, sept jours avant chacune : leur `C_j` est vide, et les modèles calés n'y
+ont pas de valeur (« non calé », « — (0) »).
 
 ```text
 calage       0010 D9.2 sur C_j (entraînements terminés avant o_j) ; écoulé, usage (contrôle sans référence) ; e : effort de v0, a : facteur
@@ -271,16 +299,38 @@ agrégats     usage, écoulé ; moyenne à poids égal par performance (effectif
              max |C_k|       132.4 (5)           — (0)               — (0)               — (0)               — (0)
              q_usage         0.059984 (4)        — (0)               — (0)               — (0)               — (0)
              |L| commun      — (0)               — (0)               — (0)               — (0)               — (0)
+             développement   v0 brut             v0 + effort recalé  vitesse constante   Naismith            Tobler
+             L               +0.132283 (1)       +0.137890 (1)       +0.112756 (1)       +0.126724 (1)       +0.139436 (1)
+             |L|             0.132283 (1)        0.137890 (1)        0.112756 (1)        0.126724 (1)        0.139436 (1)
+             max |C_k|       301.6 (1)           315.2 (1)           292.2 (1)           287.7 (1)           319.0 (1)
+             q_usage         0.136219 (1)        0.141843 (1)        0.120012 (1)        0.144985 (1)        0.121469 (1)
+             |L| commun      0.132283 (1)        0.137890 (1)        0.112756 (1)        0.126724 (1)        0.139436 (1)
+             confirmation    v0 brut             v0 + effort recalé  vitesse constante   Naismith            Tobler
+             L               +0.085392 (2)       +0.063574 (2)       +0.073070 (2)       +0.062541 (2)       +0.067179 (2)
+             |L|             0.085392 (2)        0.063574 (2)        0.073070 (2)        0.062541 (2)        0.067179 (2)
+             max |C_k|       177.4 (2)           132.8 (2)           225.2 (2)           192.1 (2)           151.0 (2)
+             q_usage         0.088736 (2)        0.067154 (2)        0.091030 (2)        0.073195 (2)        0.066100 (2)
+             |L| commun      0.085392 (2)        0.063574 (2)        0.073070 (2)        0.062541 (2)        0.067179 (2)
 ```
 
 | Option de `mperf backtest` | Rôle | Défaut |
 |---|---|---|
 | `--curve courbe.csv` | courbe allure↔pente, **obligatoire** : une entrée déclarée de l'exécution | — |
-| `--descent-threshold F` | seuil des descentes roulantes et raides (diagnostic de `0010` D6), dans [0,60 ; 1] | 0,80 |
+| `--descent-threshold F` | seuil des descentes roulantes et raides (diagnostic de `0010` D6), dans [0.60 ; 1] | 0.80 |
 
 ## État et plan
 
-Jalons M0 à M3 livrés ; M4 (backtest) en cours.
+- **Moteur de prédiction** : M0 à M3 livrés ; M4 (backtest) en cours. Livrés en M4 :
+  l'appariement d'une trace à un tracé, les métriques d'erreur, la référence de
+  répétabilité, le registre des expériences, `just backtest` à cinq modèles, et
+  l'admission exploratoire d'un effet (`0010` D10, hors le figement pour confirmation
+  de D10.7), calculée par la bibliothèque — sa commande viendra avec le premier effet,
+  au M6a. Reste M4d : fourchettes, diagnostic des longues courses, sensibilité (D11 à
+  D13).
+- **Piste analyse** : cadrage livré (AN0 : charte, questions, décisions 0011 à 0013) ;
+  AN1 (activités et montées) en cours, son codec commun livré.
+
+Le détail :
 
 - le plan, jalon par jalon : [`docs/ROADMAP.md`](docs/ROADMAP.md) ;
 - ce qui a été fait, session par session : [`docs/JOURNAL.md`](docs/JOURNAL.md) ;
