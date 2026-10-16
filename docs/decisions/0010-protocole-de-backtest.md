@@ -739,7 +739,8 @@ indisponibilité ; une **empruntée** par métrique si une locale au moins est d
 moyenne à poids égal par parcours des locales disponibles, ses donneurs nommés, son effectif
 la somme de leurs `m_q`. La DÉCLARATION fige aussi l'empreinte `sha256` du document D8 de
 chaque parcours dont une référence figée provient (locale ou donneur) ; le RÉSULTAT publie
-exactement ces documents (D14). Une **exclusion d'admission** nomme une sortie : sa
+ces documents, chacun à son empreinte figée (D14). Une **exclusion d'admission**
+nomme une sortie : sa
 performance n'est pas évaluable (motif « exclue ») ; la sortie reste dans les `C_j` des
 autres et dans D8. Un `K` déclaré (cible `q_usage`) est non vide, inclus dans le `K` par
 défaut (départ exclu) de chaque sortie observée avec usage de son parcours, compte au plus
