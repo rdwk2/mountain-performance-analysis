@@ -122,7 +122,8 @@ class QualityFlag(StrEnum):
 
     Producteur
     ----------
-    Les détecteurs de qualité de l'ingestion (M6b). Aucun détecteur n'existe en M1.
+    Les détecteurs de qualité : ``GPS_GAP``, la vue ``TrackPointStream`` de l'ingestion
+    (AN1-1) ; les autres, le M6b.
 
     Consommateurs
     -------------
@@ -130,8 +131,10 @@ class QualityFlag(StrEnum):
 
     Non promis
     ----------
-    Aucun seuil ni méthode de détection : ils sont du M6b. L'absence de drapeau ne
-    garantit pas l'absence de défaut, tant qu'aucun détecteur n'existe.
+    ``GPS_GAP`` est posé par la vue d'ingestion (AN1-1) quand deux instants consécutifs
+    de la vue sont séparés de plus de 10 s, le seuil du trou de ``0010`` D4.4 ; les
+    autres détecteurs, leurs seuils et leurs méthodes sont du M6b. L'absence d'un
+    drapeau ne garantit pas l'absence du défaut, tant que son détecteur n'existe pas.
     """
 
     GPS_GAP = "gps_gap"
@@ -142,8 +145,8 @@ class QualityFlag(StrEnum):
 QUALITY_FLAG_DESCRIPTIONS: Mapping[QualityFlag, str] = MappingProxyType(
     {
         QualityFlag.GPS_GAP: (
-            "Intervalle sans position enregistrée assez long pour rendre "
-            "l'interpolation douteuse."
+            "Intervalle sans point du flux (positions et canaux demandés) assez long "
+            "pour rendre l'interpolation douteuse."
         ),
         QualityFlag.ELEVATION_SPIKE: (
             "Variation d'altitude entre deux points incompatible avec un "
@@ -166,8 +169,8 @@ class SourceRef:
 
     Champs
     ------
-    - ``kind`` — sans unité — nature de la source : ``"gpx"``,
-      ``"garmin_activity"``, ``"csv"``.
+    - ``kind`` — sans unité — nature de la source, par exemple ``"gpx"``, ``"csv"``,
+      ``"garmin_fit"`` ou ``"garmin_activities"`` (l'ingestion, AN1-1).
     - ``identifier`` — sans unité — **nom du fichier, jamais un chemin complet**.
     - ``content_hash`` — sans unité — ``sha256`` du contenu, 64 caractères
       hexadécimaux minuscules.
@@ -184,7 +187,8 @@ class SourceRef:
 
     Producteur
     ----------
-    Les lecteurs de fichiers : GPX (M2), ingestion Garmin (M6b), CSV de référence (M4).
+    Les lecteurs de fichiers : GPX (M2), CSV de référence (M4), ingestion Garmin (AN1-1,
+    pour M6b).
 
     Consommateurs
     -------------
@@ -198,7 +202,11 @@ class SourceRef:
       pour se brancher ;
     - ``identifier`` n'est pas unique : deux fichiers de même nom se distinguent par
       ``content_hash`` ;
-    - le fuseau d'origine de ``retrieved_at`` n'est pas conservé.
+    - le fuseau d'origine de ``retrieved_at`` n'est pas conservé ;
+    - chaque producteur met dans ``retrieved_at`` son propre instant d'acquisition :
+      l'instant de lecture pour les lecteurs de fichiers du moteur, l'instant
+      d'acquisition de l'export pour l'ingestion (``docs/decisions/0013``) ; deux
+      producteurs ne se comparent pas sur ce champ.
     """
 
     kind: str
