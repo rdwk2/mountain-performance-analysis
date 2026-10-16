@@ -16,6 +16,51 @@ Backtest (à partir de M4) : métrique avant → après.
 
 ---
 
+### 2026-10-16 · AN1-1 — correctifs de relecture
+Après la relecture profonde de la PR, le balayage par mutation de la conception, la
+relecture du moteur (le lecteur, les vues et la table : accord) et la relecture bornée
+des correctifs. Le hook refuse aussi les commandes Windows qui écrivent dans les données
+(`mperf.exe`, `just.exe`, sous-commande entre guillemets, toute casse) et reconnaît le
+dossier écrit avec des séparateurs mêlés ou depuis `${env:USERPROFILE}`, `$USERPROFILE`
+et `${USERPROFILE}`. `read_fit` refuse `UNREADABLE_FIT` toute exception du décodage par
+fitdecode, et une archive au répertoire central incohérent, au nom de membre illisible
+ou au membre bzip2 ou lzma corrompu est refusée `NOT_ONE_FIT` : un fichier malformé
+n'arrête plus l'ingestion (`0013`, point 5). Des tests pour les garanties écrites qui
+n'en avaient pas (premier `file_id`, premier créateur, tri stable des sessions,
+empreintes du rapport et de l'index, ordre des contrôles, archives et membres
+illisibles, suffixe `.fit`, pause du chronomètre, erreur du lecteur propagée, aide de
+`mperf ingest`, forme de l'import sans l'extra) et pour quatre lacunes du balayage.
+`main` fusionné (#27) : le README dit l'ingestion, l'extra `ingest`, la CI en deux
+temps, `MPA_DATA_DIR` et le hook, garde-fou et non enceinte ; `CLAUDE.md` : « Le README
+décrit `main` ». Docstrings (`read_fit`, `ingest_export`, `ActivityView`, hook), `0013`
+(précision 6), message de la règle TID251, `BACKLOG.md`.
+Conclusion : `just check` vert, 5 169 tests. Contrôle réel (rdw, `just ingest` sur
+l'export) : `interim/activities/` identique, fichier par fichier, à celui de l'essai de
+la conception sur une copie de l'export.
+
+---
+
+### 2026-10-16 · AN1-1 — Ingestion des activités
+`mperf ingest` (`just ingest`, extra `ingest`) lit l'export rangé sous
+`MPA_DATA_DIR/raw/` (index `activities/activities.json`, une archive par FIT dans
+`activity_fit/`, instant d'acquisition dans `acquisition.json`) et écrit
+`interim/activities/` : l'index de toutes les activités, un enregistrement par FIT
+lisible (un canal par grandeur, chacun avec ses instants, température du capteur
+comprise, sessions, événements du chronomètre et leur déclencheur, appareil et ses
+capteurs, écarts comptés par motif) et le rapport de l'ingestion (fichiers
+et entrées refusés, activités sans vue `Activity`, désaccords entre un FIT et son
+entrée ; `docs/decisions/0013`, acceptée avec ses précisions). Contrats dans
+`schemas/interim.py` ; documents relus par le codec commun, sans dépendance ; vues
+`Activity` et `TrackPointStream` pour M6b (`ingest/views.py`, `GPS_GAP` au-delà de 10 s
+entre deux instants de la vue), table des types de la source vers `Sport` (`ingest/types.py`).
+fitdecode n'entre que par `ingest/fit.py`, en lecture stricte (TID251, test d'imports) ;
+CI en deux temps, sans puis avec les extras. Un hook versionné refuse à Claude Code
+l'accès à `MPA_DATA_DIR`. Tests sur des FIT synthétiques, écrits par un écrivain FIT de
+test. La charte demande désormais une relecture profonde et un balayage par mutation.
+Conclusion : `just check` vert, 5 122 tests ; le contrôle réel suit (rdw).
+
+---
+
 ### 2026-10-16 · M4c-3 — correctifs de relecture
 Un correctif de code et quatre fichiers de tests neufs, après les relectures C de la PR
 #25 et le balayage de mutation de la conception. Le code : `prepare_experiment` fige une

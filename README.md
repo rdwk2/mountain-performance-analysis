@@ -13,6 +13,7 @@ un usage personnel d'abord ; le dépôt ne contient aucune donnée personnelle.
 Une seconde piste partage le dépôt et sa méthode : l'analyse des données
 d'entraînement, de récupération et de sommeil de l'athlète, des tableaux de bord
 jusqu'à l'apprentissage automatique (jalons `AN`, [`docs/analyse/`](docs/analyse/)).
+Elle ingère déjà les activités de l'export Garmin (`mperf ingest`).
 
 ![La chaîne de mountain-performance-analysis sur des données synthétiques : courbe allure↔pente, profil d'un tracé avec temps de passage projetés par v0 et réalisés, écart mesuré tous les 250 m](docs/img/chaine.svg)
 
@@ -47,7 +48,8 @@ garde-fous). Son verdict reste exploratoire, jamais une preuve.
 Prérequis : [`uv`](https://docs.astral.sh/uv/) et `git`. Python 3.12, la version de
 la CI, que uv installe au besoin : la suite n'est verte que sous 3.12 (sous 3.13 et
 3.14, un test de l'écriture canonique échoue ; ligne « La suite n'est verte que sous
-Python 3.12 » de [`BACKLOG.md`](BACKLOG.md)), d'où le `--python 3.12` ci-dessous.
+Python 3.12 » de [`BACKLOG.md`](BACKLOG.md)), d'où le `.python-version` du dépôt, que
+uv suit en créant le `.venv`, et le `--python 3.12` ci-dessous.
 
 ```bash
 git clone https://github.com/rdwk2/mountain-performance-analysis.git
@@ -58,7 +60,10 @@ just check                      # lint + types + tests : doit être vert
 ```
 
 Aucune dépendance de calcul : la seule dépendance d'exécution est `tzdata`, sous
-Windows. `just check` enchaîne trois recettes :
+Windows. La lecture des FIT de l'ingestion demande en plus l'extra `ingest`
+(fitdecode, [`0011`](docs/decisions/0011-bibliotheques-analyse.md)) :
+`uv sync --locked --extra ingest`, ou `just ingest`, qui l'installe de lui-même ; sans
+lui, les tests qui lisent des FIT se sautent. `just check` enchaîne trois recettes :
 
 | Recette | Ce qu'elle lance |
 |---|---|
@@ -70,11 +75,13 @@ Windows. `just check` enchaîne trois recettes :
 [`docs/DICTIONNAIRE_DONNEES.md`](docs/DICTIONNAIRE_DONNEES.md) ; `just figure`
 régénère la figure ci-dessus. La CI
 ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) lance `just check` sur
-une machine vierge, sous Python 3.12, à chaque push et à chaque pull request.
+une machine vierge, sous Python 3.12, sans extra, puis toute la suite avec tous les
+extras, à chaque push et à chaque pull request.
 
-`MPA_DATA_DIR`, le dossier des données personnelles hors du dépôt, sert au seul
-backtest enregistré (`just backtest` : manifeste, courbe, registre, rapports) ;
-les autres commandes ne le lisent pas, les tests non plus
+`MPA_DATA_DIR`, le dossier des données personnelles hors du dépôt, sert au backtest
+enregistré (`just backtest` : manifeste, courbe, registre, rapports) et à l'ingestion
+(`just ingest` : `raw/` lu, `interim/activities/` écrit) ; les autres commandes ne le
+lisent pas, les tests non plus
 ([`tests/conftest.py`](tests/conftest.py) le pose sur un dossier temporaire neuf
 pour chaque test). Pour le renseigner, copier [`.env.example`](.env.example) en
 `.env` ; `just` charge `.env` s'il existe. Sous Windows, écrire le chemin avec des
@@ -82,10 +89,11 @@ barres obliques.
 
 ## Utilisation : `mperf`
 
-Quatre sous-commandes, installées par `uv sync`. Les exemples ci-dessous ont été
-exécutés depuis la racine du dépôt, sur des fixtures synthétiques commitées
-([`tests/fixtures/`](tests/fixtures/README.md)) ; celui du backtest, sur le monde
-synthétique que les tests écrivent dans un dossier temporaire.
+Cinq sous-commandes, installées par `uv sync` ; `ingest` demande en plus l'extra
+`ingest`. Les exemples ci-dessous ont été exécutés depuis la racine du dépôt, sur des
+fixtures synthétiques commitées ([`tests/fixtures/`](tests/fixtures/README.md)) ; celui
+du backtest, sur le monde synthétique que les tests écrivent dans un dossier
+temporaire.
 
 ### `mperf profile` — le profil d'un GPX
 
@@ -318,6 +326,41 @@ agrégats     usage, écoulé ; moyenne à poids égal par performance (effectif
 | `--curve courbe.csv` | courbe allure↔pente, **obligatoire** : une entrée déclarée de l'exécution | — |
 | `--descent-threshold F` | seuil des descentes roulantes et raides (diagnostic de `0010` D6), dans [0.60 ; 1] | 0.80 |
 
+### `just ingest` — l'ingestion de l'export Garmin
+
+`just ingest` lance `mperf ingest` avec l'extra `ingest` : il lit l'export Garmin
+rangé à la racine de `MPA_DATA_DIR/raw/` et écrit `MPA_DATA_DIR/interim/activities/`
+([`0013`](docs/decisions/0013-ingestion-et-interim.md)). L'export comprend :
+
+- `acquisition.json`, l'instant où l'export a été obtenu, écrit à la main
+  (`{"retrieved_at": "<instant ISO 8601 avec fuseau>"}`) ;
+- `activities/activities.json`, l'index des activités ;
+- `activity_fit/<identifiant>.zip`, une archive par activité, qui contient son FIT.
+
+L'ingestion écrit trois choses :
+
+- l'index de toutes les activités ;
+- un enregistrement par FIT lisible : un canal par grandeur, chacun avec ses instants,
+  sans interpolation ;
+- le rapport de l'ingestion : les fichiers lus et refusés, les entrées de l'index
+  refusées, les activités sans vue `Activity`, les désaccords entre un FIT et son
+  entrée.
+
+Rien n'est corrigé : une valeur écartée est comptée, avec son motif. `raw/` n'est jamais
+écrit. Une ingestion qui s'arrête sur une erreur laisse en place l'`interim/activities/`
+précédent, et deux ingestions des mêmes fichiers écrivent les mêmes octets. Le moteur
+lira `interim/` par les vues `Activity` et `TrackPointStream` (M6b).
+
+```bash
+just ingest
+```
+
+La sortie commence par sept lignes, qui comptent les activités de l'index, les
+enregistrements, les fichiers refusés, les entrées refusées, les entrées sans archive,
+les désaccords et les activités sans vue `Activity` ; suit une ligne par couple (motif,
+type de la source) de ces dernières. Pas d'exemple ici : sur l'export réel, ces nombres
+restent hors du dépôt ([`docs/analyse/CHARTE.md`](docs/analyse/CHARTE.md), § 10).
+
 ## État et plan
 
 - **Moteur de prédiction** : M0 à M3 livrés ; M4 (backtest) en cours. Livrés en M4 :
@@ -328,7 +371,9 @@ agrégats     usage, écoulé ; moyenne à poids égal par performance (effectif
   au M6a. Reste M4d : fourchettes, diagnostic des longues courses, sensibilité (D11 à
   D13).
 - **Piste analyse** : cadrage livré (AN0 : charte, questions, décisions 0011 à 0013) ;
-  AN1 (activités et montées) en cours, son codec commun livré.
+  AN1 (activités et montées) en cours : son codec commun et l'ingestion des activités
+  (`just ingest`) livrés ; restent les tables de `processed/` (activités et montées),
+  la figure de Q1 et la commande qui régénère `interim/` et `processed/` (AN1-2).
 
 Le détail :
 
@@ -340,7 +385,7 @@ Le détail :
 
 Une décision structurante = un fichier dans [`docs/decisions/`](docs/decisions/),
 sur le gabarit [`0000-template.md`](docs/decisions/0000-template.md). Toutes
-sont au statut « acceptée », sauf 0013 (« proposée ») :
+sont au statut « acceptée » :
 
 - [0001 — Séparation stricte données / code](docs/decisions/0001-separation-data-code.md)
 - [0002 — Unités internes et unités d'affichage](docs/decisions/0002-unites.md)
@@ -372,6 +417,14 @@ Autres documents :
 
 Ce dépôt ne contient aucune donnée personnelle (règle 1 de [`CLAUDE.md`](CLAUDE.md),
 décision [`0001`](docs/decisions/0001-separation-data-code.md)). Les données
-réelles vivent hors du dépôt, dans le dossier désigné par `MPA_DATA_DIR`. Les tests
-et les exemples ci-dessus n'utilisent que les fixtures synthétiques de
+réelles vivent hors du dépôt, dans le dossier désigné par `MPA_DATA_DIR`. Claude
+Code, ouvert dans un clone du dépôt, n'y touche pas : le hook de
+[`.claude/settings.json`](.claude/settings.json)
+([`scripts/hooks/proteger_donnees.py`](scripts/hooks/proteger_donnees.py)) refuse ses
+outils de fichiers sous ce dossier, qu'il connaît par `MPA_DATA_DIR` (l'environnement,
+sinon le `.env` du clone), et ses commandes qui le nomment ou qui écrivent dans les
+données ; les commandes sur les données réelles (`just ingest`, `just backtest`) sont
+lancées par l'humain. C'est un garde-fou, pas une enceinte : une commande qui atteint le
+dossier sans le nommer n'est pas vue. Les tests et les exemples
+ci-dessus n'utilisent que les fixtures synthétiques de
 [`tests/fixtures/`](tests/fixtures/README.md).

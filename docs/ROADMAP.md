@@ -273,6 +273,9 @@ documentation.
 ### AN1 — Activités et montées
 - avant le code : le codec rendu commun, dans une PR à part, avec l'accord du moteur
   (`docs/decisions/0013`, point 4)
+- en deux PR : AN1-1, l'ingestion (jusqu'à `interim/` et aux vues du moteur) ; AN1-2,
+  les tables de `processed/`, la figure de Q1, et la commande qui régénère `interim/`
+  et `processed/` depuis `raw/`
 - ingestion des activités : index de l'export et séries des FIT, contrats et lecteur
   d'`interim/` sans dépendance (`docs/decisions/0013`)
 - vues `Activity` et `TrackPointStream` pour M6b, et table des types de la source vers

@@ -39,3 +39,8 @@ figure:
 # registre et rapport sous MPA_DATA_DIR. Exemple : just backtest courbe.csv
 backtest curve:
     uv run mperf backtest "{{env_var('MPA_DATA_DIR')}}/reference/manifeste.json" --curve "{{env_var('MPA_DATA_DIR')}}/reference/{{curve}}"
+
+# Ingestion de l'export (AN1-1, docs/decisions/0013) : MPA_DATA_DIR/raw → MPA_DATA_DIR/interim/activities,
+# avec l'extra ingest (fitdecode).
+ingest:
+    uv run --extra ingest mperf ingest

@@ -1,0 +1,25 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|PowerShell|Monitor|Read|Write|Edit|NotebookEdit|Glob|Grep|LSP",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv",
+            "args": [
+              "run",
+              "--no-sync",
+              "--project",
+              "${CLAUDE_PROJECT_DIR}",
+              "python",
+              "${CLAUDE_PROJECT_DIR}/scripts/hooks/proteger_donnees.py"
+            ],
+            "timeout": 30,
+            "onFailure": "block"
+          }
+        ]
+      }
+    ]
+  }
+}

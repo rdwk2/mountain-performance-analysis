@@ -131,6 +131,34 @@
 - `ReviewReason`
 - `FailedCheck`
 - `Admission`
+- `ElevationField`
+- `SpeedField`
+- `TimerEventType`
+- `TimerTrigger`
+- `RecordingPart`
+- `DiscardReason`
+- `IndexField`
+- `RefusalReason`
+- `ViewRefusal`
+- `IndexedActivity`
+- `ActivityIndex`
+- `PositionChannel`
+- `ElevationChannel`
+- `DistanceChannel`
+- `HeartRateChannel`
+- `SpeedChannel`
+- `TemperatureChannel`
+- `RecordingSession`
+- `TimerEvent`
+- `DeviceProvenance`
+- `DiscardCount`
+- `ActivityRecording`
+- `ReadFile`
+- `RefusedFile`
+- `RefusedEntry`
+- `ViewRefusalCount`
+- `RecordingMismatch`
+- `IngestionReport`
 
 ---
 
@@ -184,7 +212,7 @@ légitime de M2 à M5, sauf pour valider une cohérence (`docs/decisions/0003`).
 
 | Membre | Valeur | Description |
 |---|---|---|
-| `GPS_GAP` | `gps_gap` | Intervalle sans position enregistrée assez long pour rendre l'interpolation douteuse. |
+| `GPS_GAP` | `gps_gap` | Intervalle sans point du flux (positions et canaux demandés) assez long pour rendre l'interpolation douteuse. |
 | `ELEVATION_SPIKE` | `elevation_spike` | Variation d'altitude entre deux points incompatible avec un déplacement à pied. |
 | `IMPLAUSIBLE_SPEED` | `implausible_speed` | Vitesse incompatible avec le sport et la pente. |
 
@@ -213,7 +241,8 @@ déclarées.
 
 #### Producteur
 
-Les détecteurs de qualité de l'ingestion (M6b). Aucun détecteur n'existe en M1.
+Les détecteurs de qualité : `GPS_GAP`, la vue `TrackPointStream` de l'ingestion
+(AN1-1) ; les autres, le M6b.
 
 #### Consommateurs
 
@@ -221,8 +250,10 @@ L'estimation de courbe (M6b), qui décide d'écarter ou de pondérer.
 
 #### Non promis
 
-Aucun seuil ni méthode de détection : ils sont du M6b. L'absence de drapeau ne
-garantit pas l'absence de défaut, tant qu'aucun détecteur n'existe.
+`GPS_GAP` est posé par la vue d'ingestion (AN1-1) quand deux instants consécutifs
+de la vue sont séparés de plus de 10 s, le seuil du trou de `0010` D4.4 ; les
+autres détecteurs, leurs seuils et leurs méthodes sont du M6b. L'absence d'un
+drapeau ne garantit pas l'absence du défaut, tant que son détecteur n'existe pas.
 
 ---
 
@@ -241,8 +272,8 @@ Provenance d'un objet venu de l'extérieur du programme.
 
 #### Champs
 
-- `kind` — sans unité — nature de la source : `"gpx"`,
-  `"garmin_activity"`, `"csv"`.
+- `kind` — sans unité — nature de la source, par exemple `"gpx"`, `"csv"`,
+  `"garmin_fit"` ou `"garmin_activities"` (l'ingestion, AN1-1).
 - `identifier` — sans unité — **nom du fichier, jamais un chemin complet**.
 - `content_hash` — sans unité — `sha256` du contenu, 64 caractères
   hexadécimaux minuscules.
@@ -259,7 +290,8 @@ Provenance d'un objet venu de l'extérieur du programme.
 
 #### Producteur
 
-Les lecteurs de fichiers : GPX (M2), ingestion Garmin (M6b), CSV de référence (M4).
+Les lecteurs de fichiers : GPX (M2), CSV de référence (M4), ingestion Garmin (AN1-1,
+pour M6b).
 
 #### Consommateurs
 
@@ -273,7 +305,11 @@ Tout objet dérivé qui recopie sa provenance (`RouteProfile`), et le backtest
   pour se brancher ;
 - `identifier` n'est pas unique : deux fichiers de même nom se distinguent par
   `content_hash` ;
-- le fuseau d'origine de `retrieved_at` n'est pas conservé.
+- le fuseau d'origine de `retrieved_at` n'est pas conservé ;
+- chaque producteur met dans `retrieved_at` son propre instant d'acquisition :
+  l'instant de lecture pour les lecteurs de fichiers du moteur, l'instant
+  d'acquisition de l'export pour l'ingestion (`docs/decisions/0013`) ; deux
+  producteurs ne se comparent pas sur ce champ.
 
 ---
 
@@ -6411,3 +6447,1168 @@ registre.
 Les évaluations ne sont pas recalculées depuis les scores et les références (la
 règle est celle d'`admit`) ; la cible et l'horloge sont recoupées avec la
 déclaration par l'accord du registre.
+
+---
+
+## `ElevationField`
+
+*`mountain_perf.schemas.interim` · énumération*
+
+| Membre | Valeur | Description |
+|---|---|---|
+| `ENHANCED_ALTITUDE` | `enhanced_altitude` | Champ enhanced_altitude du message record, pris dès qu'un record du fichier y écrit une valeur autre que la valeur invalide du FIT (un champ déduit par le décodeur ne compte pas). |
+| `ALTITUDE` | `altitude` | Champ altitude du message record, pris seulement quand aucun record du fichier n'écrit dans enhanced_altitude de valeur autre que la valeur invalide du FIT. |
+
+Champ du FIT d'où vient l'altitude d'un enregistrement.
+
+#### Champs
+
+Valeurs décrites dans `ELEVATION_FIELD_DESCRIPTIONS`.
+
+#### Invariants
+
+Énumération fermée : les deux champs d'altitude du profil FIT.
+
+#### Producteur
+
+Le lecteur FIT de l'ingestion (`mountain_perf.ingest.fit`).
+
+#### Consommateurs
+
+`ElevationChannel` ; tout consommateur qui veut savoir quelle résolution
+l'altitude a eue.
+
+#### Non promis
+
+Rien sur la qualité de la mesure : un baromètre recalé et un GPS seul donnent le
+même champ.
+
+---
+
+## `SpeedField`
+
+*`mountain_perf.schemas.interim` · énumération*
+
+| Membre | Valeur | Description |
+|---|---|---|
+| `ENHANCED_SPEED` | `enhanced_speed` | Champ enhanced_speed du message record, pris dès qu'un record du fichier y écrit une valeur autre que la valeur invalide du FIT (un champ déduit par le décodeur ne compte pas). |
+| `SPEED` | `speed` | Champ speed du message record, pris seulement quand aucun record du fichier n'écrit dans enhanced_speed de valeur autre que la valeur invalide du FIT. |
+
+Champ du FIT d'où vient la vitesse du capteur d'un enregistrement.
+
+#### Champs
+
+Valeurs décrites dans `SPEED_FIELD_DESCRIPTIONS`.
+
+#### Invariants
+
+Énumération fermée : les deux champs de vitesse du profil FIT.
+
+#### Producteur
+
+Le lecteur FIT de l'ingestion.
+
+#### Consommateurs
+
+`SpeedChannel` ; un diagnostic qui compare la vitesse du capteur à celle des
+positions.
+
+#### Non promis
+
+La vitesse du capteur n'est pas la vitesse du moteur, qui se calcule sur les
+positions (`0013`, point 1).
+
+---
+
+## `TimerEventType`
+
+*`mountain_perf.schemas.interim` · énumération*
+
+| Membre | Valeur | Description |
+|---|---|---|
+| `START` | `start` | Démarrage ou reprise du chronomètre. |
+| `STOP` | `stop` | Arrêt du chronomètre. |
+| `STOP_ALL` | `stop_all` | Arrêt du chronomètre (et des autres minuteries). |
+| `STOP_DISABLE` | `stop_disable` | Arrêt du chronomètre, désactivé ensuite. |
+| `STOP_DISABLE_ALL` | `stop_disable_all` | Arrêt de toutes les minuteries, désactivées ensuite. |
+
+Type d'un événement du chronomètre (message `event` du FIT dont l'événement
+est `timer`).
+
+#### Champs
+
+Valeurs décrites dans `TIMER_EVENT_TYPE_DESCRIPTIONS`.
+
+#### Invariants
+
+Énumération fermée : les types que le profil FIT emploie pour démarrer et arrêter
+le chronomètre. Un événement du chronomètre d'un autre type est écarté et compté.
+
+#### Producteur
+
+Le lecteur FIT de l'ingestion.
+
+#### Consommateurs
+
+`TimerEvent` ; le diagnostic des trous et des pauses (`0013`, point 1).
+
+#### Non promis
+
+Les nuances entre les types d'arrêt (`stop`, `stop_all`, `stop_disable`…)
+viennent de la montre et ne sont pas interprétées : tous arrêtent le chronomètre.
+
+---
+
+## `TimerTrigger`
+
+*`mountain_perf.schemas.interim` · énumération*
+
+| Membre | Valeur | Description |
+|---|---|---|
+| `MANUAL` | `manual` | Par l'athlète (bouton de la montre). |
+| `AUTO` | `auto` | Par la montre (pause automatique) : vitesse sous un seuil, sans que l'athlète soit forcément à l'arrêt. |
+| `FITNESS_EQUIPMENT` | `fitness_equipment` | Par un appareil de fitness relié. |
+
+Ce qui a déclenché un événement du chronomètre (sous-champ `timer_trigger` du
+message `event`).
+
+#### Champs
+
+Valeurs décrites dans `TIMER_TRIGGER_DESCRIPTIONS`.
+
+#### Invariants
+
+Énumération fermée : les déclencheurs du profil FIT.
+
+#### Producteur
+
+Le lecteur FIT de l'ingestion.
+
+#### Consommateurs
+
+`TimerEvent` ; le temps de mouvement et les montées (AN1-2) : une pause
+automatique se déclenche aussi quand l'athlète monte lentement.
+
+#### Non promis
+
+Une montre peut ne pas l'écrire.
+
+---
+
+## `RecordingPart`
+
+*`mountain_perf.schemas.interim` · énumération*
+
+| Membre | Valeur | Description |
+|---|---|---|
+| `POSITION` | `position` | Canal des positions (latitude et longitude). |
+| `ELEVATION` | `elevation` | Canal de l'altitude. |
+| `DISTANCE` | `distance` | Canal de la distance cumulée de la source. |
+| `HEART_RATE` | `heart_rate` | Canal de la fréquence cardiaque. |
+| `SPEED` | `speed` | Canal de la vitesse du capteur. |
+| `TEMPERATURE` | `temperature` | Canal de la température du capteur de la montre. |
+| `TIMER_EVENT` | `timer_event` | Événements du chronomètre. |
+
+Partie d'un enregistrement : un canal, ou les événements du chronomètre.
+
+#### Champs
+
+Valeurs décrites dans `RECORDING_PART_DESCRIPTIONS`.
+
+#### Invariants
+
+Énumération fermée.
+
+#### Producteur
+
+Le lecteur FIT de l'ingestion, qui compte ce qu'il écarte (`DiscardCount`).
+
+#### Consommateurs
+
+`DiscardCount` ; le rapport d'ingestion.
+
+#### Non promis
+
+Une partie nommée ici peut manquer à un enregistrement.
+
+---
+
+## `DiscardReason`
+
+*`mountain_perf.schemas.interim` · énumération*
+
+| Membre | Valeur | Description |
+|---|---|---|
+| `NO_TIMESTAMP` | `no_timestamp` | Message sans horodatage : il ne se place pas. |
+| `BEFORE_START` | `before_start` | Instant antérieur au départ de l'enregistrement. |
+| `DUPLICATE` | `duplicate` | Instant qui ne suit pas strictement celui du dernier échantillon gardé du même canal, et valeur égale à celle que le canal a gardée à cet instant : la répétition d'une mesure gardée (sortie enregistrée deux fois). |
+| `NOT_AFTER_PREVIOUS` | `not_after_previous` | Instant qui ne suit pas strictement celui du dernier échantillon gardé du même canal, hors doublon (pour un événement du chronomètre : antérieur au dernier gardé). |
+| `HALF_POSITION` | `half_position` | Latitude sans longitude, ou longitude sans latitude. |
+| `SENTINEL` | `sentinel` | Zéro brut du codage FIT, que des écrivains de FIT emploient pour « pas de valeur » : altitude de −500 m exactement, position (0°, 0°). |
+| `OUT_OF_RANGE` | `out_of_range` | Valeur non finie ou hors de la plage physique du canal. |
+| `DISTANCE_DECREASING` | `distance_decreasing` | Distance inférieure à la dernière distance gardée. |
+| `OTHER_FIELD` | `other_field` | Valeur écrite dans le champ que le canal n'a pas retenu : altitude quand le canal prend enhanced_altitude, speed quand il prend enhanced_speed. |
+| `UNKNOWN_TYPE` | `unknown_type` | Événement du chronomètre d'un type absent de TimerEventType. |
+
+Motif pour lequel l'ingestion écarte un échantillon ou un événement.
+
+#### Champs
+
+Valeurs décrites dans `DISCARD_REASON_DESCRIPTIONS`.
+
+#### Invariants
+
+Énumération fermée. Le contrat est strict, l'ingestion tolérante et tracée : rien
+n'est corrigé en silence, tout écart est compté sous l'un de ces motifs
+(`0013`, point 5).
+
+#### Producteur
+
+Le lecteur FIT de l'ingestion.
+
+#### Consommateurs
+
+`DiscardCount` ; le rapport d'ingestion.
+
+#### Non promis
+
+Un échantillon gardé n'est pas garanti juste : seulement conforme au contrat.
+
+---
+
+## `IndexField`
+
+*`mountain_perf.schemas.interim` · énumération*
+
+| Membre | Valeur | Description |
+|---|---|---|
+| `ELAPSED_DURATION` | `elapsed_duration_s` | Temps écoulé (elapsedDuration). |
+| `MOVING_DURATION` | `moving_duration_s` | Temps en mouvement (movingDuration). |
+| `DISTANCE` | `distance_m` | Distance de la source (distance). |
+| `ASCENT` | `ascent_m` | D+ de la source (elevationGain). |
+| `DESCENT` | `descent_m` | D− de la source (elevationLoss). |
+| `ELEVATION_CORRECTED` | `elevation_corrected` | Altitude recalée par Garmin Connect (elevationCorrected). |
+| `AVERAGE_HR` | `average_hr_bpm` | FC moyenne (averageHR). |
+| `MAX_HR` | `max_hr_bpm` | FC maximale (maxHR). |
+
+Champ facultatif de l'index qu'une valeur inutilisable a fait omettre.
+
+#### Champs
+
+Valeurs décrites dans `INDEX_FIELD_DESCRIPTIONS`.
+
+#### Invariants
+
+Énumération fermée : les champs facultatifs d'`IndexedActivity`.
+
+#### Producteur
+
+Le lecteur de l'index de l'ingestion.
+
+#### Consommateurs
+
+`IndexedActivity.omitted_fields` ; le rapport d'ingestion.
+
+#### Non promis
+
+Un champ absent de la source n'est pas « omis » : il est seulement absent.
+
+---
+
+## `RefusalReason`
+
+*`mountain_perf.schemas.interim` · énumération*
+
+| Membre | Valeur | Description |
+|---|---|---|
+| `UNREADABLE_FIT` | `unreadable_fit` | FIT refusé par la lecture stricte : CRC faux, ou erreur de décodage. |
+| `NOT_ONE_FIT` | `not_one_fit` | Archive qui n'est pas un zip, qui n'a pas exactement un membre, dont le membre n'est pas un fichier .fit, ou dont le membre ne se lit pas. |
+| `DUPLICATE_ARCHIVE` | `duplicate_archive` | Fichier de activity_fit/ dont le nom sans extension est celui d'un autre fichier : tous sont refusés. |
+| `NO_SESSION` | `no_session` | FIT sans message session, ou dont une session n'est pas datée : l'enregistrement n'a pas de départ. |
+| `NO_SAMPLE` | `no_sample` | FIT dont aucun échantillon n'a été gardé : pas d'enregistrement. |
+| `NOT_IN_INDEX` | `not_in_index` | FIT dont l'activité n'est pas dans l'index. |
+| `DUPLICATE_ENTRY` | `duplicate_entry` | Entrée de l'index dont l'identifiant apparaît plus d'une fois : toutes ses entrées sont refusées. |
+| `UNUSABLE_ENTRY` | `unusable_entry` | Entrée de l'index sans identifiant, type ou départ utilisables. |
+
+Motif pour lequel l'ingestion refuse un fichier ou une entrée de l'index.
+
+#### Champs
+
+Valeurs décrites dans `REFUSAL_REASON_DESCRIPTIONS`.
+
+#### Invariants
+
+Énumération fermée.
+
+#### Producteur
+
+L'ingestion (`mountain_perf.ingest`).
+
+#### Consommateurs
+
+`RefusedFile`, `RefusedEntry` ; le rapport d'ingestion.
+
+#### Non promis
+
+Le motif ne dit pas la cause matérielle (montre, export, transfert).
+
+---
+
+## `ViewRefusal`
+
+*`mountain_perf.schemas.interim` · énumération*
+
+| Membre | Valeur | Description |
+|---|---|---|
+| `NO_SPORT` | `no_sport` | Type de la source absent de la table des types : pas de famille de modèle. |
+| `MISSING_FIELD` | `missing_field` | L'entrée n'a pas un des champs qu'Activity exige (temps écoulé et en mouvement, distance, D+, D−). |
+| `INVARIANT` | `invariant` | Les valeurs de l'entrée violent un invariant d'Activity. |
+
+Pourquoi une entrée de l'index n'a pas de vue `Activity`.
+
+#### Champs
+
+Valeurs décrites dans `VIEW_REFUSAL_DESCRIPTIONS`.
+
+#### Invariants
+
+Énumération fermée.
+
+#### Producteur
+
+La vue `Activity` (`mountain_perf.ingest.views`).
+
+#### Consommateurs
+
+`ViewRefusalCount` ; le rapport d'ingestion ; tout consommateur des vues.
+
+#### Non promis
+
+Seul le premier motif rencontré est dit, dans l'ordre de la vue.
+
+---
+
+## `IndexedActivity`
+
+*`mountain_perf.schemas.interim` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `activity_ref` | `str` | — |
+| `source_activity_type` | `str` | — |
+| `start_time` | `datetime` | — |
+| `elapsed_duration_s` | `float \| None` | — |
+| `moving_duration_s` | `float \| None` | — |
+| `distance_m` | `float \| None` | — |
+| `ascent_m` | `float \| None` | — |
+| `descent_m` | `float \| None` | — |
+| `elevation_corrected` | `bool \| None` | — |
+| `average_hr_bpm` | `float \| None` | — |
+| `max_hr_bpm` | `float \| None` | — |
+| `has_recording` | `bool` | — |
+| `omitted_fields` | `tuple[IndexField, ...]` | — |
+
+Une activité de l'index de l'export, telle que la source la décrit.
+
+#### Champs
+
+- `activity_ref` — sans unité — identifiant de l'activité dans la source.
+- `source_activity_type` — sans unité — type de la source, tel quel
+  (`activityType.typeKey`).
+- `start_time` — instant — départ, *aware*, dans son fuseau local à décalage
+  fixe (heure locale de la source moins son heure UTC).
+- `elapsed_duration_s` — secondes — temps écoulé, `> 0`, si présent.
+- `moving_duration_s` — secondes — temps en mouvement, `>= 0`, si présent.
+- `distance_m` — mètres — distance de la source, `>= 0`, si présente.
+- `ascent_m`, `descent_m` — mètres — D+ et D− de la source, `>= 0`, si
+  présents.
+- `elevation_corrected` — sans unité — vrai si Garmin Connect a recalé
+  l'altitude de l'activité sur un modèle de terrain (`elevationCorrected`), si
+  présent.
+- `average_hr_bpm`, `max_hr_bpm` — battements par minute — FC moyenne et
+  maximale, `[20, 250]`, si présentes.
+- `has_recording` — sans unité — vrai si `interim/` porte l'enregistrement de
+  cette activité.
+- `omitted_fields` — sans unité — champs présents dans la source mais omis ici,
+  leur valeur étant inutilisable (non numérique, non finie ou hors plage).
+
+#### Invariants
+
+- `activity_ref` : lettres et chiffres ASCII, `_`, `.`, `-` (il nomme le
+  fichier de l'enregistrement) ;
+- `source_activity_type` non vide ;
+- `start_time` *aware*, décalage dans `[-43200, 50400]` s, ramené à un fuseau
+  à décalage fixe ;
+- chaque champ facultatif présent est fini et dans sa plage ;
+- `omitted_fields` trié, sans doublon, et chaque champ omis est absent.
+
+#### Producteur
+
+Le lecteur de l'index de l'ingestion (`mountain_perf.ingest.index`).
+
+#### Consommateurs
+
+La vue `Activity` (`mountain_perf.ingest.views`) ; les tables d'analyse de la
+piste (AN1-2).
+
+#### Non promis
+
+- aucun invariant entre champs : la FC moyenne peut dépasser la maximale, le
+  temps en mouvement le temps écoulé (`0013`, point 1) ; la vue `Activity` les
+  vérifie ;
+- `distance_m` est celle de la source, ni 2D ni 3D garantie ;
+- quand `elevation_corrected` est vrai, `ascent_m` et `descent_m` viennent du
+  modèle de terrain de Garmin : ils ne se comparent pas au canal d'altitude de
+  l'enregistrement, que la correction ne change pas ;
+- `moving_duration_s` est le temps en mouvement de Garmin (un algorithme non
+  publié, à seuil de vitesse) : la piste calcule le sien ;
+- les valeurs ne sont pas recalculées depuis l'enregistrement.
+
+---
+
+## `ActivityIndex`
+
+*`mountain_perf.schemas.interim` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `entries` | `tuple[IndexedActivity, ...]` | — |
+| `source` | `SourceRef` | — |
+
+L'index des activités d'un export (document `interim/activities/index.json`).
+
+#### Champs
+
+- `entries` — sans unité — les activités, triées par départ (instant) puis par
+  identifiant.
+- `source` — sans unité — provenance : le fichier d'index de l'export, son
+  empreinte, et l'instant d'acquisition de l'export.
+
+#### Invariants
+
+- `entries` en tuple, identifiants uniques ;
+- ordre : instant de départ croissant, puis identifiant croissant à instant égal.
+
+#### Producteur
+
+L'ingestion (`mountain_perf.ingest`).
+
+#### Consommateurs
+
+Le lecteur d'`interim/` ; la vue `Activity` ; les tables d'analyse (AN1-2).
+
+#### Non promis
+
+- toutes les activités de l'export y sont, quel que soit leur type, sauf les
+  entrées refusées (rapport d'ingestion) ;
+- `source.retrieved_at` est l'instant d'acquisition de l'export, jamais celui de
+  l'ingestion ni d'une lecture (`0013`, point 5).
+
+---
+
+## `PositionChannel`
+
+*`mountain_perf.schemas.interim` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `time_s` | `tuple[float, ...]` | — |
+| `latitude_deg` | `tuple[float, ...]` | — |
+| `longitude_deg` | `tuple[float, ...]` | — |
+
+Le canal des positions d'un enregistrement.
+
+#### Champs
+
+- `time_s` — secondes — depuis le départ de l'enregistrement.
+- `latitude_deg`, `longitude_deg` — degrés — WGS84, convertis des
+  semicercles du FIT à la lecture.
+
+#### Invariants
+
+- tableaux en tuples, de même longueur, au moins un point, valeurs finies ;
+- `time_s >= 0`, strictement croissant ;
+- coordonnées dans leurs plages.
+
+#### Producteur
+
+Le lecteur FIT de l'ingestion.
+
+#### Consommateurs
+
+La vue `TrackPointStream` ; les distances et profils, recalculés par
+`gpx/geo.py` et `gpx/profile.py`.
+
+#### Non promis
+
+Aucun pas régulier : un trou (signal perdu, chronomètre arrêté) reste un trou.
+
+---
+
+## `ElevationChannel`
+
+*`mountain_perf.schemas.interim` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `time_s` | `tuple[float, ...]` | — |
+| `elevation_m` | `tuple[float, ...]` | — |
+| `source_field` | `ElevationField` | — |
+
+Le canal de l'altitude d'un enregistrement.
+
+#### Champs
+
+- `time_s` — secondes — depuis le départ de l'enregistrement.
+- `elevation_m` — mètres — altitude, `[-500, 9000]`.
+- `source_field` — sans unité — le champ du FIT d'où elle vient.
+
+#### Invariants
+
+- tableaux en tuples, de même longueur, au moins un point, valeurs finies ;
+- `time_s >= 0`, strictement croissant ; altitudes dans leur plage.
+
+#### Producteur
+
+Le lecteur FIT de l'ingestion.
+
+#### Consommateurs
+
+La vue `TrackPointStream` ; les profils et les montées (AN1-2).
+
+#### Non promis
+
+Ni lissage ni recalage : l'altitude est celle de la montre. Une correction
+d'altitude de Garmin Connect ne change pas le FIT
+(`IndexedActivity.elevation_corrected`).
+
+---
+
+## `DistanceChannel`
+
+*`mountain_perf.schemas.interim` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `time_s` | `tuple[float, ...]` | — |
+| `distance_m` | `tuple[float, ...]` | — |
+
+Le canal de la distance cumulée de la source.
+
+#### Champs
+
+- `time_s` — secondes — depuis le départ de l'enregistrement.
+- `distance_m` — mètres — distance cumulée calculée par la montre, `>= 0`.
+
+#### Invariants
+
+- tableaux en tuples, de même longueur, au moins un point, valeurs finies ;
+- `time_s >= 0`, strictement croissant ;
+- `distance_m >= 0`, croissante au sens large.
+
+#### Producteur
+
+Le lecteur FIT de l'ingestion.
+
+#### Consommateurs
+
+La vue `TrackPointStream` ; des diagnostics (distance de la montre contre
+distance des positions).
+
+#### Non promis
+
+Ni 2D ni 3D garantie ; la distance du moteur se recalcule sur les positions
+(`0013`, point 2). Un pic isolé fait écarter la suite jusqu'à ce que la distance
+le dépasse (`distance_decreasing` le compte) : ce canal ne sert qu'au diagnostic.
+
+---
+
+## `HeartRateChannel`
+
+*`mountain_perf.schemas.interim` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `time_s` | `tuple[float, ...]` | — |
+| `heart_rate_bpm` | `tuple[float, ...]` | — |
+
+Le canal de la fréquence cardiaque d'un enregistrement.
+
+#### Champs
+
+- `time_s` — secondes — depuis le départ de l'enregistrement.
+- `heart_rate_bpm` — battements par minute — FC, `[20, 250]`.
+
+#### Invariants
+
+- tableaux en tuples, de même longueur, au moins un point, valeurs finies ;
+- `time_s >= 0`, strictement croissant ; FC dans sa plage.
+
+#### Producteur
+
+Le lecteur FIT de l'ingestion.
+
+#### Consommateurs
+
+La vue `TrackPointStream` ; les tables d'analyse (AN1-2).
+
+#### Non promis
+
+Le capteur (poignet ou ceinture) n'est pas dit.
+
+---
+
+## `SpeedChannel`
+
+*`mountain_perf.schemas.interim` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `time_s` | `tuple[float, ...]` | — |
+| `speed_ms` | `tuple[float, ...]` | — |
+| `source_field` | `SpeedField` | — |
+
+Le canal de la vitesse du capteur, pour diagnostic.
+
+#### Champs
+
+- `time_s` — secondes — depuis le départ de l'enregistrement.
+- `speed_ms` — m/s — vitesse mesurée par la montre, `>= 0`.
+- `source_field` — sans unité — le champ du FIT d'où elle vient.
+
+#### Invariants
+
+- tableaux en tuples, de même longueur, au moins un point, valeurs finies ;
+- `time_s >= 0`, strictement croissant ; `speed_ms >= 0`.
+
+#### Producteur
+
+Le lecteur FIT de l'ingestion.
+
+#### Consommateurs
+
+La vue `TrackPointStream` (`speed_ms`), pour diagnostic.
+
+#### Non promis
+
+Le moteur calcule la vitesse sur les positions ; celle-ci ne sert qu'au diagnostic
+(`0013`, point 1).
+
+---
+
+## `TemperatureChannel`
+
+*`mountain_perf.schemas.interim` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `time_s` | `tuple[float, ...]` | — |
+| `temperature_c` | `tuple[float, ...]` | — |
+
+Le canal de la température du capteur de la montre.
+
+#### Champs
+
+- `time_s` — secondes — depuis le départ de l'enregistrement.
+- `temperature_c` — °C — température du capteur, dans `TEMPERATURE_RANGE_C`.
+
+#### Invariants
+
+- tableaux en tuples, de même longueur, au moins un point, valeurs finies ;
+- `time_s >= 0`, strictement croissant ; températures dans leur plage.
+
+#### Producteur
+
+Le lecteur FIT de l'ingestion.
+
+#### Consommateurs
+
+La charge thermique (charte, § 12 ; Q10) ; les tables d'analyse.
+
+#### Non promis
+
+Ce n'est pas la température de l'air : le capteur est chauffé par le corps, et
+l'effort la fait monter. La vue `TrackPointStream` ne la porte pas.
+
+---
+
+## `RecordingSession`
+
+*`mountain_perf.schemas.interim` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `sport` | `str \| None` | — |
+| `sub_sport` | `str \| None` | — |
+| `start_s` | `float` | — |
+| `elapsed_duration_s` | `float \| None` | — |
+| `timer_duration_s` | `float \| None` | — |
+| `distance_m` | `float \| None` | — |
+
+Une session du FIT (message `session`) : un FIT multisport en a plusieurs.
+
+#### Champs
+
+- `sport`, `sub_sport` — sans unité — sport et sous-sport du FIT, tels quels,
+  si présents.
+- `start_s` — secondes — départ de la session depuis le départ de
+  l'enregistrement, `>= 0`.
+- `elapsed_duration_s` — secondes — temps écoulé (`total_elapsed_time`),
+  `>= 0`, si présent.
+- `timer_duration_s` — secondes — temps du chronomètre (`total_timer_time`),
+  `>= 0`, si présent.
+- `distance_m` — mètres — distance totale (`total_distance`), `>= 0`, si
+  présente.
+
+#### Invariants
+
+Textes non vides s'ils sont présents ; nombres finis et dans leurs plages.
+
+#### Producteur
+
+Le lecteur FIT de l'ingestion.
+
+#### Consommateurs
+
+Le diagnostic des pauses (temps écoulé contre temps du chronomètre) ; les tables
+d'analyse (AN1-2).
+
+#### Non promis
+
+Aucun invariant entre champs (le chronomètre peut dépasser l'écoulé dans un
+fichier abîmé) ; `sport` n'est pas le `Sport` du moteur ; une session peut
+se répéter (un FIT chaîné) : des sessions qui se chevauchent ne se somment pas.
+
+---
+
+## `TimerEvent`
+
+*`mountain_perf.schemas.interim` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `time_s` | `float` | — |
+| `event_type` | `TimerEventType` | — |
+| `trigger` | `TimerTrigger \| None` | — |
+
+Un démarrage ou un arrêt du chronomètre.
+
+#### Champs
+
+- `time_s` — secondes — depuis le départ de l'enregistrement, `>= 0`.
+- `event_type` — sans unité — démarrage ou type d'arrêt.
+- `trigger` — sans unité — ce qui l'a déclenché, si le fichier le dit.
+
+#### Invariants
+
+`time_s` fini et `>= 0`.
+
+#### Producteur
+
+Le lecteur FIT de l'ingestion.
+
+#### Consommateurs
+
+Le diagnostic des trous (`0013`, point 1) ; les horloges de la piste (AN1-2).
+
+#### Non promis
+
+Une suite d'événements n'est pas garantie alternée (démarrage, arrêt…) : elle est
+celle de la montre. Une pause automatique (`TimerTrigger.AUTO`) n'est pas un
+arrêt de l'athlète : en montée raide et lente, il peut monter pendant qu'elle dure.
+
+---
+
+## `DeviceProvenance`
+
+*`mountain_perf.schemas.interim` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `file_type` | `str \| None` | — |
+| `manufacturer` | `str \| None` | — |
+| `product` | `int \| None` | — |
+| `time_created` | `datetime \| None` | — |
+| `software_version` | `float \| None` | — |
+| `barometer` | `bool \| None` | — |
+| `external_heart_rate_sensor` | `bool \| None` | — |
+
+La provenance de l'appareil qui a écrit le FIT, sans identifiant.
+
+#### Champs
+
+- `file_type` — sans unité — type du fichier (`file_id.type`), si présent.
+- `manufacturer` — sans unité — fabricant (`file_id.manufacturer`), si
+  présent.
+- `product` — sans unité — numéro de produit (`file_id.product`, valeur
+  brute), si présent.
+- `time_created` — instant — création du fichier, stocké en UTC, si présent.
+- `software_version` — sans unité — version du logiciel de l'appareil créateur
+  (`device_info` de l'appareil `creator`), si présente.
+- `barometer` — sans unité — vrai si un `device_info` interne (`source_type`
+  `local`) est un baromètre ; faux si le fichier décrit des capteurs internes,
+  sans baromètre ; absent s'il n'en décrit aucun.
+- `external_heart_rate_sensor` — sans unité — vrai si un `device_info` décrit
+  un capteur de FC ANT+ ou Bluetooth Low Energy ; faux si le fichier décrit des
+  appareils (un `source_type` au moins), sans un tel capteur ; absent s'il n'en
+  décrit aucun.
+
+#### Invariants
+
+- textes non vides s'ils sont présents ; `product >= 0` ;
+- `time_created` *aware*, ramené en UTC ;
+- `software_version` finie et `>= 0`.
+
+#### Producteur
+
+Le lecteur FIT de l'ingestion.
+
+#### Consommateurs
+
+Le contrôle des changements de firmware (charte, § 11) ; la provenance.
+
+#### Non promis
+
+**Ni numéro de série ni identifiant de l'appareil, ni d'un capteur** (`0013`,
+point 1 ; règle 1) ; le produit n'est pas traduit en nom de modèle. Un capteur
+présent n'a pas forcément mesuré chaque échantillon : la montre repasse à sa propre
+FC quand la ceinture décroche, et une montre qui ne décrit pas ses capteurs n'en est
+pas dépourvue.
+
+---
+
+## `DiscardCount`
+
+*`mountain_perf.schemas.interim` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `part` | `RecordingPart` | — |
+| `reason` | `DiscardReason` | — |
+| `count` | `int` | — |
+
+Le nombre d'échantillons ou d'événements qu'une partie a perdus pour un motif.
+
+#### Champs
+
+- `part` — sans unité — le canal, ou les événements du chronomètre.
+- `reason` — sans unité — le motif.
+- `count` — sans unité — le nombre écarté, `> 0`.
+
+#### Invariants
+
+`count > 0`.
+
+#### Producteur
+
+Le lecteur FIT de l'ingestion.
+
+#### Consommateurs
+
+`ActivityRecording.discarded` ; le rapport d'ingestion.
+
+#### Non promis
+
+Les instants écartés ne sont pas listés.
+
+---
+
+## `ActivityRecording`
+
+*`mountain_perf.schemas.interim` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `activity_ref` | `str` | — |
+| `start_time` | `datetime` | — |
+| `sessions` | `tuple[RecordingSession, ...]` | — |
+| `timer_events` | `tuple[TimerEvent, ...]` | — |
+| `position` | `PositionChannel \| None` | — |
+| `elevation` | `ElevationChannel \| None` | — |
+| `distance` | `DistanceChannel \| None` | — |
+| `heart_rate` | `HeartRateChannel \| None` | — |
+| `speed` | `SpeedChannel \| None` | — |
+| `temperature` | `TemperatureChannel \| None` | — |
+| `device` | `DeviceProvenance` | — |
+| `discarded` | `tuple[DiscardCount, ...]` | — |
+| `source` | `SourceRef` | — |
+
+L'enregistrement d'une activité, tiré de son FIT (document
+`interim/activities/recordings/<activity_ref>.json`).
+
+#### Champs
+
+- `activity_ref` — sans unité — l'activité de l'index.
+- `start_time` — instant — départ de l'enregistrement : celui de la première
+  session, stocké en UTC ; tous les `time_s` en partent.
+- `sessions` — sans unité — les sessions du FIT, dans l'ordre du temps.
+- `timer_events` — sans unité — démarrages et arrêts du chronomètre.
+- `position`, `elevation`, `distance`, `heart_rate`, `speed`,
+  `temperature` — sans unité — les canaux ; un canal absent du fichier est
+  absent (`None`).
+- `device` — sans unité — provenance de l'appareil.
+- `discarded` — sans unité — ce que l'ingestion a écarté, par partie et motif.
+- `source` — sans unité — provenance : l'archive du FIT dans l'export, son
+  empreinte, et l'instant d'acquisition de l'export.
+
+#### Invariants
+
+- `activity_ref` : lettres et chiffres ASCII, `_`, `.`, `-` ;
+- `start_time` *aware*, ramené en UTC ;
+- au moins une session ; la première part à `0` ; `start_s` croissant au sens
+  large ;
+- `timer_events` : `time_s` croissant au sens large ;
+- au moins un canal présent ;
+- `discarded` trié par (partie, motif), sans doublon.
+
+#### Producteur
+
+Le lecteur FIT de l'ingestion (`mountain_perf.ingest.fit`).
+
+#### Consommateurs
+
+Le lecteur d'`interim/` ; la vue `TrackPointStream` (M6b) ; les tables
+d'analyse (AN1-2).
+
+#### Non promis
+
+- rien n'est interpolé : chaque canal a ses instants ;
+- les instants sont en UTC ; l'heure locale d'une activité est celle de l'index ;
+- aucun drapeau de qualité n'est posé ici : `GPS_GAP` vient de la vue, les
+  autres détecteurs viendront avec leur usage ;
+- les champs du FIT propres à la montre (`unknown_<n>`) ne sont pas portés.
+
+---
+
+## `ReadFile`
+
+*`mountain_perf.schemas.interim` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `name` | `str` | — |
+| `content_hash` | `str` | — |
+
+Un fichier de l'export lu par l'ingestion.
+
+#### Champs
+
+- `name` — sans unité — chemin relatif à `raw/`, séparé par `/`.
+- `content_hash` — sans unité — `sha256` du contenu, hexadécimal minuscule.
+
+#### Invariants
+
+`name` non vide, sans `\`, sans `:`, sans partie vide, `.` ou `..` ;
+`content_hash` en 64 caractères hexadécimaux minuscules.
+
+#### Producteur
+
+L'ingestion.
+
+#### Consommateurs
+
+`IngestionReport`.
+
+#### Non promis
+
+Un fichier lu peut avoir été refusé ensuite (`RefusedFile`).
+
+---
+
+## `RefusedFile`
+
+*`mountain_perf.schemas.interim` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `name` | `str` | — |
+| `reason` | `RefusalReason` | — |
+
+Un fichier de l'export que l'ingestion a refusé, et pourquoi.
+
+#### Champs
+
+- `name` — sans unité — chemin relatif à `raw/`, séparé par `/`.
+- `reason` — sans unité — le motif.
+
+#### Invariants
+
+`name` comme dans `ReadFile`.
+
+#### Producteur
+
+L'ingestion.
+
+#### Consommateurs
+
+`IngestionReport`.
+
+#### Non promis
+
+Le message de la bibliothèque de lecture n'est pas gardé.
+
+---
+
+## `RefusedEntry`
+
+*`mountain_perf.schemas.interim` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `position` | `int` | — |
+| `reason` | `RefusalReason` | — |
+
+Une entrée de l'index que l'ingestion a refusée, et pourquoi.
+
+#### Champs
+
+- `position` — sans unité — rang de l'entrée dans le fichier d'index, depuis 0.
+- `reason` — sans unité — le motif.
+
+#### Invariants
+
+`position >= 0`.
+
+#### Producteur
+
+Le lecteur de l'index de l'ingestion.
+
+#### Consommateurs
+
+`IngestionReport`.
+
+#### Non promis
+
+L'identifiant de l'entrée n'est pas gardé : il peut manquer ou être illisible.
+
+---
+
+## `ViewRefusalCount`
+
+*`mountain_perf.schemas.interim` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `reason` | `ViewRefusal` | — |
+| `source_activity_type` | `str` | — |
+| `count` | `int` | — |
+
+Le nombre d'entrées de l'index d'un type de la source qui n'ont pas de vue
+`Activity`, pour un motif.
+
+#### Champs
+
+- `reason` — sans unité — le motif.
+- `source_activity_type` — sans unité — le type de la source, tel quel.
+- `count` — sans unité — le nombre d'entrées, `> 0`.
+
+#### Invariants
+
+`source_activity_type` non vide ; `count > 0`.
+
+#### Producteur
+
+L'ingestion, qui calcule la vue `Activity` de chaque entrée.
+
+#### Consommateurs
+
+`IngestionReport` ; `mperf ingest`, qui l'affiche.
+
+#### Non promis
+
+Les entrées ne sont pas nommées ; le compte est celui de la table des types au
+moment de l'ingestion.
+
+---
+
+## `RecordingMismatch`
+
+*`mountain_perf.schemas.interim` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `activity_ref` | `str` | — |
+| `start_offset_s` | `float` | — |
+| `recording_elapsed_s` | `float \| None` | — |
+| `index_elapsed_s` | `float \| None` | — |
+
+Un enregistrement dont le départ ou la durée ne s'accorde pas avec son entrée
+de l'index.
+
+#### Champs
+
+- `activity_ref` — sans unité — l'activité.
+- `start_offset_s` — secondes — départ de l'enregistrement moins départ de
+  l'entrée.
+- `recording_elapsed_s` — secondes — somme des temps écoulés des sessions, si
+  toutes le portent.
+- `index_elapsed_s` — secondes — temps écoulé de l'entrée, si présent.
+
+#### Invariants
+
+`activity_ref` : lettres et chiffres ASCII, `_`, `.`, `-` ; nombres finis.
+
+#### Producteur
+
+L'ingestion, qui compare chaque enregistrement à son entrée.
+
+#### Consommateurs
+
+`IngestionReport` ; `mperf ingest`, qui en affiche le compte ; la vérification
+de l'ingestion.
+
+#### Non promis
+
+Rien n'est refusé : un désaccord signale un FIT rattaché à une autre activité, ou
+une horloge différente, sans dire laquelle des deux sources a raison.
+
+---
+
+## `IngestionReport`
+
+*`mountain_perf.schemas.interim` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `retrieved_at` | `datetime` | — |
+| `read` | `tuple[ReadFile, ...]` | — |
+| `refused_files` | `tuple[RefusedFile, ...]` | — |
+| `refused_entries` | `tuple[RefusedEntry, ...]` | — |
+| `view_refusals` | `tuple[ViewRefusalCount, ...]` | — |
+| `mismatches` | `tuple[RecordingMismatch, ...]` | — |
+
+Le rapport de la dernière ingestion (document
+`interim/activities/report.json`).
+
+#### Champs
+
+- `retrieved_at` — instant — instant d'acquisition de l'export, stocké en UTC.
+- `read` — sans unité — les fichiers lus, triés par nom.
+- `refused_files` — sans unité — les fichiers refusés, triés par nom.
+- `refused_entries` — sans unité — les entrées de l'index refusées, triées par
+  rang.
+- `view_refusals` — sans unité — les entrées gardées sans vue `Activity`,
+  comptées par (motif, type de la source), triées ainsi (`0013`, point 2).
+- `mismatches` — sans unité — les enregistrements en désaccord avec leur
+  entrée, triés par identifiant.
+
+#### Invariants
+
+- `retrieved_at` *aware*, ramené en UTC ;
+- listes en tuples, triées, sans doublon ;
+- un fichier refusé a été lu.
+
+#### Producteur
+
+L'ingestion.
+
+#### Consommateurs
+
+L'athlète (`mperf ingest` en affiche le compte) ; la vérification de
+l'ingestion.
+
+#### Non promis
+
+Aucun instant d'exécution : deux ingestions des mêmes fichiers écrivent le même
+rapport (`0013`, point 5). Les écarts par canal sont dans chaque
+enregistrement, les champs omis dans chaque entrée de l'index.

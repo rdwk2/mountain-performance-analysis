@@ -2111,6 +2111,47 @@ def _run_backtest(args: argparse.Namespace) -> int:
     return 0
 
 
+INGEST_EXTRA_ERROR = (
+    "Erreur : la lecture des FIT demande l'extra ingest. Installer : uv sync --extra "
+    "ingest"
+)
+"""Le message de ``mperf ingest`` sans fitdecode (§ 5.8 du brief AN1-1)."""
+
+
+def _run_ingest() -> int:
+    """``mperf ingest`` (§ 5.8 du brief AN1-1) : ingère l'export de
+    ``MPA_DATA_DIR/raw`` dans ``MPA_DATA_DIR/interim``, puis affiche le résumé.
+
+    L'ingestion s'importe ici, pas en tête du module : ``mperf`` s'importe sans l'extra
+    ``ingest``. Sous cette forme exacte, pour que l'absence de fitdecode se voie même
+    une fois le sous-module chargé ; seule l'absence de fitdecode est dite, toute autre
+    ``ModuleNotFoundError`` se propage. ``IngestError``, ``ConfigError``, ``OSError`` :
+    « Erreur : <message> », code 1."""
+    try:
+        from mountain_perf.ingest.export import IngestError, ingest_export
+    except ModuleNotFoundError as error:
+        if error.name != "fitdecode":
+            raise
+        print(INGEST_EXTRA_ERROR, file=sys.stderr)
+        return 1
+    try:
+        summary = ingest_export(data_dir())
+    except (IngestError, ConfigError, OSError) as error:
+        print(f"Erreur : {error}", file=sys.stderr)
+        return 1
+    without_view = sum(count.count for count in summary.view_refusals)
+    print(f"Activités dans l'index : {summary.activities}")
+    print(f"Enregistrements : {summary.recordings}")
+    print(f"Fichiers refusés : {summary.refused_files}")
+    print(f"Entrées de l'index refusées : {summary.refused_entries}")
+    print(f"Entrées sans archive : {summary.entries_without_archive}")
+    print(f"Enregistrements en désaccord avec l'index : {summary.mismatches}")
+    print(f"Activités sans vue Activity : {without_view}")
+    for count in summary.view_refusals:
+        print(f"  {count.reason.value} : {count.source_activity_type} ({count.count})")
+    return 0
+
+
 def _write_utf8() -> None:
     """Sorties standard en UTF-8, quel que soit l'encodage de la console.
 
@@ -2189,6 +2230,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         metavar="F",
         help="Seuil des descentes roulantes et raides (diagnostic de 0010 D6)",
     )
+    commands.add_parser(
+        "ingest",
+        help="Ingérer l'export de MPA_DATA_DIR/raw dans MPA_DATA_DIR/interim (AN1-1)",
+    )
     args = parser.parse_args(argv)
     if args.command == "project" and args.curve is None:
         print(project_parser.format_usage(), file=sys.stderr, end="")
@@ -2203,6 +2248,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(BACKTEST_CURVE_ERROR, file=sys.stderr)
         return 1
     try:
+        if args.command == "ingest":
+            return _run_ingest()
         if args.command == "backtest":
             return _run_backtest(args)
         if args.command == "project":

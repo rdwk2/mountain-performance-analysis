@@ -35,7 +35,6 @@ build/
 dist/
 .venv/
 venv/
-.python-version
 
 # outils
 .pytest_cache/
@@ -47,6 +46,9 @@ htmlcov/
 
 # notebooks
 .ipynb_checkpoints/
+
+# Claude Code : réglages personnels (le hook partagé est dans .claude/settings.json)
+.claude/settings.local.json
 
 # ─────────────────────────────────────────────────────────────
 # Éditeurs et OS
