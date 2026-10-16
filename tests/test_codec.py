@@ -118,8 +118,8 @@ def test_backtest_reexports_the_same_objects() -> None:
 
 
 def test_only_the_registry_documents_import_the_common_codec() -> None:
-    """Dans ``src/``, seul ``backtest/codec.py`` importe le codec commun ; l'ingestion
-    s'y ajoutera (AN1, ``0013``)."""
+    """Dans ``src/``, seuls ``backtest/codec.py`` et les documents d'``interim/``
+    (``ingest/interim.py``, AN1-1, ``0013``) importent le codec commun."""
     importers = []
     for path in sorted(SOURCE.rglob("*.py")):
         if path == COMMON_MODULE:
@@ -129,7 +129,7 @@ def test_only_the_registry_documents_import_the_common_codec() -> None:
                 module == "mountain_perf" and "codec" in names
             ):
                 importers.append(path.relative_to(SOURCE).as_posix())
-    assert importers == ["backtest/codec.py"]
+    assert importers == ["backtest/codec.py", "ingest/interim.py"]
 
 
 # ---------------------------------------------------------------------------
