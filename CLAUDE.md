@@ -168,6 +168,7 @@ src/mountain_perf/     le code de la bibliothèque
                        CalibratedScenarioScores, CalibratedPerformance… : calage des
                        modèles de référence (M4c-1) ; candidat calé (M4c-3)
     admission.py       contrats du document d'admission (M4c-3)
+    drift.py           contrats du diagnostic de longue course, non stockés (M4d-1)
     interim.py         IndexedActivity, ActivityIndex, ActivityRecording et ses canaux,
                        IngestionReport : contrats d'interim/ (AN1-1)
     _dictionary.py     rendu du dictionnaire de données depuis les docstrings
@@ -212,6 +213,8 @@ src/mountain_perf/     le code de la bibliothèque
                        candidat calé (M4c-3)
     admission.py       règle d'admission D10, fonctions pures (M4c-3)
     experiment.py      expérience d'admission enregistrée, par API (M4c-3)
+    drift.py           diagnostic de longue course D12 : SVD de Jacobi, pente
+                       descriptive, retraits, cumuls, fonctions pures (M4d-1)
   ingest/              ingestion Garmin, `raw/` → `interim/` (piste analyse, AN1-1 ;
                        M6b) ; seul `fit.py` importe l'extra `ingest` (`0011`, `0013`)
     types.py           SOURCE_TYPE_SPORTS : types de la source → Sport

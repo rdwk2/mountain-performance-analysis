@@ -16,6 +16,23 @@ Backtest (à partir de M4) : métrique avant → après.
 
 ---
 
+### 2026-10-17 · M4d-1 — Backtest : diagnostic de longue course
+Le diagnostic de longue course de `0010` D12, jamais calculé jusqu'ici, l'est pour chaque
+sortie scorée avec usage, les cinq modèles et les trois horloges de son rapport, et
+s'écrit au rapport complet seulement (aucun document du registre ne change, la synthèse
+non plus). Contrats fournis (`schemas/drift.py`) recopiés tels quels ; bibliothèque
+`backtest/drift.py` : SVD de Jacobi en Python pur, base des nuisances, ajustement stable
+(`u` et `y` centrés, deux projections, `math.fsum`), retraits, séquence commune aux
+horloges arrivée comprise, temps projeté par régime, diagnostic et dérive d'une sortie ;
+`outing_drift_report` ; rubrique « dérive » et ligne de légende dans `cli.py`. Les trois
+fichiers de tests joints et le correctif des tests existants appliqués tels quels.
+Précision de D12 (arbitrages E1 et E2) ; `BACKLOG.md` (trois lignes cochées, une neuve),
+`README.md`, `.env.example`, `CLAUDE.md`.
+Conclusion : `just check` vert à chaque commit, 5 335 tests (dont ceux de l'extra
+`ingest`) ; les 49 contre-épreuves du brief rouges, chacune sur son fichier nommé. Rangé
+dans `src/mountain_perf/{schemas,backtest}/drift.py`, `backtest/report.py`, `cli.py`,
+`docs/decisions/0010`, branche `m4d/derive`.
+
 ### 2026-10-16 · AN1-1 — correctifs de relecture
 Après la relecture profonde de la PR, le balayage par mutation de la conception, la
 relecture du moteur (le lecteur, les vues et la table : accord) et la relecture bornée
