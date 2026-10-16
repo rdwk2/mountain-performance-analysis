@@ -224,19 +224,19 @@ def test_report_and_its_section_heads(world: Outcome) -> None:
     UTF-8 sans ``\\r``, commence par la synthèse ; ses têtes se suivent — six tables
     d'agrégats par modèle (M4c-2), deux références, descentes, géométrie, douze
     détails (sans ``C_k`` ni ``K`` pour une sortie sans référence), chacun suivi de
-    son calage et des quatre modèles calés, deux non scorées, la légende ; 5 157
-    lignes."""
+    son calage, des quatre modèles calés et de sa dérive (M4d-1), deux non scorées, la
+    légende ; 5 373 lignes."""
     report = world.report()
     assert report.startswith(world.synthesis)
     lines = lines_of(report)
-    assert len(lines) == 5157
+    assert len(lines) == 5373
     assert all(line == line.rstrip() and line for line in lines)
     expected = _heads(lines_of(SYNTHESIS))
     expected += ["agrégats"] * 30 + ["référence"] * 2 + ["descentes", "géométrie"]
     for outing_id in SCORED:
         without = outing_id.startswith("libre-")
         expected += [h for h in DETAIL_HEADS if not (without and h in ("C_k", "K"))]
-        expected += ["calage", *(["modèle", "usage", "contrôle"] * 4)]
+        expected += ["calage", *(["modèle", "usage", "contrôle"] * 4), "dérive"]
     expected += ["non scorée"] * 2 + ["légende"]
     assert _heads(lines) == expected
 

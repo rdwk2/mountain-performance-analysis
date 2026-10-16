@@ -17,7 +17,8 @@ from datetime import date, datetime
 from enum import StrEnum
 
 from mountain_perf.backtest.calendar import available_at_origin, civil_date
-from mountain_perf.backtest.execution import BacktestEvaluation, BacktestRun
+from mountain_perf.backtest.drift import outing_drift
+from mountain_perf.backtest.execution import BacktestEvaluation, BacktestRun, OutingRun
 from mountain_perf.backtest.metrics import (
     is_invalid_model_output,
     is_underrepresented,
@@ -37,6 +38,7 @@ from mountain_perf.schemas import (
     MatchResult,
     MetricValue,
     ModelKind,
+    OutingDrift,
     OutingObservation,
     OutingScores,
     ParameterSpec,
@@ -693,3 +695,33 @@ def third_clock_is_elapsed(match: MatchResult) -> bool:
     ``θ_haut`` existe et aucun arrêt n'est confirmé sur le support admis sous lui."""
     high = match.high_convention_index
     return high is not None and match.admitted_totals[high].stopped_s == 0.0
+
+
+# ---------------------------------------------------------------------------
+# Diagnostic de longue course (D12, M4d-1)
+# ---------------------------------------------------------------------------
+
+
+def outing_drift_report(
+    run: BacktestRun | BacktestEvaluation, outing: OutingRun
+) -> OutingDrift | None:
+    """La dérive d'une sortie scorée de l'exécution (``0010`` D12 ; M4d-1) : sous les
+    horloges de son rapport, avec le calage de sa performance et la courbe de
+    l'exécution ; ``None`` sans usage."""
+    outing_id = outing.outing.outing_id
+    performance = next(
+        p for p in run.preparation.performances if outing.outing in p.outings
+    )
+    calibrated = next(
+        p for p in run.calibration if any(e.outing_id == outing_id for e in p.outings)
+    )
+    return outing_drift(
+        outing.scores,
+        outing.passages,
+        outing.profile,
+        report_clocks(outing.match),
+        calibrated,
+        run.preparation.curve.curve,
+        multi_outing=performance.is_multi_outing,
+        outing_id=outing_id,
+    )

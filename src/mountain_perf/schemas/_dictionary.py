@@ -79,6 +79,12 @@ from mountain_perf.schemas.common import (
     Sport,
 )
 from mountain_perf.schemas.curve import CurveProvenance, PaceCurve
+from mountain_perf.schemas.drift import (
+    DriftDiagnostic,
+    DriftFit,
+    DriftInterval,
+    OutingDrift,
+)
 from mountain_perf.schemas.interim import (
     DISCARD_REASON_DESCRIPTIONS,
     ELEVATION_FIELD_DESCRIPTIONS,
@@ -399,6 +405,10 @@ DOCUMENTED_TYPES: tuple[type, ...] = (
     ViewRefusalCount,
     RecordingMismatch,
     IngestionReport,
+    DriftInterval,
+    DriftFit,
+    DriftDiagnostic,
+    OutingDrift,
 )
 """Types publiés dans le dictionnaire, dans l'ordre de lecture."""
 

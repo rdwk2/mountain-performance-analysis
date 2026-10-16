@@ -164,6 +164,7 @@ def test_only_the_backtest_package_imports_the_calibration() -> None:
     assert importers == [
         "backtest/__init__.py",
         "backtest/admission.py",
+        "backtest/drift.py",
         "backtest/execution.py",
         "backtest/experiment.py",
     ]
