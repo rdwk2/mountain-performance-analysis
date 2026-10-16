@@ -106,6 +106,7 @@ mélanger les deux, tu t'arrêtes et tu le signales.
 - **Jamais de fin de session sur du cassé non commité.**
 - **Une entrée dans `docs/JOURNAL.md`** à la fin de chaque session de travail :
   date, ce qui a été fait, la conclusion, où c'est rangé.
+- **Le README décrit `main`** : une PR qui rend une de ses phrases fausse la corrige.
 - **Une décision structurante = un fichier dans `docs/decisions/`** (voir le
   template `0000-template.md`).
 

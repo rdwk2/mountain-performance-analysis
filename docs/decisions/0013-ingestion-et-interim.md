@@ -258,8 +258,9 @@ Mesurées sur un export réel, sans chiffre ici (règle 1).*
    plus de 10 s, le trou du moteur (`0010` D4.4) ; les trous du canal des positions y
    sont tous, plus ceux que l'intersection avec les canaux demandés crée (ce qui précise
    le point 2 : un instant écarté faute d'un autre canal n'a pas de drapeau propre, mais
-   le trou qu'il laisse dans la vue pose `GPS_GAP`). Une pause du chronomètre de plus
-   de 10 s le pose aussi : il ne sert pas à écarter un flux, les trous se lisent sur les
+   le trou qu'il laisse dans la vue pose `GPS_GAP`). Une pause du chronomètre le pose
+   aussi quand elle laisse plus de 10 s sans instant dans la vue : la vue ne lit pas le
+   chronomètre. Le drapeau ne sert pas à écarter un flux : les trous se lisent sur les
    instants, leur cause sur les événements du chronomètre. Les autres détecteurs
    viendront avec leur usage.
 7. **Table des types** : `ingest/types.py` (`SOURCE_TYPE_SPORTS`), relue par le moteur ;
