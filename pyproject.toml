@@ -12,6 +12,11 @@ dependencies = ["tzdata; sys_platform == \"win32\""]
 [project.scripts]
 mperf = "mountain_perf.cli:main"
 
+[project.optional-dependencies]
+ingest = [
+    "fitdecode>=0.11",
+]
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
@@ -48,12 +53,20 @@ select = [
     "SIM", # flake8-simplify
     "RUF", # règles propres à ruff
     "PT",  # flake8-pytest-style
+    "TID251", # banned-api : les bibliothèques d'un extra, hors de leur module (0011)
 ]
 # RUF001-003 restent actives : elles attrapent les homoglyphes (un « а » cyrillique
 # dans un identifiant, une espace insécable dans une chaîne), vrai risque dans du
 # code. On n'exempte que la typographie française et mathématique voulue dans les
 # docstrings et commentaires.
 allowed-confusables = ["×", "−", "’", "…", "–"]
+
+# Clôtures d'import des extras (0011) : fitdecode n'entre que par le lecteur FIT.
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"fitdecode".msg = "fitdecode ne s'importe que dans src/mountain_perf/ingest/fit.py (docs/decisions/0011)."
+
+[tool.ruff.lint.per-file-ignores]
+"src/mountain_perf/ingest/fit.py" = ["TID251"]
 
 [tool.mypy]
 # Strict sur src/ (exigence du projet). tests/ passe aussi : pytest et hypothesis
@@ -67,3 +80,9 @@ explicit_package_bases = true
 python_version = "3.12"
 strict = true
 warn_unreachable = true
+
+# fitdecode n'a ni marqueur py.typed ni stubs : il n'entre que par
+# src/mountain_perf/ingest/fit.py, son unique enveloppe typée (0011).
+[[tool.mypy.overrides]]
+module = ["fitdecode", "fitdecode.*"]
+ignore_missing_imports = true
