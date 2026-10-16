@@ -110,7 +110,9 @@ def test_prepare_experiment_writes_nothing_under_the_data_dir(manifest: Path) ->
     """Décision Q3 : ``prepare_experiment`` n'écrit rien — ni à côté du monde, ni sous
     ``MPA_DATA_DIR``, où vit le registre réel —, qu'elle accepte ou refuse."""
     before = _all_files(data_dir())
+    world = {path: path.read_bytes() for path in _all_files(manifest.parent)}
     _prepare(manifest, Identity())
+    assert {path: path.read_bytes() for path in _all_files(manifest.parent)} == world
     with pytest.raises(ExperimentError):
         _prepare(
             manifest,
@@ -118,6 +120,7 @@ def test_prepare_experiment_writes_nothing_under_the_data_dir(manifest: Path) ->
             ExperimentMetric.USAGE,
             usage_targets=(OUTSIDE_A,),
         )
+    assert {path: path.read_bytes() for path in _all_files(manifest.parent)} == world
     assert _all_files(data_dir()) == before
 
 
