@@ -105,21 +105,23 @@ def _message(frame: Any) -> _Message:
 
 def _decode(data: bytes) -> list[_Message]:
     """Les messages de données du FIT, dans l'ordre du fichier ; lecture stricte (CRC
-    et erreurs de décodage en mode ``RAISE``) : toute ``fitdecode.FitError`` refuse le
-    fichier ``UNREADABLE_FIT``."""
+    et erreurs de décodage en mode ``RAISE``) : toute exception que lève fitdecode en
+    décodant le fichier (``fitdecode.FitError``, mais aussi, sur un fichier malformé,
+    une ``ValueError`` ou une autre) le refuse ``UNREADABLE_FIT``. Les messages se
+    réduisent ensuite, hors de cette garde : une erreur de ce module n'est pas un
+    fichier illisible."""
     try:
         with fitdecode.FitReader(
             io.BytesIO(data),
             check_crc=fitdecode.CrcCheck.RAISE,
             error_handling=fitdecode.ErrorHandling.RAISE,
         ) as reader:
-            return [
-                _message(frame)
-                for frame in reader
-                if isinstance(frame, fitdecode.FitDataMessage)
+            frames = [
+                frame for frame in reader if isinstance(frame, fitdecode.FitDataMessage)
             ]
-    except fitdecode.FitError:
+    except Exception:
         raise FitRefusedError(RefusalReason.UNREADABLE_FIT) from None
+    return [_message(frame) for frame in frames]
 
 
 def _number(value: object) -> float | None:
@@ -412,8 +414,9 @@ def read_fit(data: bytes, *, activity_ref: str, source: SourceRef) -> ActivityRe
     """L'enregistrement tiré des octets d'un FIT d'activité.
 
     - **Décodage strict** (``CrcCheck.RAISE``, ``ErrorHandling.RAISE``), messages de
-      données seulement : toute ``fitdecode.FitError`` lève ``FitRefusedError``
-      (``UNREADABLE_FIT``).
+      données seulement : toute exception que lève fitdecode en décodant le fichier
+      (``fitdecode.FitError`` ou autre, sur un fichier malformé) lève
+      ``FitRefusedError`` (``UNREADABLE_FIT``).
     - **Sessions** : chaque message ``session`` porte un ``start_time``, sinon (ou sans
       session) ``NO_SESSION`` ; le départ de l'enregistrement est le plus ancien, et
       tous les ``time_s`` en partent ; sessions triées par départ (tri stable).
@@ -442,11 +445,16 @@ def read_fit(data: bytes, *, activity_ref: str, source: SourceRef) -> ActivityRe
     - **Chronomètre** : voir ``_timer_events`` ; ``trigger`` est le sous-champ
       ``timer_trigger`` s'il est une valeur de ``TimerTrigger``, sinon ``None``.
     - Aucun échantillon gardé dans aucun canal : ``NO_SAMPLE``.
-    - **Appareil** : ``DeviceProvenance`` (``barometer`` : vrai si un appareil interne
-      est un baromètre, faux si des appareils internes ont un type sans qu'aucun en
-      soit un, ``None`` sinon ; ``external_heart_rate_sensor`` : vrai pour un capteur de
-      FC ANT+ ou Bluetooth Low Energy, faux si au moins un ``device_info`` a un
-      ``source_type``, ``None`` sinon).
+    - **Appareil** : ``DeviceProvenance``. Le premier ``file_id`` donne le type, le
+      fabricant, le produit (le numéro brut du champ 2, quel que soit le nom que
+      fitdecode lui donne) et ``time_created`` (s'il est un instant) ; le premier
+      ``device_info`` dont ``device_index`` vaut ``creator`` donne la version du
+      logiciel ; sans eux, ces champs sont absents. ``barometer`` : vrai si un appareil
+      interne est un baromètre, faux si des appareils internes ont un type sans
+      qu'aucun en soit un, ``None`` sinon ; ``external_heart_rate_sensor`` : vrai pour
+      un capteur de FC ANT+ ou Bluetooth Low Energy, faux si au moins un
+      ``device_info`` a un ``source_type``, ``None`` sinon. Aucun numéro de série ni
+      identifiant.
     - ``discarded`` : les comptes non nuls, triés par (valeur de la partie, valeur du
       motif).
     """

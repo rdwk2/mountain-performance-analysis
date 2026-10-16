@@ -13,6 +13,7 @@ import dataclasses
 import hashlib
 import io
 import json
+import lzma
 import zipfile
 import zlib
 from collections import Counter
@@ -54,9 +55,12 @@ _UNREADABLE_MEMBER = (
     RuntimeError,
     EOFError,
     zlib.error,
+    OSError,
+    lzma.LZMAError,
 )
 """Ce que lève la lecture d'un membre illisible : CRC faux, compression inconnue,
-contenu chiffré, archive tronquée."""
+contenu chiffré, archive tronquée, flux deflate, bzip2 (``OSError``) ou lzma corrompu.
+L'archive est lue en mémoire : une ``OSError`` n'y vient que du décompresseur."""
 
 
 class IngestError(Exception):
@@ -187,11 +191,15 @@ def ingest_export(data_dir: Path) -> IngestionSummary:
     3. chaque **fichier** de ``raw/activity_fit/`` (un sous-dossier est ignoré ; dossier
        absent : aucun), par nom croissant : lu, empreint (SHA-256 des octets de
        l'archive), inscrit au rapport sous le nom ``activity_fit/<nom>`` ; un nom qui
-       contient « : » ou « \\ » arrête l'ingestion avant sa lecture (``IngestError``) ;
-       un nom sans extension que portent plusieurs fichiers fait refuser chacun d'eux
-       ``DUPLICATE_ARCHIVE``, avant tout autre contrôle ; sinon, nom sans extension
-       absent des entrées gardées de l'index : ``NOT_IN_INDEX`` ; sinon, archive qui
-       n'est pas un zip à un seul membre ``.fit`` lisible : ``NOT_ONE_FIT`` ; sinon
+       contient « : » ou « \\ » arrête l'ingestion avant sa lecture (``IngestError``,
+       « raw/activity_fit/<nom> : nom de fichier que le rapport ne peut pas porter
+       (« : » ou « \\ »). ») ; un nom sans extension que portent plusieurs fichiers
+       fait refuser chacun d'eux ``DUPLICATE_ARCHIVE``, avant tout autre contrôle ;
+       sinon, nom sans extension absent des entrées gardées de l'index :
+       ``NOT_IN_INDEX`` ; sinon, archive qui n'est pas un zip, zip qui n'a pas
+       exactement un membre, membre qui ne finit pas par ``.fit`` (casse ignorée), ou
+       membre illisible (``_UNREADABLE_MEMBER`` : CRC faux, compression inconnue,
+       contenu chiffré, archive tronquée, flux corrompu) : ``NOT_ONE_FIT`` ; sinon
        ``read_fit``, ou le motif de son refus ;
     4. l'index : les entrées gardées, ``has_recording`` vrai pour celles qui ont reçu un
        enregistrement, triées par (instant de départ, identifiant) ;
@@ -201,8 +209,10 @@ def ingest_export(data_dir: Path) -> IngestionSummary:
        temps écoulés (somme des sessions, si toutes le portent, contre
        ``elapsed_duration_s``, s'il est présent), dépasse strictement
        ``MISMATCH_TOLERANCE_S`` ; triés par identifiant ;
-    7. le rapport : l'instant d'acquisition, les fichiers lus et refusés, triés par
-       nom, les entrées refusées, les refus de vue, les désaccords ;
+    7. le rapport : l'instant d'acquisition, les fichiers lus avec leurs empreintes
+       (``acquisition.json``, ``activities/activities.json`` et chaque
+       ``activity_fit/<nom>``) et les fichiers refusés, triés par nom, les entrées
+       refusées, les refus de vue, les désaccords ;
     8. ``write_activities``.
 
     Une erreur avant l'étape 8 n'écrit rien.

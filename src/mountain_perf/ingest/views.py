@@ -29,8 +29,8 @@ trou."""
 class ActivityView:
     """La vue ``Activity`` d'une entrée de l'index, ou le motif de son absence.
 
-    Exactement l'un des deux champs est présent : ``activity`` quand la vue existe,
-    ``refusal`` sinon.
+    Des deux champs, ``activity_view`` en remplit toujours exactement un :
+    ``activity`` quand la vue existe, ``refusal`` sinon (la classe ne l'impose pas).
     """
 
     activity: Activity | None
