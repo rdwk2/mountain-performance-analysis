@@ -181,9 +181,9 @@ class ObservedOuting:
 @dataclass(frozen=True)
 class ExperimentPreparation:
     """Une expérience préparée, rien d'écrit : la préparation de ``just backtest``, la
-    spécification, les sorties observées (par identifiant, dans l'ordre des
-    performances), les références D8 par parcours et la DÉCLARATION. N'est pas un
-    contrat stocké."""
+    spécification (ses exclusions d'admission copiées en lecture seule), les sorties
+    observées (par identifiant, dans l'ordre des performances, en lecture seule), les
+    références D8 par parcours et la DÉCLARATION. N'est pas un contrat stocké."""
 
     backtest: Preparation
     spec: ExperimentSpec
@@ -318,6 +318,9 @@ def prepare_experiment(
        horloge, en usage, ses ``K``, ses références figées sous l'horloge déclarée et
        les empreintes de leurs documents D8, sans date d'analyse.
     """
+    spec = replace(
+        spec, admission_exclusions=MappingProxyType(dict(spec.admission_exclusions))
+    )
     backtest = prepare_backtest(
         manifest_path,
         curve_path,
@@ -368,7 +371,9 @@ def prepare_experiment(
         models=(V0_RAW_MODEL, V0_RECALIBRATED_MODEL, CANDIDATE_MODEL),
         experiment=experiment,
     )
-    return ExperimentPreparation(backtest, spec, observed, references, declaration)
+    return ExperimentPreparation(
+        backtest, spec, MappingProxyType(observed), references, declaration
+    )
 
 
 def _refuse(
