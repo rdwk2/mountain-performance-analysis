@@ -13,7 +13,8 @@ Lu sur l'entrée standard : l'appel d'outil en JSON (``tool_name``, ``tool_input
 - une commande (``Bash``, ``PowerShell``, ``Monitor``) qui nomme ce dossier, sa
   variable, ou une commande qui écrit dans les données (``mperf ingest``,
   ``mperf backtest``, ``just ingest``, ``just backtest``, options de ``just`` comprises,
-  et ``python -m mountain_perf.cli`` suivi de ``ingest`` ou ``backtest``).
+  et ``python -m mountain_perf.cli`` suivi de ``ingest`` ou ``backtest`` ; sans casse,
+  ``mperf.exe`` et ``just.exe`` compris, sous-commande entre guillemets comprise).
 
 ``MPA_DATA_DIR`` vient de l'environnement, sinon du ``.env`` à la racine du projet
 (``CLAUDE_PROJECT_DIR``, lu en UTF-8, marque d'ordre des octets admise ; ``export`` en
@@ -24,13 +25,14 @@ Un ``.env`` qui nomme la variable sans valeur lisible refuse tout appel contrôl
 chemins des outils se lisent comme Claude Code les lit : ``~`` développé, et, sous
 Windows, ``/c/x`` et ``/mnt/c/x`` pour ``C:/x`` ; une commande qui écrit le dossier
 depuis le dossier personnel (``~/…``, ``$HOME/…``, ``$env:USERPROFILE/…``,
-``%USERPROFILE%/…``, barres obliques ou inverses) le nomme aussi. Sans dossier de
-données connu, seules les commandes qui écrivent dans les données, ou qui nomment
-``MPA_DATA_DIR``, sont refusées. Toute erreur du hook refuse l'appel (code 2), et une
-entrée inattendue (un ``tool_input`` qui n'est pas un objet, un champ lu qui n'est ni un
-texte ni absent) en est une : un hook qui plante ne doit pas laisser passer ;
-``.claude/settings.json`` y ajoute ``"onFailure": "block"`` (Claude Code 2.1.295 ou plus
-récent), pour un hook qui ne démarre pas ou dépasse son délai.
+``${env:USERPROFILE}/…``, ``$USERPROFILE/…``, ``%USERPROFILE%/…``) le nomme aussi ;
+dans une commande, les séparateurs sont des barres obliques ou inverses, mêlées ou
+non. Sans dossier de données connu, seules les commandes qui écrivent dans les données,
+ou qui nomment ``MPA_DATA_DIR``, sont refusées. Toute erreur du hook refuse l'appel
+(code 2), et une entrée inattendue (un ``tool_input`` qui n'est pas un objet, un champ
+lu qui n'est ni un texte ni absent) en est une : un hook qui plante ne doit pas laisser
+passer ; ``.claude/settings.json`` y ajoute ``"onFailure": "block"`` (Claude Code
+2.1.295 ou plus récent), pour un hook qui ne démarre pas ou dépasse son délai.
 ``MPA_HOOK_AUTORISER_DONNEES=1``, posé par rdw dans l'environnement de Claude Code pour
 une mission bornée, lève le contrôle ; en cas de panne du hook, ``{"disableAllHooks":
 true}`` dans ``.claude/settings.local.json`` (personnel, ignoré par git) le coupe.
@@ -67,9 +69,22 @@ SEARCH_TOOLS = {"Glob", "Grep"}
 SCANNED_TOOLS = {"LSP"}
 SHELL_TOOLS = {"Bash", "PowerShell", "Monitor"}
 WRITING_COMMANDS = re.compile(
-    r"\b(?:mperf|just|mountain_perf\.cli)\b(?:\s+-\S+(?:\s+[^\s-]\S*)?)*"
-    r"\s+(?:ingest|backtest)\b"
+    r"\b(?:mperf|just|mountain_perf\.cli)(?:\.exe)?[\"']?"
+    r"(?:\s+-\S+(?:\s+[^\s-]\S*)?)*"
+    r"\s+[\"']?(?:ingest|backtest)\b",
+    re.IGNORECASE,
 )
+HOME_PREFIXES = (
+    "~",
+    "$home",
+    "${home}",
+    "$env:userprofile",
+    "${env:userprofile}",
+    "$userprofile",
+    "${userprofile}",
+    "%userprofile%",
+)
+SEPARATORS = r"[/\\]+"
 WILDCARDS = re.compile(r"[*?\[{]")
 DRIVE = re.compile(r"^[A-Za-z]:[/\\]")
 MOUNTED = re.compile(r"^(?:/mnt)?/([A-Za-z])(?=/|$)")
@@ -122,10 +137,12 @@ def data_dir(project_dir: str | None) -> str | None:
 
 
 def _forms(path: str) -> list[str]:
-    """Les écritures d'un chemin qu'une commande peut employer, en minuscules :
-    barres obliques ou inverses ; pour ``C:/x`` aussi ``/c/x`` et ``/mnt/c/x`` ; sous
-    le dossier personnel, aussi ``~/…``, ``$HOME/…``, ``${HOME}/…``,
-    ``$env:USERPROFILE/…`` et ``%USERPROFILE%/…``."""
+    """Les écritures d'un chemin qu'une commande peut employer, en minuscules : pour
+    ``C:/x`` aussi ``/c/x`` et ``/mnt/c/x`` ; sous le dossier personnel, aussi
+    ``~/…``, ``$HOME/…``, ``${HOME}/…``, ``$env:USERPROFILE/…``,
+    ``${env:USERPROFILE}/…``, ``$USERPROFILE/…``, ``${USERPROFILE}/…`` et
+    ``%USERPROFILE%/…``. Les séparateurs y sont des barres obliques ; ``_names`` admet
+    aussi les barres inverses, mêlées ou non."""
     slash = path.replace("\\", "/").rstrip("/").lower()
     bases = {slash}
     match = re.match(r"^([a-z]):/(.*)$", slash)
@@ -135,18 +152,21 @@ def _forms(path: str) -> list[str]:
     home = os.path.expanduser("~").replace("\\", "/").rstrip("/").lower()
     if home not in ("", "~") and slash.startswith(home + "/"):
         rest = slash[len(home) + 1 :]
-        for prefix in ("~", "$home", "${home}", "$env:userprofile", "%userprofile%"):
+        for prefix in HOME_PREFIXES:
             bases.add(f"{prefix}/{rest}")
-    forms = bases | {b.replace("/", "\\") for b in bases}
-    return sorted(f for f in forms if f)
+    return sorted(b for b in bases if b)
 
 
 def _names(command: str, root: str) -> bool:
-    """La commande nomme-t-elle ``root`` (une de ses écritures, sans casse, que ne
-    prolonge pas un caractère de nom : ``mpa-data2`` n'est pas ``mpa-data``) ?"""
+    """La commande nomme-t-elle ``root`` (une de ses écritures, sans casse, chaque
+    séparateur fait de barres obliques ou inverses, que ne prolonge pas un caractère
+    de nom : ``mpa-data2`` n'est pas ``mpa-data``) ?"""
     lowered = command.lower()
     return any(
-        re.search(re.escape(form) + r"(?![\w.\-])", lowered) for form in _forms(root)
+        re.search(
+            SEPARATORS.join(map(re.escape, form.split("/"))) + r"(?![\w.\-])", lowered
+        )
+        for form in _forms(root)
     )
 
 
