@@ -24,8 +24,9 @@ chemin relatif pris depuis la racine du projet (le dossier où ``just`` lance ``
 Un ``.env`` qui nomme la variable sans valeur lisible refuse tout appel contrôlé. Les
 chemins des outils se lisent comme Claude Code les lit : ``~`` développé, et, sous
 Windows, ``/c/x`` et ``/mnt/c/x`` pour ``C:/x`` ; une commande qui écrit le dossier
-depuis le dossier personnel (``~/…``, ``$HOME/…``, ``$env:USERPROFILE/…``,
-``${env:USERPROFILE}/…``, ``$USERPROFILE/…``, ``%USERPROFILE%/…``) le nomme aussi ;
+depuis le dossier personnel (``~/…``, ``$HOME/…``, ``${HOME}/…``,
+``$env:USERPROFILE/…``, ``${env:USERPROFILE}/…``, ``$USERPROFILE/…``,
+``${USERPROFILE}/…``, ``%USERPROFILE%/…``) le nomme aussi ;
 dans une commande, les séparateurs sont des barres obliques ou inverses, mêlées ou
 non. Sans dossier de données connu, seules les commandes qui écrivent dans les données,
 ou qui nomment ``MPA_DATA_DIR``, sont refusées. Toute erreur du hook refuse l'appel

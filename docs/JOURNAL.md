@@ -17,22 +17,26 @@ Backtest (à partir de M4) : métrique avant → après.
 ---
 
 ### 2026-10-16 · AN1-1 — correctifs de relecture
-Après la relecture profonde de la PR, le balayage par mutation de la conception et la
-relecture du moteur (le lecteur, les vues et la table : accord). Le hook refuse aussi
-les commandes Windows qui écrivent dans les données (`mperf.exe`, `just.exe`,
-sous-commande entre guillemets, toute casse) et reconnaît le dossier écrit avec des
-séparateurs mêlés ou depuis `${env:USERPROFILE}` et `$USERPROFILE`. `read_fit` refuse
-`UNREADABLE_FIT` toute exception du décodage par fitdecode, et un membre bzip2 ou lzma
-corrompu est refusé `NOT_ONE_FIT` : un fichier malformé n'arrête plus l'ingestion
-(`0013`, point 5). Des tests pour les garanties écrites qui n'en avaient pas (premier
-`file_id`, premier créateur, tri stable des sessions, empreintes du rapport et de
-l'index, ordre des contrôles, membres illisibles, suffixe `.fit`, pause du chronomètre,
-aide de `mperf ingest`, forme de l'import sans l'extra) et pour quatre lacunes du
-balayage. `main` fusionné (#27) : le README dit l'ingestion, l'extra `ingest`, la CI en
-deux temps, `MPA_DATA_DIR` et le hook ; `CLAUDE.md` : « Le README décrit `main` ».
-Docstrings (`read_fit`, `ingest_export`, `ActivityView`), `0013` (précision 6), message
-de la règle TID251, `BACKLOG.md`.
-Conclusion : `just check` vert, 5 166 tests ; le contrôle réel suit (rdw).
+Après la relecture profonde de la PR, le balayage par mutation de la conception, la
+relecture du moteur (le lecteur, les vues et la table : accord) et la relecture bornée
+des correctifs. Le hook refuse aussi les commandes Windows qui écrivent dans les données
+(`mperf.exe`, `just.exe`, sous-commande entre guillemets, toute casse) et reconnaît le
+dossier écrit avec des séparateurs mêlés ou depuis `${env:USERPROFILE}`, `$USERPROFILE`
+et `${USERPROFILE}`. `read_fit` refuse `UNREADABLE_FIT` toute exception du décodage par
+fitdecode, et une archive au répertoire central incohérent, au nom de membre illisible
+ou au membre bzip2 ou lzma corrompu est refusée `NOT_ONE_FIT` : un fichier malformé
+n'arrête plus l'ingestion (`0013`, point 5). Des tests pour les garanties écrites qui
+n'en avaient pas (premier `file_id`, premier créateur, tri stable des sessions,
+empreintes du rapport et de l'index, ordre des contrôles, archives et membres
+illisibles, suffixe `.fit`, pause du chronomètre, erreur du lecteur propagée, aide de
+`mperf ingest`, forme de l'import sans l'extra) et pour quatre lacunes du balayage.
+`main` fusionné (#27) : le README dit l'ingestion, l'extra `ingest`, la CI en deux
+temps, `MPA_DATA_DIR` et le hook, garde-fou et non enceinte ; `CLAUDE.md` : « Le README
+décrit `main` ». Docstrings (`read_fit`, `ingest_export`, `ActivityView`, hook), `0013`
+(précision 6), message de la règle TID251, `BACKLOG.md`.
+Conclusion : `just check` vert, 5 169 tests. Contrôle réel (rdw, `just ingest` sur
+l'export) : `interim/activities/` identique, fichier par fichier, à celui de l'essai de
+la conception sur une copie de l'export.
 
 ---
 

@@ -135,10 +135,11 @@ def test_cli_ingest_without_the_extra_says_how_to_install(
     )
 
 
-def test_cli_ingest_help_is_the_one_of_the_brief(
+def test_mperf_help_lists_the_ingest_subcommand_as_in_the_brief(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """L'aide de ``mperf ingest``, recopiée telle quelle (§ 5.8 du brief AN1-1)."""
+    """La ligne d'aide de la sous-commande ``ingest``, dans ``mperf --help``, recopiée
+    telle quelle (§ 5.8 du brief AN1-1)."""
     monkeypatch.setenv("COLUMNS", "200")
     with pytest.raises(SystemExit) as stop:
         main(["--help"])

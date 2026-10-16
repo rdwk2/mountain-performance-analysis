@@ -8,6 +8,7 @@ import pytest
 
 pytest.importorskip("fitdecode")
 
+import mountain_perf.ingest.fit as fit_module
 from fixtures.fit_activity import (
     ANTPLUS_BIKE_POWER,
     ANTPLUS_HEART_RATE,
@@ -711,6 +712,21 @@ def test_a_malformed_fit_that_fitdecode_cannot_decode_is_unreadable() -> None:
     with pytest.raises(FitRefusedError) as error:
         _read(w.to_bytes())
     assert error.value.reason is RefusalReason.UNREADABLE_FIT
+
+
+def test_an_error_of_the_reader_is_not_an_unreadable_file(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Seul le décodage par fitdecode est gardé : une erreur du lecteur lui-même (ici,
+    simulée dans la réduction des messages) se propage, avec son type, au lieu de
+    refuser le fichier ``UNREADABLE_FIT``."""
+
+    def broken(frame: object) -> object:
+        raise KeyError("erreur du lecteur")
+
+    monkeypatch.setattr(fit_module, "_message", broken)
+    with pytest.raises(KeyError, match="erreur du lecteur"):
+        _read(activity_fit([Sample(0, heart_rate=100)]))
 
 
 def test_product_zero_is_a_product_number() -> None:

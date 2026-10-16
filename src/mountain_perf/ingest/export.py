@@ -57,10 +57,13 @@ _UNREADABLE_MEMBER = (
     zlib.error,
     OSError,
     lzma.LZMAError,
+    ValueError,
 )
-"""Ce que lève la lecture d'un membre illisible : CRC faux, compression inconnue,
-contenu chiffré, archive tronquée, flux deflate, bzip2 (``OSError``) ou lzma corrompu.
-L'archive est lue en mémoire : une ``OSError`` n'y vient que du décompresseur."""
+"""Ce que lève la lecture d'une archive ou d'un membre illisible : CRC faux,
+compression inconnue, contenu chiffré, archive tronquée, flux deflate, bzip2
+(``OSError``) ou lzma corrompu, répertoire central incohérent ou nom de membre qui
+n'est pas l'UTF-8 annoncé (``ValueError``). L'archive est lue en mémoire : une
+``OSError`` n'y vient que du décompresseur, une ``ValueError`` que de ``zipfile``."""
 
 
 class IngestError(Exception):
@@ -198,8 +201,9 @@ def ingest_export(data_dir: Path) -> IngestionSummary:
        sinon, nom sans extension absent des entrées gardées de l'index :
        ``NOT_IN_INDEX`` ; sinon, archive qui n'est pas un zip, zip qui n'a pas
        exactement un membre, membre qui ne finit pas par ``.fit`` (casse ignorée), ou
-       membre illisible (``_UNREADABLE_MEMBER`` : CRC faux, compression inconnue,
-       contenu chiffré, archive tronquée, flux corrompu) : ``NOT_ONE_FIT`` ; sinon
+       archive ou membre illisible (``_UNREADABLE_MEMBER`` : CRC faux, compression
+       inconnue, contenu chiffré, archive tronquée, flux corrompu, répertoire central
+       incohérent, nom illisible) : ``NOT_ONE_FIT`` ; sinon
        ``read_fit``, ou le motif de son refus ;
     4. l'index : les entrées gardées, ``has_recording`` vrai pour celles qui ont reçu un
        enregistrement, triées par (instant de départ, identifiant) ;

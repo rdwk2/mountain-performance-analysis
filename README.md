@@ -418,11 +418,13 @@ Autres documents :
 Ce dépôt ne contient aucune donnée personnelle (règle 1 de [`CLAUDE.md`](CLAUDE.md),
 décision [`0001`](docs/decisions/0001-separation-data-code.md)). Les données
 réelles vivent hors du dépôt, dans le dossier désigné par `MPA_DATA_DIR`. Claude
-Code, ouvert dans un clone du dépôt, n'y a pas accès : le hook de
+Code, ouvert dans un clone du dépôt, n'y touche pas : le hook de
 [`.claude/settings.json`](.claude/settings.json)
 ([`scripts/hooks/proteger_donnees.py`](scripts/hooks/proteger_donnees.py)) refuse ses
-lectures et ses écritures sous ce dossier, qu'il connaît par `MPA_DATA_DIR`
-(l'environnement, sinon le `.env` du clone), et les commandes sur les données réelles
-(`just ingest`, `just backtest`) sont lancées par l'humain. Les tests et les exemples
+outils de fichiers sous ce dossier, qu'il connaît par `MPA_DATA_DIR` (l'environnement,
+sinon le `.env` du clone), et ses commandes qui le nomment ou qui écrivent dans les
+données ; les commandes sur les données réelles (`just ingest`, `just backtest`) sont
+lancées par l'humain. C'est un garde-fou, pas une enceinte : une commande qui atteint le
+dossier sans le nommer n'est pas vue. Les tests et les exemples
 ci-dessus n'utilisent que les fixtures synthétiques de
 [`tests/fixtures/`](tests/fixtures/README.md).

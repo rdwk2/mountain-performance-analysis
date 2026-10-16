@@ -508,15 +508,18 @@ _COMPRESSIONS = {
     "deflate": zipfile.ZIP_DEFLATED,
     "bzip2": zipfile.ZIP_BZIP2,
     "lzma": zipfile.ZIP_LZMA,
+    "repertoire": zipfile.ZIP_DEFLATED,
+    "nom": zipfile.ZIP_DEFLATED,
 }
 
 
 @pytest.mark.parametrize("damage", list(_COMPRESSIONS))
 def test_an_unreadable_member_is_not_one_fit(tmp_path: Path, damage: str) -> None:
-    """Un membre illisible (CRC faux ; méthode de compression inconnue ; contenu
-    chiffré, ``RuntimeError`` ; flux deflate, bzip2 ou lzma corrompu, ``zlib.error``,
-    ``OSError``, ``lzma.LZMAError``) : l'archive est refusée ``NOT_ONE_FIT``, et
-    l'ingestion continue."""
+    """Une archive ou un membre illisible (CRC faux ; méthode de compression
+    inconnue ; contenu chiffré, ``RuntimeError`` ; flux deflate, bzip2 ou lzma
+    corrompu, ``zlib.error``, ``OSError``, ``lzma.LZMAError`` ; répertoire central
+    incohérent, nom de membre annoncé en UTF-8 qui ne l'est pas, ``ValueError``) :
+    l'archive est refusée ``NOT_ONE_FIT``, et l'ingestion continue."""
     make_export(tmp_path)
     fit = activity_fit([Sample(t, heart_rate=100) for t in range(30)])
     member = "1_ACTIVITY.fit"
@@ -533,6 +536,15 @@ def test_an_unreadable_member_is_not_one_fit(tmp_path: Path, damage: str) -> Non
         for header in (b"PK\x03\x04", b"PK\x01\x02"):
             at = archive.index(header)
             archive[at + (6 if header == b"PK\x03\x04" else 8)] |= 0x01
+    elif damage == "repertoire":
+        # le décalage du répertoire central, dans l'enregistrement de fin d'archive
+        archive[archive.index(b"PK\x05\x06") + 19] = 0x80
+    elif damage == "nom":
+        # nom marqué UTF-8 (bit 11 des drapeaux) dont le premier octet ne l'est pas
+        for header, flags, name in ((b"PK\x03\x04", 6, 30), (b"PK\x01\x02", 8, 46)):
+            at = archive.index(header)
+            archive[at + flags + 1] |= 0x08
+            archive[at + name] = 0xFF
     else:
         # au-delà des en-têtes du flux (celui de lzma dans un zip compte 9 octets)
         for k in range(start + 16, start + 22):
