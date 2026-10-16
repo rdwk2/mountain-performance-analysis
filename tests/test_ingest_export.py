@@ -3,6 +3,7 @@ ingest``)."""
 
 from __future__ import annotations
 
+import hashlib
 import io
 import json
 import sys
@@ -491,30 +492,113 @@ def test_a_name_the_report_cannot_hold_stops_the_ingestion(
     assert not (tmp_path / "interim").exists()
 
 
-def _stored_zip(member: str, data: bytes) -> bytes:
+def _stored_zip(
+    member: str, data: bytes, compression: int = zipfile.ZIP_STORED
+) -> bytes:
     buffer = io.BytesIO()
-    with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_STORED) as zf:
+    with zipfile.ZipFile(buffer, "w", compression=compression) as zf:
         zf.writestr(member, data)
     return buffer.getvalue()
 
 
-@pytest.mark.parametrize("damage", ["crc", "compression"])
+_COMPRESSIONS = {
+    "crc": zipfile.ZIP_STORED,
+    "compression": zipfile.ZIP_STORED,
+    "chiffre": zipfile.ZIP_STORED,
+    "deflate": zipfile.ZIP_DEFLATED,
+    "bzip2": zipfile.ZIP_BZIP2,
+    "lzma": zipfile.ZIP_LZMA,
+}
+
+
+@pytest.mark.parametrize("damage", list(_COMPRESSIONS))
 def test_an_unreadable_member_is_not_one_fit(tmp_path: Path, damage: str) -> None:
-    """Un membre illisible (CRC faux, méthode de compression inconnue) : l'archive est
-    refusée ``NOT_ONE_FIT``, et l'ingestion continue."""
+    """Un membre illisible (CRC faux ; méthode de compression inconnue ; contenu
+    chiffré, ``RuntimeError`` ; flux deflate, bzip2 ou lzma corrompu, ``zlib.error``,
+    ``OSError``, ``lzma.LZMAError``) : l'archive est refusée ``NOT_ONE_FIT``, et
+    l'ingestion continue."""
     make_export(tmp_path)
-    fit = activity_fit([Sample(t, heart_rate=100) for t in range(3)])
-    archive = bytearray(_stored_zip("1_ACTIVITY.fit", fit))
+    fit = activity_fit([Sample(t, heart_rate=100) for t in range(30)])
+    member = "1_ACTIVITY.fit"
+    archive = bytearray(_stored_zip(member, fit, _COMPRESSIONS[damage]))
+    start = 30 + len(member)
     if damage == "crc":
-        start = 30 + len("1_ACTIVITY.fit")
         archive[start] ^= 0xFF
-    else:
+    elif damage == "compression":
         for header in (b"PK\x03\x04", b"PK\x01\x02"):
             at = archive.index(header)
             offset = 8 if header == b"PK\x03\x04" else 10
             archive[at + offset : at + offset + 2] = (99).to_bytes(2, "little")
+    elif damage == "chiffre":
+        for header in (b"PK\x03\x04", b"PK\x01\x02"):
+            at = archive.index(header)
+            archive[at + (6 if header == b"PK\x03\x04" else 8)] |= 0x01
+    else:
+        # au-delà des en-têtes du flux (celui de lzma dans un zip compte 9 octets)
+        for k in range(start + 16, start + 22):
+            archive[k] ^= 0xFF
     (tmp_path / "raw" / "activity_fit" / "1.zip").write_bytes(bytes(archive))
     summary = ingest_export(tmp_path)
     assert summary.recordings == 0
     refused = {f.name: f.reason for f in read_report(tmp_path).refused_files}
     assert refused["activity_fit/1.zip"] is RefusalReason.NOT_ONE_FIT
+
+
+# --- garanties du § 5.7 que la relecture C a mutées sans test ----------------------
+
+
+def test_an_archive_whose_only_member_is_not_a_fit_is_not_one_fit(
+    tmp_path: Path,
+) -> None:
+    make_export(tmp_path)
+    fit = activity_fit([Sample(t, heart_rate=100) for t in range(3)])
+    _zip(tmp_path / "raw" / "activity_fit" / "1.zip", {"1_ACTIVITY.txt": fit})
+    assert ingest_export(tmp_path).recordings == 0
+    refused = {f.name: f.reason for f in read_report(tmp_path).refused_files}
+    assert refused["activity_fit/1.zip"] is RefusalReason.NOT_ONE_FIT
+
+
+def test_the_fit_suffix_ignores_case(tmp_path: Path) -> None:
+    make_export(tmp_path)
+    fit = activity_fit([Sample(t, heart_rate=100) for t in range(3)])
+    _zip(tmp_path / "raw" / "activity_fit" / "1.zip", {"1_ACTIVITY.FIT": fit})
+    assert ingest_export(tmp_path).recordings == 1
+
+
+def test_another_error_reading_the_acquisition_instant_propagates(
+    tmp_path: Path,
+) -> None:
+    """Une autre erreur d'E/S que l'absence du fichier (ici, un dossier à sa place) :
+    ``OSError``, pas « manque »."""
+    make_export(tmp_path, acquisition=False)
+    (tmp_path / "raw" / ACQUISITION_FILE).mkdir()
+    with pytest.raises(OSError):  # noqa: PT011 - le type exact varie selon le système
+        read_acquisition(tmp_path / "raw")
+    with pytest.raises(OSError):  # noqa: PT011
+        ingest_export(tmp_path)
+
+
+def test_the_acquisition_instant_is_read_before_the_index(tmp_path: Path) -> None:
+    make_export(tmp_path, acquisition=False)
+    (tmp_path / "raw" / "activities" / "activities.json").unlink()
+    with pytest.raises(IngestError) as error:
+        ingest_export(tmp_path)
+    assert str(error.value).startswith("raw/acquisition.json manque")
+
+
+def test_the_report_and_the_index_carry_the_hashes_of_their_files(
+    tmp_path: Path,
+) -> None:
+    """Les empreintes d'``acquisition.json`` et de l'index, au rapport, et celle de
+    l'index dans sa ``SourceRef`` (celle que les vues ``Activity`` recopient)."""
+    make_export(tmp_path)
+    ingest_export(tmp_path)
+    raw = tmp_path / "raw"
+    acquisition = hashlib.sha256((raw / ACQUISITION_FILE).read_bytes()).hexdigest()
+    index_file = raw / "activities" / "activities.json"
+    index_hash = hashlib.sha256(index_file.read_bytes()).hexdigest()
+    assert acquisition != index_hash
+    hashes = {f.name: f.content_hash for f in read_report(tmp_path).read}
+    assert hashes["acquisition.json"] == acquisition
+    assert hashes["activities/activities.json"] == index_hash
+    assert read_index(tmp_path).source.content_hash == index_hash

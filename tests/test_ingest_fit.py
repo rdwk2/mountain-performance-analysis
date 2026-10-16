@@ -12,6 +12,7 @@ from fixtures.fit_activity import (
     ANTPLUS_BIKE_POWER,
     ANTPLUS_HEART_RATE,
     BLE_HEART_RATE,
+    FILE_ID,
     LOCAL_BAROMETER,
     LOCAL_GPS,
     LOCAL_WHR,
@@ -23,6 +24,7 @@ from fixtures.fit_activity import (
     activity_fit,
     semicircles,
 )
+from fixtures.fit_writer import ENUM, STRING, FieldDef, FitWriter
 from mountain_perf.ingest.fit import SEMICIRCLE_DEG, FitRefusedError, read_fit
 from mountain_perf.schemas import (
     ActivityRecording,
@@ -352,6 +354,15 @@ def test_developer_fields_are_ignored() -> None:
     assert len(r.position.time_s) == 2
 
 
+def test_compressed_timestamps_are_read_after_developer_fields() -> None:
+    """fitdecode ajoute l'horodatage d'un en-tête compressé après les champs de
+    développeur du record : il reste lu."""
+    samples = [Sample(t, heart_rate=100 + t) for t in (0, 1, 2, 5, 20, 33)]
+    r = _read(activity_fit(samples, compressed_after=2, developer_field=True))
+    assert r.heart_rate is not None
+    assert r.heart_rate.time_s == (0.0, 1.0, 2.0, 5.0, 20.0, 33.0)
+
+
 # --- sessions, chronomètre, appareil -----------------------------------------------
 
 
@@ -371,6 +382,21 @@ def test_sessions_are_sorted_and_the_start_is_the_earliest() -> None:
     assert [s.start_s for s in r.sessions] == [0.0, 60.0]
     assert r.sessions[0].timer_duration_s == 55.0
     assert r.sessions[1].distance_m == 500.0
+
+
+def test_sessions_with_the_same_start_keep_the_file_order() -> None:
+    """Tri stable : deux sessions au même départ restent dans l'ordre du fichier."""
+    r = _read(
+        activity_fit(
+            [Sample(t, heart_rate=100) for t in (0, 30)],
+            sessions=(
+                (0, "running", "trail", 30.0, 30.0, 100.0),
+                (0, "cycling", "mountain", 30.0, 30.0, 200.0),
+                (0, "hiking", None, 30.0, 30.0, 50.0),
+            ),
+        )
+    )
+    assert [s.sport for s in r.sessions] == ["running", "cycling", "hiking"]
 
 
 def test_timer_events_types_and_discards() -> None:
@@ -659,6 +685,46 @@ def test_device_creator_is_index_zero() -> None:
     )
     assert r.device.software_version == 56.01
     assert (r.device.product, r.device.time_created) == (None, None)
+
+
+def test_the_first_file_id_and_the_first_creator_are_read() -> None:
+    """Le premier ``file_id`` donne le fabricant et le produit ; le premier
+    ``device_info`` du créateur, la version du logiciel."""
+    r = _read(
+        activity_fit(
+            [Sample(0, heart_rate=100)],
+            second_file_id=(255, 1001),
+            devices=((0, 5601), (0, 7002)),
+        )
+    )
+    assert (r.device.manufacturer, r.device.product) == ("garmin", 999)
+    assert r.device.software_version == 56.01
+
+
+def test_a_malformed_fit_that_fitdecode_cannot_decode_is_unreadable() -> None:
+    """Une définition au champ de taille nulle : fitdecode lève une ``ValueError``, pas
+    une ``FitError`` ; le fichier est refusé ``UNREADABLE_FIT``, sans arrêter
+    l'ingestion (``0013``, point 5)."""
+    w = FitWriter()
+    w.define(0, FILE_ID, (FieldDef(0, ENUM), FieldDef(8, STRING)))
+    w.data(0, (4, None))
+    with pytest.raises(FitRefusedError) as error:
+        _read(w.to_bytes())
+    assert error.value.reason is RefusalReason.UNREADABLE_FIT
+
+
+def test_product_zero_is_a_product_number() -> None:
+    """0 est un numéro de produit (``uint16``), pas la valeur invalide."""
+    r = _read(activity_fit([Sample(0, heart_rate=100)], product=0))
+    assert r.device.product == 0
+
+
+def test_relative_time_created_is_absent() -> None:
+    """Un ``time_created`` inférieur à ``0x10000000`` (horloge non réglée) : fitdecode
+    le laisse en entier, ce n'est pas un instant ; il est absent, et le reste se lit."""
+    r = _read(activity_fit([Sample(0, heart_rate=100)], created_raw=1000))
+    assert r.device.time_created is None
+    assert r.start_time == START
 
 
 def test_strict_reading_refuses_a_decoding_error() -> None:

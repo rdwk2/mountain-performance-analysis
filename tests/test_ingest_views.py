@@ -282,3 +282,21 @@ def test_timer_events_do_not_set_the_flag() -> None:
     s = stream_view(rec).stream
     assert s is not None
     assert s.quality_flags == frozenset()
+
+
+def test_a_gap_covered_by_a_timer_pause_still_sets_the_flag() -> None:
+    """Un trou de plus de 10 s pendant une pause du chronomètre pose le drapeau : la
+    vue ne lit pas les pauses, elle n'en exempte aucun trou (``0013``, précision 6)."""
+    times = (0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 30.0, 31.0, 32.0)
+    rec = _rec(
+        position=PositionChannel(times, (45.0,) * 9, (6.0,) * 9),
+        timer_events=(
+            TimerEvent(0.0, TimerEventType.START, None),
+            TimerEvent(5.0, TimerEventType.STOP, None),
+            TimerEvent(30.0, TimerEventType.START, None),
+            TimerEvent(32.0, TimerEventType.STOP_ALL, None),
+        ),
+    )
+    s = stream_view(rec).stream
+    assert s is not None
+    assert s.quality_flags == frozenset({QualityFlag.GPS_GAP})

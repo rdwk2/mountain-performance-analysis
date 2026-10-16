@@ -141,6 +141,21 @@ def test_non_object_entry_is_refused() -> None:
     ]
 
 
+@pytest.mark.parametrize(
+    "first",
+    [5, {"activityType": {"typeKey": "running"}}],
+    ids=["non-objet", "sans-identifiant"],
+)
+def test_entries_after_an_unusable_entry_are_read(first: Any) -> None:
+    """Une entrée refusée ``UNUSABLE_ENTRY`` en tête n'arrête pas la lecture des
+    suivantes."""
+    result = read(first, item(activityId=1))
+    assert [e.activity_ref for e in result.entries] == ["1"]
+    assert [(r.position, r.reason) for r in result.refused] == [
+        (0, RefusalReason.UNUSABLE_ENTRY)
+    ]
+
+
 def test_duplicate_ids_refuse_every_occurrence() -> None:
     result = read(item(activityId=1), item(activityId=2), item(activityId=1, maxHR=150))
     assert [e.activity_ref for e in result.entries] == ["2"]

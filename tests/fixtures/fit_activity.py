@@ -144,6 +144,8 @@ def activity_fit(
     manufacturer: int = 1,
     product: int | None = 999,
     time_created: bool = True,
+    created_raw: int | None = None,
+    second_file_id: tuple[int, int] | None = None,
     devices: Sequence[tuple[int, int | None]] = ((0, 1234),),
     sensors: Sequence[tuple[int, int | None, int | None]] = (),
     compressed_after: int | None = None,
@@ -165,7 +167,9 @@ def activity_fit(
     ``devices`` : (``device_index``, logiciel en centièmes), ``device_index`` 0 étant le
     créateur. ``sensors`` : des ``device_info`` de capteurs, (``device_index``,
     ``source_type``, ``device_type``), valeurs brutes, ``None`` pour l'invalide.
-    ``product`` ou ``time_created`` absents écrivent la valeur invalide.
+    ``product`` ou ``time_created`` absents écrivent la valeur invalide ;
+    ``created_raw`` impose la valeur brute de ``time_created`` ; ``second_file_id``
+    (fabricant, produit) écrit un second ``file_id`` après le premier.
     ``compressed_after`` : les records à partir de ce rang s'écrivent à horodatage
     compressé.
     ``developer_field`` : chaque record porte un champ de développeur déclaré ;
@@ -186,7 +190,11 @@ def activity_fit(
             ),
         )
         created = fit_time(start) if time_created else None
+        if created_raw is not None:
+            created = created_raw
         w.data(0, (4, manufacturer, product, 4242, created))
+        if second_file_id is not None:
+            w.data(0, (4, *second_file_id, 4243, created))
     w.define(
         1, DEVICE_INFO, (FieldDef(253, UINT32), FieldDef(0, UINT8), FieldDef(5, UINT16))
     )

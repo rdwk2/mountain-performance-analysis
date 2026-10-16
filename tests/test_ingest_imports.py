@@ -8,11 +8,13 @@ from __future__ import annotations
 import ast
 import subprocess
 import sys
+import types
 from pathlib import Path
 
 import pytest
 
 import mountain_perf
+import mountain_perf.ingest
 from mountain_perf.cli import main
 from test_backtest_metrics_reuse import _imported_modules, _package
 
@@ -111,14 +113,39 @@ def test_cli_ingest_without_the_extra_says_how_to_install(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """fitdecode absent (``None`` dans ``sys.modules`` : son import échoue) : un
-    message, code 1, sans rien lire."""
+    message, code 1, sans rien lire.
+
+    Le paquet garde l'attribut ``export`` d'un sous-module chargé plus tôt (par un
+    autre test, ou par un autre appel) : il est posé ici, pour que seule la forme
+    exacte de l'import du § 5.8 du brief AN1-1 voie l'extra manquer, quels que soient
+    les tests lancés avec celui-ci."""
     for name in ("mountain_perf.ingest.export", "mountain_perf.ingest.fit"):
         monkeypatch.delitem(sys.modules, name, raising=False)
+    monkeypatch.setattr(
+        mountain_perf.ingest,
+        "export",
+        types.ModuleType("mountain_perf.ingest.export"),
+        raising=False,
+    )
     monkeypatch.setitem(sys.modules, "fitdecode", None)
     assert main(["ingest"]) == 1
     assert capsys.readouterr().err == (
         "Erreur : la lecture des FIT demande l'extra ingest. Installer : "
         "uv sync --extra ingest\n"
+    )
+
+
+def test_cli_ingest_help_is_the_one_of_the_brief(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """L'aide de ``mperf ingest``, recopiée telle quelle (§ 5.8 du brief AN1-1)."""
+    monkeypatch.setenv("COLUMNS", "200")
+    with pytest.raises(SystemExit) as stop:
+        main(["--help"])
+    assert stop.value.code == 0
+    assert (
+        "Ingérer l'export de MPA_DATA_DIR/raw dans MPA_DATA_DIR/interim (AN1-1)"
+        in capsys.readouterr().out
     )
 
 
