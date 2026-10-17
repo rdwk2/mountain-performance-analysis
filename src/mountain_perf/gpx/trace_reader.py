@@ -4,7 +4,7 @@
 concaténés ; un enregistrement de même instant que le dernier conservé est écarté et
 compté, un instant antérieur fait refuser la trace. Ni dédoublonnage de positions, ni
 lissage, ni traitement des trous : ce sont des séries dérivées
-(``mountain_perf.backtest.series``).
+(``mountain_perf.series``).
 
 Les messages d'erreur nomment le fichier par son **nom seul**, jamais par son chemin
 (règle 1 de ``CLAUDE.md``).
