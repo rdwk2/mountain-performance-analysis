@@ -206,14 +206,15 @@ def calibration_population(
 # ---------------------------------------------------------------------------
 
 
-def _member_totals(
+def member_totals(
     outings: Sequence[OutingScores], scenario: Scenario, clock_index: int
 ) -> Unavailability | tuple[float, float | None]:
     """Les totaux d'un membre (précision de D9.2 ; décisions 10 et 11) : ``T_c`` et
     ``P_c`` sommés par ``fsum`` sur les segments admis de toutes ses sorties scorées,
     dans l'ordre reçu ; une sortie sans ce scénario ne contribue rien. Dans l'ordre :
     support vide, motif ``INSUFFICIENT_SUPPORT`` ; ``T_c`` nul, motif ``ZERO_TIME`` ;
-    une projection invalide, ``(T_c, None)`` ; sinon ``(T_c, P_c)``."""
+    une projection invalide, ``(T_c, None)`` ; sinon ``(T_c, P_c)``. Public depuis
+    M4d-2 : les fourchettes en tirent ``T_c`` (précision de D11)."""
     times: list[float] = []
     projections: list[float | None] = []
     for outing in outings:
@@ -282,7 +283,7 @@ def calibrate(
     logs: list[float] = []
     model_error = False
     for day in population.members:
-        totals = _member_totals(members[day], scenario, clock_index)
+        totals = member_totals(members[day], scenario, clock_index)
         if isinstance(totals, Unavailability):
             withdrawals.append(CalibrationWithdrawal(day, totals))
             continue

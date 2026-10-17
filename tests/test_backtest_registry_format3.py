@@ -82,6 +82,7 @@ from mountain_perf.schemas import (
     ExperimentMetric,
     ModelKind,
     ModelResult,
+    OutingBands,
     OutingObservation,
     OutingOutcome,
     RegistryEvent,
@@ -235,9 +236,10 @@ def _journal(root: Path, change: Callable[[dict[str, Any]], None]) -> None:
 
 def test_versions() -> None:
     """Le format écrit, les formats relus, le premier format de l'admission ; le
-    document d'admission, premier format 3, dernier type de document."""
-    assert REGISTRY_FORMAT_VERSION == 3
-    assert REGISTRY_READABLE_FORMATS == (1, 2, 3)
+    document d'admission, premier format 3, avant-dernier type de document (le
+    dernier, les fourchettes du format 4, M4d-2)."""
+    assert REGISTRY_FORMAT_VERSION == 4
+    assert REGISTRY_READABLE_FORMATS == (1, 2, 3, 4)
     assert ADMISSION_FIRST_FORMAT == 3
     assert dict(DOCUMENT_FIRST_FORMAT) == {
         OutingObservation: 1,
@@ -245,8 +247,9 @@ def test_versions() -> None:
         RepeatabilityReference: 1,
         CalibratedScenarioScores: 2,
         Admission: 3,
+        OutingBands: 4,
     }
-    assert DOCUMENT_TYPES[-1] is Admission
+    assert DOCUMENT_TYPES[-2] is Admission
     assert DOCUMENT_FIRST_FORMAT[Admission] == ADMISSION_FIRST_FORMAT
 
 
@@ -332,10 +335,11 @@ def test_format_2_registry_is_read(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize("experiment", [False, True], ids=["sans", "avec"])
 def test_append_follows_format_2(tmp_path: Path, experiment: bool) -> None:
-    """Précision de D14 (M4c-3) : un ajout du format 3 — sans expérience, ou une
-    expérience et son RÉSULTAT qui cite son admission — s'enchaîne à un registre du
-    format 2 ; le journal entier se vérifie, chaque ligne à son format : la ligne du
-    format 3 porte ``admission``, celle du format 2 non."""
+    """Précision de D14 (M4c-3) : un ajout du format courant (3 ; 4 depuis M4d-2) —
+    sans expérience, ou une expérience et son RÉSULTAT qui cite son admission —
+    s'enchaîne à un registre du format 2 ; le journal entier se vérifie, chaque ligne
+    à son format : la ligne du format courant porte ``admission``, celle du format 2
+    non."""
     root = _format_2_registry(tmp_path)
     if experiment:
         declared = _experiment_declaration()
@@ -355,7 +359,7 @@ def test_append_follows_format_2(tmp_path: Path, experiment: bool) -> None:
         recorded_at=at(3),
     )
     log = verify_registry(root)
-    assert [event.format_version for event in log.events] == [2, 2, 3, 3]
+    assert [event.format_version for event in log.events] == [2, 2, 4, 4]
     assert count_trials(log).declarations == 2
     assert load_outcomes(root, log, 2) == _outcomes(ModelKind.V0_RECALIBRATED)
     assert load_outcomes(root, log, 4) == written
@@ -534,7 +538,7 @@ def test_append_declaration_requires_reference_documents(tmp_path: Path) -> None
     [
         (
             "null",
-            "evenements.jsonl, ligne 1 : une expérience du format 3 fige les "
+            "evenements.jsonl, ligne 1 : une expérience du format 4 fige les "
             "documents D8 de ses références (E6)",
         ),
         (
@@ -577,7 +581,7 @@ def test_format_3_experiment_with_reference_documents_is_read(tmp_path: Path) ->
         {"route_id": "r1", "reference": D8_SHA}
     ]
     log = verify_registry(root)
-    assert log.events[0].format_version == 3
+    assert log.events[0].format_version == 4
     assert log.events[0].declaration == written
 
 
@@ -639,7 +643,7 @@ def test_experiment_result_is_read_back_at_bit(tmp_path: Path) -> None:
     compris."""
     root = _experiment_registry(tmp_path)
     log = verify_registry(root)
-    assert [event.format_version for event in log.events] == [3, 3]
+    assert [event.format_version for event in log.events] == [4, 4]
     result = log.events[1].result
     assert result is not None
     sha = content_hash(encode_document(_admission()))
@@ -650,7 +654,7 @@ def test_experiment_result_is_read_back_at_bit(tmp_path: Path) -> None:
     assert load_references(root, log, 2) == references()
     data = (root / DOCUMENTS_DIR / f"{sha}{DOCUMENT_SUFFIX}").read_bytes()
     assert decode_document(data, Admission) == _admission()
-    assert decode_document(data, Admission, 3) == _admission()
+    assert decode_document(data, Admission, 4) == _admission()
 
 
 def test_admission_document_must_be_stored(tmp_path: Path) -> None:

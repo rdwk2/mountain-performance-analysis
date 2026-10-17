@@ -23,6 +23,7 @@ from mountain_perf.schemas import (
     REGISTRY_FORMAT_VERSION,
     Admission,
     CalibratedScenarioScores,
+    OutingBands,
     OutingObservation,
     RepeatabilityReference,
     ScenarioScores,
@@ -48,13 +49,14 @@ def _refused(data: bytes, fragment: str) -> None:
 def test_document_types_are_exact() -> None:
     """D14 : observations, scores avec leurs prévisions, références D8 ; depuis le
     format 2, scores calés (M4c-2) ; depuis le format 3, document d'admission
-    (M4c-3)."""
+    (M4c-3) ; depuis le format 4, fourchettes (M4d-2)."""
     assert (
         OutingObservation,
         ScenarioScores,
         RepeatabilityReference,
         CalibratedScenarioScores,
         Admission,
+        OutingBands,
     ) == DOCUMENT_TYPES
 
 

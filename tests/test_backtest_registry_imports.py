@@ -48,10 +48,12 @@ def test_contracts_import_only_the_named_contracts() -> None:
     ``ModelKind`` vient des contrats du calage depuis M4c-1 (§ 2 du brief M4c-1),
     ``CalibratedOutingScores`` depuis M4c-2 (``OutingOutcome``), et
     ``CALIBRATED_KINDS`` — les modèles de D9.1 et le candidat — depuis M4c-3, à la
-    place de ``CALIBRATED_MODELS``."""
+    place de ``CALIBRATED_MODELS`` ; ``OutingBands`` depuis M4d-2
+    (``OutingOutcome``)."""
     imported = _imports(SCHEMAS_MODULE)
     assert _project(SCHEMAS_MODULE) <= {
         "mountain_perf.validation",
+        "mountain_perf.schemas.bands",
         "mountain_perf.schemas.calibration",
         "mountain_perf.schemas.clock",
         "mountain_perf.schemas.common",
@@ -61,6 +63,7 @@ def test_contracts_import_only_the_named_contracts() -> None:
         "mountain_perf.schemas.parameters",
         "mountain_perf.schemas.scoring",
     }
+    assert imported["mountain_perf.schemas.bands"] == {"OutingBands"}
     assert imported["mountain_perf.schemas.calibration"] == {
         "CALIBRATED_KINDS",
         "CalibratedOutingScores",

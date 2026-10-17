@@ -114,7 +114,9 @@ def test_no_module_imports_metrics_but_the_backtest_package() -> None:
     ``backtest/calibration.py``, qui juge les sorties de modèle d'un membre du calage
     (``is_invalid_model_output``, § 2 du brief M4c-1) — et, depuis M4c-3,
     ``backtest/admission.py``, qui calcule ``q_usage`` sur ``K`` et juge les prévisions
-    aux passages (``usage_target``, ``is_invalid_model_output``)."""
+    aux passages (``usage_target``, ``is_invalid_model_output``) — et, depuis M4d-2,
+    ``backtest/bands.py``, qui juge les prévisions des fourchettes
+    (``is_invalid_model_output``)."""
     defined = _defined_names(METRICS)
     importers = []
     allowed = (
@@ -125,6 +127,7 @@ def test_no_module_imports_metrics_but_the_backtest_package() -> None:
         PACKAGE / "report.py",
         PACKAGE / "calibration.py",
         PACKAGE / "admission.py",
+        PACKAGE / "bands.py",
     )
     for path in sorted(SOURCE.rglob("*.py")):
         if path in allowed:

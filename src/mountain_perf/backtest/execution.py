@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
 
+from mountain_perf.backtest.bands import evaluation_bands
 from mountain_perf.backtest.calendar import civil_date
 from mountain_perf.backtest.calibration import baseline_scores, calibrate_performances
 from mountain_perf.backtest.clocks import clock_partition
@@ -77,6 +78,7 @@ from mountain_perf.schemas import (
     MatchResult,
     ModelKind,
     Outing,
+    OutingBands,
     OutingObservation,
     OutingOutcome,
     OutingScores,
@@ -429,8 +431,8 @@ class OutingRun:
 class BacktestEvaluation:
     """Le calcul d'une exécution, avant son RÉSULTAT (précision de D14, M4c-2) : sa
     préparation, sa DÉCLARATION, les sorties scorées et non scorées, les références D8
-    par parcours, et le calage de chaque performance, dans l'ordre des
-    performances."""
+    par parcours, le calage de chaque performance, dans l'ordre des performances, et
+    les fourchettes de chaque sortie scorée avec usage (M4d-2)."""
 
     preparation: Preparation
     declaration_event: RegistryEvent
@@ -438,14 +440,15 @@ class BacktestEvaluation:
     unscored: tuple[Exclusion, ...]
     references: tuple[tuple[str, RepeatabilityReference], ...]
     calibration: tuple[CalibratedPerformance, ...]
+    bands: tuple[OutingBands, ...] = ()
 
 
 @dataclass(frozen=True)
 class BacktestRun:
     """Une exécution enregistrée : sa préparation, sa DÉCLARATION et son RÉSULTAT,
     les sorties scorées et non scorées, les références D8 par parcours, le calage de
-    chaque performance (M4c-2), et le sceau (l'empreinte de la ligne du RÉSULTAT, la
-    dernière du journal)."""
+    chaque performance (M4c-2), le sceau (l'empreinte de la ligne du RÉSULTAT, la
+    dernière du journal) et les fourchettes (M4d-2)."""
 
     preparation: Preparation
     declaration_event: RegistryEvent
@@ -455,6 +458,7 @@ class BacktestRun:
     references: tuple[tuple[str, RepeatabilityReference], ...]
     calibration: tuple[CalibratedPerformance, ...]
     seal: str
+    bands: tuple[OutingBands, ...] = ()
 
 
 def failure_reason(error: BaseException) -> str:
@@ -621,8 +625,9 @@ def _evaluate(preparation: Preparation, declared: RegistryEvent) -> BacktestEval
     """Le calcul de ``run_backtest``, sans rien écrire : chaque sortie déclarée scorée
     (v0 brut et les baselines non calées) ou écartée avec son motif, les références D8,
     puis le calage de chaque performance (``0010`` D9.2 ; ``calibrate_performances``)
-    sur les scores non calés des sorties scorées ; les prévisions datées de la
-    DÉCLARATION."""
+    sur les scores non calés des sorties scorées ; enfin les fourchettes de chaque
+    sortie scorée avec usage (``evaluation_bands`` ; M4d-2), sur la fenêtre de la
+    courbe ; les prévisions datées de la DÉCLARATION."""
     read = preparation.manifest
     refused = {entry.outing_id: entry.reason for entry in read.refused}
     profiles: dict[Path, tuple[RouteProfile, ReferenceGeometry]] = {}
@@ -646,6 +651,13 @@ def _evaluate(preparation: Preparation, declared: RegistryEvent) -> BacktestEval
         for run in runs
     }
     calibration = calibrate_performances(preparation.performances, unscaled)
+    estimation = preparation.curve.curve.estimation
+    bands = evaluation_bands(
+        preparation.performances,
+        unscaled,
+        calibration,
+        (estimation.date_from, estimation.date_to),
+    )
     return BacktestEvaluation(
         preparation,
         declared,
@@ -653,18 +665,20 @@ def _evaluate(preparation: Preparation, declared: RegistryEvent) -> BacktestEval
         tuple(unscored),
         references,
         calibration,
+        bands,
     )
 
 
 def _outcomes(evaluation: BacktestEvaluation) -> tuple[OutingOutcome, ...]:
     """Ce que le RÉSULTAT porte de chaque sortie scorée, dans l'ordre des sorties
     (précision de D14, M4c-2) : v0 brut, puis les scores calés de chaque modèle de
-    ``CALIBRATED_MODELS``, dans cet ordre."""
+    ``CALIBRATED_MODELS``, dans cet ordre ; ses fourchettes, si elle en a (M4d-2)."""
     calibrated: dict[tuple[str, ModelKind], CalibratedOutingScores] = {
         (entry.outing_id, entry.control.model): entry
         for performance in evaluation.calibration
         for entry in performance.outings
     }
+    bands = {entry.outing_id: entry for entry in evaluation.bands}
     return tuple(
         OutingOutcome(
             run.outing.outing_id,
@@ -676,6 +690,7 @@ def _outcomes(evaluation: BacktestEvaluation) -> tuple[OutingOutcome, ...]:
                     for model in CALIBRATED_MODELS
                 ),
             ),
+            bands.get(run.outing.outing_id),
         )
         for run in evaluation.outings
     )
@@ -757,4 +772,5 @@ def run_backtest(
         evaluation.references,
         evaluation.calibration,
         seal=line_hash(result),
+        bands=evaluation.bands,
     )
