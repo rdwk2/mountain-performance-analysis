@@ -55,6 +55,7 @@ from mountain_perf.backtest import (
     match_trace,
     observe_passages,
     origins_before_curve,
+    outing_drift_report,
     prepare_backtest,
     reference_geometry,
     report_clocks,
@@ -92,6 +93,8 @@ from mountain_perf.schemas import (
     CALIBRATED_MODELS,
     CENTRAL_CONVENTION_INDEX,
     CLOCKS,
+    DRIFT_IDENTIFICATION_THRESHOLD,
+    DRIFT_WEAK_SEPARATION,
     AdmittedTotals,
     CalibratedOutingScores,
     CalibratedScenarioScores,
@@ -101,6 +104,8 @@ from mountain_perf.schemas import (
     ClockScores,
     ClockTotals,
     DataSet,
+    DriftDiagnostic,
+    DriftFit,
     EpisodeOutcome,
     LogRatioEnvelope,
     MatchResult,
@@ -1077,7 +1082,20 @@ LEGEND = (
     "gains, garde-fous, admission d'un effet (0010 D10) : just backtest ne déclare pas "
     "d'expérience ; expérience enregistrée par l'API (M4c-3), commande en M6a",
     "fourchettes (0010 D11) : non implémentée dans ce lot (M4d)",
-    "dérive de longue course (0010 D12) : non implémentée dans ce lot (M4d)",
+    "dérive (0010 D12, M4d-1) : séquence des éléments observés du K par défaut, dans "
+    "l'ordre, jusqu'au premier qui ne l'est pas, arrivée comprise, commune aux "
+    "horloges ; y_h = ln(t_h / p_h), positif = plus long que prévu ; b : pente "
+    "descriptive du log-rapport sur l'avancement u de v0 brut, après ajustement "
+    "linéaire sur les fractions de régime, pas une mesure de fatigue ; exp(b) : "
+    "rapport ajusté entre u = 0 et u = 1, pas un multiplicateur du temps total ; "
+    "identifiable si rho_u > 1e−10, seuil numérique et non statistique ; "
+    "ddl = H − rang − 1 ; faible séparation sous rho_u < 0.10, seuil de présentation ; "
+    "influence a_h : b = Σ a_h y_h ; étendue : pentes extrêmes des retraits "
+    "identifiables, pas un intervalle de confiance ; signe : celui de b face aux "
+    "retraits identifiables ; u_mz_u : uᵀ M_Z u, publié pour v0 brut sous l'écoulé "
+    "(il ne dépend que de u et f) ; C_k = P_k − T_k et B_k = T_k − c·P_k, de "
+    "conventions de signe opposées ; un facteur de calage ne change ni b ni B_k : v0 "
+    "+ effort recalé a la pente de v0 brut",
     "sensibilité (0010 D13) : non implémentée dans ce lot (M4d)",
 )
 """La légende du rapport (§ 6.3, point 8, et § 7.4 du brief M4b-5 ; § 6.6 du brief
@@ -1921,12 +1939,222 @@ def _calibrated_model_lines(
     return lines
 
 
+DRIFT_UNAVAILABILITY_LABELS: Mapping[Unavailability, str] = {
+    Unavailability.MULTI_OUTING_DAY: "jour multi-sorties",
+    Unavailability.INSUFFICIENT_SUPPORT: "support insuffisant",
+    Unavailability.NOT_CALIBRATED: "non calé",
+    Unavailability.MODEL_ERROR: "erreur du modèle",
+    Unavailability.ZERO_TIME: "temps nul",
+}
+"""Libellés d'affichage des motifs d'un diagnostic de dérive indisponible (``0010`` D0,
+D12 ; M4d-1)."""
+
+
+def _rho(value: float) -> str:
+    """``rho_u`` : ``0.945990`` ; sous ``1e−3``, en notation scientifique
+    (``2.50e-07``) ; au seuil d'identification ou dessous, ``≤ 1e−10`` (une valeur à ce
+    niveau est du bruit de calcul, sans lecture)."""
+    if not value > DRIFT_IDENTIFICATION_THRESHOLD:
+        return "≤ 1e−10"
+    return _plain(value) if value >= 1e-3 else f"{value:.2e}"
+
+
+def _umzu(fit: DriftFit) -> str:
+    """``uᵀ M_Z u`` (``0010`` D12) : ``7.689e-03`` avec la pente ; « — » sans elle (au
+    seuil d'identification ou dessous, du bruit de calcul)."""
+    return "—" if fit.slope is None else f"{fit.u_mz_u:.3e}"
+
+
+def _sign(value: float) -> int:
+    return (value > 0) - (value < 0)
+
+
+def _drift_sign(diagnostic: DriftDiagnostic) -> str:
+    """Le signe de ``b`` face aux retraits identifiables (arbitrage E4) : « stable »,
+    « instable » (un retrait de signe autre), « non vérifiable » (aucun retrait
+    identifiable) ; « — » sans pente."""
+    fit = diagnostic.fit
+    if fit is None or fit.slope is None:
+        return "—"
+    slopes = [w.slope for w in diagnostic.withdrawals if w.slope is not None]
+    if not slopes:
+        return "non vérifiable"
+    sign = _sign(fit.slope)
+    return "instable" if any(_sign(b) != sign for b in slopes) else "stable"
+
+
+def _drift_mention(fit: DriftFit) -> str:
+    """Les mentions d'une pente identifiable (arbitrage E4) : « ajustement saturé »
+    (``ddl = 0``), « très peu de degrés de liberté » (``ddl`` = 1 ou 2), « faible
+    séparation position/régimes » (``rho_u < DRIFT_WEAK_SEPARATION``)."""
+    if fit.slope is None:
+        return ""
+    mentions = []
+    if fit.dof == 0:
+        mentions.append("ajustement saturé")
+    elif fit.dof in (1, 2):
+        mentions.append("très peu de degrés de liberté")
+    if fit.rho is not None and fit.rho < DRIFT_WEAK_SEPARATION:
+        mentions.append("faible séparation position/régimes")
+    return " ; ".join(mentions)
+
+
+def _drift_fit_cells(diagnostic: DriftDiagnostic) -> list[str]:
+    """``b``, ``rho_u``, rang, ``ddl``, retraits identifiables, signe, étendue,
+    mentions — ou le motif."""
+    if diagnostic.unavailability is not None:
+        return [DRIFT_UNAVAILABILITY_LABELS[diagnostic.unavailability]]
+    fit = diagnostic.fit
+    assert fit is not None  # contrat de DriftDiagnostic
+    slope = "non identifiable" if fit.slope is None else _log(fit.slope)
+    rho = "—" if fit.rho is None else _rho(fit.rho)
+    dof = "—" if fit.dof is None else str(fit.dof)
+    withdrawn = sum(1 for w in diagnostic.withdrawals if w.identifiable)
+    span = (
+        "—"
+        if diagnostic.slope_range is None
+        else f"[{_log(diagnostic.slope_range[0])} ; {_log(diagnostic.slope_range[1])}]"
+    )
+    return [
+        slope,
+        rho,
+        str(fit.rank),
+        dof,
+        f"{withdrawn}/{len(diagnostic.withdrawals)}",
+        _drift_sign(diagnostic),
+        span,
+        _drift_mention(fit),
+    ]
+
+
+def _drift_detail_lines(head: DriftDiagnostic) -> list[str]:
+    """Le détail de v0 brut sous l'écoulé (arbitrage E4) : les intervalles et leur
+    influence, ``uᵀ M_Z u`` de l'ajustement, chaque retrait, les cumuls."""
+    fit = head.fit
+    influence = None if fit is None else fit.influence
+    lines = [
+        _INDENT
+        + "intervalles de v0 brut, écoulé : de → à (m) ; t_h, p_h (s) ; y_h ; écart "
+        "(min) ; déplacement, arrêt (s) ; montée / plat / descente ; influence a_h"
+    ]
+    for h, interval in enumerate(head.intervals, start=1):
+        ratio = "—" if interval.log_ratio is None else _log(interval.log_ratio)
+        moving = "—" if interval.moving_s is None else f"{interval.moving_s:z.1f}"
+        stop = "—" if interval.stop_s is None else f"{interval.stop_s:z.1f}"
+        fractions = " / ".join(f"{f:z.2f}" for f in interval.fractions)
+        weight = "—" if influence is None else _log(influence[h - 1])
+        lines.append(
+            f"{_INDENT}{h:<4}{interval.start_m:z.1f} → {interval.end_m:z.1f} ; "
+            f"{interval.observed_s:z.1f}, {interval.projected_s:z.1f} ; {ratio} ; "
+            f"{_seconds(interval.local_error_min)} ; {moving}, "
+            f"{stop} ; {fractions} ; {weight}"
+        )
+    if fit is not None:
+        lines.append(
+            f"{_INDENT}ajustement de v0 brut, écoulé : u_mz_u {_umzu(fit)} ; "
+            f"{_count(fit.count, 'intervalle', 'intervalles')}"
+        )
+    if head.withdrawals:
+        lines.append(
+            _INDENT
+            + "retraits de v0 brut, écoulé : intervalle retiré ; rang ; rho_u ; "
+            "ddl ; u_mz_u ; b"
+        )
+        for h, w in enumerate(head.withdrawals, start=1):
+            rho = "—" if w.rho is None else _rho(w.rho)
+            dof = "—" if w.dof is None else str(w.dof)
+            slope = "non identifiable" if w.slope is None else _log(w.slope)
+            lines.append(
+                f"{_INDENT}{h:<4}{w.rank} ; {rho} ; {dof} ; {_umzu(w)} ; {slope}"
+            )
+    lines.append(
+        f"{_INDENT}C_k (s) "
+        + " ".join(_seconds(v) for v in head.cumulative_errors_s)
+        + " ; B_k (s) "
+        + " ".join(_seconds(v) for v in head.recentred_s)
+    )
+    return lines
+
+
+def _drift_row(label: str, cells: Sequence[str]) -> str:
+    """Une ligne de la table de la dérive : comme ``_row``, mais l'étendue (huitième
+    cellule) sur 26 caractères, ses bornes en tenant 23 ; les mentions ensuite."""
+    widths = [20] * 7 + [26]
+    head = "".join(
+        f"{c:<{w}}" for c, w in zip(cells[: len(widths)], widths, strict=False)
+    )
+    tail = "".join(cells[len(widths) :])
+    return (_INDENT + f"{label:<16}" + head + tail).rstrip()
+
+
+def _drift_lines(run: BacktestRun | BacktestEvaluation, outing: OutingRun) -> list[str]:
+    """La rubrique « dérive » d'une sortie scorée (``0010`` D12 ; M4d-1) : la séquence,
+    commune aux horloges, et son horizon ; chaque horloge du rapport et chaque modèle
+    (``b``, ``rho_u``, rang, ``ddl``, retraits, signe, étendue, mentions) ; le détail de
+    v0 brut sous l'écoulé."""
+    drift = outing_drift_report(run, outing)
+    if drift is None:
+        return [f"{'dérive':<13}sans référence : pas de diagnostic (0010 D12, usage)"]
+    head = drift.diagnostics[0]
+    sequence = (
+        f"séquence : {_count(drift.elements, 'élément', 'éléments')} de K sur "
+        f"{drift.targets}"
+    )
+    if drift.stop is None:
+        sequence += ", arrivée comprise"
+    else:
+        sequence += (
+            f", arrêt au rang {drift.elements + 1} "
+            f"({METRIC_UNAVAILABILITY_LABELS[drift.stop]})"
+        )
+    if (
+        head.unavailability is not None
+        and not head.intervals
+        and all(d.unavailability is head.unavailability for d in drift.diagnostics)
+    ):
+        return [
+            f"{'dérive':<13}0010 D12, usage : indisponible "
+            f"({DRIFT_UNAVAILABILITY_LABELS[head.unavailability]}) ; {sequence}"
+        ]
+    regime = (
+        "—" if head.reference_regime is None else REGIME_LABELS[head.reference_regime]
+    )
+    horizon = "—" if drift.horizon_s is None else f"{drift.horizon_s / 60.0:z.1f} min"
+    lines = [
+        f"{'dérive':<13}0010 D12, usage ; {sequence} ; horizon P⁰_H "
+        f"{horizon} ; R_0 {regime} ; u et f de v0 brut",
+        _INDENT + "pente descriptive du log-rapport (ajustement linéaire sur les "
+        "fractions de régime)",
+        _drift_row(
+            "horloge",
+            [
+                "modèle",
+                "b",
+                "rho_u",
+                "rang",
+                "ddl",
+                "retraits",
+                "signe",
+                "étendue",
+                "mentions",
+            ],
+        ),
+    ]
+    for diagnostic in drift.diagnostics:
+        cells = [MODEL_LABELS[diagnostic.model], *_drift_fit_cells(diagnostic)]
+        lines.append(_drift_row(_clock_label(diagnostic.clock), cells))
+    if head.intervals:
+        lines += _drift_detail_lines(head)
+    return lines
+
+
 def _report_body(run: BacktestRun | BacktestEvaluation, threshold: float) -> list[str]:
     """Le corps du rapport complet, calculé avant le RÉSULTAT (précision de D14,
     M4c-2 ; § 6.6 du brief M4c-2) : les tables d'agrégats de chaque modèle (usage puis
     contrôle, sous les trois rôles d'horloge) ; la référence D8 de chaque parcours ;
     les descentes ; la géométrie ; le détail de chaque sortie scorée, v0 brut puis les
-    modèles calés ; les sorties non scorées ; la légende."""
+    modèles calés, puis son diagnostic de longue course (D12, M4d-1) ; les sorties non
+    scorées ; la légende."""
     lines: list[str] = []
     entries = scored_performances(run)
     for model in REPORT_MODELS:
@@ -1945,6 +2173,7 @@ def _report_body(run: BacktestRun | BacktestEvaluation, threshold: float) -> lis
     for outing in run.outings:
         lines += _detail_lines(run, outing)
         lines += _calibrated_detail_lines(run, outing)
+        lines += _drift_lines(run, outing)
     lines += [
         f"{'non scorée':<13}{exclusion.outing_id} — {exclusion.reason}"
         for exclusion in run.unscored
@@ -2213,7 +2442,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="Sortie sans référence : la référence est la trace elle-même",
     )
     backtest_parser = commands.add_parser(
-        "backtest", help="Exécution enregistrée du backtest de v0 brut et rapport D15"
+        "backtest",
+        help="Exécution enregistrée du backtest des cinq modèles et rapport D15",
     )
     backtest_parser.add_argument("manifest", type=Path, metavar="manifeste.json")
     # --curve est exigé, mais pas par argparse (code 1, comme mperf project).

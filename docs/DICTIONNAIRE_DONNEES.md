@@ -159,6 +159,10 @@
 - `ViewRefusalCount`
 - `RecordingMismatch`
 - `IngestionReport`
+- `DriftInterval`
+- `DriftFit`
+- `DriftDiagnostic`
+- `OutingDrift`
 
 ---
 
@@ -7612,3 +7616,271 @@ l'ingestion.
 Aucun instant d'exécution : deux ingestions des mêmes fichiers écrivent le même
 rapport (`0013`, point 5). Les écarts par canal sont dans chaque
 enregistrement, les champs omis dans chaque entrée de l'index.
+
+---
+
+## `DriftInterval`
+
+*`mountain_perf.schemas.drift` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `start_m` | `float` | — |
+| `end_m` | `float` | — |
+| `observed_s` | `float` | — |
+| `projected_s` | `float` | — |
+| `log_ratio` | `float \| None` | — |
+| `position` | `float` | — |
+| `fractions` | `tuple[float, float, float]` | — |
+| `moving_s` | `float \| None` | — |
+| `stop_s` | `float \| None` | — |
+
+| Propriété calculée | Type | Sens |
+|---|---|---|
+| `local_error_min` | `float` | L'erreur locale `(t_h − p_h) / 60` (minutes, `0010` D12). |
+
+Un intervalle `h` de la séquence, départ → départ (`0010` D12 ; précisions
+de M4d-1).
+
+#### Champs
+
+- `start_m`, `end_m` — mètres — abscisses de la référence : `b_0` ou l'élément
+  précédent, puis l'élément `h`.
+- `observed_s` — secondes — `t_h = T_h − T_{h−1}` sous l'horloge (`T_0 = 0`).
+- `projected_s` — secondes — `p_h = P_h − P_{h−1}` du modèle.
+- `log_ratio` — sans unité — `y_h = ln(t_h / p_h)`, **positif = plus long que
+  prévu** ; absent si `t_h <= 0`.
+- `position` — sans unité — `u_h = (P⁰_{h−1} + p⁰_h / 2) / P⁰_H`, de v0 brut.
+- `fractions` — sans unité — `f_hR` de v0 brut, dans l'ordre de
+  `DRIFT_REGIMES` : la part du temps projeté de chaque régime de D6 sur la grille
+  fine, rapportée à leur somme (`p⁰_h` aux arrondis près).
+- `moving_s`, `stop_s` — secondes — sous l'écoulé seulement : déplacement
+  `A_h − D_{h−1}` et arrêt `D_h − A_h` ; absents sous une autre horloge.
+
+Propriété calculée (jamais stockée) : `local_error_min` = `(t_h − p_h) / 60`.
+
+#### Invariants
+
+1. toutes les valeurs présentes finies ; `start_m < end_m` ; `projected_s > 0` ;
+2. `log_ratio` présent si et seulement si `observed_s > 0`, et alors à `τ`
+   près de `ln(observed_s / projected_s)` (`τ = METRIC_RELATIVE_TOLERANCE`) ;
+3. `0 < position < 1` ;
+4. `fractions` : un tuple de trois valeurs de `[0 ; 1]`, de somme 1 à `τ`
+   près ;
+5. `moving_s` et `stop_s` tous deux présents ou tous deux absents ; présents :
+   `stop_s >= 0` et `moving_s + stop_s` à `τ` près de `observed_s`.
+
+#### Producteur
+
+`drift_diagnostic` (`mountain_perf.backtest.drift`).
+
+#### Consommateurs
+
+`DriftDiagnostic` ; le rapport de `just backtest` (`cli.py`).
+
+#### Non promis
+
+- les abscisses ne sont pas recoupées avec la référence ni avec `K` ;
+- `position` et `fractions` ne sont pas recoupées avec v0 ;
+- n'est pas un contrat stocké.
+
+---
+
+## `DriftFit`
+
+*`mountain_perf.schemas.drift` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `slope` | `float \| None` | — |
+| `rho` | `float \| None` | — |
+| `u_mz_u` | `float` | — |
+| `rank` | `int` | — |
+| `count` | `int` | — |
+| `influence` | `tuple[float, ...] \| None` | — |
+
+| Propriété calculée | Type | Sens |
+|---|---|---|
+| `identifiable` | `bool` | La pente est identifiable (`0010` D12). |
+| `dof` | `int \| None` | `ddl = count − rank − 1` avec la pente ; `None` sans elle. |
+
+Un ajustement de la pente de dérive sur un ensemble d'intervalles (`0010`
+D12).
+
+#### Champs
+
+- `slope` — sans unité — `b = (M_Z u)ᵀ y / ‖M_Z u‖²` ; absent si la pente n'est
+  pas identifiable.
+- `rho` — sans unité — `rho_u = ‖M_Z u‖² / Σ (u − ū)²` ; absent si
+  `Σ (u − ū)² = 0`.
+- `u_mz_u` — sans unité — `uᵀ M_Z u`, calculé `‖M_Z u‖²`.
+- `rank` — sans unité — le rang de la base `Z` des nuisances.
+- `count` — sans unité — le nombre d'intervalles.
+- `influence` — sans unité — `a_h = (M_Z u)_h / ‖M_Z u‖²` par intervalle, dans
+  l'ordre : `b = Σ a_h y_h` (une erreur `δy_h` déplace `b` de `a_h δy_h`) ;
+  présente avec la pente.
+
+Propriétés calculées (jamais stockées) : `identifiable` = `slope` présente ;
+`dof` = `count − rank − 1`, les degrés de liberté résiduels (`ddl` au
+rapport), avec la pente.
+
+#### Invariants
+
+1. `count >= 1` ; `1 <= rank <= min(count, len(DRIFT_REGIMES))` ;
+2. `u_mz_u` fini et `>= 0` ; `rho` absent, ou fini et `>= 0` ;
+3. `slope` présente si et seulement si `rho` est présent,
+   `rho > DRIFT_IDENTIFICATION_THRESHOLD` et `rank < count` ; présente, finie ;
+4. `influence` présente si et seulement si `slope` l'est ; un tuple de `count`
+   valeurs finies.
+
+#### Producteur
+
+`drift_fit` (`mountain_perf.backtest.drift`).
+
+#### Consommateurs
+
+`DriftDiagnostic` ; le rapport.
+
+#### Non promis
+
+- `rho` n'est pas recoupé avec `u_mz_u` (`Σ (u − ū)²` n'est pas publié) ;
+- aucune incertitude de `slope` n'est publiée ; `1 / rho` n'est une
+  amplification de variance que sous une hypothèse d'erreurs
+  (`DRIFT_WEAK_SEPARATION`) ;
+- `slope` est une pente descriptive : un mélange de régimes non linéaire en
+  fractions, ou un arrêt sur un intervalle court, la font varier sans effet du
+  temps (passe experte de M4d, D12-D et D12-E) ;
+- `Σ a_h = 0`, `Σ a_h u_h = 1` et `b = Σ a_h y_h` ne sont vrais au calcul près
+  que si la constante est dans `Z` : la troncature du rang (`sigma <= 1e−10
+  sigma_max`) peut en écarter une part infime (oracle de M4d-1 : `Σ a_h` de
+  l'ordre de `1e−11`) ; `u` et `y` étant centrés, la pente garde son
+  interception et son invariance au calage ;
+- n'est pas un contrat stocké.
+
+---
+
+## `DriftDiagnostic`
+
+*`mountain_perf.schemas.drift` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `model` | `ModelKind` | — |
+| `clock` | `Clock` | — |
+| `intervals` | `tuple[DriftInterval, ...]` | — |
+| `reference_regime` | `Regime \| None` | — |
+| `cumulative_errors_s` | `tuple[float, ...]` | — |
+| `recentred_s` | `tuple[float, ...]` | — |
+| `fit` | `DriftFit \| None` | — |
+| `withdrawals` | `tuple[DriftFit, ...]` | — |
+| `slope_range` | `tuple[float, float] \| None` | — |
+| `unavailability` | `Unavailability \| None` | — |
+
+Le diagnostic de longue course d'une sortie, pour un modèle et une horloge
+(`0010` D12 ; précisions de M4d-1).
+
+#### Champs
+
+- `model` — sans unité — le modèle évalué (les cinq de D9.1).
+- `clock` — sans unité — l'horloge des temps observés.
+- `intervals` — sans unité — les intervalles de la séquence, dans l'ordre.
+- `reference_regime` — sans unité — `R_0` : le régime de plus grand temps
+  projeté total (égalités dans l'ordre de `DRIFT_REGIMES`).
+- `cumulative_errors_s` — secondes — `C_k = P_k − T_k` à chaque élément.
+- `recentred_s` — secondes — `B_k = T_k − c·P_k`, `c = T_H / P_H`.
+- `fit` — sans unité — l'ajustement sur tous les intervalles.
+- `withdrawals` — sans unité — un ajustement par intervalle retiré, dans l'ordre.
+- `slope_range` — sans unité — `(min b ; max b)` des retraits identifiables ;
+  absent s'il n'y en a aucun.
+- `unavailability` — sans unité — le motif d'un diagnostic indisponible (dans
+  `DRIFT_UNAVAILABILITIES`), ou absent.
+
+#### Invariants
+
+1. `model` est l'un des cinq modèles de D9.1 ; `clock` dans `CLOCKS` ;
+2. tuples ; `cumulative_errors_s` et `recentred_s` finis ;
+3. `unavailability` absent ou dans `DRIFT_UNAVAILABILITIES` ;
+4. `ZERO_TIME` : des intervalles, l'un au moins de temps observé `<= 0` ; ni
+   ajustement, ni retraits, ni étendue ; les autres motifs : aucun intervalle,
+   aucun cumul, ni `R_0`, ni ajustement, ni retraits, ni étendue ;
+5. disponible : des intervalles, tous de temps observé `> 0` ; `R_0` présent ;
+   `fit` présent, `fit.count` égal au nombre d'intervalles ; un retrait par
+   intervalle s'il y en a au moins deux (aucun sinon), chacun de `count`
+   `H − 1` ; `slope_range` égal, au bit, au minimum et au maximum des pentes
+   des retraits identifiables, absent s'il n'y en a aucun ;
+6. des intervalles : `R_0` présent ; `cumulative_errors_s` et `recentred_s`
+   d'autant de valeurs ; le dernier `B_k` à `τ` près de 0 ;
+7. sous l'écoulé, chaque intervalle porte déplacement et arrêt ; sous une autre
+   horloge, aucun.
+
+#### Producteur
+
+`drift_diagnostic`, `outing_drift` (`mountain_perf.backtest.drift`).
+
+#### Consommateurs
+
+`OutingDrift` ; le rapport de `just backtest`.
+
+#### Non promis
+
+- les intervalles ne sont pas recoupés entre eux (continuité des abscisses) ;
+- `C_k` et `B_k` ne sont pas recoupés avec les intervalles ;
+- n'est pas un contrat stocké.
+
+---
+
+## `OutingDrift`
+
+*`mountain_perf.schemas.drift` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `outing_id` | `str` | — |
+| `targets` | `int` | — |
+| `elements` | `int` | — |
+| `stop` | `Unavailability \| None` | — |
+| `horizon_s` | `float \| None` | — |
+| `diagnostics` | `tuple[DriftDiagnostic, ...]` | — |
+
+Le diagnostic de longue course d'une sortie scorée avec usage : la séquence,
+commune aux horloges, et un `DriftDiagnostic` par horloge du rapport et par modèle
+(`0010` D12 ; précisions de M4d-1, arbitrages E1 et E2).
+
+#### Champs
+
+- `outing_id` — sans unité — la sortie.
+- `targets` — sans unité — le nombre d'éléments du `K` par défaut.
+- `elements` — sans unité — `H`, la longueur de la séquence : les éléments de
+  `K` observés, dans l'ordre, jusqu'au premier qui ne l'est pas, arrivée comprise.
+- `stop` — sans unité — le motif d'observation du premier élément non retenu (de
+  rang `elements`), absent si tout `K` l'est.
+- `horizon_s` — secondes — `P⁰_H`, le cumul de v0 brut au dernier élément ;
+  absent sans élément ou sans prévision de v0 brut.
+- `diagnostics` — sans unité — pour chaque horloge du rapport, dans l'ordre
+  (écoulé, `M` sous `θ_bas`, `M + U` sous `θ_haut`), les cinq modèles dans
+  l'ordre de `DRIFT_MODELS`.
+
+#### Invariants
+
+1. `outing_id` non vide ; `targets >= 1` ; `0 <= elements <= targets` ;
+2. `stop` absent si et seulement si `elements == targets` ; présent, dans
+   `OBSERVATION_UNAVAILABILITY` ;
+3. `horizon_s` absent ou fini et `> 0` ; absent si `elements == 0` ;
+4. `diagnostics` un tuple non vide ; par groupe de cinq consécutifs, une même
+   horloge et les cinq modèles dans l'ordre ; des horloges distinctes, l'écoulé
+   d'abord ;
+5. un diagnostic qui a des intervalles en a `elements`.
+
+#### Producteur
+
+`outing_drift` (`mountain_perf.backtest.drift`).
+
+#### Consommateurs
+
+Le rapport de `just backtest`.
+
+#### Non promis
+
+- les horloges ne sont pas recoupées avec celles du rapport de la sortie ;
+- `horizon_s` n'est pas recoupé avec les intervalles ;
+- n'est pas un contrat stocké.

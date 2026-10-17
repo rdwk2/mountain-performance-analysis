@@ -928,6 +928,27 @@ entrées de sa prévision étaient disponibles à `o_j` (D2.6).
   entrent dans l'étendue, leur nombre est publié ; aucun → étendue indisponible.
   Une course = une performance.
 
+*(précision, M4d-1 ; passe experte, arbitrages E1 et E2)* La séquence est celle des éléments
+du `K` par défaut (D7.4 : passages nommés, puis l'arrivée de D4.12) observés dans le préfixe
+comparable, dans l'ordre, jusqu'au premier qui ne l'est pas, dont le rang et le motif sont
+publiés ; elle comprend donc l'arrivée, et remplace, dans la première puce, « passages
+nommés », « jusqu'au dernier passage du préfixe effectivement obtenu » et « aucun passage
+nommé ». Elle est commune aux horloges : un `t_h ≤ 0` sous une horloge
+rend le diagnostic de cette horloge indisponible (`temps nul`, intervalles et cumuls
+publiés) sans la raccourcir. Séquence vide : `support insuffisant` ; un seul élément :
+intervalle et cumuls, pas de pente. Abscisses de deux éléments successifs non strictement
+croissantes (l'origine `b_0` comprise) : `support insuffisant` ; prévision du modèle ou
+de v0 brut absente ou non finie, ou `p_h ≤ 0`, ou `p⁰_h ≤ 0` : `erreur du modèle`. Les
+fractions `f_hR` sont rapportées à la somme des temps projetés par régime (`p⁰_h` aux
+arrondis près). La pente est identifiable si `ρ_u > 1e−10` et `rang(Z) < H` ; ce seuil est
+numérique, et `b` est une **pente descriptive** : un mélange de régimes non linéaire en
+fractions, ou un arrêt sur un intervalle court, la font varier sans effet du temps. Le
+rapport publie `ddl = H − rang(Z) − 1`, l'influence `a_h = (M_Z u)_h / uᵀ M_Z u` de
+chaque intervalle, le signe de `b` face à ses retraits et des mentions de présentation
+(`ddl` de 0 à 2 ; `ρ_u < 0,10`). Le calcul centre `u` et `y`, projette deux fois et somme
+en précision étendue (`math.fsum`) : l'interception et l'invariance au calage tiennent même
+quand la troncature du rang n'a gardé la constante dans `Z` qu'à la tolérance près.
+
 ### D13 — Sensibilité (M4d, paramètres posés en M4a)
 
 Configurations : `Δ ∈ {100, 250, 500}` × `ε ∈ {15, 30, 45}` en écoulé (9), plus

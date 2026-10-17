@@ -1831,6 +1831,36 @@ contrôle     a03.gpx
              mixte E_R       non calé            non calé            non calé
              mixte D_R       non calé            non calé            non calé
              mixte E_R−L     non calé            non calé            non calé
+dérive       0010 D12, usage ; séquence : 4 éléments de K sur 4, arrivée comprise ; horizon P⁰_H 40.3 min ; R_0 montée ; u et f de v0 brut
+             pente descriptive du log-rapport (ajustement linéaire sur les fractions de régime)
+             horloge         modèle              b                   rho_u               rang                ddl                 retraits            signe               étendue                   mentions
+             écoulé          v0 brut             +0.092534           0.945990            3                   0                   0/4                 non vérifiable      —                         ajustement saturé
+             écoulé          v0 + effort recalé  non calé
+             écoulé          vitesse constante   non calé
+             écoulé          Naismith            non calé
+             écoulé          Tobler              non calé
+             M θ1            v0 brut             +0.054260           0.945990            3                   0                   0/4                 non vérifiable      —                         ajustement saturé
+             M θ1            v0 + effort recalé  non calé
+             M θ1            vitesse constante   non calé
+             M θ1            Naismith            non calé
+             M θ1            Tobler              non calé
+             (M+U) θ1        v0 brut             +0.092534           0.945990            3                   0                   0/4                 non vérifiable      —                         ajustement saturé
+             (M+U) θ1        v0 + effort recalé  non calé
+             (M+U) θ1        vitesse constante   non calé
+             (M+U) θ1        Naismith            non calé
+             (M+U) θ1        Tobler              non calé
+             intervalles de v0 brut, écoulé : de → à (m) ; t_h, p_h (s) ; y_h ; écart (min) ; déplacement, arrêt (s) ; montée / plat / descente ; influence a_h
+             1   0.0 → 1100.0 ; 845.6, 895.8 ; −0.057757 ; −0.8 ; 845.6, 0.0 ; 1.00 / 0.00 / 0.00 ; −1.330199
+             2   1100.0 → 2100.0 ; 354.2, 375.0 ; −0.057084 ; −0.3 ; 354.2, 0.0 ; 0.00 / 0.47 / 0.53 ; −0.122898
+             3   2100.0 → 3600.0 ; 718.9, 694.8 ; +0.034137 ; +0.4 ; 718.9, 0.0 ; 0.00 / 0.00 / 1.00 ; +0.065182
+             4   3600.0 → 4260.0 ; 456.3, 454.2 ; +0.004659 ; +0.0 ; 456.3, 0.0 ; 0.96 / 0.04 / 0.00 ; +1.387915
+             ajustement de v0 brut, écoulé : u_mz_u 2.692e-01 ; 4 intervalles
+             retraits de v0 brut, écoulé : intervalle retiré ; rang ; rho_u ; ddl ; u_mz_u ; b
+             1   3 ; ≤ 1e−10 ; — ; — ; non identifiable
+             2   3 ; ≤ 1e−10 ; — ; — ; non identifiable
+             3   3 ; ≤ 1e−10 ; — ; — ; non identifiable
+             4   3 ; ≤ 1e−10 ; — ; — ; non identifiable
+             C_k (s) +50.3 +71.1 +47.0 +44.8 ; B_k (s) −33.7 −47.5 −10.5 +0.0
 performance  2026-06-04 — b-2026-06-04 ; parcours b ; jeu répétabilité ; entraînement
              origine o_j 2026-05-28 00:00 (Paris) ; âge de la courbe +123 jours au jour J, +116 à o_j
              (M+U) θ_haut égale l'écoulé : aucun arrêt confirmé sur le support admis
@@ -2136,6 +2166,28 @@ contrôle     b04.gpx
              mixte E_R       non calé            non calé            non calé
              mixte D_R       non calé            non calé            non calé
              mixte E_R−L     non calé            non calé            non calé
+dérive       0010 D12, usage ; séquence : 1 élément de K sur 1, arrivée comprise ; horizon P⁰_H 31.9 min ; R_0 montée ; u et f de v0 brut
+             pente descriptive du log-rapport (ajustement linéaire sur les fractions de régime)
+             horloge         modèle              b                   rho_u               rang                ddl                 retraits            signe               étendue                   mentions
+             écoulé          v0 brut             non identifiable    —                   1                   —                   0/0                 —                   —
+             écoulé          v0 + effort recalé  non calé
+             écoulé          vitesse constante   non calé
+             écoulé          Naismith            non calé
+             écoulé          Tobler              non calé
+             M θ1            v0 brut             non identifiable    —                   1                   —                   0/0                 —                   —
+             M θ1            v0 + effort recalé  non calé
+             M θ1            vitesse constante   non calé
+             M θ1            Naismith            non calé
+             M θ1            Tobler              non calé
+             (M+U) θ1        v0 brut             non identifiable    —                   1                   —                   0/0                 —                   —
+             (M+U) θ1        v0 + effort recalé  non calé
+             (M+U) θ1        vitesse constante   non calé
+             (M+U) θ1        Naismith            non calé
+             (M+U) θ1        Tobler              non calé
+             intervalles de v0 brut, écoulé : de → à (m) ; t_h, p_h (s) ; y_h ; écart (min) ; déplacement, arrêt (s) ; montée / plat / descente ; influence a_h
+             1   0.0 → 3637.0 ; 1830.0, 1915.9 ; −0.045858 ; −1.4 ; 1830.0, 0.0 ; 0.52 / 0.14 / 0.33 ; —
+             ajustement de v0 brut, écoulé : u_mz_u — ; 1 intervalle
+             C_k (s) +85.9 ; B_k (s) +0.0
 performance  2026-06-06 — a-2026-06-06 ; parcours a ; jeu répétabilité ; entraînement
              origine o_j 2026-05-30 00:00 (Paris) ; âge de la courbe +125 jours au jour J, +118 à o_j
 référence    prepare.gpx   sha256 a8b353f3…
@@ -2492,6 +2544,36 @@ contrôle     a06.gpx
              mixte E_R       non calé            non calé            non calé
              mixte D_R       non calé            non calé            non calé
              mixte E_R−L     non calé            non calé            non calé
+dérive       0010 D12, usage ; séquence : 4 éléments de K sur 4, arrivée comprise ; horizon P⁰_H 40.3 min ; R_0 montée ; u et f de v0 brut
+             pente descriptive du log-rapport (ajustement linéaire sur les fractions de régime)
+             horloge         modèle              b                   rho_u               rang                ddl                 retraits            signe               étendue                   mentions
+             écoulé          v0 brut             +0.053766           0.945990            3                   0                   0/4                 non vérifiable      —                         ajustement saturé
+             écoulé          v0 + effort recalé  non calé
+             écoulé          vitesse constante   non calé
+             écoulé          Naismith            non calé
+             écoulé          Tobler              non calé
+             M θ2            v0 brut             +0.046529           0.945990            3                   0                   0/4                 non vérifiable      —                         ajustement saturé
+             M θ2            v0 + effort recalé  non calé
+             M θ2            vitesse constante   non calé
+             M θ2            Naismith            non calé
+             M θ2            Tobler              non calé
+             (M+U) θ1        v0 brut             +0.081544           0.945990            3                   0                   0/4                 non vérifiable      —                         ajustement saturé
+             (M+U) θ1        v0 + effort recalé  non calé
+             (M+U) θ1        vitesse constante   non calé
+             (M+U) θ1        Naismith            non calé
+             (M+U) θ1        Tobler              non calé
+             intervalles de v0 brut, écoulé : de → à (m) ; t_h, p_h (s) ; y_h ; écart (min) ; déplacement, arrêt (s) ; montée / plat / descente ; influence a_h
+             1   0.0 → 1100.0 ; 880.7, 895.8 ; −0.017029 ; −0.3 ; 880.7, 0.0 ; 1.00 / 0.00 / 0.00 ; −1.330199
+             2   1100.0 → 2100.0 ; 519.0, 375.0 ; +0.325044 ; +2.4 ; 519.0, 0.0 ; 0.00 / 0.47 / 0.53 ; −0.122898
+             3   2100.0 → 3600.0 ; 748.9, 694.8 ; +0.074953 ; +0.9 ; 748.9, 0.0 ; 0.00 / 0.00 / 1.00 ; +0.065182
+             4   3600.0 → 4260.0 ; 476.4, 454.2 ; +0.047680 ; +0.4 ; 476.4, 0.0 ; 0.96 / 0.04 / 0.00 ; +1.387915
+             ajustement de v0 brut, écoulé : u_mz_u 2.692e-01 ; 4 intervalles
+             retraits de v0 brut, écoulé : intervalle retiré ; rang ; rho_u ; ddl ; u_mz_u ; b
+             1   3 ; ≤ 1e−10 ; — ; — ; non identifiable
+             2   3 ; ≤ 1e−10 ; — ; — ; non identifiable
+             3   3 ; ≤ 1e−10 ; — ; — ; non identifiable
+             4   3 ; ≤ 1e−10 ; — ; — ; non identifiable
+             C_k (s) +15.1 −128.9 −183.0 −205.2 ; B_k (s) −91.1 +21.2 +16.3 +0.0
 performance  2026-06-08 — b-2026-06-08 ; parcours b ; jeu répétabilité ; entraînement
              origine o_j 2026-06-01 00:00 (Paris) ; âge de la courbe +127 jours au jour J, +120 à o_j
              (M+U) θ_haut égale l'écoulé : aucun arrêt confirmé sur le support admis
@@ -2797,6 +2879,28 @@ contrôle     b08.gpx
              mixte E_R       non calé            non calé            non calé
              mixte D_R       non calé            non calé            non calé
              mixte E_R−L     non calé            non calé            non calé
+dérive       0010 D12, usage ; séquence : 1 élément de K sur 1, arrivée comprise ; horizon P⁰_H 31.9 min ; R_0 montée ; u et f de v0 brut
+             pente descriptive du log-rapport (ajustement linéaire sur les fractions de régime)
+             horloge         modèle              b                   rho_u               rang                ddl                 retraits            signe               étendue                   mentions
+             écoulé          v0 brut             non identifiable    —                   1                   —                   0/0                 —                   —
+             écoulé          v0 + effort recalé  non calé
+             écoulé          vitesse constante   non calé
+             écoulé          Naismith            non calé
+             écoulé          Tobler              non calé
+             M θ1            v0 brut             non identifiable    —                   1                   —                   0/0                 —                   —
+             M θ1            v0 + effort recalé  non calé
+             M θ1            vitesse constante   non calé
+             M θ1            Naismith            non calé
+             M θ1            Tobler              non calé
+             (M+U) θ1        v0 brut             non identifiable    —                   1                   —                   0/0                 —                   —
+             (M+U) θ1        v0 + effort recalé  non calé
+             (M+U) θ1        vitesse constante   non calé
+             (M+U) θ1        Naismith            non calé
+             (M+U) θ1        Tobler              non calé
+             intervalles de v0 brut, écoulé : de → à (m) ; t_h, p_h (s) ; y_h ; écart (min) ; déplacement, arrêt (s) ; montée / plat / descente ; influence a_h
+             1   0.0 → 3637.0 ; 1760.0, 1915.9 ; −0.084860 ; −2.6 ; 1760.0, 0.0 ; 0.52 / 0.14 / 0.33 ; —
+             ajustement de v0 brut, écoulé : u_mz_u — ; 1 intervalle
+             C_k (s) +155.9 ; B_k (s) +0.0
 performance  2026-06-10 — a-2026-06-10 ; parcours a ; jeu répétabilité ; entraînement
              origine o_j 2026-06-03 00:00 (Paris) ; âge de la courbe +129 jours au jour J, +122 à o_j
              (M+U) θ_haut égale l'écoulé : aucun arrêt confirmé sur le support admis
@@ -3146,6 +3250,32 @@ contrôle     a10.gpx
              mixte E_R       non calé            non calé            non calé
              mixte D_R       non calé            non calé            non calé
              mixte E_R−L     non calé            non calé            non calé
+dérive       0010 D12, usage ; séquence : 2 éléments de K sur 4, arrêt au rang 3 (support insuffisant) ; horizon P⁰_H 21.2 min ; R_0 montée ; u et f de v0 brut
+             pente descriptive du log-rapport (ajustement linéaire sur les fractions de régime)
+             horloge         modèle              b                   rho_u               rang                ddl                 retraits            signe               étendue                   mentions
+             écoulé          v0 brut             non identifiable    ≤ 1e−10             2                   —                   0/2                 —                   —
+             écoulé          v0 + effort recalé  non calé
+             écoulé          vitesse constante   non calé
+             écoulé          Naismith            non calé
+             écoulé          Tobler              non calé
+             M θ1            v0 brut             non identifiable    ≤ 1e−10             2                   —                   0/2                 —                   —
+             M θ1            v0 + effort recalé  non calé
+             M θ1            vitesse constante   non calé
+             M θ1            Naismith            non calé
+             M θ1            Tobler              non calé
+             (M+U) θ1        v0 brut             non identifiable    ≤ 1e−10             2                   —                   0/2                 —                   —
+             (M+U) θ1        v0 + effort recalé  non calé
+             (M+U) θ1        vitesse constante   non calé
+             (M+U) θ1        Naismith            non calé
+             (M+U) θ1        Tobler              non calé
+             intervalles de v0 brut, écoulé : de → à (m) ; t_h, p_h (s) ; y_h ; écart (min) ; déplacement, arrêt (s) ; montée / plat / descente ; influence a_h
+             1   0.0 → 1100.0 ; 820.8, 895.8 ; −0.087515 ; −1.3 ; 820.8, 0.0 ; 1.00 / 0.00 / 0.00 ; —
+             2   1100.0 → 2100.0 ; 344.0, 375.0 ; −0.086166 ; −0.5 ; 344.0, 0.0 ; 0.00 / 0.47 / 0.53 ; —
+             ajustement de v0 brut, écoulé : u_mz_u — ; 2 intervalles
+             retraits de v0 brut, écoulé : intervalle retiré ; rang ; rho_u ; ddl ; u_mz_u ; b
+             1   1 ; — ; — ; — ; non identifiable
+             2   1 ; — ; — ; — ; non identifiable
+             C_k (s) +75.1 +106.0 ; B_k (s) −0.3 +0.0
 performance  2026-06-12 — a-2026-06-12 ; parcours a ; jeu répétabilité ; entraînement
              origine o_j 2026-06-05 00:00 (Paris) ; âge de la courbe +131 jours au jour J, +124 à o_j
              jour multi-sorties : hors des agrégats (0010 D0)
@@ -3504,6 +3634,7 @@ contrôle     a12.gpx
              mixte E_R       −0.038783           temps nul           −0.038783
              mixte D_R       +0.103406           temps nul           +0.103406
              mixte E_R−L     −0.016067           temps nul           −0.016067
+dérive       0010 D12, usage : indisponible (jour multi-sorties) ; séquence : 4 éléments de K sur 4, arrivée comprise
 performance  2026-06-12 — b-2026-06-12 ; parcours b ; jeu répétabilité ; entraînement
              origine o_j 2026-06-05 00:00 (Paris) ; âge de la courbe +131 jours au jour J, +124 à o_j
              jour multi-sorties : hors des agrégats (0010 D0)
@@ -3811,6 +3942,7 @@ contrôle     b12.gpx
              mixte E_R       +0.011573           −0.012917           +0.011573
              mixte D_R       +0.000000           +0.000000           +0.000000
              mixte E_R−L     +0.035950           +0.009067           +0.035950
+dérive       0010 D12, usage : indisponible (jour multi-sorties) ; séquence : 1 élément de K sur 1, arrivée comprise
 performance  2026-06-12 — libre-2026-06-12 ; parcours — ; jeu développement ; entraînement
              origine o_j 2026-06-05 00:00 (Paris) ; âge de la courbe +131 jours au jour J, +124 à o_j
              jour multi-sorties : hors des agrégats (0010 D0)
@@ -3967,6 +4099,7 @@ contrôle     libre12.gpx
              mixte E_R       +0.106352           +0.081862           +0.106352
              mixte D_R       +0.000000           +0.000000           +0.000000
              mixte E_R−L     +0.119492           +0.082588           +0.119492
+dérive       sans référence : pas de diagnostic (0010 D12, usage)
 performance  2026-06-14 — a-2026-06-14 ; parcours a ; jeu développement ; course
              origine o_j 2026-06-07 00:00 (Paris) ; âge de la courbe +133 jours au jour J, +126 à o_j
              (M+U) θ_haut égale l'écoulé : aucun arrêt confirmé sur le support admis
@@ -4324,6 +4457,36 @@ contrôle     a14.gpx
              mixte E_R       +0.120311           temps nul           +0.106704
              mixte D_R       +0.110038           temps nul           +0.110038
              mixte E_R−L     −0.019676           temps nul           −0.019676
+dérive       0010 D12, usage ; séquence : 4 éléments de K sur 4, arrivée comprise ; horizon P⁰_H 40.3 min ; R_0 montée ; u et f de v0 brut
+             pente descriptive du log-rapport (ajustement linéaire sur les fractions de régime)
+             horloge         modèle              b                   rho_u               rang                ddl                 retraits            signe               étendue                   mentions
+             écoulé          v0 brut             +0.090115           0.945990            3                   0                   0/4                 non vérifiable      —                         ajustement saturé
+             écoulé          v0 + effort recalé  +0.090115           0.945990            3                   0                   0/4                 non vérifiable      —                         ajustement saturé
+             écoulé          vitesse constante   −0.085003           0.945990            3                   0                   0/4                 non vérifiable      —                         ajustement saturé
+             écoulé          Naismith            +0.086477           0.945990            3                   0                   0/4                 non vérifiable      —                         ajustement saturé
+             écoulé          Tobler              +0.048316           0.945990            3                   0                   0/4                 non vérifiable      —                         ajustement saturé
+             M θ1            v0 brut             +0.046875           0.945990            3                   0                   0/4                 non vérifiable      —                         ajustement saturé
+             M θ1            v0 + effort recalé  +0.046875           0.945990            3                   0                   0/4                 non vérifiable      —                         ajustement saturé
+             M θ1            vitesse constante   −0.128243           0.945990            3                   0                   0/4                 non vérifiable      —                         ajustement saturé
+             M θ1            Naismith            +0.043237           0.945990            3                   0                   0/4                 non vérifiable      —                         ajustement saturé
+             M θ1            Tobler              +0.005075           0.945990            3                   0                   0/4                 non vérifiable      —                         ajustement saturé
+             (M+U) θ1        v0 brut             +0.090115           0.945990            3                   0                   0/4                 non vérifiable      —                         ajustement saturé
+             (M+U) θ1        v0 + effort recalé  +0.090115           0.945990            3                   0                   0/4                 non vérifiable      —                         ajustement saturé
+             (M+U) θ1        vitesse constante   −0.085003           0.945990            3                   0                   0/4                 non vérifiable      —                         ajustement saturé
+             (M+U) θ1        Naismith            +0.086477           0.945990            3                   0                   0/4                 non vérifiable      —                         ajustement saturé
+             (M+U) θ1        Tobler              +0.048316           0.945990            3                   0                   0/4                 non vérifiable      —                         ajustement saturé
+             intervalles de v0 brut, écoulé : de → à (m) ; t_h, p_h (s) ; y_h ; écart (min) ; déplacement, arrêt (s) ; montée / plat / descente ; influence a_h
+             1   0.0 → 1100.0 ; 755.2, 895.8 ; −0.170745 ; −2.3 ; 755.2, 0.0 ; 1.00 / 0.00 / 0.00 ; −1.330199
+             2   1100.0 → 2100.0 ; 316.0, 375.0 ; −0.171225 ; −1.0 ; 316.0, 0.0 ; 0.00 / 0.47 / 0.53 ; −0.122898
+             3   2100.0 → 3600.0 ; 642.0, 694.8 ; −0.079078 ; −0.9 ; 642.0, 0.0 ; 0.00 / 0.00 / 1.00 ; +0.065182
+             4   3600.0 → 4260.0 ; 406.8, 454.2 ; −0.110164 ; −0.8 ; 406.8, 0.0 ; 0.96 / 0.04 / 0.00 ; +1.387915
+             ajustement de v0 brut, écoulé : u_mz_u 2.692e-01 ; 4 intervalles
+             retraits de v0 brut, écoulé : intervalle retiré ; rang ; rho_u ; ddl ; u_mz_u ; b
+             1   3 ; ≤ 1e−10 ; — ; — ; non identifiable
+             2   3 ; ≤ 1e−10 ; — ; — ; non identifiable
+             3   3 ; ≤ 1e−10 ; — ; — ; non identifiable
+             4   3 ; ≤ 1e−10 ; — ; — ; non identifiable
+             C_k (s) +140.6 +199.6 +252.5 +299.8 ; B_k (s) −29.6 −42.2 −8.9 +0.0
 performance  2026-06-15 — libre-2026-06-15 ; parcours — ; jeu développement ; entraînement
              origine o_j 2026-06-08 00:00 (Paris) ; âge de la courbe +134 jours au jour J, +127 à o_j
              (M+U) θ_haut égale l'écoulé : aucun arrêt confirmé sur le support admis
@@ -4479,6 +4642,7 @@ contrôle     libre15_1.gpx
              mixte E_R       +0.118443           +0.081828           +0.104835
              mixte D_R       +0.000000           +0.000000           +0.000000
              mixte E_R−L     +0.115377           +0.079141           +0.115377
+dérive       sans référence : pas de diagnostic (0010 D12, usage)
 performance  2026-06-25 — b-2026-06-25 ; parcours b ; jeu confirmation ; entraînement
              origine o_j 2026-06-18 00:00 (Paris) ; âge de la courbe +144 jours au jour J, +137 à o_j
              (M+U) θ_haut égale l'écoulé : aucun arrêt confirmé sur le support admis
@@ -4785,6 +4949,28 @@ contrôle     b25.gpx
              mixte E_R       +0.110947           +0.078617           +0.105116
              mixte D_R       +0.000000           +0.000000           +0.000000
              mixte E_R−L     +0.033885           +0.004471           +0.033885
+dérive       0010 D12, usage ; séquence : 1 élément de K sur 1, arrivée comprise ; horizon P⁰_H 31.9 min ; R_0 montée ; u et f de v0 brut
+             pente descriptive du log-rapport (ajustement linéaire sur les fractions de régime)
+             horloge         modèle              b                   rho_u               rang                ddl                 retraits            signe               étendue                   mentions
+             écoulé          v0 brut             non identifiable    —                   1                   —                   0/0                 —                   —
+             écoulé          v0 + effort recalé  non identifiable    —                   1                   —                   0/0                 —                   —
+             écoulé          vitesse constante   non identifiable    —                   1                   —                   0/0                 —                   —
+             écoulé          Naismith            non identifiable    —                   1                   —                   0/0                 —                   —
+             écoulé          Tobler              non identifiable    —                   1                   —                   0/0                 —                   —
+             M θ1            v0 brut             non identifiable    —                   1                   —                   0/0                 —                   —
+             M θ1            v0 + effort recalé  non identifiable    —                   1                   —                   0/0                 —                   —
+             M θ1            vitesse constante   non identifiable    —                   1                   —                   0/0                 —                   —
+             M θ1            Naismith            non identifiable    —                   1                   —                   0/0                 —                   —
+             M θ1            Tobler              non identifiable    —                   1                   —                   0/0                 —                   —
+             (M+U) θ1        v0 brut             non identifiable    —                   1                   —                   0/0                 —                   —
+             (M+U) θ1        v0 + effort recalé  non identifiable    —                   1                   —                   0/0                 —                   —
+             (M+U) θ1        vitesse constante   non identifiable    —                   1                   —                   0/0                 —                   —
+             (M+U) θ1        Naismith            non identifiable    —                   1                   —                   0/0                 —                   —
+             (M+U) θ1        Tobler              non identifiable    —                   1                   —                   0/0                 —                   —
+             intervalles de v0 brut, écoulé : de → à (m) ; t_h, p_h (s) ; y_h ; écart (min) ; déplacement, arrêt (s) ; montée / plat / descente ; influence a_h
+             1   0.0 → 3635.6 ; 1725.0, 1915.3 ; −0.104660 ; −3.2 ; 1725.0, 0.0 ; 0.52 / 0.14 / 0.33 ; —
+             ajustement de v0 brut, écoulé : u_mz_u — ; 1 intervalle
+             C_k (s) +190.3 ; B_k (s) +0.0
 performance  2026-06-27 — a-2026-06-27 ; parcours a ; jeu confirmation ; entraînement
              origine o_j 2026-06-20 00:00 (Paris) ; âge de la courbe +146 jours au jour J, +139 à o_j
              (M+U) θ_haut égale l'écoulé : aucun arrêt confirmé sur le support admis
@@ -5142,6 +5328,36 @@ contrôle     a27.gpx
              mixte E_R       +0.036878           temps nul           +0.031046
              mixte D_R       +0.112615           temps nul           +0.112615
              mixte E_R−L     −0.018804           temps nul           −0.018804
+dérive       0010 D12, usage ; séquence : 4 éléments de K sur 4, arrivée comprise ; horizon P⁰_H 40.3 min ; R_0 montée ; u et f de v0 brut
+             pente descriptive du log-rapport (ajustement linéaire sur les fractions de régime)
+             horloge         modèle              b                   rho_u               rang                ddl                 retraits            signe               étendue                   mentions
+             écoulé          v0 brut             +0.102049           0.945990            3                   0                   0/4                 non vérifiable      —                         ajustement saturé
+             écoulé          v0 + effort recalé  +0.102049           0.945990            3                   0                   0/4                 non vérifiable      —                         ajustement saturé
+             écoulé          vitesse constante   −0.073069           0.945990            3                   0                   0/4                 non vérifiable      —                         ajustement saturé
+             écoulé          Naismith            +0.098411           0.945990            3                   0                   0/4                 non vérifiable      —                         ajustement saturé
+             écoulé          Tobler              +0.060249           0.945990            3                   0                   0/4                 non vérifiable      —                         ajustement saturé
+             M θ1            v0 brut             +0.062355           0.945990            3                   0                   0/4                 non vérifiable      —                         ajustement saturé
+             M θ1            v0 + effort recalé  +0.062355           0.945990            3                   0                   0/4                 non vérifiable      —                         ajustement saturé
+             M θ1            vitesse constante   −0.112763           0.945990            3                   0                   0/4                 non vérifiable      —                         ajustement saturé
+             M θ1            Naismith            +0.058717           0.945990            3                   0                   0/4                 non vérifiable      —                         ajustement saturé
+             M θ1            Tobler              +0.020556           0.945990            3                   0                   0/4                 non vérifiable      —                         ajustement saturé
+             (M+U) θ1        v0 brut             +0.102049           0.945990            3                   0                   0/4                 non vérifiable      —                         ajustement saturé
+             (M+U) θ1        v0 + effort recalé  +0.102049           0.945990            3                   0                   0/4                 non vérifiable      —                         ajustement saturé
+             (M+U) θ1        vitesse constante   −0.073069           0.945990            3                   0                   0/4                 non vérifiable      —                         ajustement saturé
+             (M+U) θ1        Naismith            +0.098411           0.945990            3                   0                   0/4                 non vérifiable      —                         ajustement saturé
+             (M+U) θ1        Tobler              +0.060249           0.945990            3                   0                   0/4                 non vérifiable      —                         ajustement saturé
+             intervalles de v0 brut, écoulé : de → à (m) ; t_h, p_h (s) ; y_h ; écart (min) ; déplacement, arrêt (s) ; montée / plat / descente ; influence a_h
+             1   0.0 → 1100.0 ; 805.4, 895.8 ; −0.106414 ; −1.5 ; 805.4, 0.0 ; 1.00 / 0.00 / 0.00 ; −1.330199
+             2   1100.0 → 2100.0 ; 337.2, 375.0 ; −0.106191 ; −0.6 ; 337.2, 0.0 ; 0.00 / 0.47 / 0.53 ; −0.122898
+             3   2100.0 → 3600.0 ; 684.7, 694.8 ; −0.014559 ; −0.2 ; 684.7, 0.0 ; 0.00 / 0.00 / 1.00 ; +0.065182
+             4   3600.0 → 4260.0 ; 437.6, 454.2 ; −0.037181 ; −0.3 ; 437.6, 0.0 ; 0.96 / 0.04 / 0.00 ; +1.387915
+             ajustement de v0 brut, écoulé : u_mz_u 2.692e-01 ; 4 intervalles
+             retraits de v0 brut, écoulé : intervalle retiré ; rang ; rho_u ; ddl ; u_mz_u ; b
+             1   3 ; ≤ 1e−10 ; — ; — ; non identifiable
+             2   3 ; ≤ 1e−10 ; — ; — ; non identifiable
+             3   3 ; ≤ 1e−10 ; — ; — ; non identifiable
+             4   3 ; ≤ 1e−10 ; — ; — ; non identifiable
+             C_k (s) +90.4 +128.2 +138.3 +154.8 ; B_k (s) −33.1 −46.9 −12.5 +0.0
 non scorée   c-2026-06-16 — trace refusée (c16.gpx) : c16.gpx, trkpt[0].time : instant manquant.
 non scorée   a-2026-06-20 — sortie non tracée
 légende      lecture de la compensation : sur des régimes homogènes, C_comp et W restent proches de 0 même quand des erreurs de signe opposé se compensent dans le total ; ce qui montre un total juste qui cache des erreurs est l'écart entre A (grand) et |L| (proche de 0), et B quand l'écart vient des régimes. C_comp ne mesure que la compensation entre l'écart d'un segment à son régime et l'écart de ce régime au global.
@@ -5153,5 +5369,5 @@ légende      lecture de la compensation : sur des régimes homogènes, C_comp e
              ensemble commun : par jeu, les performances où les cinq modèles ont une valeur ; les cinq moyennes y portent sur les mêmes performances
              gains, garde-fous, admission d'un effet (0010 D10) : just backtest ne déclare pas d'expérience ; expérience enregistrée par l'API (M4c-3), commande en M6a
              fourchettes (0010 D11) : non implémentée dans ce lot (M4d)
-             dérive de longue course (0010 D12) : non implémentée dans ce lot (M4d)
+             dérive (0010 D12, M4d-1) : séquence des éléments observés du K par défaut, dans l'ordre, jusqu'au premier qui ne l'est pas, arrivée comprise, commune aux horloges ; y_h = ln(t_h / p_h), positif = plus long que prévu ; b : pente descriptive du log-rapport sur l'avancement u de v0 brut, après ajustement linéaire sur les fractions de régime, pas une mesure de fatigue ; exp(b) : rapport ajusté entre u = 0 et u = 1, pas un multiplicateur du temps total ; identifiable si rho_u > 1e−10, seuil numérique et non statistique ; ddl = H − rang − 1 ; faible séparation sous rho_u < 0.10, seuil de présentation ; influence a_h : b = Σ a_h y_h ; étendue : pentes extrêmes des retraits identifiables, pas un intervalle de confiance ; signe : celui de b face aux retraits identifiables ; u_mz_u : uᵀ M_Z u, publié pour v0 brut sous l'écoulé (il ne dépend que de u et f) ; C_k = P_k − T_k et B_k = T_k − c·P_k, de conventions de signe opposées ; un facteur de calage ne change ni b ni B_k : v0 + effort recalé a la pente de v0 brut
              sensibilité (0010 D13) : non implémentée dans ce lot (M4d)
