@@ -1,6 +1,6 @@
 """Les valeurs du rapport D15 de ``just backtest`` (M4b-5, M4c-2) : agrégats des cinq
 modèles, ensemble commun, référence D8 à côté des modèles, sous-classes de descente,
-géométrie, provenance.
+géométrie, provenance ; dérive (M4d-1) ; fourchettes (M4d-2).
 
 Protocole : ``docs/decisions/0010`` D15 (et ses précisions de M4b-5 et M4c-2), D3,
 D5.4, D6, D7, D8, D9. Fonctions pures sur les objets d'une exécution : aucune lecture,
@@ -37,7 +37,9 @@ from mountain_perf.schemas import (
     DataSet,
     MatchResult,
     MetricValue,
+    ModelBand,
     ModelKind,
+    OutingBands,
     OutingDrift,
     OutingObservation,
     OutingScores,
@@ -134,11 +136,16 @@ NOT_SCORED = "not_scored"
 NO_REFERENCE = "no_reference"
 """Motif de l'usage d'une sortie sans référence (``0010`` D3)."""
 
+SINGLE_RESIDUAL = "single_residual"
+"""Motif de la couverture d'une fourchette d'un seul résidu : plage ponctuelle, aucune
+couverture revendiquée (``0010`` D11)."""
+
 MISSING_ORDER = (
     *(unavailability.value for unavailability in Unavailability),
     UNDERREPRESENTED,
     NOT_SCORED,
     NO_REFERENCE,
+    SINGLE_RESIDUAL,
 )
 """L'ordre des motifs d'une valeur manquante : ceux de ``Unavailability`` (D0), dans
 leur ordre, puis ceux du rapport."""
@@ -187,7 +194,8 @@ class ScoredPerformance:
     sorties, les parcours de ses sorties de répétabilité, les scores de sa sortie et
     ses horloges du rapport — ou le motif qui les remplace —, puis (M4c-2) les scores
     calés de sa sortie, un couple par modèle de ``CALIBRATED_MODELS`` dans l'ordre
-    (vides sans scores), et sa population ``C_j``."""
+    (vides sans scores), et sa population ``C_j`` ; enfin (M4d-2) les fourchettes de sa
+    sortie, si elle en a."""
 
     civil_date: date
     datasets: tuple[DataSet, ...]
@@ -197,6 +205,7 @@ class ScoredPerformance:
     missing: str | None
     calibrated: tuple[tuple[ModelKind, CalibratedOutingScores], ...] = ()
     population: CalibrationPopulation | None = None
+    bands: OutingBands | None = None
 
 
 def scored_performances(
@@ -218,6 +227,7 @@ def scored_performances(
         for performance in run.calibration
         for entry in performance.outings
     }
+    bands = {entry.outing_id: entry for entry in run.bands}
     entries: list[ScoredPerformance] = []
     for declared in run.preparation.declaration.performances:
         performance = declared.performance
@@ -257,7 +267,15 @@ def scored_performances(
         )
         entries.append(
             ScoredPerformance(
-                day, datasets, routes, outing.scores, clocks, None, models, population
+                day,
+                datasets,
+                routes,
+                outing.scores,
+                clocks,
+                None,
+                models,
+                population,
+                bands.get(outing_id),
             )
         )
     return tuple(entries)
@@ -725,3 +743,134 @@ def outing_drift_report(
         multi_outing=performance.is_multi_outing,
         outing_id=outing_id,
     )
+
+
+# ---------------------------------------------------------------------------
+# Fourchettes (D11, M4d-2)
+# ---------------------------------------------------------------------------
+
+
+class BandMetric(StrEnum):
+    """Les métriques agrégées des fourchettes (précision de D11, M4d-2) : ``IS_j``,
+    ``IS_j,norm``, la couverture, et le ``q_usage`` et le ``max |C_k|`` de la prévision
+    médiane."""
+
+    INTERVAL_SCORE = "interval_score_s"
+    NORMALISED_SCORE = "normalised_score"
+    COVERAGE = "coverage"
+    MEDIAN_USAGE_TARGET = "median_q_usage"
+    MEDIAN_MAX_ABS_ERROR = "median_max_abs_passage_error_s"
+
+
+def _band_value(band: ModelBand, metric: BandMetric) -> float | str:
+    """La valeur d'une métrique d'une fourchette, ou son motif : le statut de la
+    fourchette ; ``single_residual`` pour la couverture d'un seul résidu ; le motif de
+    la valeur."""
+    if band.unavailability is not None:
+        return band.unavailability.value
+    value = {
+        BandMetric.INTERVAL_SCORE: band.interval_score_s,
+        BandMetric.NORMALISED_SCORE: band.normalised_score,
+        BandMetric.COVERAGE: band.coverage,
+        BandMetric.MEDIAN_USAGE_TARGET: band.median_usage_target,
+        BandMetric.MEDIAN_MAX_ABS_ERROR: band.median_max_abs_error_s,
+    }[metric]
+    if value is None:
+        return SINGLE_RESIDUAL
+    return _number(value)
+
+
+def band_values(
+    entry: ScoredPerformance, model: ModelKind
+) -> dict[BandMetric, float | str]:
+    """Les métriques des fourchettes d'un modèle pour une performance (précision de
+    D11, M4d-2), ou le motif qui les remplace, dans cet ordre : le motif de la
+    performance (``jour multi-sorties`` : hors des agrégats, D0) ; sans usage,
+    ``no_reference`` ; puis ceux de la fourchette (``_band_value``)."""
+    if entry.missing is not None or entry.scores is None:
+        motif = entry.missing if entry.missing is not None else NOT_SCORED
+        return dict.fromkeys(BandMetric, motif)
+    if entry.bands is None:
+        return dict.fromkeys(BandMetric, NO_REFERENCE)
+    band = entry.bands.models[REPORT_MODELS.index(model)]
+    return {metric: _band_value(band, metric) for metric in BandMetric}
+
+
+@dataclass(frozen=True)
+class BandRow:
+    """Une ligne de la table des fourchettes : la métrique, et par jeu, dans l'ordre de
+    ``DataSet``, un agrégat par modèle de ``REPORT_MODELS``."""
+
+    metric: BandMetric
+    by_set: tuple[tuple[Aggregate, ...], ...]
+
+
+def band_table(entries: Sequence[ScoredPerformance]) -> tuple[BandRow, ...]:
+    """La table des fourchettes (précision de D11, M4d-2 ; D15) : par métrique, par jeu
+    et par modèle, la moyenne à poids égal par performance sur son propre effectif,
+    les manquants comptés par motif."""
+    values = {
+        model: [band_values(e, model) for e in entries] for model in REPORT_MODELS
+    }
+    return tuple(
+        BandRow(
+            metric,
+            tuple(
+                tuple(
+                    aggregate(
+                        [
+                            row[metric]
+                            for entry, row in zip(entries, values[model], strict=True)
+                            if dataset in entry.datasets
+                        ]
+                    )
+                    for model in REPORT_MODELS
+                )
+                for dataset in DataSet
+            ),
+        )
+        for metric in BandMetric
+    )
+
+
+def band_common_row(
+    entries: Sequence[ScoredPerformance], metric: BandMetric
+) -> tuple[tuple[Aggregate, ...], ...]:
+    """Une métrique des fourchettes sur l'ensemble commun de chaque jeu : les
+    performances de ce jeu où chacun des cinq modèles a un nombre ; par jeu, un agrégat
+    par modèle, même effectif pour les cinq."""
+    rows = [[band_values(e, model)[metric] for model in REPORT_MODELS] for e in entries]
+    by_set: list[tuple[Aggregate, ...]] = []
+    for dataset in DataSet:
+        common = [
+            row
+            for entry, row in zip(entries, rows, strict=True)
+            if dataset in entry.datasets
+            and not any(isinstance(value, str) for value in row)
+        ]
+        by_set.append(
+            tuple(
+                aggregate([row[m] for row in common]) for m in range(len(REPORT_MODELS))
+            )
+        )
+    return tuple(by_set)
+
+
+def band_window_counts(bands: OutingBands, band: ModelBand) -> tuple[int, int]:
+    """Les résidus disponibles d'un modèle dans et hors de la fenêtre de la courbe
+    (précision de D11 : le jour du membre, bornes comprises) : ``(dans, hors)``, de
+    somme ``n``."""
+    inside = sum(
+        residual.available and member.in_window
+        for residual, member in zip(band.residuals, bands.members, strict=True)
+    )
+    return inside, band.count - inside
+
+
+def outing_bands_report(
+    run: BacktestRun | BacktestEvaluation, outing: OutingRun
+) -> OutingBands | None:
+    """Les fourchettes d'une sortie scorée de l'exécution (``0010`` D11 ; M4d-2) ;
+    ``None`` sans usage."""
+    outing_id = outing.outing.outing_id
+    return next((b for b in run.bands if b.outing_id == outing_id), None)

@@ -896,6 +896,124 @@ entrées de sa prévision étaient disponibles à `o_j` (D2.6).
   « sous-estimer coûte deux fois plus que surestimer » ; affichage déclaré, ni
   réglage du moteur, ni modification de `q_usage`.
 
+*(précision, M4d-2 ; passe experte, amendements de D11)*
+
+**Périmètre.** Les fourchettes se calculent pour chaque sortie scorée qui a l'usage, dans le
+RÉSULTAT de `just backtest` (une expérience d'admission n'en calcule pas), pour les cinq
+modèles de D9.1 dans cet ordre — v0 brut, v0 + effort recalé, vitesse constante, Naismith,
+Tobler —, en usage, sous l'écoulé. Une performance de plusieurs sorties a des fourchettes
+sortie par sortie, en diagnostic, hors des agrégats (`jour multi-sorties`, D0).
+
+**Réservoir et membres.** Le réservoir de la performance `j` est `C_j` (D2.4 et sa
+précision), dans l'ordre des jours. Pour chaque membre `c` : ses sorties contributrices sont
+ses sorties scorées qui ont l'usage ; ses segments sont les segments admis de ces sorties ;
+son support, leur longueur sur la référence (`Σ (end_m − start_m)` des segments admis) ;
+`T_c` est la somme (`math.fsum`) des temps de ces segments sous l'écoulé, sorties dans
+l'ordre de leur rang — les totaux de la précision de D9.2. Le membre est indisponible, dans
+l'ordre : sans segment, `support insuffisant` ; `T_c` nul, `temps nul`. Un membre est « dans
+la fenêtre » si son jour civil est entre le premier et le dernier jour de la fenêtre de la
+courbe (D2.2, `date_from` et `date_to` du compagnon), bornes comprises.
+
+**Résidus.** Pour un modèle et un membre disponible, dans l'ordre :
+
+1. `P_c^src` est la somme (`fsum`) des projections **non calées** de la source du modèle sur
+   les mêmes segments, dans le même ordre (source : v0 brut pour v0 brut et pour v0 + effort
+   recalé ; la baseline elle-même pour une baseline) ; une projection absente, non finie ou
+   `<= 0` : résidu en `erreur du modèle` ;
+2. pour un modèle calé, le calage **du membre** (celui de sa propre performance, en usage,
+   sous l'écoulé, D9.2) : `non calé` ou `erreur du modèle` donne ce statut au résidu ; sinon
+   `P_c = P_c^src / e_c` (v0 + effort recalé, `e_c` l'effort borné du membre) ou `P_c =
+   P_c^src · a_c` (baseline, `a_c` son facteur) ; v0 brut : `P_c = P_c^src` ;
+3. `P_c` non fini ou `<= 0` : `erreur du modèle` ; sinon `Z_c = ln(T_c / P_c)`, le
+   logarithme du quotient flottant (`math.log(T_c / P_c)`), comme les termes du `β` de D9.2.
+
+Un résidu indisponible porte le motif du membre (s'il est indisponible) ou celui du modèle ;
+son effectif est le nombre de segments du membre. Sous l'écoulé, `T_c` nul n'arrive pas (un
+segment admis y a un temps `> 0`) ; le motif reste celui de la règle de D9.2. **Domaine** :
+comme pour le calage de D9.2, rien n'est promis hors du domaine des métriques (temps et
+projections dans `[1e−6 ; 1e12]`, contrats de M4b-1) : un rapport `T_c / P_c` peut y
+déborder et le résidu n'être pas fini ; de même, un score d'intervalle, un `IS_j,norm` ou un
+score de la médiane peut n'être pas fini, ou perdre sa précision (poids sous-normaux) : ce
+n'est pas promis, pas plus pour une fourchette calculée seule. `n` est le nombre de résidus
+disponibles : des jours, jamais un effectif indépendant. Les résidus de v0 brut sont
+exactement les termes `ln(T_c / P_c)` du `β` de v0 + effort recalé de `j` (D9.2) : leur
+moyenne `fsum(Z) / n` vaut ce `β` au bit, sur la même plateforme.
+
+**Quantiles.** Dans les `n` résidus disponibles triés par valeur croissante, la valeur de
+rang `⌈n·a/b⌉` (à partir de 1), calculé en entiers par `(n·a + b − 1) // b`, pour `a/b` =
+1/10, 1/2, 2/3, 9/10 : `Q_0,1`, `Q_0,5` (médiane inférieure centrale si `n` est pair),
+`Q_2/3` (lecture prudente), `Q_0,9`. Pour `n <= 9` : `Q_0,1` est le plus petit résidu et
+`Q_0,9` le plus grand.
+
+**Statut de la fourchette d'un modèle**, dans l'ordre :
+
+1. un résidu en `erreur du modèle` → `erreur du modèle` (comme D9.2 : jamais un retrait
+   discret), sans quantiles ni bornes ;
+2. aucun résidu disponible (un résidu au motif du membre ou en `non calé` est indisponible)
+   → `support insuffisant` (effectif 0), sans quantiles ni bornes ;
+3. la prévision du modèle pour `j` indisponible (calage de `j`, en usage, sous l'écoulé,
+   `non calé` ou en `erreur du modèle` ; v0 brut n'est jamais calé) → ce statut, quantiles
+   publiés, sans bornes ni médiane (dans une exécution, ce cas suit toujours l'un des deux
+   premiers : un résidu disponible demande un membre disponible, donc de `C_j^eff`, et `j`
+   n'est pas `non calé` ; `j` n'est en `erreur du modèle` que par une projection invalide
+   sur un membre de `C_j^eff`, dont le résidu est alors en `erreur du modèle` ; la règle
+   vaut pour une fourchette calculée seule) ;
+4. un `P_k` ou un `P⁰_k` absent, non fini ou `<= 0`, des poids de D7.4 non calculables, un
+   `exp(Q)` qui déborde, ou une borne non finie ou `<= 0` → `erreur du modèle`, quantiles
+   publiés, sans bornes ni médiane ;
+5. sinon : la fourchette a ses bornes.
+
+**Bornes.** Pour chaque élément `k` du `K` par défaut de `j` (D7.4 : passages nommés, puis
+l'arrivée), dans l'ordre : `P_k` est le cumul depuis `b_0` de la prévision du modèle calée à
+`o_j` (la prévision calée de D9.2 : la valeur non calée ÷ effort de `j`, ou × facteur de `j` ;
+v0 brut : sa prévision) ; `P⁰_k` celui de v0 brut ; `w_k` le poids par défaut de D7.4
+(`P⁰_k / Σ P⁰`, ceux du `q_usage` de v0 brut sous l'écoulé). Avec `f_q = exp(Q_q)`, calculé
+une fois par quantile : `l_k = P_k · f_0,1` ; médiane `P_k · f_0,5` ; lecture prudente `P_k
+· f_2/3` ; `u_k = P_k · f_0,9` ; largeur `u_k − l_k`. Ces bornes sont publiées **que `T_k`
+soit observé ou non** : ce sont les prévisions datées que D14 conserve.
+
+**Score d'intervalle et couverture.** `T_k` est le cumul observé de l'élément sous l'écoulé
+(aux départs, D4.12), ou son motif d'observation. Pour un élément observé : `IS_k =
+fsum((u_k − l_k, 10 · max(l_k − T_k, 0), 10 · max(T_k − u_k, 0)))` ; « couvert » vaut `l_k
+<= T_k <= u_k`, publié seulement si `n >= 2`. Si **tous** les éléments sont observés : `IS_j
+= fsum(w_k · IS_k)`, `IS_j,norm = fsum(w_k · IS_k / P⁰_k)` (chaque terme calculé `(w_k ·
+IS_k) / P⁰_k`), et, si `n >= 2`, la couverture `fsum(w_k pour les k couverts)` et « tous
+couverts » ; leur effectif est `|K|`. Si un élément n'est pas observé : `IS_j`, `IS_j,norm`
+et la couverture sont indisponibles, au motif du **premier** élément non observé dans
+l'ordre de `K` (celui des abscisses pour le `K` par défaut, D7.4), d'effectif le nombre
+d'éléments observés, et « tous couverts » n'est pas publié — les bornes restent. `n = 1` :
+plage ponctuelle ; `IS_k`, `IS_j` et `IS_j,norm` se publient comme pour `n >= 2`
+(indisponibles si un élément n'est pas observé) ; « couvert », la couverture et « tous
+couverts » ne se publient jamais, qu'un élément soit observé ou non.
+
+**Médiane** (pour une fourchette à bornes seulement, statut 5). La prévision médiane est la
+prévision du modèle calée à `o_j` dont chaque valeur (projection de chaque segment admis,
+cumul de chaque point de D7.3, cumul de chaque élément de `K`) est multipliée par `f_0,5`
+(une valeur absente reste absente) : une prévision neuve, sans borne d'effort, jamais
+substituée à une autre. Sous l'écoulé et avec la base `P⁰` (v0 brut), ses scores sont ceux
+de D7 : son `q_usage` (D7.4 et ses précisions) et son `max |C_k|` sur les points de D7.3
+(ceux du `max |C_k|` de v0 brut ; précision de D7.3), publiés à côté de ceux du modèle et de
+v0 brut.
+
+**Agrégats** (D15) : `IS_j`, `IS_j,norm`, la couverture, et le `q_usage` et le `max |C_k|`
+de la médiane, chacun par modèle et par jeu, moyenne à poids égal par performance sur son
+propre effectif ; une valeur manquante comptée à son premier motif, dans cet ordre : le
+motif de la performance (`jour multi-sorties`, ou non scorée) ; `sans référence` ; le statut
+de la fourchette ; « un seul résidu » pour la couverture d'une fourchette de `n = 1` ; le
+motif de la valeur. Puis `IS_j,norm` sur l'ensemble commun du jeu (les performances où les
+cinq modèles ont une valeur).
+
+**Lecture.** L'étiquette obligatoire est « plage de scénarios — calibration non disponible »,
+au rapport sur chaque fourchette et sur la table des agrégats. Les quantiles sont des
+rangs empiriques, pas des niveaux de confiance : même sous échangeabilité (et sans ex æquo),
+la couverture prédictive moyenne de la plage est `(⌈0,9 n⌉ − ⌈0,1 n⌉) / (n + 1)`, pas 0,8.
+Cette couverture est marginale, élément par élément ; « tous couverts » n'a pas de valeur
+nominale. Un facteur appris sur le support admis d'un jour est transféré à tout le cumul
+projeté, portions non admises comprises : la plage ne couvre pas une erreur absente des
+supports historiques (passe experte, D11-B). Cette précision remplace la phrase de la
+cinquième puce « Les 80 % sont marginaux par passage, pas une couverture simultanée. », qui
+reste écrite.
+
 ### D12 — Diagnostic de longue course (M4d)
 
 - Séquence des passages nommés du **préfixe comparable**, de `(t*_0, b_0)` au
@@ -1052,6 +1170,31 @@ scores du candidat ne se vérifie pas : ils ne sont pas relus ; une expérience 
 le format 3 ne reçoit pas de RÉSULTAT. Une expérience sans performance évaluable
 reçoit un ÉCHEC « non évaluable ». `just backtest` ne déclare pas d'expérience.
 
+*(précision, M4d-2)* Le registre passe au **format 4**, qui étend le format 3 sans changer
+la forme d'aucun de ses contrats : le RÉSULTAT de `just backtest` cite, pour chaque sortie
+scorée qui a une référence (donc l'usage, D3), un document de plus, ses **fourchettes**
+(précision de D11 : la fenêtre de la courbe, l'étiquette, les membres de `C_j` et leur
+support, puis par modèle les résidus et `P_c`, les quantiles, les bornes datées de chaque
+élément de `K` avec `P_k`, `P⁰_k`, `w_k`, la largeur, `T_k` ou son motif, `IS_k` et «
+couvert », `IS_j`, `IS_j,norm`, la couverture, « tous couverts », le `q_usage` et le `max
+|C_k|` de la médiane, et le statut). Un RÉSULTAT d'expérience n'en cite pas. Précisément, au
+format 4, une sortie scorée cite ses fourchettes si et seulement si elle a une référence,
+que la déclaration déclare, parmi ses modèles, les cinq du rapport et qu'elle ne porte pas
+d'expérience. Les lignes des formats 1 à 3 se relisent sans ce champ, et se réécrivent à
+l'octet ; une ligne d'un format antérieur au 4 qui le porte n'est pas relue. L'accord du
+registre vérifie que les fourchettes sont citées exactement par ces sorties (au format 4),
+nomment leur sortie, portent les jours de `C_j` que portent les calages de la sortie (la
+population et les retraits de chaque modèle calé, en usage, sous l'écoulé), chaque membre
+disponible si et seulement s'il est dans la population et retiré au même motif sinon, disent
+si sa performance a plusieurs sorties, et que chaque modèle à bornes porte autant d'éléments
+que son `K`. Le contrat du document revérifie ses invariants — `support insuffisant` si et
+seulement si aucun résidu n'est disponible ni en erreur du modèle, poids de somme 1,
+quantiles aux rangs, largeur, `IS_k`, agrégats et « couvert » au bit ; bornes `P_k · exp(Q)`
+à `τ = 1e−12` près (relatif, absolu sous 1 s : l'arrondi d'`exp` dépend de la plateforme).
+Rien n'est recalculé, ni depuis les scores, ni par le code du calage : les documents du
+RÉSULTAT se recoupent entre eux, et un changement de la règle de `C_j` ne touche pas la
+relecture des lignes déjà écrites.
+
 ### D15 — Rapport de `just backtest`
 
 Par performance : jeu et étiquettes ; couverture (D4.11) ; horloges — totaux de la
@@ -1100,6 +1243,16 @@ d'agrégats de chaque modèle et, par sortie scorée, après le détail de v0 br
 chaque modèle calé : son calage sous chaque horloge du rapport, ses métriques,
 `max |C_k|`, `max C_k`, `min C_k` et `q_usage`, sans enveloppe (D9.2). Il se calcule
 **avant** le RÉSULTAT (précision de D14, M4c-2).
+
+*(précision, M4d-2)* Le rapport complet porte, après les tables d'agrégats des modèles, la
+table des fourchettes (précision de D11, « Agrégats »), sous l'étiquette de D11 ; et, pour
+chaque sortie scorée, après sa dérive, la rubrique « fourchettes » : une ligne « sans
+référence » pour une sortie qui n'en a pas ; sinon l'étiquette, le réservoir et ses membres
+(jour, dans / hors de la fenêtre, sorties contributrices, segments, support, `T_c` ou
+motif), puis pour chaque modèle `n` (dans / hors), le statut, les résidus, les quantiles,
+`IS_j`, `IS_j,norm`, la couverture, « tous couverts », le `q_usage` et le `max |C_k|` de la
+médiane et du modèle ; enfin les éléments de `K` de v0 brut (`P_k`, bornes, médiane, lecture
+prudente, largeur, `T_k`, `IS_k`, couvert). La synthèse ne change pas.
 
 ### D16 — Découpage
 

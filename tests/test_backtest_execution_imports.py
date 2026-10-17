@@ -41,8 +41,10 @@ def _outside(path: Path) -> set[str]:
 
 
 def test_execution_imports_the_named_modules_only() -> None:
-    """§ 6.0 : l'exécution enchaîne les modules fusionnés, sans calcul neuf."""
+    """§ 6.0 : l'exécution enchaîne les modules fusionnés, sans calcul neuf ; depuis
+    M4d-2, aussi les fourchettes."""
     assert _project(EXECUTION) <= {
+        "mountain_perf.backtest.bands",
         "mountain_perf.backtest.calendar",
         "mountain_perf.backtest.calibration",
         "mountain_perf.backtest.clocks",

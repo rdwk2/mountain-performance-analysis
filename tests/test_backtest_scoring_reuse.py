@@ -117,7 +117,8 @@ def test_no_module_imports_backtest_scoring_but_the_package_and_the_command() ->
     qui lit les horloges du rapport (§ 6.0 du brief M4b-5) — et, depuis M4c-1, par
     ``backtest/calibration.py``, qui score les baselines et les prévisions calées
     (§ 2 du brief M4c-1) — et, depuis M4c-3, par ``backtest/experiment.py``, qui score
-    v0 brut et le candidat d'une expérience."""
+    v0 brut et le candidat d'une expérience — et, depuis M4d-2, par
+    ``backtest/bands.py``, qui score la prévision médiane (``clock_scores``)."""
     scoring = SOURCE / "backtest" / "scoring.py"
     defined = _defined_names(ast.parse(scoring.read_text(encoding="utf-8")))
     importers = []
@@ -134,6 +135,7 @@ def test_no_module_imports_backtest_scoring_but_the_package_and_the_command() ->
                 importers.append(path.relative_to(SOURCE).as_posix())
     assert set(importers) <= {
         "backtest/__init__.py",
+        "backtest/bands.py",
         "backtest/calibration.py",
         "backtest/execution.py",
         "backtest/experiment.py",

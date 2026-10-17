@@ -45,6 +45,7 @@ from mountain_perf.backtest import (
     NO_REFERENCE,
     NOT_SCORED,
     REPORT_PARAMETER_SPECS,
+    SINGLE_RESIDUAL,
     UNDERREPRESENTED,
     Aggregate,
     AggregateRow,
@@ -139,7 +140,7 @@ def test_aggregate_of_hand_written_values() -> None:
 
 def test_missing_order() -> None:
     """Précision de D15 : les motifs de ``Unavailability`` (D0) dans leur ordre, puis
-    ceux du rapport."""
+    ceux du rapport, le dernier celui des fourchettes (M4d-2)."""
     assert MISSING_ORDER == (
         "absent",
         "ambiguous",
@@ -156,8 +157,14 @@ def test_missing_order() -> None:
         "underrepresented",
         "not_scored",
         "no_reference",
+        "single_residual",
     )
-    assert MISSING_ORDER[-3:] == (UNDERREPRESENTED, NOT_SCORED, NO_REFERENCE)
+    assert MISSING_ORDER[-4:] == (
+        UNDERREPRESENTED,
+        NOT_SCORED,
+        NO_REFERENCE,
+        SINGLE_RESIDUAL,
+    )
 
 
 def test_report_parameter_specs() -> None:

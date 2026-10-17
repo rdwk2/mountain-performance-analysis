@@ -26,12 +26,14 @@ from mountain_perf.backtest import (
     PARIS,
     REPORT_MODELS,
     REPORT_PARAMETER_SPECS,
+    SINGLE_RESIDUAL,
     UNDERREPRESENTED,
     Aggregate,
     AggregateRow,
     BacktestError,
     BacktestEvaluation,
     BacktestRun,
+    BandMetric,
     ClockRole,
     DescentSubclass,
     ManifestError,
@@ -41,6 +43,9 @@ from mountain_perf.backtest import (
     ScoredPerformance,
     TraceSeries,
     aggregate_table,
+    band_common_row,
+    band_table,
+    band_window_counts,
     build_series,
     civil_date,
     clock_partition,
@@ -55,6 +60,7 @@ from mountain_perf.backtest import (
     match_trace,
     observe_passages,
     origins_before_curve,
+    outing_bands_report,
     outing_drift_report,
     prepare_backtest,
     reference_geometry,
@@ -90,6 +96,7 @@ from mountain_perf.model import (
     route_endpoints,
 )
 from mountain_perf.schemas import (
+    BAND_LABEL,
     CALIBRATED_MODELS,
     CENTRAL_CONVENTION_INDEX,
     CLOCKS,
@@ -110,6 +117,7 @@ from mountain_perf.schemas import (
     LogRatioEnvelope,
     MatchResult,
     MetricValue,
+    ModelBand,
     ModelCalibration,
     ModelKind,
     ObservedPoint,
@@ -993,6 +1001,7 @@ MISSING_LABELS: Mapping[str, str] = {
     UNDERREPRESENTED: "trop peu représenté",
     NOT_SCORED: "non scorée",
     NO_REFERENCE: "sans référence",
+    SINGLE_RESIDUAL: "un seul résidu",
 }
 """Libellés d'affichage des motifs d'une valeur manquante, dans l'ordre de
 ``MISSING_ORDER`` : ceux de ``mperf match``, les autres noms de ``0010`` D0, puis ceux
@@ -1081,7 +1090,20 @@ LEGEND = (
     "les cinq moyennes y portent sur les mêmes performances",
     "gains, garde-fous, admission d'un effet (0010 D10) : just backtest ne déclare pas "
     "d'expérience ; expérience enregistrée par l'API (M4c-3), commande en M6a",
-    "fourchettes (0010 D11) : non implémentée dans ce lot (M4d)",
+    "fourchettes (0010 D11, M4d-2) : plage de scénarios — calibration non "
+    "disponible ; résidus Z_c = ln(T_c / P_c) des membres de C_j (entraînements "
+    "terminés avant o_j), sur leur support admis, en usage, sous l'écoulé, "
+    "prévision du modèle calée à o_c ; n compte des jours, pas un effectif "
+    "indépendant ; quantiles empiriques de rang ⌈n q⌉ (n ≤ 9 : du plus petit au "
+    "plus grand résidu), des rangs et non des niveaux de confiance : même sous "
+    "échangeabilité et sans ex æquo, la couverture moyenne de la plage est "
+    "(⌈0,9 n⌉ − ⌈0,1 n⌉) / (n + 1), marginale, élément par élément ; bornes P_k·e^Q "
+    "aux éléments de K, publiées même sans observation ; un "
+    "facteur appris sur le support admis est transféré à tout le cumul projeté ; "
+    "IS_k = (u − l) + 10 (l − T)₊ + 10 (T − u)₊ ; IS_j,norm = Σ w_k IS_k / P⁰_k (v0 "
+    "brut) ; n = 1 : plage ponctuelle, ni couverture ni « tous couverts » ; médiane "
+    ": une prévision neuve, sans borne d'effort, jamais substituée (le comparateur "
+    "cale sur la moyenne)",
     "dérive (0010 D12, M4d-1) : séquence des éléments observés du K par défaut, dans "
     "l'ordre, jusqu'au premier qui ne l'est pas, arrivée comprise, commune aux "
     "horloges ; y_h = ln(t_h / p_h), positif = plus long que prévu ; b : pente "
@@ -1101,7 +1123,7 @@ LEGEND = (
 """La légende du rapport (§ 6.3, point 8, et § 7.4 du brief M4b-5 ; § 6.6 du brief
 M4c-2) : la lecture de la compensation, les scores rétrospectifs, l'âge de la courbe,
 les supports de F et des modèles, le temps nul sous un ``M θ``, les modèles calés,
-l'ensemble commun, puis les quatre rubriques des lots futurs (D15)."""
+l'ensemble commun, puis les rubriques des lots de M4c et M4d (D15)."""
 
 REPORTS_DIR = "rapports"
 """Le dossier des rapports D15 sous ``MPA_DATA_DIR``, jamais réécrits."""
@@ -2148,12 +2170,234 @@ def _drift_lines(run: BacktestRun | BacktestEvaluation, outing: OutingRun) -> li
     return lines
 
 
+BAND_METRIC_LABELS: Mapping[BandMetric, str] = {
+    BandMetric.INTERVAL_SCORE: "IS_j",
+    BandMetric.NORMALISED_SCORE: "IS_j,norm",
+    BandMetric.COVERAGE: "couverture",
+    BandMetric.MEDIAN_USAGE_TARGET: "q_usage méd.",
+    BandMetric.MEDIAN_MAX_ABS_ERROR: "max |C_k| méd.",
+}
+"""Libellés des métriques des fourchettes au rapport (précision de D11, M4d-2)."""
+
+
+def _band_format(metric: BandMetric) -> Callable[[float], str]:
+    """``IS_j`` et ``max |C_k|`` de la médiane en secondes ; les autres à six
+    décimales."""
+    if metric in (BandMetric.INTERVAL_SCORE, BandMetric.MEDIAN_MAX_ABS_ERROR):
+        return _abs_seconds
+    return _plain
+
+
+def _band_aggregate_lines(entries: Sequence[ScoredPerformance]) -> list[str]:
+    """Les agrégats des fourchettes (précision de D11, M4d-2 ; D15) : l'en-tête porte
+    l'étiquette de D11 ; par jeu, les cinq modèles côte à côte, chaque métrique sur son
+    propre effectif, ses manquants, puis ``IS_j,norm`` sur l'ensemble commun du jeu."""
+    lines = [
+        f"{'agrégats':<13}fourchettes (0010 D11) — {BAND_LABEL} ; rangs, pas niveaux "
+        "de confiance ; usage, écoulé ; moyenne à poids égal par performance "
+        "(effectif) ; IS_j,norm commun : performances où les cinq modèles ont une "
+        "valeur"
+    ]
+    table = band_table(entries)
+    common = band_common_row(entries, BandMetric.NORMALISED_SCORE)
+    for d, dataset in enumerate(DataSet):
+        lines.append(
+            _row(DATA_SET_LABELS[dataset], [MODEL_LABELS[m] for m in REPORT_MODELS])
+        )
+        for row in table:
+            formatted = _band_format(row.metric)
+            values = row.by_set[d]
+            lines.append(
+                _row(
+                    BAND_METRIC_LABELS[row.metric],
+                    [_aggregate_cell(value, formatted) for value in values],
+                )
+            )
+            missing = [
+                f"{MODEL_LABELS[model]} {_missing(value)}"
+                for model, value in zip(REPORT_MODELS, values, strict=True)
+                if value.missing
+            ]
+            if missing:
+                lines.append(f"{_INDENT}{'  manquants':<16}{' ; '.join(missing)}")
+        lines.append(
+            _row(
+                "IS norm commun",
+                [_aggregate_cell(value, _plain) for value in common[d]],
+            )
+        )
+    return lines
+
+
+def _band_model_scores(
+    run: BacktestRun | BacktestEvaluation, outing: OutingRun, model: ModelKind
+) -> ClockScores | None:
+    """Les scores d'usage sous l'écoulé d'un modèle sur une sortie : ceux de v0 brut, ou
+    ceux du modèle calé ; ``None`` sans usage ou sous un calage indisponible."""
+    if model is ModelKind.V0_RAW:
+        usage = outing.scores.usage
+        return None if usage is None else usage.clocks[0]
+    outing_id = outing.outing.outing_id
+    for performance in run.calibration:
+        for entry in performance.outings:
+            if entry.outing_id == outing_id and entry.control.model is model:
+                return None if entry.usage is None else entry.usage.clocks[0].scores
+    return None
+
+
+def _band_status(band: ModelBand) -> str:
+    """Le statut d'une fourchette : ``—`` avec bornes, sinon le libellé de son motif."""
+    if band.unavailability is None:
+        return "—"
+    return MISSING_LABELS[band.unavailability.value]
+
+
+def _band_lines(run: BacktestRun | BacktestEvaluation, outing: OutingRun) -> list[str]:
+    """La rubrique « fourchettes » d'une sortie scorée (``0010`` D11 ; M4d-2) : le
+    réservoir et ses membres ; pour chaque modèle, ``n`` (dans / hors de la fenêtre),
+    son statut, ses résidus, ses quantiles, ``IS_j``, ``IS_j,norm``, la couverture,
+    « tous couverts », le ``q_usage`` et le ``max |C_k|`` de la médiane à côté de ceux
+    du modèle ; les éléments de ``K`` de v0 brut."""
+    bands = outing_bands_report(run, outing)
+    if bands is None:
+        return [
+            f"{'fourchettes':<13}sans référence : pas de fourchette (0010 D11, usage)"
+        ]
+    lines = [
+        f"{'fourchettes':<13}0010 D11, usage, écoulé — {BAND_LABEL} ; quantiles "
+        "empiriques aux rangs ⌈n q⌉, q = 0,1, 0,5, 2/3, 0,9, sur n jours",
+        f"{_INDENT}réservoir C_j : "
+        f"{_count(len(bands.members), 'membre', 'membres')} ; fenêtre de la courbe du "
+        f"{bands.window_from.isoformat()} au {bands.window_to.isoformat()}"
+        + (
+            " ; jour multi-sorties : diagnostic, hors des agrégats"
+            if bands.multi_outing
+            else ""
+        ),
+    ]
+    if bands.members:
+        lines.append(
+            f"{_INDENT}  {'jour':<12}{'fenêtre':<9}{'sorties':>8}{'segments':>10}"
+            f"{'support':>12}   T_c"
+        )
+        for member in bands.members:
+            total = (
+                MISSING_LABELS[member.unavailability.value]
+                if member.unavailability is not None
+                else f"{_abs_seconds(member.observed_s or 0.0)} s"
+            )
+            lines.append(
+                f"{_INDENT}  {member.civil_date.isoformat():<12}"
+                f"{'dans' if member.in_window else 'hors':<9}{member.outing_count:>8}"
+                f"{member.segment_count:>10}{member.support_m / 1000.0:>9.2f} km   "
+                f"{total}"
+            )
+    lines.append(_row("", [MODEL_LABELS[band.model] for band in bands.models]))
+
+    def counts(band: ModelBand) -> str:
+        inside, outside = band_window_counts(bands, band)
+        return f"{band.count} ({inside} / {outside})"
+
+    def quantile(band: ModelBand, i: int) -> str:
+        return "—" if band.quantiles is None else _log(band.quantiles.values[i])
+
+    def value(cell: MetricValue | None, formatted: Callable[[float], str]) -> str:
+        return "—" if cell is None else _label(cell, formatted)
+
+    def coverage(band: ModelBand) -> str:
+        if band.available and band.coverage is None:
+            return MISSING_LABELS[SINGLE_RESIDUAL]
+        return value(band.coverage, _plain)
+
+    def every(band: ModelBand) -> str:
+        return {None: "—", True: "oui", False: "non"}[band.all_covered]
+
+    own = [_band_model_scores(run, outing, band.model) for band in bands.models]
+    models = bands.models
+    lines += [
+        _row("n (dans / hors)", [counts(b) for b in models]),
+        _row("statut", [_band_status(b) for b in models]),
+    ]
+    for i, member in enumerate(bands.members):
+        lines.append(
+            _row(
+                f"Z {member.civil_date.isoformat()}",
+                [_label(b.residuals[i], _log) for b in models],
+            )
+        )
+    lines += [
+        _row(label, [quantile(b, i) for b in models])
+        for i, label in enumerate(("Q 0,1", "Q 0,5", "Q 2/3", "Q 0,9"))
+    ]
+    lines += [
+        _row("IS_j", [value(b.interval_score_s, _abs_seconds) for b in models]),
+        _row("IS_j,norm", [value(b.normalised_score, _plain) for b in models]),
+        _row("couverture", [coverage(b) for b in models]),
+        _row("tous couverts", [every(b) for b in models]),
+        _row("q_usage méd.", [value(b.median_usage_target, _plain) for b in models]),
+        _row(
+            "q_usage modèle",
+            [
+                "—"
+                if s is None or s.usage_target is None
+                else _label(s.usage_target.q_usage, _plain)
+                for s in own
+            ],
+        ),
+        _row(
+            "max |C_k| méd.",
+            [value(b.median_max_abs_error_s, _abs_seconds) for b in models],
+        ),
+        _row(
+            "max |C_k| mod.",
+            [
+                "—"
+                if s is None or s.passage_errors is None
+                else _label(s.passage_errors.max_abs_error_s, _abs_seconds)
+                for s in own
+            ],
+        ),
+    ]
+    raw = bands.models[0]
+    if not raw.elements:
+        return lines
+    observation = outing.scores.observation
+    lines.append(
+        f"{_INDENT}K de v0 brut, en secondes depuis l'origine : P_k, bornes, médiane, "
+        "lecture prudente (Q 2/3), largeur, T_k, IS_k"
+    )
+    lines.append(
+        f"{_INDENT}  {'élément':<24}{'P_k':>10}{'l_k':>10}{'médiane':>10}"
+        f"{'prudente':>10}{'u_k':>10}{'largeur':>10}{'T_k':>10}{'IS_k':>10}  couvert"
+    )
+    for target, element in zip(observation.members, raw.elements, strict=True):
+        name = "arrivée"
+        if target.occurrence_index is not None:
+            place = outing.passages.passages[target.occurrence_index].point.point.name
+            name = f"arrivée ({place})" if target.arrival else place
+        observed = (
+            MISSING_LABELS[element.observation.value]
+            if element.observation is not None
+            else f"{element.observed_s:.1f}"
+        )
+        score = "—" if element.score_s is None else f"{element.score_s:.1f}"
+        covered = {None: "—", True: "oui", False: "non"}[element.covered]
+        lines.append(
+            f"{_INDENT}  {name:<24}{element.forecast_s:>10.1f}{element.lower_s:>10.1f}"
+            f"{element.median_s:>10.1f}{element.prudent_s:>10.1f}"
+            f"{element.upper_s:>10.1f}{element.width_s:>10.1f}{observed:>10}"
+            f"{score:>10}  {covered}"
+        )
+    return lines
+
+
 def _report_body(run: BacktestRun | BacktestEvaluation, threshold: float) -> list[str]:
     """Le corps du rapport complet, calculé avant le RÉSULTAT (précision de D14,
     M4c-2 ; § 6.6 du brief M4c-2) : les tables d'agrégats de chaque modèle (usage puis
-    contrôle, sous les trois rôles d'horloge) ; la référence D8 de chaque parcours ;
-    les descentes ; la géométrie ; le détail de chaque sortie scorée, v0 brut puis les
-    modèles calés, puis son diagnostic de longue course (D12, M4d-1) ; les sorties non
+    contrôle, sous les trois rôles d'horloge) ; les agrégats des fourchettes (D11,
+    M4d-2) ; la référence D8 de chaque parcours ; les descentes ; la géométrie ; le
+    détail de chaque sortie scorée, v0 brut puis les modèles calés, puis son diagnostic
+    de longue course (D12, M4d-1) et ses fourchettes (D11, M4d-2) ; les sorties non
     scorées ; la légende."""
     lines: list[str] = []
     entries = scored_performances(run)
@@ -2166,6 +2410,7 @@ def _report_body(run: BacktestRun | BacktestEvaluation, threshold: float) -> lis
                 )
                 table = aggregate_table(entries, scenario, role, model)
                 lines += _aggregate_lines(table, with_missing=True)
+    lines += _band_aggregate_lines(entries)
     for route_id, reference in run.references:
         lines += _reference_lines(route_id, reference)
     lines += _descent_lines(run, threshold)
@@ -2174,6 +2419,7 @@ def _report_body(run: BacktestRun | BacktestEvaluation, threshold: float) -> lis
         lines += _detail_lines(run, outing)
         lines += _calibrated_detail_lines(run, outing)
         lines += _drift_lines(run, outing)
+        lines += _band_lines(run, outing)
     lines += [
         f"{'non scorée':<13}{exclusion.outing_id} — {exclusion.reason}"
         for exclusion in run.unscored

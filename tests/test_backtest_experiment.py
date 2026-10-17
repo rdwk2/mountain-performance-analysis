@@ -700,7 +700,7 @@ def test_reference_documents_name_the_contributing_routes(
 
 
 def test_result_of_the_experiment(identity: tuple[Path, ExperimentRun]) -> None:
-    """D14, décision Q4 : la DÉCLARATION puis le RÉSULTAT, au format 3, vérifiés ; le
+    """D14, décision Q4 : la DÉCLARATION puis le RÉSULTAT, au format 4, vérifiés ; le
     RÉSULTAT cite le document d'admission, relu égal ; ses sorties se relisent égales,
     v0 brut, v0 recalé puis le candidat ; ses documents D8 sont ceux que la
     DÉCLARATION a figés ; le sceau est l'empreinte de sa ligne ; les évaluations sont
@@ -709,8 +709,8 @@ def test_result_of_the_experiment(identity: tuple[Path, ExperimentRun]) -> None:
     log = read_registry(registry)
     assert verify_registry(registry) == log
     assert [(e.kind, e.format_version) for e in log.events] == [
-        (EventKind.DECLARATION, 3),
-        (EventKind.RESULT, 3),
+        (EventKind.DECLARATION, 4),
+        (EventKind.RESULT, 4),
     ]
     assert log.events == (run.declaration_event, run.answer_event)
     assert log.events[0].declaration == run.preparation.declaration

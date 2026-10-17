@@ -143,13 +143,16 @@ def test_constants_of_d12() -> None:
 
 
 def test_types_in_the_dictionary() -> None:
-    """Les quatre contrats ferment le dictionnaire, dans l'ordre de lecture."""
-    assert DOCUMENTED_TYPES[-4:] == (
+    """Les quatre contrats se suivent dans le dictionnaire, dans l'ordre de lecture,
+    juste avant ceux des fourchettes (M4d-2)."""
+    first = DOCUMENTED_TYPES.index(DriftInterval)
+    assert DOCUMENTED_TYPES[first : first + 4] == (
         DriftInterval,
         DriftFit,
         DriftDiagnostic,
         OutingDrift,
     )
+    assert DOCUMENTED_TYPES[first + 4].__name__ == "ReservoirMember"
 
 
 # --- DriftInterval ------------------------------------------------------------
