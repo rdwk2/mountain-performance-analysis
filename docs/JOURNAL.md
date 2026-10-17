@@ -16,6 +16,19 @@ Backtest (à partir de M4) : métrique avant → après.
 
 ---
 
+### 2026-10-17 · M4d-1 — correctifs de relecture
+La relecture C (verdict « fusionnable en l'état ») et le balayage par mutation de la
+conception n'ont trouvé aucun défaut du code, mais des règles écrites que la batterie
+jointe n'exerçait pas : fonctions pures et imports de la bibliothèque standard ; ordre des
+motifs, égalités de `R_0` avec le plat, motif d'un calage indisponible, intervalle sans
+temps projeté, bornes sous la seconde, horizon, valeurs singulières de Jacobi ; dans la
+rubrique, l'étendue, les retraits identifiables, les motifs mêlés et « temps nul ». Trois
+fichiers de tests de garantie, fournis par la conception, recopiés tels quels ; deux lignes
+de `BACKLOG.md`.
+Conclusion : `just check` vert, 5 360 tests ; rien ne change dans `src/`. Rangé dans
+`tests/test_backtest_drift_guarantees.py`, `tests/test_cli_drift_guarantees.py` et
+`tests/test_schemas_drift_guarantees.py`, branche `m4d/derive`.
+
 ### 2026-10-17 · M4d-1 — Backtest : diagnostic de longue course
 Le diagnostic de longue course de `0010` D12, jamais calculé jusqu'ici, l'est pour chaque
 sortie scorée avec usage, les cinq modèles et les trois horloges de son rapport, et
