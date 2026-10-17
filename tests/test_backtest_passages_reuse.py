@@ -20,6 +20,18 @@ import mountain_perf.backtest as backtest
 PACKAGE = Path(backtest.__file__).parent
 PASSAGES = ast.parse((PACKAGE / "passages.py").read_text(encoding="utf-8"))
 
+REUSED = {
+    "matching": PACKAGE / "matching.py",
+    "geometry": PACKAGE / "geometry.py",
+    "series": PACKAGE.parent / "series.py",
+    "clocks": PACKAGE.parent / "clocks.py",
+    "segments": PACKAGE / "segments.py",
+}
+"""Les modules réemployés, lus là où leurs fonctions sont définies : depuis
+AN1-2a, les séries et les horloges vivent dans les modules communs
+``mountain_perf.series`` et ``mountain_perf.clocks``, que ``backtest/series.py``
+et ``backtest/clocks.py`` ne font que réexporter."""
+
 ALLOWED_IMPORTS = {
     "mountain_perf.backtest.clocks": {"stop_episodes"},
     "mountain_perf.backtest.geometry": {
@@ -110,7 +122,7 @@ def test_imports_from_backtest_are_exactly_the_reused_ones() -> None:
 def test_no_function_is_rewritten(module: str) -> None:
     """Aucune fonction de ``passages.py`` n'est homonyme d'une fonction des modules
     réemployés."""
-    tree = ast.parse((PACKAGE / f"{module}.py").read_text(encoding="utf-8"))
+    tree = ast.parse(REUSED[module].read_text(encoding="utf-8"))
     assert not _functions(PASSAGES) & _functions(tree)
 
 
@@ -141,7 +153,7 @@ def test_no_raw_or_gpx_coordinate_is_read() -> None:
 )
 def test_reused_modules_do_not_import_passages(module: str) -> None:
     """Ni le module ``passages``, ni l'un de ses noms par le paquet ``backtest``."""
-    tree = ast.parse((PACKAGE / f"{module}.py").read_text(encoding="utf-8"))
+    tree = ast.parse(REUSED[module].read_text(encoding="utf-8"))
     defined = _functions(PASSAGES) | {
         target.id
         for node in PASSAGES.body

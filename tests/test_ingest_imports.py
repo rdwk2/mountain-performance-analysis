@@ -103,7 +103,14 @@ def test_engine_does_not_import_the_ingestion() -> None:
             assert not any(
                 m.startswith("mountain_perf.ingest") for m in _imports(path)
             ), path
-    for name in ("codec.py", "validation.py", "config.py", "units.py"):
+    for name in (
+        "codec.py",
+        "validation.py",
+        "config.py",
+        "units.py",
+        "series.py",
+        "clocks.py",
+    ):
         assert not any(
             m.startswith("mountain_perf.ingest") for m in _imports(SOURCE / name)
         )
