@@ -256,7 +256,8 @@ retenues, domaine et performances ; appariement et scores de chaque sortie sous 
 modèles — v0 brut, v0 + effort recalé, vitesse constante, Naismith et Tobler, les quatre
 derniers calés sur les entraînements terminés avant l'origine de chaque performance ;
 référence de répétabilité (D8) de chaque parcours du jeu de répétabilité ; au rapport
-complet seulement, le diagnostic de longue course (D12) de chaque sortie scorée. Une sortie
+complet seulement, le diagnostic de longue course (D12) de chaque sortie scorée et, pour une
+sortie à référence, ses fourchettes (D11), que le registre garde aussi. Une sortie
 peut être déclarée au manifeste dans un jeu (répétabilité, développement ou
 confirmation, D2.3) ; les agrégats se publient jeu par jeu, et une performance sans
 jeu n'entre dans aucun. L'exécution est enregistrée dans
@@ -366,11 +367,12 @@ restent hors du dépôt ([`docs/analyse/CHARTE.md`](docs/analyse/CHARTE.md), § 
 
 - **Moteur de prédiction** : M0 à M3 livrés ; M4 (backtest) en cours. Livrés en M4 :
   l'appariement d'une trace à un tracé, les métriques d'erreur, la référence de
-  répétabilité, le registre des expériences, `just backtest` à cinq modèles et son
-  diagnostic de longue course (`0010` D12, au rapport complet), et l'admission
-  exploratoire d'un effet (`0010` D10, hors le figement pour confirmation de D10.7),
-  calculée par la bibliothèque — sa commande viendra avec le premier effet, au M6a.
-  Reste M4d : fourchettes et sensibilité (D11, D13).
+  répétabilité, le registre des expériences, `just backtest` à cinq modèles, son
+  diagnostic de longue course et ses fourchettes (`0010` D12 et D11, au rapport complet ;
+  les fourchettes aussi au registre), et l'admission exploratoire d'un effet (`0010` D10,
+  hors le figement pour confirmation de D10.7), calculée par la bibliothèque — sa commande
+  viendra avec le premier effet, au M6a.
+  Reste M4d : la sensibilité (D13).
 - **Piste analyse** : cadrage livré (AN0 : charte, questions, décisions 0011 à 0013) ;
   AN1 (activités et montées) en cours : son codec commun, l'ingestion des activités
   (`just ingest`) et les horloges du moteur rendues communes (le temps de mouvement)
