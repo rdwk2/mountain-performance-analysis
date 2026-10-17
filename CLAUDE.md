@@ -139,6 +139,11 @@ src/mountain_perf/     le code de la bibliothèque
   validation.py        vérifications partagées des contrats, ContractError (M1)
   codec.py             écriture canonique des contrats en JSON et enveloppe des documents,
                        commune au moteur et à la piste analyse (M4b-4, AN1-0)
+  series.py            trous, blocs, lissage par bloc, d_r ; commun au moteur et à la piste
+                       analyse (M4a, AN1-2a)
+  clocks.py            fenêtres, qualification, confirmation, partition M/S/U, horloges
+                       cumulées, totaux, épisodes ; commun au moteur et à la piste analyse
+                       (M4a, AN1-2a)
   schemas/             les contrats de données (M1) — aucune E/S, aucun algorithme
     common.py          Sport, QualityFlag, SourceRef, plages physiques
     parameters.py      ParameterSpec, ParameterSet
@@ -185,8 +190,8 @@ src/mountain_perf/     le code de la bibliothèque
     calendar.py        jour civil à Paris, origine o_j, disponibilité (M4a)
     manifest.py        load_manifest, ManifestReadResult, ManifestError (M4a)
     outings.py         sorties retenues, domaine, performances (M4a)
-    series.py          trous, blocs, lissage par bloc, d_r (M4a)
-    clocks.py          fenêtres, qualification, confirmation, horloges cumulées (M4a)
+    series.py          réexport de mountain_perf.series (AN1-2a)
+    clocks.py          réexport de mountain_perf.clocks (AN1-2a)
     geometry.py        géométrie de référence, plan local, repère, projection (M4a-2a)
     matching.py        grille de score, prédicats, franchissements, match_points (M4a-2a)
     segments.py        régimes, admissibilité, couverture, préfixe, totaux admis, match_trace (M4a-2b)

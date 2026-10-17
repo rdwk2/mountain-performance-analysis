@@ -16,6 +16,30 @@ Backtest (à partir de M4) : métrique avant → après.
 
 ---
 
+### 2026-10-17 · AN1-2a — Horloges communes
+Le contenu de `backtest/series.py` (trous, blocs, lissage par bloc, `d_r` : `0010` D4.4)
+et de `backtest/clocks.py` (fenêtres, qualification, confirmation, partition M/S/U,
+horloges cumulées, totaux, épisodes d'arrêt : `0010` D5) passe dans deux modules communs
+au moteur et à la piste analyse, `src/mountain_perf/series.py` et
+`src/mountain_perf/clocks.py`, sans changement de comportement : le texte est recopié,
+seules changent la docstring de chaque module, celles de `TraceSeries` et de
+`WindowMeasures`, et la source de l'import de `TraceSeries`. `backtest/series.py` et
+`backtest/clocks.py` réexportent les mêmes objets, deux aides privées comprises : les
+imports et les tests du moteur ne changent pas, sauf les deux tests de
+`test_backtest_passages_reuse.py` qui lisaient le texte de ces modules, repointés sur les
+modules communs ; `test_ingest_imports.py` vérifie aussi que ceux-ci n'importent pas
+l'ingestion. Un test neuf tient les imports des modules communs, la liste des noms
+réexportés et leur identité. Docstrings de `schemas/clock.py` (le producteur) et de
+`gpx/trace_reader.py`, dictionnaire régénéré ; `CLAUDE.md` (structure) ; le README
+(« État et plan ») ; la ROADMAP (AN1-2 en trois PR) ; `BACKLOG.md` (une ligne du moteur
+sur les trous de D4.4, une ligne mise à jour).
+Conclusion : `just check` vert, 5 369 tests avec tous les extras ; une seule définition
+du mouvement dans le projet, que la piste analyse lira pour ses montées (AN1-2b). Rangé
+dans `src/mountain_perf/{series,clocks}.py`, `tests/test_series_clocks_imports.py`,
+branche `an1/horloges-communes`.
+
+---
+
 ### 2026-10-17 · M4d-1 — correctifs de relecture
 La relecture C (verdict « fusionnable en l'état ») et le balayage par mutation de la
 conception n'ont trouvé aucun défaut du code, mais des règles écrites que la batterie

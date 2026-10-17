@@ -372,9 +372,10 @@ restent hors du dépôt ([`docs/analyse/CHARTE.md`](docs/analyse/CHARTE.md), § 
   calculée par la bibliothèque — sa commande viendra avec le premier effet, au M6a.
   Reste M4d : fourchettes et sensibilité (D11, D13).
 - **Piste analyse** : cadrage livré (AN0 : charte, questions, décisions 0011 à 0013) ;
-  AN1 (activités et montées) en cours : son codec commun et l'ingestion des activités
-  (`just ingest`) livrés ; restent les tables de `processed/` (activités et montées),
-  la figure de Q1 et la commande qui régénère `interim/` et `processed/` (AN1-2).
+  AN1 (activités et montées) en cours : son codec commun, l'ingestion des activités
+  (`just ingest`) et les horloges du moteur rendues communes (le temps de mouvement)
+  livrés ; restent les tables de `processed/` (activités et montées), la figure de Q1
+  et la commande qui régénère `interim/` et `processed/` (AN1-2b et AN1-2c).
 
 Le détail :
 
