@@ -1889,7 +1889,7 @@ Valeurs décrites dans `INTERVAL_STATE_DESCRIPTIONS`.
 
 #### Producteur
 
-La partition des horloges (`mountain_perf.backtest.clocks`).
+La partition des horloges (`mountain_perf.clocks`).
 
 #### Consommateurs
 
@@ -2042,7 +2042,7 @@ L'intervalle `i` est `[time_s[i] ; time_s[i+1])` ; `states[k][i]` est son
 
 #### Producteur
 
-`clock_partition` (`mountain_perf.backtest.clocks`).
+`clock_partition` (`mountain_perf.clocks`).
 
 #### Consommateurs
 
@@ -2085,7 +2085,7 @@ Totaux d'une trace sous une convention : écoulé, mouvement, arrêt, indétermi
 
 #### Producteur
 
-`trace_totals` (`mountain_perf.backtest.clocks`), pour les totaux de la trace.
+`trace_totals` (`mountain_perf.clocks`), pour les totaux de la trace.
 
 #### Consommateurs
 
@@ -2126,7 +2126,7 @@ Suite maximale d'intervalles `STOPPED` sous une convention.
 
 #### Producteur
 
-`stop_episodes` (`mountain_perf.backtest.clocks`).
+`stop_episodes` (`mountain_perf.clocks`).
 
 #### Consommateurs
 

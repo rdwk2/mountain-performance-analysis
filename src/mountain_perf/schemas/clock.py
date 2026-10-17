@@ -44,7 +44,7 @@ class IntervalState(StrEnum):
 
     Producteur
     ----------
-    La partition des horloges (``mountain_perf.backtest.clocks``).
+    La partition des horloges (``mountain_perf.clocks``).
 
     Consommateurs
     -------------
@@ -257,7 +257,7 @@ class ClockPartition:
 
     Producteur
     ----------
-    ``clock_partition`` (``mountain_perf.backtest.clocks``).
+    ``clock_partition`` (``mountain_perf.clocks``).
 
     Consommateurs
     -------------
@@ -315,7 +315,7 @@ class ClockTotals:
 
     Producteur
     ----------
-    ``trace_totals`` (``mountain_perf.backtest.clocks``), pour les totaux de la trace.
+    ``trace_totals`` (``mountain_perf.clocks``), pour les totaux de la trace.
 
     Consommateurs
     -------------
@@ -367,7 +367,7 @@ class StopEpisode:
 
     Producteur
     ----------
-    ``stop_episodes`` (``mountain_perf.backtest.clocks``).
+    ``stop_episodes`` (``mountain_perf.clocks``).
 
     Consommateurs
     -------------
