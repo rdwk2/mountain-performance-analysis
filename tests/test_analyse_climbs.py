@@ -770,6 +770,28 @@ def test_the_flat_length_threshold_is_inclusive() -> None:
     assert len(detect_climbs(track, profile, climb)) == 2
 
 
+@pytest.mark.parametrize(("excess", "count"), [(1e-12, 2), (1e-7, 2), (1e-5, 1)])
+def test_the_flat_length_threshold_is_reached_to_the_rounding(
+    excess: float, count: int
+) -> None:
+    """Étape 4 : le seuil d'un replat est atteint à l'arrondi près (``0010`` D5.2) :
+    un seuil plus long que la distance parcourue en mouvement de ``1e-12`` ou ``1e-7``
+    en relatif est atteint, et le replat coupe ; de ``1e-5``, il ne l'est pas. Aux
+    défauts, le seuil tombe sur un nombre entier de pas de grille, que les arrondis
+    d'une plateforme placeraient sinon d'un côté ou de l'autre."""
+    track, profile = _stepped_profile()
+    built = build_profile_with_diagnostics(track_route(track), profile)
+    grid = built.profile.distance_m
+    polyline = deduplicated_polyline(track.latitude_deg, track.longitude_deg)
+    times = [track.time_s[i] for i in polyline.indices]
+    at = [interpolate(polyline.distance_m, times, grid[h]) for h in (31, 32)]
+    length = interpolate(track.time_s, track.moving_distance_m, at[1]) - interpolate(
+        track.time_s, track.moving_distance_m, at[0]
+    )
+    climb = _with_parameters(flat_length_m=length * (1 + excess), flat_time_ratio=0.0)
+    assert len(detect_climbs(track, profile, climb)) == count
+
+
 def _three_climbs(flats: list[tuple[float, float, float]]) -> list[float]:
     part = climb_at(600, 0.15, 300)
     track = motion_track(

@@ -16,9 +16,12 @@ La chaîne, dans cet ordre :
    courtes, dont le gain se juge en temps à l'étape 6) ;
 4. les replats : une suite de pas de grille de pente inférieure à ``flat_grade`` est
    candidate si la distance parcourue en mouvement pendant elle atteint
-   ``flat_length_m − (w_eff − h)`` ; elle coupe si son temps en mouvement dépasse
-   ``flat_time_ratio`` fois celui du plus court des deux morceaux qu'elle sépare, les
-   fusions se faisant du replat le plus léger au plus lourd ;
+   ``flat_length_m − (w_eff − h)``, à l'arrondi près (un écart relatif d'au plus
+   ``CLOCK_THRESHOLD_RELATIVE_TOLERANCE`` vaut égalité, comme en ``0010`` D5.2 : aux
+   défauts, ce seuil vaut trois pas de grille, qu'un replat parcouru tout entier en
+   mouvement atteint au dernier chiffre près) ; elle coupe si son temps en mouvement
+   dépasse ``flat_time_ratio`` fois celui du plus court des deux morceaux qu'elle
+   sépare, les fusions se faisant du replat le plus léger au plus lourd ;
 5. les bornes : sur le profil, le dernier point à ``bound_tolerance_m`` du minimum et le
    premier à ``bound_tolerance_m`` du maximum ; en temps, sur ``z̃``, parmi les
    enregistrements à moins de ``w_eff`` de chaque borne, le dernier instant à la
@@ -55,7 +58,11 @@ from dataclasses import dataclass
 from datetime import timedelta
 from statistics import median
 
-from mountain_perf.clocks import clock_partition, window_measures
+from mountain_perf.clocks import (
+    CLOCK_THRESHOLD_RELATIVE_TOLERANCE,
+    clock_partition,
+    window_measures,
+)
 from mountain_perf.gpx.geo import deduplicated_polyline, haversine_m
 from mountain_perf.gpx.profile import (
     PROFILE_PARAMETER_SPECS,
@@ -494,6 +501,7 @@ def detect_climbs(
     grid_time = [interpolate(polyline.distance_m, times, s) for s in grid]
     window_m = built.effective_smoothing_window_m
     flat_threshold_m = climb["flat_length_m"] - (window_m - profile["grid_step_m"])
+    flat_reached_m = (1 - CLOCK_THRESHOLD_RELATIVE_TOLERANCE) * flat_threshold_m
     spans: list[ClimbSpan] = []
     for low, high in _zigzag(z, climb["hysteresis_m"]):
         if z[high] - z[low] < climb["min_gain_m"] * climb["min_profile_gain_fraction"]:
@@ -511,7 +519,7 @@ def detect_climbs(
                     k += 1
                 if (
                     _between(track, track.moving_distance_m, grid_time[h], grid_time[k])
-                    >= flat_threshold_m
+                    >= flat_reached_m
                 ):
                     cuts += [h, k]
                 h = k

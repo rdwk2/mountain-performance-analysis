@@ -107,9 +107,12 @@ paramètre (`CLIMB_PARAMETER_SPECS`). En résumé :
    rabote les côtes courtes, dont le gain se juge ensuite en temps ; un replat (des
    pas de grille de pente sous 2 %) coupe si la distance parcourue en mouvement
    pendant lui atteint 250 m en longueur vraie (le seuil retranche ce que le lissage
-   étale) et si son temps en mouvement dépasse un dixième de celui du plus court des
-   deux morceaux qu'il sépare ; les fusions vont du replat le plus léger au plus
-   lourd.
+   étale), à l'arrondi près comme en `0010` D5.2 (aux défauts, le seuil vaut trois pas
+   de grille, qu'un replat parcouru tout entier en mouvement atteint au dernier
+   chiffre près : sans la tolérance, l'arrondi des fonctions trigonométriques en
+   déciderait, d'une plateforme à l'autre), et si son temps en mouvement dépasse un
+   dixième de celui du plus court des deux morceaux qu'il sépare ; les fusions vont
+   du replat le plus léger au plus lourd.
 3. **Les bornes et le gain, en temps** : sur `z̃`, près de chaque borne du profil, le
    dernier instant à 1 m du minimum et le premier à 1 m du maximum ; le gain `G` est le
    maximum moins le minimum de `z̃` près de ces bornes. La clé d'une montée est son

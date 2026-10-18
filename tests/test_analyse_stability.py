@@ -175,10 +175,11 @@ def test_a_long_regular_climb_is_stable_under_every_variant() -> None:
 
 
 def test_a_flat_that_only_one_variant_cuts() -> None:
-    """Un replat de 220 m entre deux côtes de 60 m : la référence garde une seule
+    """Un replat de 210 m entre deux côtes de 60 m : la référence garde une seule
     montée ; sous ``flat_length_half``, le replat coupe. La montée n'est pas retrouvée
-    dans toutes les variantes, mais dans assez pour rester stable."""
-    flat = (220.0, 0.0, 1.0)
+    dans toutes les variantes, mais dans assez pour rester stable. (À 220 m, le replat
+    atteint son seuil à l'arrondi près sous ``grid_25_m``, qui coupe aussi.)"""
+    flat = (210.0, 0.0, 1.0)
     segments = [FLAT, climb_at(600, 0.15, 60), flat, climb_at(600, 0.15, 60), FLAT]
     track = motion_track(recording(segments, noise=False))
     assert track is not None
