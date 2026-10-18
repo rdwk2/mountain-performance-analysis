@@ -16,6 +16,23 @@ Backtest (à partir de M4) : métrique avant → après.
 
 ---
 
+### 2026-10-18 · M4d-2 — correctifs de relecture
+La relecture C (verdict « fusionnable en l'état ») et le balayage par mutation de la
+conception n'ont trouvé aucun défaut du code, mais des règles écrites que la batterie
+jointe n'exerçait pas : le calage d'un membre lu sur sa première sortie qui a l'usage ;
+les bornes d'un modèle calé sur son propre `P_k` ; le statut de la prévision du jour jugé
+avant les poids et `P⁰_k` (fourchette calculée seule) ; des fonctions pures (entrées
+intactes, rien de gardé d'un appel à l'autre, les résidus d'un jour partagés par ses
+sorties) ; chaque performance avec les fourchettes de sa sortie ; la relation de
+`BAND_ALPHA` à la pénalité et aux ordres extrêmes. Trois fichiers de tests de garantie,
+fournis par la conception, recopiés tels quels ; une ligne de `BACKLOG.md`.
+Conclusion : `just check` vert, 5 624 tests ; rien ne change dans `src/`. Rangé dans
+`tests/test_backtest_bands_guarantees.py`,
+`tests/test_backtest_report_bands_guarantees.py` et
+`tests/test_schemas_bands_guarantees.py`, branche `m4d/fourchettes`.
+
+---
+
 ### 2026-10-18 · M4d-2 — Backtest : fourchettes
 Les fourchettes de `0010` D11 sont calculées pour chaque sortie scorée avec usage du
 RÉSULTAT, pour les cinq modèles de D9.1, en usage et sous l'écoulé : réservoir `C_j` et
