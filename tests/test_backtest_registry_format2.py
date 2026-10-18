@@ -16,7 +16,7 @@ import re
 import typing
 from collections.abc import Callable
 from dataclasses import replace
-from datetime import timedelta
+from datetime import date, timedelta
 from pathlib import Path
 
 import pytest
@@ -65,6 +65,8 @@ from mountain_perf.backtest import (
 )
 from mountain_perf.model.engine import ENGINE_VERSION
 from mountain_perf.schemas import (
+    BAND_LABEL,
+    BAND_MODELS,
     REGISTRY_FORMAT_VERSION,
     REGISTRY_READABLE_FORMATS,
     Admission,
@@ -74,8 +76,10 @@ from mountain_perf.schemas import (
     DeclaredModel,
     DeclaredPerformance,
     Exclusion,
+    ModelBand,
     ModelKind,
     ModelResult,
+    OutingBands,
     OutingObservation,
     OutingOutcome,
     OutingScores,
@@ -84,6 +88,7 @@ from mountain_perf.schemas import (
     RepeatabilityReference,
     Result,
     ScenarioScores,
+    Unavailability,
 )
 from test_backtest_registry_shape import _render
 
@@ -171,11 +176,17 @@ def _with_shas(result: Result, shas: Callable[[str], str]) -> Result:
 
 
 def _line_at(event: RegistryEvent) -> bytes:
-    """La ligne canonique d'un événement à son format : avant le format 3, sans
-    ``admission`` au RÉSULTAT ni ``reference_documents`` à l'expérience (M4c-3), comme
-    le registre l'écrit et la relit."""
+    """La ligne canonique d'un événement à son format : avant le format 4, sans
+    ``bands`` aux sorties du RÉSULTAT (M4d-2) ; avant le format 3, sans ``admission``
+    au RÉSULTAT ni ``reference_documents`` à l'expérience (M4c-3), comme le registre
+    l'écrit et la relit."""
     data = encode_contract(event)
     assert isinstance(data, dict)
+    if event.format_version < 4:
+        result = data.get("result")
+        if isinstance(result, dict):
+            for outing in result["outings"]:
+                outing.pop("bands")
     if event.format_version < 3:
         result = data.get("result")
         if isinstance(result, dict):
@@ -351,14 +362,15 @@ def _shape(
 def test_versions() -> None:
     """§ 6.1 : le format écrit, les formats relus, le premier format de chaque type de
     document."""
-    assert REGISTRY_FORMAT_VERSION == 3
-    assert REGISTRY_READABLE_FORMATS == (1, 2, 3)
+    assert REGISTRY_FORMAT_VERSION == 4
+    assert REGISTRY_READABLE_FORMATS == (1, 2, 3, 4)
     assert dict(DOCUMENT_FIRST_FORMAT) == {
         OutingObservation: 1,
         ScenarioScores: 1,
         RepeatabilityReference: 1,
         CalibratedScenarioScores: 2,
         Admission: 3,
+        OutingBands: 4,
     }
     assert tuple(DOCUMENT_FIRST_FORMAT) == DOCUMENT_TYPES
 
@@ -368,10 +380,11 @@ def test_shape_of_format_1_is_unchanged() -> None:
     est celle de M4b-4 — 44 contrats, ``4e2f2b55…`` : le format 2 n'en change aucun ;
     le format 3 n'y ajoute que ``Result.admission`` et
     ``ExperimentDeclaration.reference_documents``, absents des lignes antérieures
-    (M4c-3)."""
+    (M4c-3) ; le format 4, que ``OutingResult.bands`` (M4d-2)."""
     without = {
         "Result": {"admission"},
         "ExperimentDeclaration": {"reference_documents"},
+        "OutingResult": {"bands"},
     }
     assert _shape([RegistryEvent, *DOCUMENT_TYPES[:3]], without) == (
         44,
@@ -495,9 +508,41 @@ def test_format_1_line_citing_a_current_document(tmp_path: Path) -> None:
         verify_registry(root)
 
 
+def _without_members(outing_id: str) -> OutingBands:
+    """Les fourchettes d'une sortie dont ``C_j`` est vide (q20, q27 : aucun jour fini
+    avant leur origine, D2.4) : les cinq modèles en ``support insuffisant``, sans
+    résidu ni borne (M4d-2)."""
+    return OutingBands(
+        outing_id,
+        date(2026, 5, 1),
+        date(2026, 5, 31),
+        BAND_LABEL,
+        False,
+        (),
+        tuple(
+            ModelBand(
+                kind,
+                (),
+                (),
+                None,
+                (),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                Unavailability.INSUFFICIENT_SUPPORT,
+            )
+            for kind in BAND_MODELS
+        ),
+    )
+
+
 def test_result_is_read_back_at_bit(tmp_path: Path) -> None:
     """Précision de D14 (M4c-2) : un RÉSULTAT à cinq modèles se relit égal, au bit, aux
-    objets écrits — les scores calés de chaque modèle, usage compris."""
+    objets écrits — les scores calés de chaque modèle, usage compris ; au format 4,
+    les fourchettes de chaque sortie à référence (M4d-2)."""
     models = (
         V0_RAW,
         V0_RECALIBRATED,
@@ -505,11 +550,19 @@ def test_result_is_read_back_at_bit(tmp_path: Path) -> None:
         replace(NAISMITH, kind=ModelKind.CONSTANT_SPEED),
         replace(NAISMITH, kind=ModelKind.TOBLER),
     )
-    written = _outcomes(
-        ModelKind.V0_RECALIBRATED,
-        ModelKind.CONSTANT_SPEED,
-        ModelKind.NAISMITH,
-        ModelKind.TOBLER,
+    written = tuple(
+        replace(
+            item,
+            bands=None
+            if item.scores[0][1].usage is None
+            else _without_members(item.outing_id),
+        )
+        for item in _outcomes(
+            ModelKind.V0_RECALIBRATED,
+            ModelKind.CONSTANT_SPEED,
+            ModelKind.NAISMITH,
+            ModelKind.TOBLER,
+        )
     )
     root = _registry(tmp_path, models=models, outcomes_=written)
     log = verify_registry(root)

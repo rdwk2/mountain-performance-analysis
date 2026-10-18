@@ -24,6 +24,7 @@ from enum import StrEnum
 from itertools import pairwise
 from types import MappingProxyType
 
+from mountain_perf.schemas.bands import OutingBands
 from mountain_perf.schemas.calibration import (
     CALIBRATED_KINDS,
     CalibratedOutingScores,
@@ -48,7 +49,7 @@ from mountain_perf.validation import (
     require_non_empty,
 )
 
-REGISTRY_FORMAT_VERSION = 3
+REGISTRY_FORMAT_VERSION = 4
 """Version du format que l'ajout d'un événement ou d'un document écrit (``0010`` D14).
 
 Chaque document la porte, chaque événement aussi (``format_version``). Le registre
@@ -61,15 +62,22 @@ les contrats du jour (précision de D14, M4c-2). Le format 3 (M4c-3) ajoute le d
 d'admission (``Admission``) et deux champs, ``Result.admission`` et
 ``ExperimentDeclaration.reference_documents`` : une ligne d'un format antérieur se relit
 sans eux — le registre les ajoute absents avant le décodage, et les retire à la
-réécriture canonique (précision de D14, M4c-3)."""
+réécriture canonique (précision de D14, M4c-3). Le format 4 (M4d-2) ajoute le document
+des fourchettes d'une sortie (``OutingBands``) et le champ ``OutingResult.bands`` ; une
+ligne d'un format antérieur se relit et se réécrit de même, sans lui (précision de D14,
+M4d-2)."""
 
-REGISTRY_READABLE_FORMATS: tuple[int, ...] = (1, 2, 3)
-"""Les formats que le registre relit, dans l'ordre (précisions de D14, M4c-2 et
-M4c-3) : chaque ligne au sien, chaque document au format de l'événement qui le cite."""
+REGISTRY_READABLE_FORMATS: tuple[int, ...] = (1, 2, 3, 4)
+"""Les formats que le registre relit, dans l'ordre (précisions de D14, M4c-2, M4c-3 et
+M4d-2) : chaque ligne au sien, chaque document au format de l'événement qui le cite."""
 
 ADMISSION_FIRST_FORMAT = 3
 """Le premier format dont le RÉSULTAT d'une expérience cite un document d'admission et
 dont l'expérience fige ses documents D8 (précision de D14, M4c-3)."""
+
+BANDS_FIRST_FORMAT = 4
+"""Le premier format dont le RÉSULTAT de ``just backtest`` cite, pour chaque sortie
+scorée avec usage, le document de ses fourchettes (précision de D14, M4d-2)."""
 
 CURVE_REF_HASH_LENGTH = 12
 """Nombre de caractères de l'empreinte ``sha256`` du CSV recopiés dans ``curve_ref``
@@ -1049,13 +1057,16 @@ class OutingResult:
     - ``coverage`` — sans unité — sa couverture (D4.11).
     - ``observation`` — sans unité — le ``sha256`` du document ``OutingObservation``.
     - ``models`` — sans unité — les documents de chaque modèle.
+    - ``bands`` — sans unité — le ``sha256`` du document ``OutingBands`` (format 4,
+      M4d-2) ; absent sans fourchettes.
 
     Invariants
     ----------
     - ``outing_id`` non vide ; ``observation`` est un ``sha256`` ; ``models`` est un
       tuple ;
     - ``models`` non vide, de modèles distincts ;
-    - ``usage`` présent pour tous les modèles ou pour aucun.
+    - ``usage`` présent pour tous les modèles ou pour aucun ;
+    - ``bands`` présent : un ``sha256``, et l'usage est présent.
 
     Producteur
     ----------
@@ -1068,13 +1079,14 @@ class OutingResult:
     Non promis
     ----------
     Le contrat ne lit pas les documents ; rien ne relie la couverture à
-    l'observation.
+    l'observation ; qui porte des fourchettes est dit par l'accord du registre.
     """
 
     outing_id: str
     coverage: Coverage
     observation: str
     models: tuple[ModelResult, ...]
+    bands: str | None = None
 
     def __post_init__(self) -> None:
         require_non_empty(self.outing_id, "outing_id")
@@ -1093,6 +1105,13 @@ class OutingResult:
             raise ContractError(
                 "l'usage est présent pour tous les modèles ou pour aucun (D3)."
             )
+        if self.bands is not None:
+            _require_sha256(self.bands, "bands")
+            if self.models[0].usage is None:
+                raise ContractError(
+                    "des fourchettes demandent l'usage (0010 D11) : la sortie n'en a "
+                    "pas."
+                )
 
 
 @dataclass(frozen=True)
@@ -1246,9 +1265,10 @@ class RegistryEvent:
     ----------
     1. ``recorded_at`` porte un fuseau, normalisé en UTC ; ``previous_hash`` présent :
        un ``sha256`` ; ``correction_reason`` présent : non vide ;
-    2. ``format_version`` dans ``REGISTRY_READABLE_FORMATS`` (1, 2 ou 3, M4c-3) ;
+    2. ``format_version`` dans ``REGISTRY_READABLE_FORMATS`` (1 à 4, M4d-2) ;
        avant le format 3, ni ``Result.admission``, ni ``reference_documents`` d'une
-       expérience (vérifié en dernier) ;
+       expérience ; avant le format 4, aucune sortie avec ``bands`` (vérifié en
+       dernier) ;
     3. ``number >= 1`` ;
     4. ``previous_hash`` absent **si et seulement si** ``number == 1`` ;
     5. le contenu présent est celui du type, et lui seul ;
@@ -1307,6 +1327,7 @@ class RegistryEvent:
         self._check_content()
         self._check_links()
         self._check_before_format_3()
+        self._check_before_format_4()
 
     def _check_before_format_3(self) -> None:
         """Invariant 2, avant le format 3 : ni document d'admission, ni documents D8
@@ -1324,6 +1345,18 @@ class RegistryEvent:
             raise ContractError(
                 f"une expérience du format {version} ne fige pas de documents D8 "
                 "(format 3)."
+            )
+
+    def _check_before_format_4(self) -> None:
+        """Invariant 2, avant le format 4 : aucune sortie ne cite de fourchettes
+        (précision de D14, M4d-2)."""
+        version = self.format_version
+        if version >= BANDS_FIRST_FORMAT or self.result is None:
+            return
+        if any(outing.bands is not None for outing in self.result.outings):
+            raise ContractError(
+                f"un RÉSULTAT du format {version} ne cite pas de fourchettes "
+                "(format 4)."
             )
 
     def _check_content(self) -> None:
@@ -1512,6 +1545,8 @@ class OutingOutcome:
       ``(modèle, scores)`` : ``OutingScores`` pour v0 brut,
       ``CalibratedOutingScores`` pour un modèle calé (M4c-2), dont le candidat
       (M4c-3).
+    - ``bands`` — sans unité — les fourchettes de la sortie (M4d-2) ; absentes sans
+      usage, et pour une expérience.
 
     Invariants
     ----------
@@ -1521,7 +1556,8 @@ class OutingOutcome:
       modèle (``control.model``) et de cette sortie ; v0 brut, des ``OutingScores``
       (M4c-2 ; le candidat est calé depuis M4c-3) ;
     - **la même observation** (``==``) pour tous les modèles (D7.1 : le support ne
-      dépend que de l'observation).
+      dépend que de l'observation) ;
+    - ``bands`` présentes : de cette sortie (``outing_id``), et la sortie a l'usage.
 
     Producteur
     ----------
@@ -1539,6 +1575,7 @@ class OutingOutcome:
     outing_id: str
     coverage: Coverage
     scores: tuple[tuple[ModelKind, OutingScores | CalibratedOutingScores], ...]
+    bands: OutingBands | None = None
 
     def __post_init__(self) -> None:
         require_non_empty(self.outing_id, "outing_id")
@@ -1564,6 +1601,17 @@ class OutingOutcome:
                 raise ContractError(
                     f"les scores de {kind} portent une autre observation que ceux de "
                     f"{first_kind} : le support ne dépend que de l'observation (D7.1)."
+                )
+        if self.bands is not None:
+            if self.bands.outing_id != self.outing_id:
+                raise ContractError(
+                    f"les fourchettes portent la sortie {self.bands.outing_id!r}, "
+                    f"{self.outing_id!r} attendue."
+                )
+            if first.usage is None:
+                raise ContractError(
+                    "des fourchettes demandent l'usage (0010 D11) : la sortie n'en a "
+                    "pas."
                 )
 
     def _check_scores_type(

@@ -168,12 +168,13 @@ src/mountain_perf/     le code de la bibliothèque
                        répétabilité (M4b-3)
     registry.py        EventKind, Declaration, Result, Failure, RegistryEvent,
                        RegistryLog, TrialCounts… : registre des expériences (M4b-4) ;
-                       format 3 (M4c-3)
+                       formats 3 (M4c-3) et 4 (M4d-2)
     calibration.py     ModelKind, CalibrationPopulation, ModelCalibration,
                        CalibratedScenarioScores, CalibratedPerformance… : calage des
                        modèles de référence (M4c-1) ; candidat calé (M4c-3)
     admission.py       contrats du document d'admission (M4c-3)
     drift.py           contrats du diagnostic de longue course, non stockés (M4d-1)
+    bands.py           contrats des fourchettes, stockés au registre au format 4 (M4d-2)
     interim.py         IndexedActivity, ActivityIndex, ActivityRecording et ses canaux,
                        IngestionReport : contrats d'interim/ (AN1-1)
     _dictionary.py     rendu du dictionnaire de données depuis les docstrings
@@ -205,13 +206,13 @@ src/mountain_perf/     le code de la bibliothèque
     repeatability.py   two_way_fit, contraction_rate, repeatability_reference : référence
                        D8 d'un parcours (M4b-3)
     codec.py           documents du registre : types, premier format, écriture et relecture
-                       par le codec commun (M4b-4, AN1-0) ; format 3 (M4c-3)
+                       par le codec commun (M4b-4, AN1-0) ; formats 3 (M4c-3) et 4 (M4d-2)
     registry.py        journal, documents, ajout, relecture, comptage des essais (M4b-4) ;
                        format 2, accord des modèles déclarés et des références D8 (M4c-2) ;
-                       format 3 (M4c-3)
+                       format 3 (M4c-3) ; format 4, accord des fourchettes (M4d-2)
     execution.py       git, domaine, déclaration, exécution enregistrée de just backtest (M4b-5) ;
                        cinq modèles et leur calage, calcul avant le RÉSULTAT (M4c-2) ;
-                       observation partagée (M4c-3)
+                       observation partagée (M4c-3) ; fourchettes (M4d-2)
     report.py          valeurs du rapport D15, fonctions pures (M4b-5)
     calibration.py     baseline_scores, calibration_population, calibrate,
                        calibrated_scores, calibrate_performances : calage D9 (M4c-1) ;
@@ -220,6 +221,8 @@ src/mountain_perf/     le code de la bibliothèque
     experiment.py      expérience d'admission enregistrée, par API (M4c-3)
     drift.py           diagnostic de longue course D12 : SVD de Jacobi, pente
                        descriptive, retraits, cumuls, fonctions pures (M4d-1)
+    bands.py           fourchettes D11 : réservoir, résidus, quantiles, bornes, score
+                       d'intervalle, couverture, médiane, fonctions pures (M4d-2)
   ingest/              ingestion Garmin, `raw/` → `interim/` (piste analyse, AN1-1 ;
                        M6b) ; seul `fit.py` importe l'extra `ingest` (`0011`, `0013`)
     types.py           SOURCE_TYPE_SPORTS : types de la source → Sport

@@ -16,6 +16,47 @@ Backtest (à partir de M4) : métrique avant → après.
 
 ---
 
+### 2026-10-18 · M4d-2 — correctifs de relecture
+La relecture C (verdict « fusionnable en l'état ») et le balayage par mutation de la
+conception n'ont trouvé aucun défaut du code, mais des règles écrites que la batterie
+jointe n'exerçait pas : le calage d'un membre lu sur sa première sortie qui a l'usage ;
+les bornes d'un modèle calé sur son propre `P_k` ; le statut de la prévision du jour jugé
+avant les poids et `P⁰_k` (fourchette calculée seule) ; des fonctions pures (entrées
+intactes, rien de gardé d'un appel à l'autre, les résidus d'un jour partagés par ses
+sorties) ; chaque performance avec les fourchettes de sa sortie ; la relation de
+`BAND_ALPHA` à la pénalité et aux ordres extrêmes. Trois fichiers de tests de garantie,
+fournis par la conception, recopiés tels quels ; une ligne de `BACKLOG.md`.
+Conclusion : `just check` vert, 5 624 tests ; rien ne change dans `src/`. Rangé dans
+`tests/test_backtest_bands_guarantees.py`,
+`tests/test_backtest_report_bands_guarantees.py` et
+`tests/test_schemas_bands_guarantees.py`, branche `m4d/fourchettes`.
+
+---
+
+### 2026-10-18 · M4d-2 — Backtest : fourchettes
+Les fourchettes de `0010` D11 sont calculées pour chaque sortie scorée avec usage du
+RÉSULTAT, pour les cinq modèles de D9.1, en usage et sous l'écoulé : réservoir `C_j` et
+ses membres, résidus de jour `ln(T_c / P_c)` sur le support admis (un par jour, la
+prévision calée par le calage du membre), quantiles aux rangs `⌈n q⌉`, bornes datées de
+chaque élément de `K` (observé ou non), score d'intervalle, couverture et scores de la
+prévision médiane. Code a écrit la bibliothèque (`backtest/bands.py`, d'après le § 6.2 du
+brief) ; les contrats (`schemas/bands.py`), le correctif de `src/` (registre au format 4,
+exécution, rapport complet, exports), les cinq fichiers de tests et le correctif des
+tests existants sont ceux de la conception, appliqués tels quels, empreintes vérifiées.
+Le registre passe au format 4 : un document de fourchettes par sortie scorée à
+référence, les lignes des formats 1 à 3 relues et réécrites à l'octet. Le rapport
+complet porte la table des agrégats et une rubrique par sortie, sous l'étiquette de D11,
+jamais « 80 % » ; la synthèse ne change pas. Trois précisions de `0010` (D11, D14, D15),
+README (paragraphe de `just backtest`, « État et plan »), `CLAUDE.md` (structure, accord
+de la piste analyse relayé), `BACKLOG.md` (une ligne). Les 52 contre-épreuves du § 8.2,
+écrites sur la bibliothèque, rougissent les tests joints.
+Conclusion : `just check` vert, 5 616 tests (5 614 passés, 2 ignorés sous Windows) ; D11 est
+calculé et conservé au registre, sans calibration de la plage. Rangé dans
+`src/mountain_perf/{schemas,backtest}/bands.py`, `tests/test_*bands*.py`,
+`tests/test_backtest_registry_format4.py`, branche `m4d/fourchettes`.
+
+---
+
 ### 2026-10-17 · AN1-2a — Horloges communes
 Le contenu de `backtest/series.py` (trous, blocs, lissage par bloc, `d_r` : `0010` D4.4)
 et de `backtest/clocks.py` (fenêtres, qualification, confirmation, partition M/S/U,
