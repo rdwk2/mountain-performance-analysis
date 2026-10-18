@@ -281,10 +281,10 @@ documentation.
   d'`interim/` sans dépendance (`docs/decisions/0013`)
 - vues `Activity` et `TrackPointStream` pour M6b, et table des types de la source vers
   `Sport`, relue par le moteur
-- tables `activités` et `montées` de `processed/`, avec une définition de la montée
-  dont on contrôle la stabilité
-- figure descriptive de Q1 : la vitesse ascensionnelle à pente, durée et altitude
-  comparables
+- tables `activites` et `montees` de `processed/`, avec une définition de la montée
+  dont on contrôle la stabilité (`docs/decisions/0014`)
+- figure descriptive de Q1 : la vitesse ascensionnelle à pente, gain et altitude
+  comparables (la durée comparable se lit en gain, `docs/decisions/0014`)
 
 **Fini quand** : une commande régénère `interim/` et `processed/` depuis `raw/`, les
 vues du moteur se calculent depuis `interim/`, et la figure de Q1 se recalcule.

@@ -16,6 +16,27 @@ Backtest (à partir de M4) : métrique avant → après.
 
 ---
 
+### 2026-10-18 · AN1-2b — Montées et tables
+Les montées d'une activité et les tables de `processed/` (`docs/decisions/0014`,
+acceptée). La montée se détecte sur le profil du moteur ; ses bornes et son gain se
+lisent en temps, sur l'altitude lissée et les horloges communes (`0010` D4.4 et D5) ; sa
+VAM principale est le gain pris en mouvement divisé par le temps en mouvement, avec une
+variante et une enveloppe sur les cinq conventions. Régimes lus sur le gain, à une
+vitesse de référence déclarée dans `athlete.toml` (exception à la charte, § 3) ;
+strates de pente et d'altitude ; drapeaux qui marquent sans retirer ; stabilité sous
+douze variantes déclarées. Deux tables Parquet, `activites` et `montees`, avec leur
+provenance, écrites par `mperf tables` ; `just process` régénère `interim/` et
+`processed/` depuis `raw/` ; le hook refuse les deux à Claude Code. L'extra `analyse`
+(pyarrow seul, importé par `analyse/parquet.py` seul). Contrats dans
+`schemas/processed.py`, dictionnaire régénéré ; charte, Q1, pièges, `CLAUDE.md`,
+README, ROADMAP, CI ; quatre lignes au `BACKLOG`.
+Conclusion : `just check` vert, 5 714 tests avec tous les extras ; la figure de Q1
+lira ces tables (AN1-2c). Rangé dans `src/mountain_perf/analyse/`,
+`src/mountain_perf/schemas/processed.py`, `docs/decisions/0014-montees-et-tables.md`,
+branche `an1/montees-tables`.
+
+---
+
 ### 2026-10-17 · AN1-2a — Horloges communes
 Le contenu de `backtest/series.py` (trous, blocs, lissage par bloc, `d_r` : `0010` D4.4)
 et de `backtest/clocks.py` (fenêtres, qualification, confirmation, partition M/S/U,
