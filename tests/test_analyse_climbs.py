@@ -616,7 +616,7 @@ def test_profile_bounds() -> None:
     z = [0.0, 0.5, 5.0, 9.5, 10.0, 9.6]
     assert _profile_bounds(z, 0, 5, 1.0) == (1, 3)
     assert _profile_bounds(z, 0, 5, 0.0) == (0, 4)
-    assert _profile_bounds([0.0, 10.0, -5.0], 0, 1, 0.0) == (0, 1)
+    assert _profile_bounds([0.0, 10.0, -5.0], 0, 2, 0.0) == (0, 1)
 
 
 def test_time_bounds() -> None:
