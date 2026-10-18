@@ -307,9 +307,11 @@ def motion_track(
 
 
 def interpolate(xs: Sequence[float], ys: Sequence[float], x: float) -> float:
-    """``ys`` interpolée linéairement en ``x`` sur ``xs`` (croissants), prolongée par
-    le premier ou le dernier intervalle hors de ``xs`` ; la valeur de gauche entre deux
-    abscisses confondues."""
+    """``ys`` interpolée linéairement en ``x`` sur ``xs`` (croissants au sens large),
+    prolongée par le premier ou le dernier intervalle hors de ``xs``. Une abscisse
+    répétée est un saut : en elle, la valeur la plus à droite ; un premier ou un
+    dernier intervalle de longueur nulle rend sa valeur de gauche, prolongée au-delà
+    du bout."""
     i = max(0, min(bisect_right(xs, x) - 1, len(xs) - 2))
     if xs[i + 1] == xs[i]:
         return ys[i]

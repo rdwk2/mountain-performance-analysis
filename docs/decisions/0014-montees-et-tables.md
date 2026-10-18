@@ -208,9 +208,10 @@ tous.
 Chaque régénération recalcule la chaîne sous douze variantes déclarées, une à la fois
 (`analyse/stability.py`) : hystérésis, longueur des replats, rapport de temps des
 replats et tolérance des bornes, chacun divisé et multiplié par deux ; pente des
-replats à ± 1 point ; lissage du profil à cinq points ; grille de 25 m. Une montée est
-retrouvée dans une variante si une montée de la variante la recouvre en temps avec un
-indice de Jaccard d'au moins 0,5. Elle est **stable** si elle est retrouvée dans au
+replats à ± 1 point ; lissage du profil sur 250 m (cinq points de la grille par
+défaut : la variante fixe les mètres) ; grille de 25 m. Une montée est retrouvée dans
+une variante si une montée de la variante la recouvre en temps avec un indice de
+Jaccard d'au moins 0,5. Elle est **stable** si elle est retrouvée dans au
 moins 80 % des variantes et si l'écart relatif de sa VAM principale y reste sous 5 %.
 Une montée instable est marquée (colonne `stable`), jamais retirée. La stabilité au
 niveau de la figure vient avec elle (AN1-2c).
@@ -227,9 +228,9 @@ niveau de la figure vient avec elle (AN1-2c).
 - **La provenance** (`ProcessedProvenance`), dans les métadonnées des deux fichiers :
   l'empreinte d'`interim/activities/`, la version du paquet, `V_ref` et sa source,
   les produits déclarés barométriques, tous les paramètres de la définition, les
-  comptes. Aucun instant de génération : le même `interim/`, le même code et la même
-  version de pyarrow (celle de `uv.lock`) écrivent les mêmes octets sur la même
-  plateforme. D'une plateforme à l'autre (Windows, Linux), les fonctions
+  comptes. Aucun instant de génération : le même `interim/`, le même code, le même
+  `athlete.toml` et la même version de pyarrow (celle de `uv.lock`) écrivent les mêmes
+  octets sur la même plateforme. D'une plateforme à l'autre (Windows, Linux), les fonctions
   trigonométriques du système peuvent différer d'une unité du dernier chiffre, et les
   valeurs qui en dépendent dans leurs derniers chiffres : deux plateformes se
   comparent valeur par valeur, à une tolérance relative. La version du paquet ne

@@ -183,6 +183,97 @@ def test_the_provenance(data_dir: Path, tables: Tables) -> None:
         assert published in provenance.parameters
 
 
+def test_the_defaults_are_those_of_the_decision() -> None:
+    """Constat 4 de la relecture de la PR #31 : chaque défaut de la définition, tel
+    que ``0014`` (et ``0008`` pour le profil) l'écrit ; la provenance les porte tous."""
+    assert dict(DEFAULT_DEFINITION.items()) == {
+        "climb.bound_tolerance_m": 1.0,
+        "climb.flat_grade": 0.02,
+        "climb.flat_length_m": 250.0,
+        "climb.flat_time_ratio": 0.10,
+        "climb.hysteresis_m": 10.0,
+        "climb.max_sustained_vertical_speed_ms": 2000 / 3600,
+        "climb.min_climb_steps": 30.0,
+        "climb.min_gain_m": 20.0,
+        "climb.min_grade": 0.05,
+        "climb.min_profile_gain_fraction": 0.5,
+        "climb.slow_max_horizontal_speed_ms": 0.30,
+        "climb.slow_max_vertical_speed_ms": 0.03,
+        "profile.grid_step_m": 50.0,
+        "profile.point_match_max_offset_m": 150.0,
+        "profile.point_match_min_separation_m": 500.0,
+        "profile.smoothing_window_m": 150.0,
+        "quality.loop_closure_distance_m": 50.0,
+        "quality.max_foot_horizontal_speed_ms": 10.0,
+        "quality.max_human_vertical_speed_ms": 3000 / 3600,
+        "quality.max_loop_closure_rate_ms": 5 / 3600,
+        "quality.max_outside_moving_gain_fraction": 0.20,
+        "quality.max_record_vertical_rate_ms": 3.0,
+        "quality.max_sinuosity": 6.0,
+        "quality.max_slow_moving_fraction": 0.10,
+        "regimes.long_climb_min_duration_s": 900.0,
+        "regimes.low_altitude_max_m": 1500.0,
+        "regimes.mid_altitude_max_m": 2500.0,
+        "regimes.moderate_grade_max": 0.15,
+        "regimes.short_climb_max_duration_s": 300.0,
+        "regimes.steep_grade_max": 0.30,
+        "stability.max_relative_deviation": 0.05,
+        "stability.min_found_fraction": 0.80,
+        "stability.min_jaccard": 0.5,
+    }
+
+
+def test_a_climb_with_two_flags_lists_them_sorted(tmp_path: Path) -> None:
+    """Constat 2 de la relecture de la PR #31 : une montée à 11 m/s à l'horizontale,
+    à pied, sans baromètre attesté, porte deux drapeaux, triés."""
+    rec = recording(
+        [FLAT, climb_at(2376, 0.06, 150), FLAT], noise=False, barometer=False
+    )
+    write_one(tmp_path, rec)
+    (climb,) = build_tables(tmp_path, DEFAULT_SETTINGS).climbs
+    assert climb.flags == (ClimbFlag.NON_BAROMETRIC, ClimbFlag.NON_HUMAN)
+
+
+@pytest.mark.parametrize(
+    ("segments", "source_activity_type", "counts"),
+    [
+        ([FLAT, climb_at(600, 0.15, 60), FLAT], "trail_running", (1, 0, 0, 0, 0, 0)),
+        (
+            [FLAT, climb_at(2376, 0.06, 150), FLAT],
+            "trail_running",
+            (0, 1, 0, 0, 0, 0),
+        ),
+        (
+            [FLAT, climb_at(2376, 0.06, 150), FLAT],
+            "mountain_biking",
+            (0, 0, 0, 0, 0, 1),
+        ),
+    ],
+)
+def test_each_regime_count_reads_its_own_regime(
+    tmp_path: Path,
+    segments: list[tuple[float, float, float]],
+    source_activity_type: str,
+    counts: tuple[int, ...],
+) -> None:
+    """Constat 3 de la relecture de la PR #31 : une activité d'une seule montée, une
+    côte, une intermédiaire (150 m à pied) ou un autre sport (la même en VTT), la
+    compte dans la colonne de son régime et dans aucune autre (côtes, intermédiaires,
+    montées longues, ski de randonnée, ski de randonnée court, autres sports)."""
+    write_one(tmp_path, recording(segments, noise=False), source_activity_type)
+    tables = build_tables(tmp_path, DEFAULT_SETTINGS)
+    (activity,) = tables.activities
+    assert activity.climb_count == 1
+    assert (
+        activity.short_climb_count,
+        activity.intermediate_count,
+        activity.long_climb_count,
+        activity.ski_touring_count,
+        activity.short_ski_touring_count,
+        activity.other_sport_count,
+    ) == counts
+
+
 def test_the_same_interim_gives_the_same_tables(data_dir: Path, tables: Tables) -> None:
     assert build_tables(data_dir, DEFAULT_SETTINGS) == tables
 

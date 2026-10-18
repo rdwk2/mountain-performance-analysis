@@ -26,7 +26,12 @@ from mountain_perf.analyse.parquet import (
     write_tables,
 )
 from mountain_perf.analyse.tables import Tables, build_tables
-from mountain_perf.schemas.processed import ClimbFlag, ClimbRegime
+from mountain_perf.schemas.processed import (
+    ActivityRow,
+    ClimbFlag,
+    ClimbRegime,
+    ClimbRow,
+)
 
 
 @pytest.fixture(scope="module")
@@ -74,6 +79,19 @@ def test_the_round_trip_keeps_enums_lists_and_missing_values(
     assert no_track.moving_s_by_convention is None
     assert no_track.session_count == 1
     assert again.activities[3].session_count is None
+
+
+def test_the_published_names_of_the_format(tables: Tables) -> None:
+    """Constat 4 de la relecture de la PR #31 : ce que la docstring du module publie,
+    et que liront la figure et les notebooks : la provenance sous la clé
+    ``mountain_perf.provenance``, le décalage UTC d'un instant dans la colonne
+    ``<nom>_utc_offset_s``."""
+    climbs = parquet._table(tables.climbs, ClimbRow, tables.provenance)
+    activities = parquet._table(tables.activities, ActivityRow, tables.provenance)
+    for table in (climbs, activities):
+        assert list(table.schema.metadata) == [b"mountain_perf.provenance"]
+    assert "local_start_time_utc_offset_s" in climbs.column_names
+    assert "start_time_utc_offset_s" in activities.column_names
 
 
 def test_writing_twice_gives_the_same_bytes(tmp_path: Path, tables: Tables) -> None:

@@ -643,7 +643,8 @@ def test_a_second_climb_below_the_first_keeps_its_own_top() -> None:
 
 def test_interpolate() -> None:
     """Linéaire par intervalle, prolongée par le premier et le dernier intervalle ;
-    entre deux abscisses confondues, la valeur de gauche."""
+    en une abscisse répétée, la valeur la plus à droite ; un intervalle de longueur
+    nulle au bout rend sa valeur de gauche."""
     xs, ys = (0.0, 1.0, 3.0, 4.0), (0.0, 10.0, 0.0, 5.0)
     cases = {0.5: 5.0, 1.0: 10.0, 2.0: 5.0, 3.5: 2.5, -1.0: -10.0, 5.0: 10.0}
     for x, expected in cases.items():
@@ -651,6 +652,9 @@ def test_interpolate() -> None:
     assert interpolate((0.0, 0.0, 1.0), (0.0, 5.0, 10.0), 0.5) == 7.5
     assert interpolate((0.0, 1.0, 1.0), (0.0, 1.0, 7.0), 1.0) == 1.0
     assert interpolate((0.0, 1.0, 1.0), (0.0, 1.0, 7.0), 2.0) == 1.0
+    assert interpolate((0.0, 1.0, 1.0, 2.0), (0.0, 1.0, 7.0, 9.0), 1.0) == 7.0
+    assert interpolate((0.0, 0.0, 1.0), (5.0, 3.0, 9.0), 0.0) == 3.0
+    assert interpolate((0.0, 0.0, 1.0), (5.0, 3.0, 9.0), -1.0) == 5.0
 
 
 @pytest.mark.parametrize(
@@ -681,6 +685,7 @@ def test_profile_bounds() -> None:
     assert _profile_bounds(z, 0, 5, 1.0) == (1, 3)
     assert _profile_bounds(z, 0, 5, 0.0) == (0, 4)
     assert _profile_bounds([0.0, 10.0, -5.0], 0, 2, 0.0) == (0, 1)
+    assert _profile_bounds([0.6, 1.4, 5.0, 10.0, 0.0], 0, 4, 1.0) == (1, 3)
 
 
 def test_time_bounds() -> None:

@@ -16,6 +16,31 @@ Backtest (à partir de M4) : métrique avant → après.
 
 ---
 
+### 2026-10-18 · AN1-2b — correctifs de relecture
+La relecture C (« fusionnable après correction du constat 1 ») et le contrôle réel de
+la PR. Une montée bordée d'un replat qui monte doucement (de 1 à 2 %) l'absorbait : la
+borne en temps se posait au bout de sa fenêtre, la VAM se diluait et la coupe des
+replats ne lisait plus leur temps. Les bornes en temps se resserrent désormais tant que
+l'altitude lissée monte de moins de `flat_grade` sur un pas de grille de distance
+réalisée, puis se placent par la tolérance dans le premier pas qui monte d'au moins
+autant (`0014`, point 3 ; un piège de plus). Le seuil de longueur d'un replat est atteint à
+l'arrondi près, comme en `0010` D5.2 : aux défauts, il vaut trois pas de grille, et
+l'arrondi des fonctions trigonométriques en décidait d'une plateforme à l'autre
+(contrôle réel). Tests : replats montants (avec et sans bruit, échantillonnage espacé,
+fusion, coupe), une montée à deux drapeaux, chaque compte par régime, les 33 défauts
+de la définition, les noms publiés du format Parquet, des clôtures d'import qui voient
+`from mountain_perf import backtest`, une entrée de plus pour `_profile_bounds` ; un
+test de la stabilité passe son replat de 220 à 210 m (220 m tombe au seuil sous
+`grid_25_m`). Textes : `interpolate`, `athlete.toml` dans « les mêmes octets », la
+variante de lissage, les régimes du README ; dictionnaire régénéré ; deux lignes au
+`BACKLOG` (une propriété de la chaîne ; les égalités du profil sur un palier).
+Conclusion : `just check` vert, 6 008 tests avec tous les extras ; les montées
+bordées d'un replat montant perdent ce replat. Rangé dans
+`src/mountain_perf/analyse/climbs.py`, `tests/test_analyse_*.py`,
+`docs/decisions/0014-montees-et-tables.md`, branche `an1/montees-tables`.
+
+---
+
 ### 2026-10-18 · AN1-2b — Montées et tables
 Les montées d'une activité et les tables de `processed/` (`docs/decisions/0014`,
 acceptée). La montée se détecte sur le profil du moteur ; ses bornes et son gain se

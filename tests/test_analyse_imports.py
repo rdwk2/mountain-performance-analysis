@@ -19,10 +19,30 @@ SOURCE = Path(mountain_perf.__file__).parent
 ANALYSE = SOURCE / "analyse"
 
 
-def _imports(path: Path) -> dict[str, set[str]]:
-    return _imported_modules(
-        ast.parse(path.read_text(encoding="utf-8")), _package(path)
+def _modules(imports: dict[str, set[str]]) -> set[str]:
+    """Les modules d'``imports``, et chaque nom pris à un module comme sous-module
+    possible : ``from mountain_perf import backtest`` compte comme
+    ``import mountain_perf.backtest``."""
+    return {*imports, *(f"{m}.{n}" for m, names in imports.items() for n in names)}
+
+
+def _imports(path: Path) -> set[str]:
+    return _modules(
+        _imported_modules(ast.parse(path.read_text(encoding="utf-8")), _package(path))
     )
+
+
+def test_a_name_taken_from_a_package_counts_as_its_module() -> None:
+    """Constat 5 de la relecture de la PR #31 : ``from mountain_perf import
+    backtest`` (ou ``analyse``) se lit comme l'import du module, que les clôtures
+    ci-dessous voient."""
+    tree = ast.parse("from mountain_perf import analyse, backtest\nimport pyarrow\n")
+    assert _modules(_imported_modules(tree, "mountain_perf.analyse")) == {
+        "mountain_perf",
+        "mountain_perf.analyse",
+        "mountain_perf.backtest",
+        "pyarrow",
+    }
 
 
 def test_analyse_never_imports_the_backtest() -> None:

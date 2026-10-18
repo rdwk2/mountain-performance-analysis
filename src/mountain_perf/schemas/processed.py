@@ -785,8 +785,8 @@ class ProcessedProvenance:
     Non promis
     ----------
     - un instant de génération : il n'y en a pas, et deux régénérations du même
-      ``interim/`` par le même code, sur la même plateforme, écrivent les mêmes
-      tables ;
+      ``interim/`` par le même code, avec le même ``athlete.toml`` (``V_ref``,
+      produits barométriques), sur la même plateforme, écrivent les mêmes tables ;
     - d'une plateforme à l'autre (Windows, Linux), les mêmes tables à l'octet : les
       fonctions trigonométriques du système peuvent différer d'une unité du dernier
       chiffre.
