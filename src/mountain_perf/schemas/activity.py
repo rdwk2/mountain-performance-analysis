@@ -227,7 +227,8 @@ class TrackPointStream:
 
     Consommateurs
     -------------
-    L'estimation de courbe (M6b).
+    L'estimation de courbe (M6b) ; les montées de la piste analyse
+    (``mountain_perf.analyse.climbs``, AN1-2b).
 
     Non promis
     ----------
