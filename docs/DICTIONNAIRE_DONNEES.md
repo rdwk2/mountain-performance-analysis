@@ -170,6 +170,11 @@
 - `DriftFit`
 - `DriftDiagnostic`
 - `OutingDrift`
+- `ReservoirMember`
+- `BandQuantiles`
+- `BandElement`
+- `ModelBand`
+- `OutingBands`
 
 ---
 
@@ -4911,6 +4916,7 @@ Le contrat ne lit pas les documents.
 | `coverage` | `Coverage` | — |
 | `observation` | `str` | — |
 | `models` | `tuple[ModelResult, ...]` | — |
+| `bands` | `str \| None` | `None` |
 
 Une sortie scorée d'un RÉSULTAT (`0010` D14, D4.11).
 
@@ -4920,13 +4926,16 @@ Une sortie scorée d'un RÉSULTAT (`0010` D14, D4.11).
 - `coverage` — sans unité — sa couverture (D4.11).
 - `observation` — sans unité — le `sha256` du document `OutingObservation`.
 - `models` — sans unité — les documents de chaque modèle.
+- `bands` — sans unité — le `sha256` du document `OutingBands` (format 4,
+  M4d-2) ; absent sans fourchettes.
 
 #### Invariants
 
 - `outing_id` non vide ; `observation` est un `sha256` ; `models` est un
   tuple ;
 - `models` non vide, de modèles distincts ;
-- `usage` présent pour tous les modèles ou pour aucun.
+- `usage` présent pour tous les modèles ou pour aucun ;
+- `bands` présent : un `sha256`, et l'usage est présent.
 
 #### Producteur
 
@@ -4939,7 +4948,7 @@ Une sortie scorée d'un RÉSULTAT (`0010` D14, D4.11).
 #### Non promis
 
 Le contrat ne lit pas les documents ; rien ne relie la couverture à
-l'observation.
+l'observation ; qui porte des fourchettes est dit par l'accord du registre.
 
 ---
 
@@ -5099,9 +5108,10 @@ Un événement du registre, une ligne du journal (`0010` D14).
 
 1. `recorded_at` porte un fuseau, normalisé en UTC ; `previous_hash` présent :
    un `sha256` ; `correction_reason` présent : non vide ;
-2. `format_version` dans `REGISTRY_READABLE_FORMATS` (1, 2 ou 3, M4c-3) ;
+2. `format_version` dans `REGISTRY_READABLE_FORMATS` (1 à 4, M4d-2) ;
    avant le format 3, ni `Result.admission`, ni `reference_documents` d'une
-   expérience (vérifié en dernier) ;
+   expérience ; avant le format 4, aucune sortie avec `bands` (vérifié en
+   dernier) ;
 3. `number >= 1` ;
 4. `previous_hash` absent **si et seulement si** `number == 1` ;
 5. le contenu présent est celui du type, et lui seul ;
@@ -5180,6 +5190,7 @@ fichiers, pas par le contrat.
 | `outing_id` | `str` | — |
 | `coverage` | `Coverage` | — |
 | `scores` | `tuple[tuple[ModelKind, OutingScores \| CalibratedOutingScores], ...]` | — |
+| `bands` | `OutingBands \| None` | `None` |
 
 Ce qu'une exécution a produit pour une sortie (`0010` D14, D7.1).
 
@@ -5191,6 +5202,8 @@ Ce qu'une exécution a produit pour une sortie (`0010` D14, D7.1).
   `(modèle, scores)` : `OutingScores` pour v0 brut,
   `CalibratedOutingScores` pour un modèle calé (M4c-2), dont le candidat
   (M4c-3).
+- `bands` — sans unité — les fourchettes de la sortie (M4d-2) ; absentes sans
+  usage, et pour une expérience.
 
 #### Invariants
 
@@ -5200,7 +5213,8 @@ Ce qu'une exécution a produit pour une sortie (`0010` D14, D7.1).
   modèle (`control.model`) et de cette sortie ; v0 brut, des `OutingScores`
   (M4c-2 ; le candidat est calé depuis M4c-3) ;
 - **la même observation** (`==`) pour tous les modèles (D7.1 : le support ne
-  dépend que de l'observation).
+  dépend que de l'observation) ;
+- `bands` présentes : de cette sortie (`outing_id`), et la sortie a l'usage.
 
 #### Producteur
 
@@ -8459,3 +8473,326 @@ Le rapport de `just backtest`.
 - les horloges ne sont pas recoupées avec celles du rapport de la sortie ;
 - `horizon_s` n'est pas recoupé avec les intervalles ;
 - n'est pas un contrat stocké.
+
+---
+
+## `ReservoirMember`
+
+*`mountain_perf.schemas.bands` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `civil_date` | `date` | — |
+| `in_window` | `bool` | — |
+| `outing_count` | `int` | — |
+| `segment_count` | `int` | — |
+| `support_m` | `float` | — |
+| `observed_s` | `float \| None` | — |
+| `unavailability` | `Unavailability \| None` | — |
+
+| Propriété calculée | Type | Sens |
+|---|---|---|
+| `available` | `bool` | Le membre a un support et un temps (`unavailability is None`). |
+
+Un membre `c` du réservoir de `j` (`0010` D2.4, D11 ; précision de D9.2),
+indépendant du modèle.
+
+#### Champs
+
+- `civil_date` — jour civil — le jour de `c`.
+- `in_window` — sans unité — `c` est dans la fenêtre de la courbe (D2.2).
+- `outing_count` — sans unité — ses sorties scorées qui ont l'usage (les sorties
+  contributrices).
+- `segment_count` — sans unité — les segments admis de ces sorties.
+- `support_m` — mètres — leur longueur sur la référence.
+- `observed_s` — secondes — `T_c`, sous l'écoulé.
+- `unavailability` — sans unité — `support insuffisant` (aucun segment) ou
+  `temps nul` (`T_c = 0`).
+
+#### Invariants
+
+1. `outing_count`, `segment_count` `>= 0` ; un segment au moins ⇒ une sortie
+   au moins ;
+2. `support_m` fini, nul sans segment, `> 0` sinon ;
+3. exactement un de `observed_s` et `unavailability` ; `observed_s` fini et
+   `> 0` ; `unavailability` dans `MEMBER_UNAVAILABILITY` ;
+4. `support insuffisant` si et seulement si aucun segment.
+
+#### Producteur
+
+`reservoir_member` (`mountain_perf.backtest.bands`).
+
+#### Consommateurs
+
+`OutingBands` ; le rapport (M4d-2).
+
+#### Non promis
+
+- `in_window` n'est recoupé avec la fenêtre que par `OutingBands` ;
+- les régimes du support ne sont pas portés : l'observation de `c` les a.
+
+---
+
+## `BandQuantiles`
+
+*`mountain_perf.schemas.bands` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `low` | `float` | — |
+| `median` | `float` | — |
+| `prudent` | `float` | — |
+| `high` | `float` | — |
+
+| Propriété calculée | Type | Sens |
+|---|---|---|
+| `values` | `tuple[float, float, float, float]` | Les quatre quantiles, dans l'ordre de `BAND_QUANTILE_ORDERS`. |
+
+Les quantiles empiriques des résidus disponibles (`0010` D11 ; précision de
+M4d-2).
+
+#### Champs
+
+- `low`, `median`, `prudent`, `high` — sans unité (log-rapport) —
+  `Q_0,1`, `Q_0,5` (inférieure centrale si `n` pair), `Q_2/3` et
+  `Q_0,9` : la statistique d'ordre de rang `⌈n q⌉` (à partir de 1).
+
+#### Invariants
+
+Finis ; `low <= median <= prudent <= high`.
+
+#### Producteur
+
+`band_quantiles` (`mountain_perf.backtest.bands`).
+
+#### Consommateurs
+
+`ModelBand` ; le rapport (M4d-2).
+
+#### Non promis
+
+Ce sont des rangs, pas des niveaux de confiance : aucune couverture de 80 % n'est
+promise (D11, passe experte D11-F).
+
+---
+
+## `BandElement`
+
+*`mountain_perf.schemas.bands` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `forecast_s` | `float` | — |
+| `weight` | `float` | — |
+| `base_s` | `float` | — |
+| `lower_s` | `float` | — |
+| `median_s` | `float` | — |
+| `prudent_s` | `float` | — |
+| `upper_s` | `float` | — |
+| `width_s` | `float` | — |
+| `observed_s` | `float \| None` | — |
+| `observation` | `Unavailability \| None` | — |
+| `score_s` | `float \| None` | — |
+| `covered` | `bool \| None` | — |
+
+| Propriété calculée | Type | Sens |
+|---|---|---|
+| `observed` | `bool` | L'élément est observé (`observation is None`). |
+
+La fourchette d'un élément `k` du `K` par défaut de `j` (`0010` D11,
+D7.4 ; précision de M4d-2).
+
+#### Champs
+
+- `forecast_s` — secondes — `P_k`, le cumul du modèle depuis `b_0`, calé à
+  `o_j`.
+- `weight` — sans unité — `w_k` (D7.4, proportionnel à `P⁰_k`).
+- `base_s` — secondes — `P⁰_k`, le cumul de v0 brut.
+- `lower_s`, `median_s`, `prudent_s`, `upper_s` — secondes — `P_k e^{Q}`
+  pour les quatre quantiles.
+- `width_s` — secondes — `u_k − l_k`.
+- `observed_s` — secondes — `T_k` sous l'écoulé, aux départs (D4.12).
+- `observation` — sans unité — le motif d'un élément non observé.
+- `score_s` — secondes — `IS_k`.
+- `covered` — sans unité — `l_k <= T_k <= u_k` ; absent si l'élément n'est pas
+  observé, ou si `n = 1`.
+
+#### Invariants
+
+1. `forecast_s`, `base_s` finis et `> 0` ; `weight` fini et `>= 0` ;
+2. bornes finies, `0 < lower_s <= median_s <= prudent_s <= upper_s` ;
+   `width_s == upper_s − lower_s` au bit ;
+3. exactement un de `observed_s` et `observation` ; `observed_s` fini et
+   `>= 0` ; `observation` dans `OBSERVATION_UNAVAILABILITY` ;
+4. `score_s` présent si et seulement si l'élément est observé, et alors fini et
+   égal **au bit** à `fsum((u − l), 10 (l − T)₊, 10 (T − u)₊)` ;
+5. `covered` présent ⇒ l'élément est observé, et `covered == (l <= T <= u)`.
+
+#### Producteur
+
+`model_band` (`mountain_perf.backtest.bands`).
+
+#### Consommateurs
+
+`ModelBand` ; le rapport (M4d-2).
+
+#### Non promis
+
+La relation des bornes à `P_k` et aux quantiles est vérifiée par `ModelBand`, à
+`τ` près.
+
+---
+
+## `ModelBand`
+
+*`mountain_perf.schemas.bands` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `model` | `ModelKind` | — |
+| `residuals` | `tuple[MetricValue, ...]` | — |
+| `projected_s` | `tuple[float \| None, ...]` | — |
+| `quantiles` | `BandQuantiles \| None` | — |
+| `elements` | `tuple[BandElement, ...]` | — |
+| `interval_score_s` | `MetricValue \| None` | — |
+| `normalised_score` | `MetricValue \| None` | — |
+| `coverage` | `MetricValue \| None` | — |
+| `all_covered` | `bool \| None` | — |
+| `median_usage_target` | `MetricValue \| None` | — |
+| `median_max_abs_error_s` | `MetricValue \| None` | — |
+| `unavailability` | `Unavailability \| None` | — |
+
+| Propriété calculée | Type | Sens |
+|---|---|---|
+| `count` | `int` | `n` : le nombre de résidus disponibles. |
+| `available` | `bool` | La fourchette a ses bornes (`unavailability is None`). |
+
+Les fourchettes d'un modèle pour une sortie (`0010` D11 ; précision de M4d-2).
+
+#### Champs
+
+- `model` — sans unité — le modèle (l'un des cinq de `BAND_MODELS`).
+- `residuals` — sans unité (log-rapport) — un `Z_c` par membre de `C_j`,
+  dans l'ordre des membres, ou son motif ; effectif : les segments du membre.
+- `projected_s` — secondes — `P_c`, la prévision du modèle calée à `o_c` sur
+  le support du membre ; présente si et seulement si le résidu l'est.
+- `quantiles` — sans unité — les quantiles des résidus disponibles.
+- `elements` — sans unité — une fourchette par élément de `K`, dans l'ordre ;
+  vide sans bornes.
+- `interval_score_s` — secondes — `IS_j = Σ w_k IS_k`.
+- `normalised_score` — sans unité — `IS_j,norm = Σ w_k IS_k / P⁰_k`.
+- `coverage` — sans unité — `Σ w_k 1{l_k <= T_k <= u_k}` ; absente si `n = 1`.
+- `all_covered` — sans unité — « tous couverts » ; présent avec la couverture.
+- `median_usage_target` — sans unité — `q_usage` de la prévision médiane
+  (dénominateur v0 brut, D7.4).
+- `median_max_abs_error_s` — secondes — `max |C_k|` de la prévision médiane,
+  sur les points de D7.3.
+- `unavailability` — sans unité — le statut d'une fourchette sans bornes.
+
+Propriétés calculées (jamais stockées) : `count` (`n`) et `available`.
+
+#### Invariants
+
+Dans l'ordre :
+
+1. `model` dans `BAND_MODELS` ; `residuals`, `projected_s`, `elements`
+   sont des tuples, `projected_s` de la longueur de `residuals` ;
+2. un résidu indisponible a un motif de `RESIDUAL_UNAVAILABILITY` ;
+   `projected_s[i]` présent si et seulement si `residuals[i]` l'est, fini et
+   `> 0` ;
+3. `unavailability` absent ou dans `BAND_UNAVAILABILITY` ; jamais
+   `non calé` pour v0 brut ;
+4. un résidu en `erreur du modèle` ⇒ `erreur du modèle`, sans quantiles ni
+   éléments ; sinon `support insuffisant` si et seulement si `n = 0`, sans
+   quantiles ni éléments ; sinon les quantiles sont les statistiques d'ordre des
+   résidus disponibles aux rangs `⌈n a/b⌉` de `BAND_QUANTILE_ORDERS` (au bit),
+   et `elements` est vide si et seulement si `unavailability` est présent ;
+5. sans éléments : ni scores, ni couverture, ni médiane ;
+6. avec éléments : les poids `w_k` somment à 1 à `WEIGHT_SUM_TOLERANCE` près
+   (D7.4) ; chaque borne vaut `P_k · exp(Q)` à `τ` près ; `n = 1` ⇒
+   aucun `covered`, ni couverture, ni « tous couverts » ; `n >= 2` ⇒ `covered`
+   présent pour chaque élément observé ;
+7. avec éléments, tous observés : `interval_score_s`, `normalised_score` et
+   (`n >= 2`) `coverage` valent, au bit, `fsum(w_k IS_k)`,
+   `fsum(w_k IS_k / P⁰_k)`, `fsum(w_k, couverts)`, d'effectif `|K|` ;
+   `all_covered` vaut « tous couverts » ; sinon ils sont indisponibles au motif
+   du premier élément non observé, d'effectif le nombre d'éléments observés, et
+   `all_covered` est absent ; la médiane a ses deux valeurs.
+
+#### Producteur
+
+`model_band` (`mountain_perf.backtest.bands`).
+
+#### Consommateurs
+
+`OutingBands` ; le rapport (M4d-2).
+
+#### Non promis
+
+- le résidu n'est recoupé ni avec `T_c` ni avec `projected_s` (`ln` dépend de
+  la plateforme) ;
+- la médiane n'est pas recalculée ;
+- les poids et `P⁰` sont recoupés entre modèles par `OutingBands` ; la
+  proportionnalité de `w_k` à `P⁰_k` n'est pas revérifiée (ce sont les poids
+  du `q_usage` de v0 brut, D7.4).
+
+---
+
+## `OutingBands`
+
+*`mountain_perf.schemas.bands` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `outing_id` | `str` | — |
+| `window_from` | `date` | — |
+| `window_to` | `date` | — |
+| `label` | `str` | — |
+| `multi_outing` | `bool` | — |
+| `members` | `tuple[ReservoirMember, ...]` | — |
+| `models` | `tuple[ModelBand, ...]` | — |
+
+Le document des fourchettes d'une sortie scorée avec usage (`0010` D11, D14 ;
+précision de M4d-2 ; format 4).
+
+#### Champs
+
+- `outing_id` — sans unité — la sortie.
+- `window_from`, `window_to` — jours civils — la fenêtre de la courbe (D2.2),
+  bornes comprises.
+- `label` — sans unité — `BAND_LABEL`.
+- `multi_outing` — sans unité — la performance a plusieurs sorties : fourchettes
+  en diagnostic, hors des agrégats (D0).
+- `members` — sans unité — le réservoir `C_j`, dans l'ordre des jours.
+- `models` — sans unité — les fourchettes des cinq modèles, dans l'ordre de
+  `BAND_MODELS`.
+
+#### Invariants
+
+Dans l'ordre :
+
+1. `outing_id` non vide ; `window_from <= window_to` ; `label` vaut
+   `BAND_LABEL` ; `members` et `models` sont des tuples ;
+2. jours des membres strictement croissants ; `in_window` vaut
+   `window_from <= jour <= window_to` ;
+3. les modèles sont ceux de `BAND_MODELS`, dans l'ordre ;
+4. chaque modèle a un résidu par membre ; un membre indisponible donne, à chaque
+   modèle, un résidu indisponible à son motif ; l'effectif d'un résidu est le
+   nombre de segments de son membre ; un membre disponible n'a ni `support
+   insuffisant` ni `temps nul` ; v0 brut n'a jamais de résidu `non calé` ;
+5. les modèles à éléments en ont autant, avec les mêmes observations, les mêmes
+   poids et les mêmes `P⁰_k` ; v0 brut a `P_k == P⁰_k`.
+
+#### Producteur
+
+`outing_bands` (`mountain_perf.backtest.bands`) ; la relecture du registre.
+
+#### Consommateurs
+
+`OutingOutcome` ; `append_result`, qui l'écrit en document ; la vérification du
+registre ; le rapport (M4d-2).
+
+#### Non promis
+
+- `C_j`, `K` et la sortie sont recoupés par l'accord du registre, pas ici ;
+- la fenêtre n'est recoupée avec la courbe par rien (la courbe n'est pas relue).

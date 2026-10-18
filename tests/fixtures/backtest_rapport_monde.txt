@@ -1286,6 +1286,39 @@ agrégats     Tobler — contrôle, M + U sous θ_haut de chaque performance
                manquants     répétabilité 5 non calé, 1 jour multi-sorties ; développement 1 jour multi-sorties, 1 trop peu représenté, 2 non scorée ; confirmation 1 trop peu représenté
              mixte D_R       — (0)               0.110038 (1)        0.112615 (1)
                manquants     répétabilité 5 non calé, 1 jour multi-sorties ; développement 1 jour multi-sorties, 1 trop peu représenté, 2 non scorée ; confirmation 1 trop peu représenté
+agrégats     fourchettes (0010 D11) — plage de scénarios — calibration non disponible ; rangs, pas niveaux de confiance ; usage, écoulé ; moyenne à poids égal par performance (effectif) ; IS_j,norm commun : performances où les cinq modèles ont une valeur
+             répétabilité    v0 brut             v0 + effort recalé  vitesse constante   Naismith            Tobler
+             IS_j            — (0)               — (0)               — (0)               — (0)               — (0)
+               manquants     v0 brut 5 support insuffisant, 1 jour multi-sorties ; v0 + effort recalé 5 support insuffisant, 1 jour multi-sorties ; vitesse constante 5 support insuffisant, 1 jour multi-sorties ; Naismith 5 support insuffisant, 1 jour multi-sorties ; Tobler 5 support insuffisant, 1 jour multi-sorties
+             IS_j,norm       — (0)               — (0)               — (0)               — (0)               — (0)
+               manquants     v0 brut 5 support insuffisant, 1 jour multi-sorties ; v0 + effort recalé 5 support insuffisant, 1 jour multi-sorties ; vitesse constante 5 support insuffisant, 1 jour multi-sorties ; Naismith 5 support insuffisant, 1 jour multi-sorties ; Tobler 5 support insuffisant, 1 jour multi-sorties
+             couverture      — (0)               — (0)               — (0)               — (0)               — (0)
+               manquants     v0 brut 5 support insuffisant, 1 jour multi-sorties ; v0 + effort recalé 5 support insuffisant, 1 jour multi-sorties ; vitesse constante 5 support insuffisant, 1 jour multi-sorties ; Naismith 5 support insuffisant, 1 jour multi-sorties ; Tobler 5 support insuffisant, 1 jour multi-sorties
+             q_usage méd.    — (0)               — (0)               — (0)               — (0)               — (0)
+               manquants     v0 brut 5 support insuffisant, 1 jour multi-sorties ; v0 + effort recalé 5 support insuffisant, 1 jour multi-sorties ; vitesse constante 5 support insuffisant, 1 jour multi-sorties ; Naismith 5 support insuffisant, 1 jour multi-sorties ; Tobler 5 support insuffisant, 1 jour multi-sorties
+             max |C_k| méd.  — (0)               — (0)               — (0)               — (0)               — (0)
+               manquants     v0 brut 5 support insuffisant, 1 jour multi-sorties ; v0 + effort recalé 5 support insuffisant, 1 jour multi-sorties ; vitesse constante 5 support insuffisant, 1 jour multi-sorties ; Naismith 5 support insuffisant, 1 jour multi-sorties ; Tobler 5 support insuffisant, 1 jour multi-sorties
+             IS norm commun  — (0)               — (0)               — (0)               — (0)               — (0)
+             développement   v0 brut             v0 + effort recalé  vitesse constante   Naismith            Tobler
+             IS_j            1853.9 (1)          — (0)               — (0)               — (0)               — (0)
+               manquants     v0 brut 1 jour multi-sorties, 2 non scorée, 1 sans référence ; v0 + effort recalé 1 support insuffisant, 1 jour multi-sorties, 2 non scorée, 1 sans référence ; vitesse constante 1 support insuffisant, 1 jour multi-sorties, 2 non scorée, 1 sans référence ; Naismith 1 support insuffisant, 1 jour multi-sorties, 2 non scorée, 1 sans référence ; Tobler 1 support insuffisant, 1 jour multi-sorties, 2 non scorée, 1 sans référence
+             IS_j,norm       1.043576 (1)        — (0)               — (0)               — (0)               — (0)
+               manquants     v0 brut 1 jour multi-sorties, 2 non scorée, 1 sans référence ; v0 + effort recalé 1 support insuffisant, 1 jour multi-sorties, 2 non scorée, 1 sans référence ; vitesse constante 1 support insuffisant, 1 jour multi-sorties, 2 non scorée, 1 sans référence ; Naismith 1 support insuffisant, 1 jour multi-sorties, 2 non scorée, 1 sans référence ; Tobler 1 support insuffisant, 1 jour multi-sorties, 2 non scorée, 1 sans référence
+             couverture      0.000000 (1)        — (0)               — (0)               — (0)               — (0)
+               manquants     v0 brut 1 jour multi-sorties, 2 non scorée, 1 sans référence ; v0 + effort recalé 1 support insuffisant, 1 jour multi-sorties, 2 non scorée, 1 sans référence ; vitesse constante 1 support insuffisant, 1 jour multi-sorties, 2 non scorée, 1 sans référence ; Naismith 1 support insuffisant, 1 jour multi-sorties, 2 non scorée, 1 sans référence ; Tobler 1 support insuffisant, 1 jour multi-sorties, 2 non scorée, 1 sans référence
+             q_usage méd.    0.117692 (1)        — (0)               — (0)               — (0)               — (0)
+               manquants     v0 brut 1 jour multi-sorties, 2 non scorée, 1 sans référence ; v0 + effort recalé 1 support insuffisant, 1 jour multi-sorties, 2 non scorée, 1 sans référence ; vitesse constante 1 support insuffisant, 1 jour multi-sorties, 2 non scorée, 1 sans référence ; Naismith 1 support insuffisant, 1 jour multi-sorties, 2 non scorée, 1 sans référence ; Tobler 1 support insuffisant, 1 jour multi-sorties, 2 non scorée, 1 sans référence
+             max |C_k| méd.  256.9 (1)           — (0)               — (0)               — (0)               — (0)
+               manquants     v0 brut 1 jour multi-sorties, 2 non scorée, 1 sans référence ; v0 + effort recalé 1 support insuffisant, 1 jour multi-sorties, 2 non scorée, 1 sans référence ; vitesse constante 1 support insuffisant, 1 jour multi-sorties, 2 non scorée, 1 sans référence ; Naismith 1 support insuffisant, 1 jour multi-sorties, 2 non scorée, 1 sans référence ; Tobler 1 support insuffisant, 1 jour multi-sorties, 2 non scorée, 1 sans référence
+             IS norm commun  — (0)               — (0)               — (0)               — (0)               — (0)
+             confirmation    v0 brut             v0 + effort recalé  vitesse constante   Naismith            Tobler
+             IS_j            521.5 (2)           1718.7 (2)          2120.8 (2)          1799.9 (2)          1726.4 (2)
+             IS_j,norm       0.288523 (2)        0.933879 (2)        1.167334 (2)        1.014137 (2)        0.887793 (2)
+             couverture      0.334659 (2)        — (0)               — (0)               — (0)               — (0)
+               manquants     v0 + effort recalé 2 un seul résidu ; vitesse constante 2 un seul résidu ; Naismith 2 un seul résidu ; Tobler 2 un seul résidu
+             q_usage méd.    0.043913 (2)        0.093388 (2)        0.116733 (2)        0.101414 (2)        0.088779 (2)
+             max |C_k| méd.  95.4 (2)            187.4 (2)           246.2 (2)           236.6 (2)           202.1 (2)
+             IS norm commun  0.288523 (2)        0.933879 (2)        1.167334 (2)        1.014137 (2)        0.887793 (2)
 référence    a — jours 2026-06-03, 2026-06-06, 2026-06-10 ; jours multi-sorties écartés 2026-06-12
                              |L|                        montée |E_R|               plat |E_R|                 descente |E_R|             mixte |E_R|
              écoulé          0.070502 (m 3)             0.037898 (m 3)             support insuffisant (m 0)  0.139014 (m 3)             0.037068 (m 3)
@@ -1861,6 +1894,23 @@ dérive       0010 D12, usage ; séquence : 4 éléments de K sur 4, arrivée co
              3   3 ; ≤ 1e−10 ; — ; — ; non identifiable
              4   3 ; ≤ 1e−10 ; — ; — ; non identifiable
              C_k (s) +50.3 +71.1 +47.0 +44.8 ; B_k (s) −33.7 −47.5 −10.5 +0.0
+fourchettes  0010 D11, usage, écoulé — plage de scénarios — calibration non disponible ; quantiles empiriques aux rangs ⌈n q⌉, q = 0,1, 0,5, 2/3, 0,9, sur n jours
+             réservoir C_j : 0 membre ; fenêtre de la courbe du 2026-01-01 au 2026-01-31
+                             v0 brut             v0 + effort recalé  vitesse constante   Naismith            Tobler
+             n (dans / hors) 0 (0 / 0)           0 (0 / 0)           0 (0 / 0)           0 (0 / 0)           0 (0 / 0)
+             statut          support insuffisant support insuffisant support insuffisant support insuffisant support insuffisant
+             Q 0,1           —                   —                   —                   —                   —
+             Q 0,5           —                   —                   —                   —                   —
+             Q 2/3           —                   —                   —                   —                   —
+             Q 0,9           —                   —                   —                   —                   —
+             IS_j            —                   —                   —                   —                   —
+             IS_j,norm       —                   —                   —                   —                   —
+             couverture      —                   —                   —                   —                   —
+             tous couverts   —                   —                   —                   —                   —
+             q_usage méd.    —                   —                   —                   —                   —
+             q_usage modèle  0.032531            —                   —                   —                   —
+             max |C_k| méd.  —                   —                   —                   —                   —
+             max |C_k| mod.  77.2                —                   —                   —                   —
 performance  2026-06-04 — b-2026-06-04 ; parcours b ; jeu répétabilité ; entraînement
              origine o_j 2026-05-28 00:00 (Paris) ; âge de la courbe +123 jours au jour J, +116 à o_j
              (M+U) θ_haut égale l'écoulé : aucun arrêt confirmé sur le support admis
@@ -2188,6 +2238,23 @@ dérive       0010 D12, usage ; séquence : 1 élément de K sur 1, arrivée com
              1   0.0 → 3637.0 ; 1830.0, 1915.9 ; −0.045858 ; −1.4 ; 1830.0, 0.0 ; 0.52 / 0.14 / 0.33 ; —
              ajustement de v0 brut, écoulé : u_mz_u — ; 1 intervalle
              C_k (s) +85.9 ; B_k (s) +0.0
+fourchettes  0010 D11, usage, écoulé — plage de scénarios — calibration non disponible ; quantiles empiriques aux rangs ⌈n q⌉, q = 0,1, 0,5, 2/3, 0,9, sur n jours
+             réservoir C_j : 0 membre ; fenêtre de la courbe du 2026-01-01 au 2026-01-31
+                             v0 brut             v0 + effort recalé  vitesse constante   Naismith            Tobler
+             n (dans / hors) 0 (0 / 0)           0 (0 / 0)           0 (0 / 0)           0 (0 / 0)           0 (0 / 0)
+             statut          support insuffisant support insuffisant support insuffisant support insuffisant support insuffisant
+             Q 0,1           —                   —                   —                   —                   —
+             Q 0,5           —                   —                   —                   —                   —
+             Q 2/3           —                   —                   —                   —                   —
+             Q 0,9           —                   —                   —                   —                   —
+             IS_j            —                   —                   —                   —                   —
+             IS_j,norm       —                   —                   —                   —                   —
+             couverture      —                   —                   —                   —                   —
+             tous couverts   —                   —                   —                   —                   —
+             q_usage méd.    —                   —                   —                   —                   —
+             q_usage modèle  0.044823            —                   —                   —                   —
+             max |C_k| méd.  —                   —                   —                   —                   —
+             max |C_k| mod.  99.9                —                   —                   —                   —
 performance  2026-06-06 — a-2026-06-06 ; parcours a ; jeu répétabilité ; entraînement
              origine o_j 2026-05-30 00:00 (Paris) ; âge de la courbe +125 jours au jour J, +118 à o_j
 référence    prepare.gpx   sha256 a8b353f3…
@@ -2574,6 +2641,23 @@ dérive       0010 D12, usage ; séquence : 4 éléments de K sur 4, arrivée co
              3   3 ; ≤ 1e−10 ; — ; — ; non identifiable
              4   3 ; ≤ 1e−10 ; — ; — ; non identifiable
              C_k (s) +15.1 −128.9 −183.0 −205.2 ; B_k (s) −91.1 +21.2 +16.3 +0.0
+fourchettes  0010 D11, usage, écoulé — plage de scénarios — calibration non disponible ; quantiles empiriques aux rangs ⌈n q⌉, q = 0,1, 0,5, 2/3, 0,9, sur n jours
+             réservoir C_j : 0 membre ; fenêtre de la courbe du 2026-01-01 au 2026-01-31
+                             v0 brut             v0 + effort recalé  vitesse constante   Naismith            Tobler
+             n (dans / hors) 0 (0 / 0)           0 (0 / 0)           0 (0 / 0)           0 (0 / 0)           0 (0 / 0)
+             statut          support insuffisant support insuffisant support insuffisant support insuffisant support insuffisant
+             Q 0,1           —                   —                   —                   —                   —
+             Q 0,5           —                   —                   —                   —                   —
+             Q 2/3           —                   —                   —                   —                   —
+             Q 0,9           —                   —                   —                   —                   —
+             IS_j            —                   —                   —                   —                   —
+             IS_j,norm       —                   —                   —                   —                   —
+             couverture      —                   —                   —                   —                   —
+             tous couverts   —                   —                   —                   —                   —
+             q_usage méd.    —                   —                   —                   —                   —
+             q_usage modèle  0.081224            —                   —                   —                   —
+             max |C_k| méd.  —                   —                   —                   —                   —
+             max |C_k| mod.  205.2               —                   —                   —                   —
 performance  2026-06-08 — b-2026-06-08 ; parcours b ; jeu répétabilité ; entraînement
              origine o_j 2026-06-01 00:00 (Paris) ; âge de la courbe +127 jours au jour J, +120 à o_j
              (M+U) θ_haut égale l'écoulé : aucun arrêt confirmé sur le support admis
@@ -2901,6 +2985,23 @@ dérive       0010 D12, usage ; séquence : 1 élément de K sur 1, arrivée com
              1   0.0 → 3637.0 ; 1760.0, 1915.9 ; −0.084860 ; −2.6 ; 1760.0, 0.0 ; 0.52 / 0.14 / 0.33 ; —
              ajustement de v0 brut, écoulé : u_mz_u — ; 1 intervalle
              C_k (s) +155.9 ; B_k (s) +0.0
+fourchettes  0010 D11, usage, écoulé — plage de scénarios — calibration non disponible ; quantiles empiriques aux rangs ⌈n q⌉, q = 0,1, 0,5, 2/3, 0,9, sur n jours
+             réservoir C_j : 0 membre ; fenêtre de la courbe du 2026-01-01 au 2026-01-31
+                             v0 brut             v0 + effort recalé  vitesse constante   Naismith            Tobler
+             n (dans / hors) 0 (0 / 0)           0 (0 / 0)           0 (0 / 0)           0 (0 / 0)           0 (0 / 0)
+             statut          support insuffisant support insuffisant support insuffisant support insuffisant support insuffisant
+             Q 0,1           —                   —                   —                   —                   —
+             Q 0,5           —                   —                   —                   —                   —
+             Q 2/3           —                   —                   —                   —                   —
+             Q 0,9           —                   —                   —                   —                   —
+             IS_j            —                   —                   —                   —                   —
+             IS_j,norm       —                   —                   —                   —                   —
+             couverture      —                   —                   —                   —                   —
+             tous couverts   —                   —                   —                   —                   —
+             q_usage méd.    —                   —                   —                   —                   —
+             q_usage modèle  0.081359            —                   —                   —                   —
+             max |C_k| méd.  —                   —                   —                   —                   —
+             max |C_k| mod.  162.2               —                   —                   —                   —
 performance  2026-06-10 — a-2026-06-10 ; parcours a ; jeu répétabilité ; entraînement
              origine o_j 2026-06-03 00:00 (Paris) ; âge de la courbe +129 jours au jour J, +122 à o_j
              (M+U) θ_haut égale l'écoulé : aucun arrêt confirmé sur le support admis
@@ -3276,6 +3377,23 @@ dérive       0010 D12, usage ; séquence : 2 éléments de K sur 4, arrêt au r
              1   1 ; — ; — ; — ; non identifiable
              2   1 ; — ; — ; — ; non identifiable
              C_k (s) +75.1 +106.0 ; B_k (s) −0.3 +0.0
+fourchettes  0010 D11, usage, écoulé — plage de scénarios — calibration non disponible ; quantiles empiriques aux rangs ⌈n q⌉, q = 0,1, 0,5, 2/3, 0,9, sur n jours
+             réservoir C_j : 0 membre ; fenêtre de la courbe du 2026-01-01 au 2026-01-31
+                             v0 brut             v0 + effort recalé  vitesse constante   Naismith            Tobler
+             n (dans / hors) 0 (0 / 0)           0 (0 / 0)           0 (0 / 0)           0 (0 / 0)           0 (0 / 0)
+             statut          support insuffisant support insuffisant support insuffisant support insuffisant support insuffisant
+             Q 0,1           —                   —                   —                   —                   —
+             Q 0,5           —                   —                   —                   —                   —
+             Q 2/3           —                   —                   —                   —                   —
+             Q 0,9           —                   —                   —                   —                   —
+             IS_j            —                   —                   —                   —                   —
+             IS_j,norm       —                   —                   —                   —                   —
+             couverture      —                   —                   —                   —                   —
+             tous couverts   —                   —                   —                   —                   —
+             q_usage méd.    —                   —                   —                   —                   —
+             q_usage modèle  support insuffisant —                   —                   —                   —
+             max |C_k| méd.  —                   —                   —                   —                   —
+             max |C_k| mod.  117.7               —                   —                   —                   —
 performance  2026-06-12 — a-2026-06-12 ; parcours a ; jeu répétabilité ; entraînement
              origine o_j 2026-06-05 00:00 (Paris) ; âge de la courbe +131 jours au jour J, +124 à o_j
              jour multi-sorties : hors des agrégats (0010 D0)
@@ -3635,6 +3753,34 @@ contrôle     a12.gpx
              mixte D_R       +0.103406           temps nul           +0.103406
              mixte E_R−L     −0.016067           temps nul           −0.016067
 dérive       0010 D12, usage : indisponible (jour multi-sorties) ; séquence : 4 éléments de K sur 4, arrivée comprise
+fourchettes  0010 D11, usage, écoulé — plage de scénarios — calibration non disponible ; quantiles empiriques aux rangs ⌈n q⌉, q = 0,1, 0,5, 2/3, 0,9, sur n jours
+             réservoir C_j : 2 membres ; fenêtre de la courbe du 2026-01-01 au 2026-01-31 ; jour multi-sorties : diagnostic, hors des agrégats
+               jour        fenêtre   sorties  segments     support   T_c
+               2026-06-03  hors            1        18     4.26 km   2375.0 s
+               2026-06-04  hors            1        15     3.64 km   1830.0 s
+                             v0 brut             v0 + effort recalé  vitesse constante   Naismith            Tobler
+             n (dans / hors) 2 (0 / 2)           0 (0 / 0)           0 (0 / 0)           0 (0 / 0)           0 (0 / 0)
+             statut          —                   support insuffisant support insuffisant support insuffisant support insuffisant
+             Z 2026-06-03    −0.018701           non calé            non calé            non calé            non calé
+             Z 2026-06-04    −0.045858           non calé            non calé            non calé            non calé
+             Q 0,1           −0.045858           —                   —                   —                   —
+             Q 0,5           −0.045858           —                   —                   —                   —
+             Q 2/3           −0.018701           —                   —                   —                   —
+             Q 0,9           −0.018701           —                   —                   —                   —
+             IS_j            319.4               —                   —                   —                   —
+             IS_j,norm       0.146360            —                   —                   —                   —
+             couverture      0.330682            —                   —                   —                   —
+             tous couverts   non                 —                   —                   —                   —
+             q_usage méd.    0.032211            —                   —                   —                   —
+             q_usage modèle  0.014189            0.022579            0.093348            0.051244            0.038036
+             max |C_k| méd.  113.6               —                   —                   —                   —
+             max |C_k| mod.  49.6                82.0                279.8               127.6               107.8
+             K de v0 brut, en secondes depuis l'origine : P_k, bornes, médiane, lecture prudente (Q 2/3), largeur, T_k, IS_k
+               élément                        P_k       l_k   médiane  prudente       u_k   largeur       T_k      IS_k  couvert
+               Col                          895.8     855.7     855.7     879.2     879.2      23.6     862.4      23.6  oui
+               Pont                        1270.8    1213.9    1213.9    1247.3    1247.3      33.4    1224.2      33.4  oui
+               Source                      1965.6    1877.5    1877.5    1929.2    1929.2      51.7    1957.9     338.4  non
+               arrivée                     2419.8    2311.4    2311.4    2375.0    2375.0      63.6    2425.0     563.6  non
 performance  2026-06-12 — b-2026-06-12 ; parcours b ; jeu répétabilité ; entraînement
              origine o_j 2026-06-05 00:00 (Paris) ; âge de la courbe +131 jours au jour J, +124 à o_j
              jour multi-sorties : hors des agrégats (0010 D0)
@@ -3943,6 +4089,31 @@ contrôle     b12.gpx
              mixte D_R       +0.000000           +0.000000           +0.000000
              mixte E_R−L     +0.035950           +0.009067           +0.035950
 dérive       0010 D12, usage : indisponible (jour multi-sorties) ; séquence : 1 élément de K sur 1, arrivée comprise
+fourchettes  0010 D11, usage, écoulé — plage de scénarios — calibration non disponible ; quantiles empiriques aux rangs ⌈n q⌉, q = 0,1, 0,5, 2/3, 0,9, sur n jours
+             réservoir C_j : 2 membres ; fenêtre de la courbe du 2026-01-01 au 2026-01-31 ; jour multi-sorties : diagnostic, hors des agrégats
+               jour        fenêtre   sorties  segments     support   T_c
+               2026-06-03  hors            1        18     4.26 km   2375.0 s
+               2026-06-04  hors            1        15     3.64 km   1830.0 s
+                             v0 brut             v0 + effort recalé  vitesse constante   Naismith            Tobler
+             n (dans / hors) 2 (0 / 2)           0 (0 / 0)           0 (0 / 0)           0 (0 / 0)           0 (0 / 0)
+             statut          —                   support insuffisant support insuffisant support insuffisant support insuffisant
+             Z 2026-06-03    −0.018701           non calé            non calé            non calé            non calé
+             Z 2026-06-04    −0.045858           non calé            non calé            non calé            non calé
+             Q 0,1           −0.045858           —                   —                   —                   —
+             Q 0,5           −0.045858           —                   —                   —                   —
+             Q 2/3           −0.018701           —                   —                   —                   —
+             Q 0,9           −0.018701           —                   —                   —                   —
+             IS_j            102.0               —                   —                   —                   —
+             IS_j,norm       0.053247            —                   —                   —                   —
+             couverture      0.000000            —                   —                   —                   —
+             tous couverts   non                 —                   —                   —                   —
+             q_usage méd.    0.028990            —                   —                   —                   —
+             q_usage modèle  0.015832            0.015932            0.021185            0.000443            0.018197
+             max |C_k| méd.  55.5                —                   —                   —                   —
+             max |C_k| mod.  52.8                30.5                256.0               84.4                97.7
+             K de v0 brut, en secondes depuis l'origine : P_k, bornes, médiane, lecture prudente (Q 2/3), largeur, T_k, IS_k
+               élément                        P_k       l_k   médiane  prudente       u_k   largeur       T_k      IS_k  couvert
+               arrivée                     1915.3    1829.5    1829.5    1879.8    1879.8      50.4    1885.0     102.0  non
 performance  2026-06-12 — libre-2026-06-12 ; parcours — ; jeu développement ; entraînement
              origine o_j 2026-06-05 00:00 (Paris) ; âge de la courbe +131 jours au jour J, +124 à o_j
              jour multi-sorties : hors des agrégats (0010 D0)
@@ -4100,6 +4271,7 @@ contrôle     libre12.gpx
              mixte D_R       +0.000000           +0.000000           +0.000000
              mixte E_R−L     +0.119492           +0.082588           +0.119492
 dérive       sans référence : pas de diagnostic (0010 D12, usage)
+fourchettes  sans référence : pas de fourchette (0010 D11, usage)
 performance  2026-06-14 — a-2026-06-14 ; parcours a ; jeu développement ; course
              origine o_j 2026-06-07 00:00 (Paris) ; âge de la courbe +133 jours au jour J, +126 à o_j
              (M+U) θ_haut égale l'écoulé : aucun arrêt confirmé sur le support admis
@@ -4487,6 +4659,36 @@ dérive       0010 D12, usage ; séquence : 4 éléments de K sur 4, arrivée co
              3   3 ; ≤ 1e−10 ; — ; — ; non identifiable
              4   3 ; ≤ 1e−10 ; — ; — ; non identifiable
              C_k (s) +140.6 +199.6 +252.5 +299.8 ; B_k (s) −29.6 −42.2 −8.9 +0.0
+fourchettes  0010 D11, usage, écoulé — plage de scénarios — calibration non disponible ; quantiles empiriques aux rangs ⌈n q⌉, q = 0,1, 0,5, 2/3, 0,9, sur n jours
+             réservoir C_j : 3 membres ; fenêtre de la courbe du 2026-01-01 au 2026-01-31
+               jour        fenêtre   sorties  segments     support   T_c
+               2026-06-03  hors            1        18     4.26 km   2375.0 s
+               2026-06-04  hors            1        15     3.64 km   1830.0 s
+               2026-06-06  hors            1        18     4.26 km   2625.0 s
+                             v0 brut             v0 + effort recalé  vitesse constante   Naismith            Tobler
+             n (dans / hors) 3 (0 / 3)           0 (0 / 0)           0 (0 / 0)           0 (0 / 0)           0 (0 / 0)
+             statut          —                   support insuffisant support insuffisant support insuffisant support insuffisant
+             Z 2026-06-03    −0.018701           non calé            non calé            non calé            non calé
+             Z 2026-06-04    −0.045858           non calé            non calé            non calé            non calé
+             Z 2026-06-06    +0.081382           non calé            non calé            non calé            non calé
+             Q 0,1           −0.045858           —                   —                   —                   —
+             Q 0,5           −0.018701           —                   —                   —                   —
+             Q 2/3           −0.018701           —                   —                   —                   —
+             Q 0,9           +0.081382           —                   —                   —                   —
+             IS_j            1853.9              —                   —                   —                   —
+             IS_j,norm       1.043576            —                   —                   —                   —
+             couverture      0.000000            —                   —                   —                   —
+             tous couverts   non                 —                   —                   —                   —
+             q_usage méd.    0.117692            —                   —                   —                   —
+             q_usage modèle  0.136219            0.141843            0.120012            0.144985            0.121469
+             max |C_k| méd.  256.9               —                   —                   —                   —
+             max |C_k| mod.  301.6               315.2               292.2               287.7               319.0
+             K de v0 brut, en secondes depuis l'origine : P_k, bornes, médiane, lecture prudente (Q 2/3), largeur, T_k, IS_k
+               élément                        P_k       l_k   médiane  prudente       u_k   largeur       T_k      IS_k  couvert
+               Col                          895.8     855.7     879.2     879.2     971.8     116.1     755.2    1120.7  non
+               Pont                        1270.8    1213.9    1247.3    1247.3    1378.6     164.7    1071.2    1591.4  non
+               Source                      1965.6    1877.5    1929.2    1929.2    2132.3     254.8    1713.2    1898.2  non
+               arrivée                     2419.8    2311.4    2375.0    2375.0    2625.0     313.6    2120.0    2227.3  non
 performance  2026-06-15 — libre-2026-06-15 ; parcours — ; jeu développement ; entraînement
              origine o_j 2026-06-08 00:00 (Paris) ; âge de la courbe +134 jours au jour J, +127 à o_j
              (M+U) θ_haut égale l'écoulé : aucun arrêt confirmé sur le support admis
@@ -4643,6 +4845,7 @@ contrôle     libre15_1.gpx
              mixte D_R       +0.000000           +0.000000           +0.000000
              mixte E_R−L     +0.115377           +0.079141           +0.115377
 dérive       sans référence : pas de diagnostic (0010 D12, usage)
+fourchettes  sans référence : pas de fourchette (0010 D11, usage)
 performance  2026-06-25 — b-2026-06-25 ; parcours b ; jeu confirmation ; entraînement
              origine o_j 2026-06-18 00:00 (Paris) ; âge de la courbe +144 jours au jour J, +137 à o_j
              (M+U) θ_haut égale l'écoulé : aucun arrêt confirmé sur le support admis
@@ -4971,6 +5174,43 @@ dérive       0010 D12, usage ; séquence : 1 élément de K sur 1, arrivée com
              1   0.0 → 3635.6 ; 1725.0, 1915.3 ; −0.104660 ; −3.2 ; 1725.0, 0.0 ; 0.52 / 0.14 / 0.33 ; —
              ajustement de v0 brut, écoulé : u_mz_u — ; 1 intervalle
              C_k (s) +190.3 ; B_k (s) +0.0
+fourchettes  0010 D11, usage, écoulé — plage de scénarios — calibration non disponible ; quantiles empiriques aux rangs ⌈n q⌉, q = 0,1, 0,5, 2/3, 0,9, sur n jours
+             réservoir C_j : 8 membres ; fenêtre de la courbe du 2026-01-01 au 2026-01-31
+               jour        fenêtre   sorties  segments     support   T_c
+               2026-06-03  hors            1        18     4.26 km   2375.0 s
+               2026-06-04  hors            1        15     3.64 km   1830.0 s
+               2026-06-06  hors            1        18     4.26 km   2625.0 s
+               2026-06-08  hors            1        15     3.64 km   1760.0 s
+               2026-06-10  hors            1        16     3.76 km   2049.5 s
+               2026-06-12  hors            2        33     7.90 km   4310.0 s
+               2026-06-15  hors            0         0     0.00 km   support insuffisant
+               2026-06-16  hors            0         0     0.00 km   support insuffisant
+                             v0 brut             v0 + effort recalé  vitesse constante   Naismith            Tobler
+             n (dans / hors) 6 (0 / 6)           1 (0 / 1)           1 (0 / 1)           1 (0 / 1)           1 (0 / 1)
+             statut          —                   —                   —                   —                   —
+             Z 2026-06-03    −0.018701           non calé            non calé            non calé            non calé
+             Z 2026-06-04    −0.045858           non calé            non calé            non calé            non calé
+             Z 2026-06-06    +0.081382           non calé            non calé            non calé            non calé
+             Z 2026-06-08    −0.084860           non calé            non calé            non calé            non calé
+             Z 2026-06-10    −0.057051           non calé            non calé            non calé            non calé
+             Z 2026-06-12    −0.005820           +0.026460           +0.030183           +0.028261           +0.026197
+             Z 2026-06-15    support insuffisant support insuffisant support insuffisant support insuffisant support insuffisant
+             Z 2026-06-16    support insuffisant support insuffisant support insuffisant support insuffisant support insuffisant
+             Q 0,1           −0.084860           +0.026460           +0.030183           +0.028261           +0.026197
+             Q 0,5           −0.045858           +0.026460           +0.030183           +0.028261           +0.026197
+             Q 2/3           −0.018701           +0.026460           +0.030183           +0.028261           +0.026197
+             Q 0,9           +0.081382           +0.026460           +0.030183           +0.028261           +0.026197
+             IS_j            663.2               1992.3              2996.7              2332.6              2011.8
+             IS_j,norm       0.346240            1.040215            1.564602            1.217861            1.050390
+             couverture      0.000000            un seul résidu      un seul résidu      un seul résidu      un seul résidu
+             tous couverts   non                 —                   —                   —                   —
+             q_usage méd.    0.054546            0.104021            0.156460            0.121786            0.105039
+             q_usage modèle  0.099369            0.077787            0.125031            0.093296            0.079035
+             max |C_k| méd.  113.3               202.7               299.7               276.6               201.2
+             max |C_k| mod.  194.1               154.1               239.5               228.9               151.4
+             K de v0 brut, en secondes depuis l'origine : P_k, bornes, médiane, lecture prudente (Q 2/3), largeur, T_k, IS_k
+               élément                        P_k       l_k   médiane  prudente       u_k   largeur       T_k      IS_k  couvert
+               arrivée                     1915.3    1759.5    1829.5    1879.8    2077.7     318.2    1725.0     663.2  non
 performance  2026-06-27 — a-2026-06-27 ; parcours a ; jeu confirmation ; entraînement
              origine o_j 2026-06-20 00:00 (Paris) ; âge de la courbe +146 jours au jour J, +139 à o_j
              (M+U) θ_haut égale l'écoulé : aucun arrêt confirmé sur le support admis
@@ -5358,6 +5598,46 @@ dérive       0010 D12, usage ; séquence : 4 éléments de K sur 4, arrivée co
              3   3 ; ≤ 1e−10 ; — ; — ; non identifiable
              4   3 ; ≤ 1e−10 ; — ; — ; non identifiable
              C_k (s) +90.4 +128.2 +138.3 +154.8 ; B_k (s) −33.1 −46.9 −12.5 +0.0
+fourchettes  0010 D11, usage, écoulé — plage de scénarios — calibration non disponible ; quantiles empiriques aux rangs ⌈n q⌉, q = 0,1, 0,5, 2/3, 0,9, sur n jours
+             réservoir C_j : 8 membres ; fenêtre de la courbe du 2026-01-01 au 2026-01-31
+               jour        fenêtre   sorties  segments     support   T_c
+               2026-06-03  hors            1        18     4.26 km   2375.0 s
+               2026-06-04  hors            1        15     3.64 km   1830.0 s
+               2026-06-06  hors            1        18     4.26 km   2625.0 s
+               2026-06-08  hors            1        15     3.64 km   1760.0 s
+               2026-06-10  hors            1        16     3.76 km   2049.5 s
+               2026-06-12  hors            2        33     7.90 km   4310.0 s
+               2026-06-15  hors            0         0     0.00 km   support insuffisant
+               2026-06-16  hors            0         0     0.00 km   support insuffisant
+                             v0 brut             v0 + effort recalé  vitesse constante   Naismith            Tobler
+             n (dans / hors) 6 (0 / 6)           1 (0 / 1)           1 (0 / 1)           1 (0 / 1)           1 (0 / 1)
+             statut          —                   —                   —                   —                   —
+             Z 2026-06-03    −0.018701           non calé            non calé            non calé            non calé
+             Z 2026-06-04    −0.045858           non calé            non calé            non calé            non calé
+             Z 2026-06-06    +0.081382           non calé            non calé            non calé            non calé
+             Z 2026-06-08    −0.084860           non calé            non calé            non calé            non calé
+             Z 2026-06-10    −0.057051           non calé            non calé            non calé            non calé
+             Z 2026-06-12    −0.005820           +0.026460           +0.030183           +0.028261           +0.026197
+             Z 2026-06-15    support insuffisant support insuffisant support insuffisant support insuffisant support insuffisant
+             Z 2026-06-16    support insuffisant support insuffisant support insuffisant support insuffisant support insuffisant
+             Q 0,1           −0.084860           +0.026460           +0.030183           +0.028261           +0.026197
+             Q 0,5           −0.045858           +0.026460           +0.030183           +0.028261           +0.026197
+             Q 2/3           −0.018701           +0.026460           +0.030183           +0.028261           +0.026197
+             Q 0,9           +0.081382           +0.026460           +0.030183           +0.028261           +0.026197
+             IS_j            379.9               1445.1              1244.8              1267.2              1441.0
+             IS_j,norm       0.230805            0.827544            0.770067            0.810413            0.725196
+             couverture      0.669318            un seul résidu      un seul résidu      un seul résidu      un seul résidu
+             tous couverts   non                 —                   —                   —                   —
+             q_usage méd.    0.033279            0.082754            0.077007            0.081041            0.072520
+             q_usage modèle  0.078102            0.056520            0.057029            0.053094            0.053164
+             max |C_k| méd.  77.6                172.0               192.8               196.7               203.0
+             max |C_k| mod.  160.8               111.5               211.0               155.3               150.7
+             K de v0 brut, en secondes depuis l'origine : P_k, bornes, médiane, lecture prudente (Q 2/3), largeur, T_k, IS_k
+               élément                        P_k       l_k   médiane  prudente       u_k   largeur       T_k      IS_k  couvert
+               Col                          895.8     822.9     855.7     879.2     971.8     148.8     805.4     324.3  non
+               Pont                        1270.8    1167.4    1213.9    1247.3    1378.6     211.1    1142.6     459.3  non
+               Source                      1965.6    1805.7    1877.5    1929.2    2132.3     326.6    1827.4     326.6  oui
+               arrivée                     2419.8    2223.0    2311.4    2375.0    2625.0     402.0    2265.0     402.0  oui
 non scorée   c-2026-06-16 — trace refusée (c16.gpx) : c16.gpx, trkpt[0].time : instant manquant.
 non scorée   a-2026-06-20 — sortie non tracée
 légende      lecture de la compensation : sur des régimes homogènes, C_comp et W restent proches de 0 même quand des erreurs de signe opposé se compensent dans le total ; ce qui montre un total juste qui cache des erreurs est l'écart entre A (grand) et |L| (proche de 0), et B quand l'écart vient des régimes. C_comp ne mesure que la compensation entre l'écart d'un segment à son régime et l'écart de ce régime au global.
@@ -5368,6 +5648,6 @@ légende      lecture de la compensation : sur des régimes homogènes, C_comp e
              modèles calés (0010 D9.2) : v0 + effort recalé, vitesse constante, Naismith, Tobler, calés par performance, scénario et horloge sur C_j^eff (entraînements terminés avant o_j) ; prévision = prévision non calée ÷ effort e (v0) ou × facteur a (baselines) ; non calé : C_j^eff vide ; pas d'enveloppe
              ensemble commun : par jeu, les performances où les cinq modèles ont une valeur ; les cinq moyennes y portent sur les mêmes performances
              gains, garde-fous, admission d'un effet (0010 D10) : just backtest ne déclare pas d'expérience ; expérience enregistrée par l'API (M4c-3), commande en M6a
-             fourchettes (0010 D11) : non implémentée dans ce lot (M4d)
+             fourchettes (0010 D11, M4d-2) : plage de scénarios — calibration non disponible ; résidus Z_c = ln(T_c / P_c) des membres de C_j (entraînements terminés avant o_j), sur leur support admis, en usage, sous l'écoulé, prévision du modèle calée à o_c ; n compte des jours, pas un effectif indépendant ; quantiles empiriques de rang ⌈n q⌉ (n ≤ 9 : du plus petit au plus grand résidu), des rangs et non des niveaux de confiance : même sous échangeabilité et sans ex æquo, la couverture moyenne de la plage est (⌈0,9 n⌉ − ⌈0,1 n⌉) / (n + 1), marginale, élément par élément ; bornes P_k·e^Q aux éléments de K, publiées même sans observation ; un facteur appris sur le support admis est transféré à tout le cumul projeté ; IS_k = (u − l) + 10 (l − T)₊ + 10 (T − u)₊ ; IS_j,norm = Σ w_k IS_k / P⁰_k (v0 brut) ; n = 1 : plage ponctuelle, ni couverture ni « tous couverts » ; médiane : une prévision neuve, sans borne d'effort, jamais substituée (le comparateur cale sur la moyenne)
              dérive (0010 D12, M4d-1) : séquence des éléments observés du K par défaut, dans l'ordre, jusqu'au premier qui ne l'est pas, arrivée comprise, commune aux horloges ; y_h = ln(t_h / p_h), positif = plus long que prévu ; b : pente descriptive du log-rapport sur l'avancement u de v0 brut, après ajustement linéaire sur les fractions de régime, pas une mesure de fatigue ; exp(b) : rapport ajusté entre u = 0 et u = 1, pas un multiplicateur du temps total ; identifiable si rho_u > 1e−10, seuil numérique et non statistique ; ddl = H − rang − 1 ; faible séparation sous rho_u < 0.10, seuil de présentation ; influence a_h : b = Σ a_h y_h ; étendue : pentes extrêmes des retraits identifiables, pas un intervalle de confiance ; signe : celui de b face aux retraits identifiables ; u_mz_u : uᵀ M_Z u, publié pour v0 brut sous l'écoulé (il ne dépend que de u et f) ; C_k = P_k − T_k et B_k = T_k − c·P_k, de conventions de signe opposées ; un facteur de calage ne change ni b ni B_k : v0 + effort recalé a la pente de v0 brut
              sensibilité (0010 D13) : non implémentée dans ce lot (M4d)

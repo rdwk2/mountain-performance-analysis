@@ -7,7 +7,8 @@ Un dossier, donné par l'appelant :
 - ``evenements.jsonl`` : le journal, une ligne par événement, son écriture canonique
   suivie de ``\\n`` ; chaque ligne porte l'empreinte de la précédente ;
 - ``documents/<sha256>.json`` : observations, scores avec leurs prévisions, références
-  D8, chacun nommé par l'empreinte de ses octets ;
+  D8, documents d'admission (M4c-3) et de fourchettes (M4d-2), chacun nommé par
+  l'empreinte de ses octets ;
 - ``verrou`` : présent pendant un ajout, et seulement pendant.
 
 Le code ajoute en fin de journal et ne réécrit jamais rien ; tout s'écrit et se lit en
@@ -40,6 +41,8 @@ from mountain_perf.backtest.codec import (
 from mountain_perf.model.curve_io import META_SUFFIX, CurveReadResult
 from mountain_perf.schemas import (
     ADMISSION_FIRST_FORMAT,
+    BAND_MODELS,
+    BANDS_FIRST_FORMAT,
     CALIBRATED_KINDS,
     REGISTRY_FORMAT_VERSION,
     Admission,
@@ -59,6 +62,7 @@ from mountain_perf.schemas import (
     ModelKind,
     ModelResult,
     Outing,
+    OutingBands,
     OutingObservation,
     OutingOutcome,
     OutingResult,
@@ -124,8 +128,16 @@ def _line(event: RegistryEvent) -> bytes:
     """La ligne d'un événement : son écriture canonique, sans fin de ligne, **à son
     format** — avant le format 3, sans la clé ``admission`` du RÉSULTAT ni la clé
     ``reference_documents`` de l'expérience, qui y valent ``null`` (précision de D14,
-    M4c-3) : chaque ligne ancienne se réécrit à l'octet."""
+    M4c-3) ; avant le format 4, sans la clé ``bands`` des sorties du RÉSULTAT, qui y
+    vaut ``null`` (précision de D14, M4d-2) : chaque ligne ancienne se réécrit à
+    l'octet."""
     data = encode_contract(event)
+    if event.format_version < BANDS_FIRST_FORMAT and isinstance(data, dict):
+        result = data.get("result")
+        if isinstance(result, dict):
+            for outing in result.get("outings", ()):
+                if isinstance(outing, dict):
+                    outing.pop("bands", None)
     if event.format_version < ADMISSION_FIRST_FORMAT and isinstance(data, dict):
         result = data.get("result")
         if isinstance(result, dict):
@@ -172,7 +184,10 @@ def read_registry(root: Path) -> RegistryLog:
     for event in log.events:
         if event.result is not None:
             _agree(
-                _declaration_of(log, event), event.result, _line_prefix(event.number)
+                _declaration_of(log, event),
+                event.result,
+                _line_prefix(event.number),
+                event.format_version,
             )
             for sha in _cited(event.result):
                 _stored(root, sha)
@@ -229,16 +244,31 @@ def _read_events(data: bytes) -> tuple[RegistryEvent, ...]:
 
 
 def _upgraded(raw: object) -> object:
-    """Une ligne JSON d'un format antérieur au 3, avant son décodage : son RÉSULTAT
-    reçoit ``"admission": null``, l'expérience de sa DÉCLARATION
-    ``"reference_documents": null`` (précision de D14, M4c-3). Une ligne qui porte déjà
-    l'une de ces clés, même ``null``, est refusée : champ inconnu à son format. Une
-    ligne du format 3, ou non lisible (pas un dictionnaire, version absente), passe
-    telle quelle : le décodage la juge."""
+    """Une ligne JSON d'un format antérieur, avant son décodage : avant le format 4,
+    chaque sortie de son RÉSULTAT reçoit ``"bands": null`` (précision de D14, M4d-2) ;
+    avant le format 3, son RÉSULTAT reçoit aussi ``"admission": null``, l'expérience de
+    sa DÉCLARATION ``"reference_documents": null`` (précision de D14, M4c-3). Une ligne
+    qui porte déjà l'une de ces clés, même ``null``, est refusée : champ inconnu à son
+    format. Une ligne du format 4, ou non lisible (pas un dictionnaire, version
+    absente), passe telle quelle : le décodage la juge."""
     if not isinstance(raw, dict):
         return raw
     version = raw.get("format_version")
-    if type(version) is not int or version >= ADMISSION_FIRST_FORMAT:
+    if type(version) is not int or version >= BANDS_FIRST_FORMAT:
+        return raw
+    result = raw.get("result")
+    if isinstance(result, dict) and isinstance(result.get("outings"), list):
+        outings: list[object] = []
+        for outing in result["outings"]:
+            if isinstance(outing, dict):
+                if "bands" in outing:
+                    raise CodecError(
+                        f"result.outings : champ inconnu au format {version} : 'bands'"
+                    )
+                outing = {**outing, "bands": None}
+            outings.append(outing)
+        raw = {**raw, "result": {**result, "outings": outings}}
+    if version >= ADMISSION_FIRST_FORMAT:
         return raw
     result = raw.get("result")
     if isinstance(result, dict):
@@ -271,8 +301,8 @@ def _declaration_of(log: RegistryLog, event: RegistryEvent) -> Declaration:
 
 def _cited(result: Result) -> list[str]:
     """Les documents d'un résultat, dans l'ordre : par sortie, l'observation puis, par
-    modèle, le contrôle et l'usage ; puis les références ; le document d'admission en
-    dernier (M4c-3)."""
+    modèle, le contrôle et l'usage, puis ses fourchettes (M4d-2) ; puis les références ;
+    le document d'admission en dernier (M4c-3)."""
     cited: list[str] = []
     for outing in result.outings:
         cited.append(outing.observation)
@@ -280,6 +310,8 @@ def _cited(result: Result) -> list[str]:
             cited.append(model.control)
             if model.usage is not None:
                 cited.append(model.usage)
+        if outing.bands is not None:
+            cited.append(outing.bands)
     cited.extend(record.reference for record in result.references)
     if result.admission is not None:
         cited.append(result.admission)
@@ -332,7 +364,9 @@ def _declared_outings(declaration: Declaration) -> dict[str, Outing]:
     }
 
 
-def _agree(declaration: Declaration, result: Result, prefix: str) -> None:
+def _agree(
+    declaration: Declaration, result: Result, prefix: str, format_version: int
+) -> None:
     """L'accord sans documents (``0010`` D0, D3, D14) : chaque sortie du résultat est
     déclarée ; chaque sortie déclarée a un sort ; une sortie scorée est tracée, ses
     modèles sont déclarés, son usage existe si et seulement si elle a une référence,
@@ -342,7 +376,10 @@ def _agree(declaration: Declaration, result: Result, prefix: str) -> None:
     document d'admission est cité si et seulement si la déclaration porte une
     expérience ; une expérience déclarée avant le format 3 (sans documents D8 figés)
     ne reçoit pas de RÉSULTAT ; chaque document D8 figé est celui que le RÉSULTAT
-    publie pour ce parcours (E6)."""
+    publie pour ce parcours (E6). Enfin (M4d-2), au format 4, une sortie scorée cite
+    ses fourchettes si et seulement si elle a une référence, que la déclaration déclare
+    les cinq modèles du rapport (``BAND_MODELS``) et qu'elle ne porte pas
+    d'expérience."""
     outings = _declared_outings(declaration)
     fates = [outing.outing_id for outing in result.outings]
     fates += [exclusion.outing_id for exclusion in result.unscored]
@@ -385,6 +422,8 @@ def _agree(declaration: Declaration, result: Result, prefix: str) -> None:
     for record in result.references:
         if record.route_id not in route_ids:
             raise RegistryError(f"{prefix}parcours non déclaré, {record.route_id!r}")
+    if format_version >= BANDS_FIRST_FORMAT:
+        _agree_bands(declaration, result, outings, prefix)
     experiment = declaration.experiment
     if (result.admission is not None) != (experiment is not None):
         raise RegistryError(
@@ -404,6 +443,28 @@ def _agree(declaration: Declaration, result: Result, prefix: str) -> None:
             raise RegistryError(
                 f"{prefix}le document D8 de {frozen.route_id!r} n'est pas celui que "
                 "la déclaration a figé (E6)"
+            )
+
+
+def _agree_bands(
+    declaration: Declaration,
+    result: Result,
+    outings: Mapping[str, Outing],
+    prefix: str,
+) -> None:
+    """Au format 4 (précision de D14, M4d-2) : une sortie scorée cite ses fourchettes si
+    et seulement si elle a une référence, que la déclaration déclare les cinq modèles
+    du rapport (``BAND_MODELS``) et qu'elle ne porte pas d'expérience."""
+    kinds = {model.kind for model in declaration.models}
+    expected = declaration.experiment is None and set(BAND_MODELS) <= kinds
+    for scored in result.outings:
+        wanted = expected and outings[scored.outing_id].reference is not None
+        if (scored.bands is not None) != wanted:
+            raise RegistryError(
+                f"{prefix}{scored.outing_id!r}, une sortie scorée cite ses "
+                "fourchettes si et seulement si elle a une référence, que les cinq "
+                "modèles du rapport sont déclarés et qu'il n'y a pas d'expérience "
+                "(M4d-2)"
             )
 
 
@@ -540,7 +601,9 @@ def _agree_documents(
     """L'accord par les documents (``0010`` D14, D2.6), chaque document relu au format
     ``format_version`` de l'événement qui le cite (précision de D14, M4c-2), dans cet
     ordre : les scores de chaque sortie se reconstruisent, leurs prévisions recopient
-    la déclaration de leur modèle et nomment un fichier déclaré de leur sortie ; pour
+    la déclaration de leur modèle et nomment un fichier déclaré de leur sortie, puis ses
+    fourchettes s'accordent à la déclaration et aux calages de la sortie
+    (``_check_bands``, M4d-2) ; pour
     chaque référence D8, ses jours sont exactement ceux du jeu de répétabilité sur son
     parcours, puis son fichier est recoupé avec la référence déclarée des sorties de
     répétabilité de ce parcours (précision de D14, M4b-5) ; puis le document
@@ -551,10 +614,23 @@ def _agree_documents(
     models = {model.kind: model for model in declaration.models}
     for scored in result.outings:
         outing = outings[scored.outing_id]
+        calibrated: list[CalibratedOutingScores] = []
         for kind, scores in _model_scores(
             scored, read, prefix, document_prefix, format_version
         ):
             _check_forecasts(declaration, models[kind], outing, scores, prefix)
+            if isinstance(scores, CalibratedOutingScores):
+                calibrated.append(scores)
+        if scored.bands is not None:
+            _check_bands(
+                declaration,
+                scored,
+                calibrated,
+                read,
+                prefix,
+                document_prefix,
+                format_version,
+            )
     for record in result.references:
         reference = _decoded(
             read,
@@ -584,6 +660,69 @@ def _agree_documents(
             raise RegistryError(
                 f"{prefix}le parcours de répétabilité {route_id!r} n'a pas de "
                 "référence D8"
+            )
+
+
+def _check_bands(
+    declaration: Declaration,
+    scored: OutingResult,
+    calibrated: list[CalibratedOutingScores],
+    read: Callable[[str], bytes],
+    prefix: str,
+    document_prefix: str,
+    format_version: int,
+) -> None:
+    """Les fourchettes d'une sortie scorée (précision de D14, M4d-2), décodées au format
+    de l'événement, dans cet ordre : elles portent la sortie ; pour le calage de chaque
+    modèle calé de la sortie (en usage, sous l'écoulé), leurs membres sont les jours de
+    ``C_j`` qu'il porte (sa population et ses retraits), chacun disponible si et
+    seulement s'il est dans la population, au motif de son retrait sinon ; elles disent
+    si la performance a plusieurs sorties ; chaque modèle à bornes a autant d'éléments
+    que le ``K`` de l'observation. Rien n'est recalculé : les documents se recoupent
+    entre eux (le code du calage n'est pas appelé)."""
+    assert scored.bands is not None  # appelant
+    bands = _decoded(read, scored.bands, OutingBands, document_prefix, format_version)
+    name = repr(scored.outing_id)
+    if bands.outing_id != scored.outing_id:
+        raise RegistryError(
+            f"{prefix}{name}, les fourchettes portent la sortie {bands.outing_id!r}"
+        )
+    days = tuple(member.civil_date for member in bands.members)
+    for scores in calibrated:
+        assert scores.usage is not None  # une sortie à référence a l'usage (_agree)
+        calibration = scores.usage.clocks[0].calibration  # l'écoulé, CLOCKS[0]
+        withdrawn = {w.civil_date: w.reason for w in calibration.withdrawals}
+        if days != tuple(sorted({*calibration.population, *withdrawn})):
+            raise RegistryError(
+                f"{prefix}{name}, les membres des fourchettes ne sont pas les jours de "
+                f"C_j du calage de {calibration.model} (population et retraits, D2.4)"
+            )
+        for member in bands.members:
+            if member.unavailability != withdrawn.get(member.civil_date):
+                raise RegistryError(
+                    f"{prefix}{name}, le membre du {member.civil_date.isoformat()} "
+                    "des fourchettes n'a pas le statut que lui donne le calage de "
+                    f"{calibration.model} (D9.2)"
+                )
+    performance = next(
+        declared.performance
+        for declared in declaration.performances
+        if any(o.outing_id == scored.outing_id for o in declared.performance.outings)
+    )
+    if bands.multi_outing != performance.is_multi_outing:
+        raise RegistryError(
+            f"{prefix}{name}, les fourchettes disent mal si la performance a plusieurs "
+            "sorties"
+        )
+    observation = _decoded(
+        read, scored.observation, OutingObservation, document_prefix, format_version
+    )
+    targets = len(observation.targets)
+    for band in bands.models:
+        if band.elements and len(band.elements) != targets:
+            raise RegistryError(
+                f"{prefix}{name}, {band.model} : {len(band.elements)} éléments de "
+                f"fourchette pour un K de {targets}"
             )
 
 
@@ -781,9 +920,10 @@ def append_result(
     """Ajoute un RÉSULTAT à la déclaration numéro ``declaration`` (``0010`` D14, D0) ;
     rend l'événement écrit.
 
-    Les observations, les scores (prévisions comprises) et les références D8 sont
-    écrits en documents, cités par empreinte ; chaque sortie déclarée est scorée
-    (``outcomes``) ou écartée avec un motif (``unscored``). Le document d'admission
+    Les observations, les scores (prévisions comprises), les fourchettes (format 4,
+    M4d-2) et les références D8 sont écrits en documents, cités par empreinte ;
+    chaque sortie déclarée est scorée (``outcomes``) ou écartée avec un motif
+    (``unscored``). Le document d'admission
     d'une expérience (``admission``) est écrit en dernier et cité par
     ``Result.admission`` (M4c-3) ; l'accord à l'ajout est celui de la vérification,
     documents compris.
@@ -831,8 +971,9 @@ def _result_documents(
     admission: Admission | None = None,
 ) -> tuple[Result, dict[str, bytes]]:
     """Étape 0 de l'ajout d'un résultat, avant tout accès au registre : les documents
-    écrits en mémoire, dans l'ordre, chacun une fois — le document d'admission en
-    dernier (M4c-3) ; le ``Result`` qui les cite."""
+    écrits en mémoire, dans l'ordre, chacun une fois — par sortie, ses fourchettes après
+    ses modèles (M4d-2) ; le document d'admission en dernier (M4c-3) ; le ``Result``
+    qui les cite."""
     documents: dict[str, bytes] = {}
 
     def store(value: object) -> str:
@@ -855,8 +996,11 @@ def _result_documents(
             )
             for kind, scores in outcome.scores
         )
+        bands = None if outcome.bands is None else store(outcome.bands)
         outings.append(
-            OutingResult(outcome.outing_id, outcome.coverage, observation, models)
+            OutingResult(
+                outcome.outing_id, outcome.coverage, observation, models, bands
+            )
         )
     records = tuple(
         RepeatabilityRecord(route_id, store(reference))
@@ -910,7 +1054,7 @@ def _append(
             raise RegistryError(f"{EVENTS_FILE} : {error}") from error
         if result is not None:
             declared = _declaration_of(extended, event)
-            _agree(declared, result, _REFUSED)
+            _agree(declared, result, _REFUSED, REGISTRY_FORMAT_VERSION)
             _agree_documents(
                 declared,
                 result,
@@ -999,7 +1143,7 @@ def load_outcomes(
 ) -> tuple[OutingOutcome, ...]:
     """Les sorties scorées du résultat ``number``, reconstruites depuis ses documents,
     présents, intacts et décodés au format de l'événement ``number`` (précision de
-    D14, M4c-2)."""
+    D14, M4c-2) ; leurs fourchettes, au format 4 (M4d-2)."""
     result = _result(log, number)
     format_version = log.event(number).format_version
 
@@ -1013,6 +1157,9 @@ def load_outcomes(
             tuple(
                 _model_scores(scored, read, _line_prefix(number), "", format_version)
             ),
+            None
+            if scored.bands is None
+            else _decoded(read, scored.bands, OutingBands, "", format_version),
         )
         for scored in result.outings
     )

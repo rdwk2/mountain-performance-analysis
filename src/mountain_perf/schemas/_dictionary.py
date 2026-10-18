@@ -46,6 +46,13 @@ from mountain_perf.schemas.admission import (
     ReviewReason,
     ThresholdSource,
 )
+from mountain_perf.schemas.bands import (
+    BandElement,
+    BandQuantiles,
+    ModelBand,
+    OutingBands,
+    ReservoirMember,
+)
 from mountain_perf.schemas.calibration import (
     MODEL_KIND_DESCRIPTIONS,
     POPULATION_EXCLUSION_DESCRIPTIONS,
@@ -429,6 +436,11 @@ DOCUMENTED_TYPES: tuple[type, ...] = (
     DriftFit,
     DriftDiagnostic,
     OutingDrift,
+    ReservoirMember,
+    BandQuantiles,
+    BandElement,
+    ModelBand,
+    OutingBands,
 )
 """Types publiés dans le dictionnaire, dans l'ordre de lecture."""
 
