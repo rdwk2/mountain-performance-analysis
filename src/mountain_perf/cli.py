@@ -2381,6 +2381,56 @@ def _run_ingest() -> int:
     return 0
 
 
+TABLES_EXTRA_ERROR = (
+    "Erreur : l'écriture des tables demande l'extra analyse. Installer : uv sync "
+    "--extra analyse"
+)
+"""Le message de ``mperf tables`` sans pyarrow."""
+
+
+def _run_tables() -> int:
+    """``mperf tables`` : écrit ``MPA_DATA_DIR/processed`` depuis
+    ``MPA_DATA_DIR/interim`` (``docs/decisions/0014``), puis affiche le résumé.
+
+    L'écriture s'importe ici, pas en tête du module : ``mperf`` s'importe sans l'extra
+    ``analyse`` ; seule l'absence de pyarrow est dite, toute autre
+    ``ModuleNotFoundError`` se propage. ``InterimError``, ``AthleteError``,
+    ``TablesError`` (l'activité, ou l'index, nommés), ``ConfigError``, ``OSError`` :
+    « Erreur : <message> », code 1."""
+    try:
+        from mountain_perf.analyse.parquet import write_tables
+    except ModuleNotFoundError as error:
+        if error.name != "pyarrow":
+            raise
+        print(TABLES_EXTRA_ERROR, file=sys.stderr)
+        return 1
+    from mountain_perf.analyse.athlete import AthleteError, read_athlete
+    from mountain_perf.analyse.tables import TablesError, build_tables
+    from mountain_perf.ingest.interim import InterimError
+    from mountain_perf.schemas.processed import ClimbRegime
+
+    try:
+        folder = data_dir()
+        tables = build_tables(folder, read_athlete(folder))
+        activities_path, climbs_path = write_tables(folder, tables)
+    except (InterimError, AthleteError, TablesError, ConfigError, OSError) as error:
+        print(f"Erreur : {error}", file=sys.stderr)
+        return 1
+    provenance = tables.provenance
+    print(f"Activités : {provenance.activity_count}")
+    print(f"Montées : {provenance.climb_count}")
+    for regime in ClimbRegime:
+        count = sum(1 for row in tables.climbs if row.regime is regime)
+        print(f"  {regime.value} : {count}")
+    print(f"Montées marquées : {sum(1 for row in tables.climbs if row.flags)}")
+    print(
+        f"Montées instables : {sum(1 for row in tables.climbs if row.stable is False)}"
+    )
+    print(f"Empreinte d'interim/ : {provenance.interim_sha256}")
+    print(f"-> {activities_path.name}, {climbs_path.name}")
+    return 0
+
+
 def _write_utf8() -> None:
     """Sorties standard en UTF-8, quel que soit l'encodage de la console.
 
@@ -2464,6 +2514,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         "ingest",
         help="Ingérer l'export de MPA_DATA_DIR/raw dans MPA_DATA_DIR/interim (AN1-1)",
     )
+    commands.add_parser(
+        "tables",
+        help="Écrire les tables de MPA_DATA_DIR/processed depuis interim (AN1-2b)",
+    )
     args = parser.parse_args(argv)
     if args.command == "project" and args.curve is None:
         print(project_parser.format_usage(), file=sys.stderr, end="")
@@ -2480,6 +2534,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         if args.command == "ingest":
             return _run_ingest()
+        if args.command == "tables":
+            return _run_tables()
         if args.command == "backtest":
             return _run_backtest(args)
         if args.command == "project":
