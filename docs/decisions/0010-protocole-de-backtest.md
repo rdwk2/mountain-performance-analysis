@@ -865,6 +865,18 @@ aucune évaluable ; sinon « rejeté » si une condition de D10.3 ou de D10.4 é
 « candidat provisoire exploratoire ». Les réserves : comparateur saturé, candidat saturé,
 puis « centrale, sensibilité restante », toujours.
 
+*(précision, M4d-3)* Le document d'admission d'une centrale n'est jamais réécrit : sa
+réserve « centrale, sensibilité restante » y reste, et celui de chaque configuration de la
+sensibilité la porte aussi (pris seul, il n'est pas qualifié). Elle se lit remplacée dans la
+**vue composée** de la centrale et de sa sensibilité — la dernière DÉCLARATION de
+sensibilité en vigueur qui qualifie cette centrale, et sa réponse en vigueur (la dernière
+tentative fait foi : une sensibilité faite, puis une autre sans RÉSULTAT, rend la vue
+« sensibilité incomplète ») : sans sensibilité déclarée, « centrale, sensibilité restante » ; une sensibilité déclarée sans
+RÉSULTAT (un ÉCHEC, ou un processus interrompu), « sensibilité incomplète » ; un RÉSULTAT,
+les réserves de son document (précision de D13), chacune avec les configurations qui la
+portent, ou, s'il n'en porte aucune, « sensibilité faite ». La vue se calcule à la lecture,
+jamais stockée. Le verdict reste celui de la centrale : une réserve ne le change pas.
+
 **D10.7 Figement pour confirmation.** Candidat, paramètres ou règle d'estimation,
 cible, horloge, exclusions, seuils et date d'analyse sont figés **ensemble** dans
 une déclaration versionnée du registre. Une performance n'entre en confirmation
@@ -1080,6 +1092,119 @@ individuels change. Distinguer changement de support et changement de score ; `D
 n'est pas normalisé par `Δ`. Avant M4d, une décision M4c porte l'étiquette
 « centrale, sensibilité restante ».
 
+*(précision, M4d-3 ; passe experte, amendements de D13)*
+
+**Configurations et exécutions.** Les dix-neuf configurations, toutes, dans cet ordre : les
+neuf paires `(Δ, ε)` sous l'écoulé, `Δ` puis `ε` croissants — `(100, 15)`, `(100, 30)`,
+`(100, 45)`, `(250, 15)`, `(250, 30)`, `(250, 45)`, `(500, 15)`, `(500, 30)`, `(500, 45)` —,
+puis `(250, 30)` sous les dix horloges de mouvement, dans l'ordre de D5.4 (`M_θ` pour les
+cinq conventions dans leur ordre, puis `M_θ + U_θ` de même) ; `r_c = 15` m pour toutes. Elles
+demandent **neuf exécutions géométriques**, une par paire : chaque sortie déclarée appariée
+sous la paire (D4) et observée ; ses scores, sous chacun des modèles déclarés et sous les
+onze horloges ; la référence D8 de chaque parcours de répétabilité, sur les observations de
+la paire ; le calage de D9.2, horloge par horloge ; pour `just backtest`, les fourchettes de
+D11 (sous l'écoulé). La paire `(250, 30)` est l'exécution centrale elle-même : ses sorties,
+ses documents et ses références sont ceux du RÉSULTAT central, repris tels quels, jamais
+recalculés. Une configuration de mouvement se lit dans l'exécution `(250, 30)`, sous son
+horloge : l'appariement ne dépend pas de l'horloge, et les scores, le calage et D8 y sont
+calculés sous chacune des onze. Les prévisions des huit autres paires sont datées de la
+DÉCLARATION de sensibilité. Rien n'est réapparié ni rescoré sur une intersection : chaque
+configuration garde son propre support. Une sortie non scorée l'est au motif du manifeste
+(non tracée, ou refusée), le même sous toutes les configurations.
+
+**Rattachement et comparateur.** Une sensibilité qualifie une exécution centrale — celle de
+`just backtest`, ou une expérience d'admission (D10) — que le même processus vient
+d'écrire : une DÉCLARATION répondue par un RÉSULTAT, tous deux en vigueur. Une centrale
+répondue par un ÉCHEC n'a rien à qualifier ; une centrale appariée hors de `(250, 30)`,
+`r_c = 15` m, n'a pas de comparateur parmi les dix-neuf : toutes deux sont refusées avant
+tout écrit. Chaque configuration se compare à un **comparateur**, l'une des dix-neuf : pour
+`just backtest`, `(250, 30)` sous l'écoulé ; pour une expérience, `(250, 30)` sous son
+horloge déclarée, dont la décision est l'admission centrale elle-même. Le comparateur se
+compare aussi à lui-même : aucune composante de support n'y change, aucun écart n'y est non
+nul.
+
+**Une expérience sous une configuration.** Même candidat et mêmes paramètres, même base, même
+cible, mêmes exclusions, même `K` et mêmes poids, même date d'analyse ; l'horloge de la
+configuration remplace l'horloge déclarée, pour les dix-neuf (les neuf de l'écoulé
+comprises). Les références de D8 de chaque paire, calculées sur ses seules observations,
+sont **figées par configuration**, sous son horloge, comme celles de D10.1 (locales,
+empruntées), avec l'empreinte de leurs documents, dans la DÉCLARATION de sensibilité, avant
+le calcul de toute prévision des configurations ; celles du comparateur sont celles de
+l'expérience centrale. L'admission (D10.2 à D10.6) est **refaite** sous chaque autre
+configuration, sur les scores de sa paire, son calage et ses références figées —
+évaluabilité, sources des seuils, temps nuls, `n`, `Ḡ`, vote, garde-fous, verdict —, jamais
+recopiée ; sans performance évaluable, la configuration n'a que ses évaluations, sans
+décision.
+
+**Trois axes.** Pour chaque configuration, chaque performance déclarée, chaque modèle déclaré
+(dans l'ordre de la déclaration) et chaque métrique — `L` (D7.2) ; `E_R` puis `D_R` de la
+montée, du plat et de la descente (dans cet ordre : `E_R` montée, plat, descente, puis `D_R`
+montée, plat, descente) ; `max |C_k|` (D7.3) ; `q_usage` sur le `K` par défaut (D7.4) —, en
+usage, la valeur sous la configuration (son exécution, son horloge) se compare à celle du
+comparateur (son exécution, son horloge). Pour un modèle calé, la valeur est sa valeur calée
+sous l'horloge, lue dans ses scores (pour `q_usage`, au dénominateur de ces scores, la
+prévision d'usage de v0 brut, précision de D9.2 — pas celui de l'admission d'une
+expérience, D7.4) ; sans calage sous l'horloge, le statut de son calage (`non calé`,
+`erreur du modèle`), d'effectif nul, même si l'observation a un motif — par dérogation à la
+précision de D7.1 (M4b-1), comme le rapport de D15 depuis M4c-2 ; les garde-fous de
+l'admission gardent la règle de la précision de D10.4 (M4c-3) ; `max |C_k|` sans erreur aux passages et `q_usage` sans cible
+d'usage, `support insuffisant`, d'effectif nul. Trois axes, publiés séparément :
+
+1. **disponibilité** : disponible des deux côtés, **perdue** (disponible au comparateur
+   seulement), **gagnée** (sous la configuration seulement), indisponible des deux côtés —
+   chaque valeur indisponible à son motif, publié ;
+2. **support effectif** : les composantes qui changent, parmi celles de la métrique, dans
+   cet ordre — pour `L`, `E_R` et `D_R` : les **segments** admis, dans leur ordre (début et
+   fin effectifs, et classe, de chacun ; ceux de la classe seulement pour une métrique de
+   régime), puis les **temps nuls** (début et fin de chaque segment admis de temps nul sous
+   l'horloge, D5.5, même hors de la classe pour une métrique de régime) ; pour
+   `max |C_k|` : les **points** de `C_k`, dans leur ordre (abscisse, motif, et, s'il a des
+   temps, si son temps sous l'horloge est nul) ; pour `q_usage` : les **éléments** de `K`,
+   dans leur ordre (membre, abscisse, motif, et, s'il a des temps, si son temps sous
+   l'horloge est nul) ; pour un modèle calé, en dernier, sa **population** de
+   calage sous l'horloge, en usage (`C_j^eff` et ses retraits, D9.2). Une composante change
+   si l'une de ses entrées diffère, à l'égalité exacte. Un effectif égal ne dit jamais qu'un
+   support l'est. Les jours de D8 et les membres du réservoir de D11 ne dépendent que du
+   manifeste : ils ne changent pas d'une configuration à l'autre ;
+3. **valeur** : quand les deux valeurs existent, l'écart `valeur − comparateur` (flottant),
+   sans prétendre isoler l'effet du support. `D` n'est pas normalisé par `Δ`.
+
+Une performance n'a pas de valeurs comparées, et porte son motif, dans cet ordre : jour de
+plusieurs sorties (D0) ; première sortie non scorée ; sortie sans référence (pas d'usage,
+D3).
+
+**Signes et ensembles (expérience).** La classe de signe d'un gain `g` vaut `+1` si
+`g > 10⁻⁶`, `−1` si `g < −10⁻⁶`, `0` sinon — la tolérance numérique de D10.3, sans rapport
+avec la tolérance latérale `ε` : les bornes sont dans la classe zéro. Une valeur absente n'est jamais un zéro : un `G_j` se compare au comparateur seulement
+s'il existe des deux côtés (**comparable** au sens de D13, sans rapport avec la performance
+« comparable » de D10.3) ; sinon chaque côté publie ce qu'il a — son gain, son motif de
+non-évaluabilité, ou, évaluable, son gain absent (« à revoir », D10.6). `Ḡ` de chaque
+configuration est celui de son admission, sur son propre ensemble (D10.3). En complément,
+l'**ensemble commun** : les performances où les deux `G_j` existent, les deux moyennes
+(`fsum`, à poids égal) sur ces seules performances, les **entrantes** (évaluables sous la
+configuration, pas au comparateur) et les **sortantes** (l'inverse) ; il ne remplace pas
+les moyennes de chaque admission.
+
+**Réserves (expérience).** Chaque configuration porte, ou non, chacune de ces réserves ; le
+document les publie dans cet ordre, chacune avec les rangs de toutes les configurations qui
+la portent, et sans entrée pour une réserve qu'aucune ne porte :
+
+1. « sensibilité : signe changé » — la classe de `Ḡ` diffère de celle du comparateur (`Ḡ`
+   présent des deux côtés), ou celle d'un `G_j` comparable diffère ; un passage de zéro à
+   non nul, ou l'inverse, est un changement ;
+2. « sensibilité : verdict modifié » — le verdict n'est pas celui du comparateur, l'absence
+   de décision (aucune performance évaluable) comptant comme un verdict ;
+3. « sensibilité : évaluabilité perdue » — une performance évaluable au comparateur ne l'est
+   plus, ou un garde-fou calculé au comparateur (satisfait ou violé ; celui des passages
+   compris) ne l'est plus sous la configuration (indisponible, non évaluable, ou sans
+   décision) ; jamais si le comparateur n'a pas de décision ;
+4. « sensibilité : signe non vérifiable » — aucun `G_j` comparable (le comparateur compris,
+   s'il n'a aucun gain).
+
+Aucune réserve : « sensibilité faite » (vue composée de D10.6). Le verdict reste celui du
+comparateur : la sensibilité est rapportée, jamais utilisée pour choisir. Pour `just
+backtest`, aucune réserve : la sensibilité se publie, configuration par configuration.
+
 ### D14 — Registre des expériences (M4b)
 
 Événements **ajoutés, jamais réécrits**, liés entre eux :
@@ -1195,6 +1320,66 @@ Rien n'est recalculé, ni depuis les scores, ni par le code du calage : les docu
 RÉSULTAT se recoupent entre eux, et un changement de la règle de `C_j` ne touche pas la
 relecture des lignes déjà écrites.
 
+*(précision et exception, M4d-3)* La sensibilité de D13 s'enregistre en un couple
+d'événements : une **DÉCLARATION de sensibilité**, qui qualifie une DÉCLARATION centrale —
+de `just backtest` ou d'une expérience — répondue par un RÉSULTAT en vigueur, nomme ces deux
+événements et l'empreinte de leurs lignes, recopie à l'identique tout le reste de la
+déclaration centrale, déclare les dix-neuf configurations de D13, toutes et dans leur ordre,
+et fige, avant le calcul de toute prévision des configurations, l'empreinte du document D8
+de chaque parcours pour chaque paire `(Δ, ε)` et, pour une expérience, les références figées
+de chaque configuration ; puis son RÉSULTAT, ou un ÉCHEC. **Par exception à « chaque
+DÉCLARATION compte pour un essai »**, une DÉCLARATION de sensibilité ne compte pas comme
+essai de l'effet de la centrale, ni comme exécution sans effet : les sensibilités se
+comptent à part, corrections, reprises et échecs compris. L'exception ne couvre que ce que
+D13 fait varier (`Δ`, `ε`, l'horloge) : une déclaration qui change autre chose — candidat,
+paramètres, cible, horloge déclarée, `K`, exclusions, données, commit, ou une partie
+seulement des configurations — n'est pas une DÉCLARATION de sensibilité ; elle est refusée
+comme telle, et se déclare comme une expérience neuve, qui compte. Une centrale peut
+recevoir plusieurs sensibilités, chacune comptée à part. Le document d'admission central
+n'est jamais réécrit (précision de D10.6, vue composée).
+
+*(précision, M4d-3)* Le registre passe au **format 5**, qui étend le format 4 sans changer
+la forme d'aucun de ses contrats ni les types d'événements (DÉCLARATION, RÉSULTAT, ÉCHEC,
+leurs liens et leurs corrections restent les mêmes). Une DÉCLARATION de sensibilité porte,
+en plus de la déclaration centrale recopiée, sa **sensibilité** : les numéros de la
+DÉCLARATION centrale et de son RÉSULTAT et les empreintes de leurs lignes ; les dix-neuf
+configurations ; pour chaque paire, dans l'ordre de première apparition, l'empreinte du
+document D8 de chaque parcours ; pour une expérience, et seulement pour elle, les références
+figées de chaque configuration, sous son horloge, dans l'ordre des configurations. Son
+RÉSULTAT porte, pour chaque paire, dans le même ordre, ce que porte le RÉSULTAT d'une
+exécution (sorties scorées et leurs documents d'observation, de scores et, pour `just
+backtest`, de fourchettes ; sorties non scorées et leur motif ; références D8) ; il cite un
+document de plus, le **document de sensibilité** — le rang du comparateur ; pour chaque
+configuration, dans l'ordre, la comparaison de chaque performance (précision de D13 : motif,
+ou, modèle par modèle et métrique par métrique, les deux valeurs, la disponibilité, les
+composantes de support changées, l'écart) et, pour une expérience, son admission (ou ses
+seules évaluations, sans décision), les gains comparés et leurs classes, l'ensemble commun,
+les classes de `Ḡ` et ses réserves ; enfin les réserves du document ; il ne cite pas de
+document d'admission à part. La paire `(250, 30)` est le RÉSULTAT central : mêmes sorties,
+mêmes documents (mêmes empreintes, rien de réécrit), mêmes références. Les lignes des
+formats 1 à 4 se relisent sans ces champs, et se réécrivent à l'octet ; une ligne d'un format
+antérieur au 5 qui les porte n'est pas relue. L'accord du registre vérifie, à l'ajout et à
+la relecture : les empreintes des lignes de la centrale et de son RÉSULTAT ; la recopie,
+champ pour champ ; les dix-neuf configurations dans leur ordre ; l'appariement central,
+`(250, 30)` et `r_c = 15` m ; pour une expérience, que les références figées du comparateur
+sont celles de l'expérience centrale ; à l'ajout seulement, que la centrale et son RÉSULTAT
+sont en vigueur. Puis, pour le RÉSULTAT : les paires déclarées, dans l'ordre, chacune
+accordée comme le RÉSULTAT d'une exécution (sorties, documents, références D8 de chaque
+parcours du jeu de répétabilité) ; les références D8 de chaque paire, celles que la
+DÉCLARATION a figées ; la paire `(250, 30)`, celle du RÉSULTAT central ; le document de
+sensibilité, qui porte les configurations déclarées dans leur ordre, le comparateur, une
+expérience si et seulement si la déclaration en porte une, les performances déclarées
+(jours et premières sorties), et la cible déclarée dans l'admission de chaque configuration.
+Rien n'est recalculé : le contrat du document revérifie ses propres invariants
+(disponibilités, écarts au bit, classes de signe, ensemble commun, côté « comparateur » de
+chaque comparaison, réserves) ; les composantes de support changées ne se recalculent pas.
+Une exception, ou une interruption au clavier, entre la DÉCLARATION de sensibilité et son
+RÉSULTAT est un ÉCHEC technique de toute la sensibilité, au motif sans chemin, comme pour
+`just backtest` (précision de M4b-5) : aucune paire n'est gardée à part. Le comptage des
+essais compte les DÉCLARATIONS de sensibilité à part (`sensitivities`) : le nombre de
+DÉCLARATIONS est celui des exécutions sans effet, plus celui des essais de chaque effet et
+cible, plus celui des sensibilités.
+
 ### D15 — Rapport de `just backtest`
 
 Par performance : jeu et étiquettes ; couverture (D4.11) ; horloges — totaux de la
@@ -1253,6 +1438,33 @@ motif), puis pour chaque modèle `n` (dans / hors), le statut, les résidus, les
 `IS_j`, `IS_j,norm`, la couverture, « tous couverts », le `q_usage` et le `max |C_k|` de la
 médiane et du modèle ; enfin les éléments de `K` de v0 brut (`P_k`, bornes, médiane, lecture
 prudente, largeur, `T_k`, `IS_k`, couvert). La synthèse ne change pas.
+
+*(précision, M4d-3)* Avec `--sensitivity` (`just backtest courbe.csv --sensitivity`), la
+commande enchaîne, après le rapport et la synthèse de son exécution centrale, la
+sensibilité de cette exécution (précision de D13) : une ligne par paire observée, puis
+l'empreinte de la DÉCLARATION de sensibilité dès son ajout ; le **rapport de sensibilité**
+se calcule avant son RÉSULTAT (une erreur y est l'ÉCHEC technique de la sensibilité) et
+s'écrit dans `MPA_DATA_DIR/rapports/sensibilite-<n° du RÉSULTAT>.txt`, jamais réécrit ; les
+deux noms de rapport, central et de sensibilité, sont refusés d'avance s'ils existent. Sa
+synthèse s'affiche : la centrale qualifiée, les numéros et le sceau du registre, une ligne
+par configuration — pour v0 brut, les valeurs comparées (performances × métriques), perdues,
+gagnées, de support changé et changées —, et le nom du rapport. Le rapport reprend la
+synthèse puis, pour chaque configuration dans l'ordre : ses agrégats d'usage sous son
+horloge (`L`, `|L|`, `max |C_k|`, `q_usage` des cinq modèles, chacun sur son propre
+effectif, par jeu, avec leurs manquants par motif — ceux du document : pour un modèle calé
+sans calage sous l'horloge, le statut de son calage (précision de D13) —, puis `|L|` sur
+l'ensemble commun du jeu) ; les trois axes par modèle (valeurs comparées, perdues, gagnées,
+de support changé, changées) ; `L` de v0 brut,
+performance par performance (comparateur, configuration, disponibilité, écart, composantes
+changées — ou le motif de la performance) ; sous l'écoulé, la table des fourchettes de sa
+paire (précision de D11, « Agrégats ») ; la dérive de v0 brut sous son horloge, une ligne
+par sortie scorée avec usage (`b`, `rho_u`, rang, `ddl`, retraits, signe, étendue, mentions,
+ou le motif ; D12). Une légende finit le rapport : rapportée, jamais utilisée pour choisir ;
+les trois axes, et qu'un effectif égal ne dit pas qu'un support l'est ; `D` non normalisé
+par `Δ` ; les dix configurations de mouvement lues dans l'exécution `(250, 30)` ; les
+fourchettes par paire, sous l'écoulé ; la dérive, pente descriptive, jamais une fatigue. Une
+expérience n'a pas de rapport texte : son document de sensibilité et l'objet que rend
+`run_sensitivity` en tiennent lieu, jusqu'à sa commande (M6a).
 
 ### D16 — Découpage
 
