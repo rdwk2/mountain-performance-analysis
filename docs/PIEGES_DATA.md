@@ -220,6 +220,12 @@ plus que la côte est courte : le lissage rabote son sommet, et les bornes englo
 une part des replats voisins. Détecter sur le profil, mais placer les bornes et lire le
 gain en temps, sur l'altitude lissée par bloc du moteur (`docs/decisions/0014`).
 
+**Une borne cherchée à l'extrême de l'altitude dans une fenêtre fuit dans un replat qui
+monte doucement** : quand le terrain qui borde une côte continue de monter à 1 ou 2 %,
+le minimum (ou le maximum) de la fenêtre est à son bout, pas au pied (ou au haut), et la
+côte absorbe un bout de replat, lent et presque sans gain. Resserrer les bornes tant
+que l'altitude monte moins vite que la pente d'un replat (`docs/decisions/0014`).
+
 **Une montée peut ne pas être humaine** : une remontée mécanique (un télésiège pendant
 une sortie de ski), un véhicule. Sa VAM ou sa vitesse horizontale sort de toute échelle
 humaine ; elle se marque, avec des seuils déclarés, et ne se corrige pas.

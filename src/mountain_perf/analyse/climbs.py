@@ -25,8 +25,13 @@ La chaîne, dans cet ordre :
 5. les bornes : sur le profil, le dernier point à ``bound_tolerance_m`` du minimum et le
    premier à ``bound_tolerance_m`` du maximum ; en temps, sur ``z̃``, parmi les
    enregistrements à moins de ``w_eff`` de chaque borne, le dernier instant à la
-   tolérance du minimum et le premier à la tolérance du maximum ; le gain ``G`` est le
-   maximum moins le minimum de ``z̃`` dans ces deux fenêtres ;
+   tolérance du minimum et le premier à la tolérance du maximum ; puis un replat, même
+   montant, reste hors de la montée : la borne de départ avance tant que ``z̃`` monte de
+   moins de ``flat_grade`` sur le pas de grille de ``d_r`` qui la suit, et se place,
+   dans le premier pas qui monte d'au moins autant, au dernier instant à la tolérance
+   du minimum de ce pas ; la borne d'arrivée recule de même, au premier instant à la
+   tolérance du maximum de son pas. Le gain ``G`` est le maximum moins le minimum de
+   ``z̃`` là où les bornes se sont placées (les fenêtres, ou ces pas) ;
 6. les filtres, sur les mesures : ``G`` d'au moins
    ``max(min_gain_m ; min_climb_steps × pas × max_sustained_vertical_speed_ms)``,
    le pas étant l'intervalle médian de la montée ; une longueur parcourue en M
@@ -406,18 +411,58 @@ def _profile_bounds(
     return bottom, top
 
 
+def _lowest(
+    zs: Sequence[float], lo: int, hi: int, tolerance: float
+) -> tuple[int, float]:
+    """Le dernier indice de ``[lo ; hi]`` à ``tolerance`` du minimum de ``zs``, et ce
+    minimum."""
+    low = min(zs[lo : hi + 1])
+    return max(i for i in range(lo, hi + 1) if zs[i] <= low + tolerance), low
+
+
+def _highest(
+    zs: Sequence[float], lo: int, hi: int, tolerance: float
+) -> tuple[int, float]:
+    """Le premier indice de ``[lo ; hi]`` à ``tolerance`` du maximum de ``zs``, et ce
+    maximum."""
+    high = max(zs[lo : hi + 1])
+    return min(i for i in range(lo, hi + 1) if zs[i] >= high - tolerance), high
+
+
 def _time_bounds(
-    track: MotionTrack, start_m: float, end_m: float, window_m: float, tolerance: float
+    track: MotionTrack,
+    start_m: float,
+    end_m: float,
+    window_m: float,
+    tolerance: float,
+    step_m: float,
+    flat_grade: float,
 ) -> tuple[float, float, float] | None:
     d, zs = track.distance_m, track.smoothed_elevation_m
     a0, a1 = bisect_left(d, start_m - window_m), bisect_right(d, start_m + window_m)
     b0, b1 = bisect_left(d, end_m - window_m), bisect_right(d, end_m + window_m)
     if a1 <= a0 or b1 <= b0:
         return None
-    low = min(zs[a0:a1])
-    start = max(i for i in range(a0, a1) if zs[i] <= low + tolerance)
-    high = max(zs[b0:b1])
-    end = min(i for i in range(b0, b1) if zs[i] >= high - tolerance)
+    start, low = _lowest(zs, a0, a1 - 1, tolerance)
+    end, high = _highest(zs, b0, b1 - 1, tolerance)
+    first, rise = start, end
+    while first < end:
+        j = bisect_left(d, d[first] + step_m, first + 1, end)
+        if zs[j] - zs[first] >= flat_grade * (d[j] - d[first]):
+            rise = j
+            break
+        first += 1
+    if first > start:
+        start, low = _lowest(zs, first, rise, tolerance)
+    last, rise = end, start
+    while last > start:
+        j = bisect_right(d, d[last] - step_m, start + 1, last) - 1
+        if zs[last] - zs[j] >= flat_grade * (d[last] - d[j]):
+            rise = j
+            break
+        last -= 1
+    if last < end:
+        end, high = _highest(zs, rise, last, tolerance)
     if track.time_s[end] <= track.time_s[start]:
         return None
     return track.time_s[start], track.time_s[end], high - low
@@ -431,6 +476,7 @@ def _settle(
     piece: _Piece,
     climb: ParameterSet,
     window_m: float,
+    step_m: float,
 ) -> _Piece:
     bottom, top = _profile_bounds(
         z, piece.first, piece.last, climb["bound_tolerance_m"]
@@ -439,7 +485,13 @@ def _settle(
         piece.span = None
         return piece
     bounds = _time_bounds(
-        track, grid[bottom], grid[top], window_m, climb["bound_tolerance_m"]
+        track,
+        grid[bottom],
+        grid[top],
+        window_m,
+        climb["bound_tolerance_m"],
+        step_m,
+        climb["flat_grade"],
     )
     if bounds is None:
         piece.span = None
@@ -535,6 +587,7 @@ def detect_climbs(
                 _Piece(cuts[2 * i], cuts[2 * i + 1]),
                 climb,
                 window_m,
+                profile["grid_step_m"],
             )
             for i in range(len(cuts) // 2)
         ]
@@ -566,6 +619,7 @@ def detect_climbs(
                 _Piece(pieces[best].first, pieces[best + 1].last),
                 climb,
                 window_m,
+                profile["grid_step_m"],
             )
             if merged.span is None:
                 break

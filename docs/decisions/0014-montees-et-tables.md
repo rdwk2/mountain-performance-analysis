@@ -113,9 +113,24 @@ paramètre (`CLIMB_PARAMETER_SPECS`). En résumé :
    déciderait, d'une plateforme à l'autre), et si son temps en mouvement dépasse un
    dixième de celui du plus court des deux morceaux qu'il sépare ; les fusions vont
    du replat le plus léger au plus lourd.
-3. **Les bornes et le gain, en temps** : sur `z̃`, près de chaque borne du profil, le
-   dernier instant à 1 m du minimum et le premier à 1 m du maximum ; le gain `G` est le
-   maximum moins le minimum de `z̃` près de ces bornes. La clé d'une montée est son
+3. **Les bornes et le gain, en temps** : sur `z̃`, près de chaque borne du profil (à
+   moins de `w_eff`), le dernier instant à 1 m du minimum et le premier à 1 m du
+   maximum. Puis un replat, même montant, reste hors de la montée : la borne de départ
+   avance tant que `z̃` monte de moins de 2 % (la pente d'un replat) sur le pas de
+   grille de distance réalisée qui la suit, et se place, dans le premier pas qui monte
+   d'au moins autant, au dernier instant à 1 m du minimum de ce pas ; la borne d'arrivée
+   recule de même, au premier instant à 1 m du maximum de son pas. Sans ce
+   resserrement, la tolérance lue sur toute la fenêtre posait la borne au bout d'un
+   replat qui monte de 1 à 2 %, jusqu'à 200 m hors de la montée : la VAM s'y diluait, et
+   la coupe du point 2 ne lisait plus le temps du replat (constat 1 de la relecture de
+   la PR #31). Le resserrement se lit à un pas de grille près, et au bruit de `z̃`
+   près : un bout de replat plus court qu'un pas peut rester dans la montée (quand la
+   tolérance lue sur la fenêtre pose déjà la borne à moins d'un pas du pied ou du haut,
+   ce que font un replat à peine montant, le bruit ou un enregistrement espacé), et près
+   de 2 % le bruit de l'altitude sur un pas décide s'il monte assez. Les variantes de la
+   stabilité (pente des replats à ± 1 point, tolérance, grille) en marquent une partie ;
+   un bout qui ôte moins de 5 % à la VAM laisse la montée stable. Le gain `G` est le
+   maximum moins le minimum de `z̃` là où les bornes se placent. La clé d'une montée est son
    instant de départ.
 4. **Les filtres, sur les mesures** : un gain d'au moins
    `D_min_eff = max(D_min ; n × pas × V_haute)`, avec `D_min` = 20 m, `n` = 30 pas et
@@ -249,7 +264,8 @@ besoin.
   de randonnée ; elle reste une sensibilité, et le drapeau du temps M lent marque le
   GPS qui erre.
 - **Domaine C** : sur une côte pointue synthétique entre deux replats, A sous-estime la
-  VAM d'autant plus que la côte est courte, C la retrouve. B perdrait le profil commun
+  VAM d'autant plus que la côte est courte, C la retrouve, même entre deux replats qui
+  montent de moins de 2 % (point 3). B perdrait le profil commun
   avec le moteur, que la charte impose et dont la détection a besoin (une grille à pas
   fixe, lissée).
 - **Régimes C** : A sélectionne sur la mesure ; B aussi, d'un cran plus loin (un

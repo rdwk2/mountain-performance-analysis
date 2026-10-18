@@ -385,12 +385,13 @@ restent hors du dépôt ([`docs/analyse/CHARTE.md`](docs/analyse/CHARTE.md), § 
   ski de randonnée), ses strates de pente et d'altitude, ses drapeaux et sa stabilité.
 
 Les montées se détectent sur le profil du moteur ; leurs bornes et leur gain se lisent
-en temps, sur l'altitude lissée du moteur. Un drapeau marque une montée sans la
-retirer. Les deux fichiers portent leur provenance : l'empreinte d'`interim/`, la
-version du paquet et tous les paramètres de la définition ; régénérés depuis le même
-`interim/` par le même code et la même version de pyarrow (celle de `uv.lock`), ils
-sont identiques à l'octet sur la même plateforme (d'un système à l'autre, les derniers
-chiffres d'un nombre peuvent différer).
+en temps, sur l'altitude lissée du moteur, et un replat qui monte doucement reste hors
+de la montée. Un drapeau marque une montée sans la retirer. Les deux fichiers portent
+leur provenance : l'empreinte d'`interim/`, la version du paquet et tous les paramètres
+de la définition ; régénérés depuis le même `interim/` par le même code et la même
+version de pyarrow (celle de `uv.lock`), ils sont identiques à l'octet sur la même
+plateforme (d'un système à l'autre, les derniers chiffres d'un nombre peuvent
+différer).
 
 `MPA_DATA_DIR/athlete.toml` peut déclarer, dans sa table `[analyse]`, la vitesse
 ascensionnelle de référence qui fixe la frontière des régimes, et les produits de

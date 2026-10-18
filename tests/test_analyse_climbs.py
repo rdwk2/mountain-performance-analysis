@@ -88,6 +88,70 @@ def test_a_short_pointed_climb_keeps_its_vertical_speed(gain_m: float) -> None:
     assert _vam_m_per_h(measure) == pytest.approx(600.0, rel=0.02)
 
 
+@pytest.mark.parametrize("grade", [0.007, 0.01, 0.015, 0.019, -0.019])
+@pytest.mark.parametrize("gain_m", [30.0, 150.0])
+def test_a_rising_flat_stays_out_of_the_climb(grade: float, gain_m: float) -> None:
+    """Constat 1 de la C de la PR #31 : 300 m de replat à ``grade`` de part et d'autre
+    d'une côte à 600 m/h, sans bruit. Un replat qui monte de moins de ``flat_grade``
+    reste hors de la montée, comme un replat plat ou qui descend : la VAM ne se dilue
+    pas. (À 0,5 %, la tolérance lue sur la fenêtre pose déjà la borne à moins d'un pas
+    du pied, où le resserrement ne la voit pas : 584 m/h pour la côte de 30 m, la limite
+    que dit ``0014``.)"""
+    flat = (300.0, grade, 1.0)
+    segments = [FLAT, flat, climb_at(600, 0.15, gain_m), flat, FLAT]
+    (measure,) = _climbs(segments, noise=False)
+    assert _vam_m_per_h(measure) == pytest.approx(600.0, rel=0.015)
+
+
+@pytest.mark.parametrize("seed", range(8))
+def test_a_rising_flat_stays_out_of_a_noisy_climb(seed: int) -> None:
+    """La côte de 30 m entre deux replats à 1 %, avec le bruit du fixture : sa VAM est
+    celle de la même côte entre deux replats plats, au même bruit, à 1 % près."""
+
+    def vam(grade: float) -> float:
+        flat = (300.0, grade, 1.0)
+        segments = [FLAT, flat, climb_at(600, 0.15, 30), flat, FLAT]
+        (measure,) = _climbs(segments, seed=seed)
+        return _vam_m_per_h(measure)
+
+    assert vam(0.01) == pytest.approx(vam(0.0), rel=0.01)
+
+
+@pytest.mark.parametrize("grade", [0.0, 0.01, 0.015, 0.019])
+def test_a_rising_flat_between_two_climbs_cuts(grade: float) -> None:
+    """Constat 1, la coupe : deux montées de 150 m (900 s chacune) séparées de 260 m
+    de replat parcouru à 1 m/s ; la règle lit le temps du replat entier, même montant
+    (260 s, plus du dixième de 900 s), et coupe."""
+    climb = climb_at(600, 0.15, 150)
+    segments = [FLAT, climb, (260.0, grade, 1.0), climb, FLAT]
+    first, second = _climbs(segments, noise=False)
+    assert _vam_m_per_h(first) == pytest.approx(600.0, rel=0.015)
+    assert _vam_m_per_h(second) == pytest.approx(600.0, rel=0.015)
+
+
+@pytest.mark.parametrize("grade", [0.0, 0.015, 0.019])
+def test_a_merged_climb_leaves_its_rising_flats_out(grade: float) -> None:
+    """Une fusion se borne comme un morceau : deux montées de 300 m (1 800 s chacune)
+    séparées de 300 m de replat parcouru en 100 s fusionnent (600 m en 3 700 s de
+    mouvement), et les replats à ``grade`` qui les bordent restent dehors."""
+    flat = (300.0, grade, 1.0)
+    part = climb_at(600, 0.15, 300)
+    segments = [FLAT, flat, part, (300.0, 0.0, 3.0), part, flat, FLAT]
+    (measure,) = _climbs(segments, noise=False)
+    assert _vam_m_per_h(measure) == pytest.approx(600 / 3700 * 3600, rel=0.005)
+
+
+def test_a_rising_flat_reads_the_realized_distance_of_its_step() -> None:
+    """Un instant toutes les 5 s : le pas qui suit une borne court jusqu'au premier
+    instant à 50 m au moins (jusqu'à 55 m) ; sa pente se lit sur sa distance réalisée,
+    pas sur 50 m, sans quoi un replat à 1,9 % monterait d'un pas de plus de 2 % de
+    50 m et resterait dans la montée."""
+    flat = (300.0, 0.019, 1.0)
+    segments = [FLAT, flat, climb_at(600, 0.15, 150), flat, FLAT]
+    (measure,) = _climbs(segments, noise=False, step_s=5.0)
+    assert _vam_m_per_h(measure) == pytest.approx(600.0, rel=0.03)
+
+
 def test_a_short_flat_stays_inside_the_climb() -> None:
     flat = (100.0, 0.0, 1.0)
     segments = [FLAT, climb_at(600, 0.15, 150), flat, climb_at(600, 0.15, 150), FLAT]
@@ -621,14 +685,92 @@ def test_profile_bounds() -> None:
 
 def test_time_bounds() -> None:
     """Étape 5, en temps, sur un replat sans bruit parcouru à 1 m/s (un instant par
-    mètre) : une fenêtre vide, d'un côté ou de l'autre, ne donne pas de bornes ; des
-    bornes confondues non plus."""
+    mètre), au pas de 50 m : une fenêtre vide, d'un côté ou de l'autre, ne donne pas de
+    bornes ; des bornes confondues non plus. Un replat tout entier n'en a pas : la
+    borne de départ y avance jusqu'à la borne d'arrivée, le dernier pas s'arrêtant à
+    elle, même au dernier instant de la vue ; à ``flat_grade`` nul, un pas qui ne monte
+    pas l'arrête (la comparaison est large)."""
     track = motion_track(recording([FLAT], noise=False))
     assert track is not None
-    assert _time_bounds(track, 100.0, 200.0, 0.25, 1.0) == (100.0, 200.0, 0.0)
-    assert _time_bounds(track, 100.5, 200.0, 0.25, 1.0) is None
-    assert _time_bounds(track, 100.0, 200.5, 0.25, 1.0) is None
-    assert _time_bounds(track, 100.0, 100.0, 0.25, 1.0) is None
+    d = track.distance_m
+    assert _time_bounds(track, d[400], d[-1], 0.25, 1.0, 50.0, 0.02) is None
+    assert _time_bounds(track, 100.0, 200.0, 0.25, 1.0, 50.0, 0.0) == (
+        100.0,
+        200.0,
+        0.0,
+    )
+    assert _time_bounds(track, 100.0, 200.0, 0.25, 1.0, 50.0, 0.02) is None
+    assert _time_bounds(track, 100.5, 200.0, 0.25, 1.0, 50.0, 0.0) is None
+    assert _time_bounds(track, 100.0, 200.5, 0.25, 1.0, 50.0, 0.0) is None
+    assert _time_bounds(track, 100.0, 100.0, 0.25, 1.0, 50.0, 0.0) is None
+
+
+def test_time_bounds_leave_a_rising_flat_out() -> None:
+    """Étape 5 : 200 m à 1 % de part et d'autre d'une côte de 9 m, sans bruit (pied à
+    399 s, haut à 459 s, un instant par mètre). Lue sur toute la fenêtre, la tolérance
+    place les bornes 100 m dans les replats (à ``flat_grade`` nul, rien ne se
+    resserre) ; resserrées, elles entrent dans la côte, plus près du pied et du haut
+    qu'entre deux replats plats (405 s et 453 s), et le gain ne garde des replats que
+    le début de leur dernier pas : 0,46 m au pied et 0,48 m au haut (le pas se lit en
+    distance réalisée, un peu plus courte que l'abscisse de la fixture), soit
+    9,94 m."""
+    rising = (200.0, 0.01, 1.0)
+    level = (200.0, 0.0, 1.0)
+    track = motion_track(
+        recording([level, rising, (60.0, 0.15, 1.0), rising, level], noise=False)
+    )
+    assert track is not None
+    assert _time_bounds(track, 300.0, 560.0, 150.0, 1.0, 50.0, 0.0) == (
+        299.0,
+        559.0,
+        13.0,
+    )
+    bounds = _time_bounds(track, 300.0, 560.0, 150.0, 1.0, 50.0, 0.02)
+    assert bounds is not None
+    start, end, gain = bounds
+    assert (start, end) == (402.0, 456.0)
+    assert gain == pytest.approx(9.94, abs=1e-9)
+
+
+def test_time_bounds_settle_in_the_step_where_the_rise_starts() -> None:
+    """Étape 5 : resserrées, les bornes se placent dans le pas où la montée commence
+    (finit), à la tolérance du minimum (du maximum) de ce seul pas. Après le pied du
+    premier ressaut (399 s), un creux qui redescend à la tolérance n'y compte pas ;
+    avant le haut (509 s), un premier sommet à la tolérance (499 s) non plus."""
+    level, rising = (200.0, 0.0, 1.0), (200.0, 0.01, 1.0)
+    segments = [
+        level,
+        rising,
+        (20.0, 0.15, 1.0),
+        (20.0, -0.15, 1.0),
+        (60.0, 0.15, 1.0),
+        (4.0, -0.15, 1.0),
+        (6.0, 0.15, 1.0),
+        rising,
+        level,
+    ]
+    track = motion_track(recording(segments, noise=False))
+    assert track is not None
+    bounds = _time_bounds(track, 300.0, 610.0, 150.0, 1.0, 50.0, 0.02)
+    assert bounds is not None
+    start, end, _ = bounds
+    assert 399.0 <= start < 410.0
+    assert 500.0 < end <= 509.0
+
+
+def test_the_arrival_step_stops_at_the_start_bound() -> None:
+    """Étape 5 : le pas qui précède la borne d'arrivée s'arrête à la borne de départ.
+    Sur une vue écrite à la main, une marche de 2 m au premier instant, puis un palier,
+    et un saut de 2 m de la distance réalisée (un trou) : en reculant, l'arrivée n'a
+    bientôt plus un pas entier devant le départ, et ce pas partiel se lit jusqu'au
+    premier instant de la vue, jamais au-delà."""
+    track = motion_track(recording([FLAT], noise=False))
+    assert track is not None
+    d = tuple(float(i) for i in range(50)) + tuple(i + 2.0 for i in range(50, 500))
+    track = dataclasses.replace(
+        track, distance_m=d, smoothed_elevation_m=(0.0,) + (2.0,) * 499
+    )
+    assert _time_bounds(track, 0.0, d[70], 0.25, 1.0, 50.0, 0.02) == (0.0, 1.0, 2.0)
 
 
 def test_settle() -> None:
@@ -643,12 +785,12 @@ def test_settle() -> None:
     z = [990.0, 1000.0, 1080.0, 1070.0, 1200.0, 1300.0, 1300.0, 1400.0]
     raw = [990.0, 999.0, 1085.0, 1065.0, 1210.0, 1302.0, 1300.0, 1400.0]
     climb = _with_parameters()
-    bounds = _time_bounds(track, 500.0, 2500.0, 150.0, 1.0)
+    bounds = _time_bounds(track, 500.0, 2500.0, 150.0, 1.0, 50.0, 0.02)
     assert bounds is not None
-    piece = _settle(track, grid, z, raw, _Piece(1, 6), climb, 150.0)
+    piece = _settle(track, grid, z, raw, _Piece(1, 6), climb, 150.0, 50.0)
     assert piece.span == ClimbSpan(*bounds, 500.0, 2500.0, 300.0, 303.0, 310.0)
-    assert _settle(track, grid, z, raw, _Piece(5, 6), climb, 150.0).span is None
-    assert _settle(track, grid, z, raw, _Piece(1, 7), climb, 150.0).span is None
+    assert _settle(track, grid, z, raw, _Piece(5, 6), climb, 150.0, 50.0).span is None
+    assert _settle(track, grid, z, raw, _Piece(1, 7), climb, 150.0, 50.0).span is None
 
 
 def test_moving_time_between_two_bounds() -> None:
