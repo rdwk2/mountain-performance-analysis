@@ -27,6 +27,7 @@ from mountain_perf.schemas import (
     OutingObservation,
     RepeatabilityReference,
     ScenarioScores,
+    SensitivityOutcome,
 )
 
 OBSERVATION = scoring.scores("Régimes").observation
@@ -49,7 +50,8 @@ def _refused(data: bytes, fragment: str) -> None:
 def test_document_types_are_exact() -> None:
     """D14 : observations, scores avec leurs prévisions, références D8 ; depuis le
     format 2, scores calés (M4c-2) ; depuis le format 3, document d'admission
-    (M4c-3) ; depuis le format 4, fourchettes (M4d-2)."""
+    (M4c-3) ; depuis le format 4, fourchettes (M4d-2) ; depuis le format 5,
+    document de sensibilité (M4d-3)."""
     assert (
         OutingObservation,
         ScenarioScores,
@@ -57,6 +59,7 @@ def test_document_types_are_exact() -> None:
         CalibratedScenarioScores,
         Admission,
         OutingBands,
+        SensitivityOutcome,
     ) == DOCUMENT_TYPES
 
 

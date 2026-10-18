@@ -36,9 +36,10 @@ figure:
 
 # Backtest enregistré des cinq modèles et rapport D15 (0010 D9, D14, D15) : le manifeste
 # MPA_DATA_DIR/reference/manifeste.json et la courbe <curve> du même dossier ;
-# registre et rapport sous MPA_DATA_DIR. Exemple : just backtest courbe.csv
-backtest curve:
-    uv run mperf backtest "{{env_var('MPA_DATA_DIR')}}/reference/manifeste.json" --curve "{{env_var('MPA_DATA_DIR')}}/reference/{{curve}}"
+# registre et rapport sous MPA_DATA_DIR. Exemple : just backtest courbe.csv ; les options
+# suivent la courbe, dont --sensitivity, la sensibilité de 0010 D13 (M4d-3).
+backtest curve *options:
+    uv run mperf backtest "{{env_var('MPA_DATA_DIR')}}/reference/manifeste.json" --curve "{{env_var('MPA_DATA_DIR')}}/reference/{{curve}}" {{options}}
 
 # Ingestion de l'export (AN1-1, docs/decisions/0013) : MPA_DATA_DIR/raw → MPA_DATA_DIR/interim/activities,
 # avec l'extra ingest (fitdecode).

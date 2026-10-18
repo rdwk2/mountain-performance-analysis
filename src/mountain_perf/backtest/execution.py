@@ -496,12 +496,15 @@ def trace_outing(
     outing: Outing,
     trace: RecordedTrace,
     profiles: dict[Path, tuple[RouteProfile, ReferenceGeometry]],
+    matching: ParameterSet | None = None,
 ) -> TracedOuting:
     """La chaîne de ``mperf match`` sur une sortie tracée (``0010`` D3), sans
     prévision : avec référence, le tracé de son fichier (lu une fois par chemin,
     ``profiles`` servant de mémoire) et l'usage sur ce profil ; sans référence, la
     grille sur sa trace enregistrée, sans usage. Partagée par ``just backtest`` et
-    l'expérience (M4c-3)."""
+    l'expérience (M4c-3). L'appariement est ``matching``, ou celui par défaut
+    (``MATCHING_PARAMETER_SPECS``) ; la sensibilité y passe celui de chaque paire
+    ``(Δ, ε)`` (``0010`` D13 ; M4d-3)."""
     reference = outing.reference
     usage: RouteProfile | None = None
     if reference is not None:
@@ -526,7 +529,7 @@ def trace_outing(
         trace,
         series,
         partition,
-        ParameterSet(MATCHING_PARAMETER_SPECS),
+        ParameterSet(MATCHING_PARAMETER_SPECS) if matching is None else matching,
     )
     passages = observe_passages(match, geometry, profile, trace, series, partition)
     return TracedOuting(
@@ -621,17 +624,19 @@ def repeatability_references(
     )
 
 
-def _evaluate(preparation: Preparation, declared: RegistryEvent) -> BacktestEvaluation:
-    """Le calcul de ``run_backtest``, sans rien écrire : chaque sortie déclarée scorée
-    (v0 brut et les baselines non calées) ou écartée avec son motif, les références D8,
-    puis le calage de chaque performance (``0010`` D9.2 ; ``calibrate_performances``)
-    sur les scores non calés des sorties scorées ; enfin les fourchettes de chaque
-    sortie scorée avec usage (``evaluation_bands`` ; M4d-2), sur la fenêtre de la
-    courbe ; les prévisions datées de la DÉCLARATION."""
+def trace_outings(
+    preparation: Preparation,
+    profiles: dict[Path, tuple[RouteProfile, ReferenceGeometry]],
+    matching: ParameterSet,
+) -> tuple[tuple[TracedOuting, ...], tuple[Exclusion, ...]]:
+    """Chaque sortie déclarée, dans l'ordre des performances : tracée sous
+    l'appariement ``matching`` (``trace_outing``, ``profiles`` servant de mémoire), ou
+    écartée au motif du refus du manifeste, ou « sortie non tracée ». Partagée par
+    ``just backtest`` et la sensibilité, qui y passe chaque paire ``(Δ, ε)``
+    (M4d-3)."""
     read = preparation.manifest
     refused = {entry.outing_id: entry.reason for entry in read.refused}
-    profiles: dict[Path, tuple[RouteProfile, ReferenceGeometry]] = {}
-    runs: list[OutingRun] = []
+    traced: list[TracedOuting] = []
     unscored: list[Exclusion] = []
     for performance in preparation.performances:
         for outing in performance.outings:
@@ -640,8 +645,32 @@ def _evaluate(preparation: Preparation, declared: RegistryEvent) -> BacktestEval
                 reason = refused.get(outing.outing_id, _UNTRACED)
                 unscored.append(Exclusion(outing.outing_id, reason))
                 continue
-            traced = trace_outing(read, outing, trace, profiles)
-            runs.append(_score(preparation.curve, traced, declared.recorded_at))
+            traced.append(trace_outing(read, outing, trace, profiles, matching))
+    return tuple(traced), tuple(unscored)
+
+
+def _evaluate(preparation: Preparation, declared: RegistryEvent) -> BacktestEvaluation:
+    """Le calcul de ``run_backtest``, sans rien écrire : chaque sortie déclarée tracée
+    sous l'appariement déclaré, ou écartée avec son motif (``trace_outings``), puis
+    ``evaluate_traced``."""
+    traced, unscored = trace_outings(preparation, {}, preparation.declaration.matching)
+    return evaluate_traced(preparation, declared, traced, unscored)
+
+
+def evaluate_traced(
+    preparation: Preparation,
+    declared: RegistryEvent,
+    traced: tuple[TracedOuting, ...],
+    unscored: tuple[Exclusion, ...],
+) -> BacktestEvaluation:
+    """Le calcul d'une exécution sur des sorties tracées, sans rien écrire : chaque
+    sortie scorée (v0 brut et les baselines non calées), les références D8, puis le
+    calage de chaque performance (``0010`` D9.2 ; ``calibrate_performances``) sur les
+    scores non calés des sorties scorées ; enfin les fourchettes de chaque sortie scorée
+    avec usage (``evaluation_bands`` ; M4d-2), sur la fenêtre de la courbe ; les
+    prévisions datées de ``declared``. Partagé par ``just backtest`` et la sensibilité
+    (M4d-3)."""
+    runs = [_score(preparation.curve, item, declared.recorded_at) for item in traced]
     references = repeatability_references(
         preparation.performances,
         {run.outing.outing_id: run.scores.observation for run in runs},
@@ -662,7 +691,7 @@ def _evaluate(preparation: Preparation, declared: RegistryEvent) -> BacktestEval
         preparation,
         declared,
         tuple(runs),
-        tuple(unscored),
+        unscored,
         references,
         calibration,
         bands,
@@ -670,15 +699,25 @@ def _evaluate(preparation: Preparation, declared: RegistryEvent) -> BacktestEval
 
 
 def _outcomes(evaluation: BacktestEvaluation) -> tuple[OutingOutcome, ...]:
+    """Ce que le RÉSULTAT porte de chaque sortie scorée : ``outing_outcomes``."""
+    return outing_outcomes(evaluation.outings, evaluation.calibration, evaluation.bands)
+
+
+def outing_outcomes(
+    outings: tuple[OutingRun, ...],
+    calibration: tuple[CalibratedPerformance, ...],
+    bands: tuple[OutingBands, ...],
+) -> tuple[OutingOutcome, ...]:
     """Ce que le RÉSULTAT porte de chaque sortie scorée, dans l'ordre des sorties
     (précision de D14, M4c-2) : v0 brut, puis les scores calés de chaque modèle de
-    ``CALIBRATED_MODELS``, dans cet ordre ; ses fourchettes, si elle en a (M4d-2)."""
+    ``CALIBRATED_MODELS``, dans cet ordre ; ses fourchettes, si elle en a (M4d-2).
+    Partagé par ``just backtest`` et la sensibilité (M4d-3)."""
     calibrated: dict[tuple[str, ModelKind], CalibratedOutingScores] = {
         (entry.outing_id, entry.control.model): entry
-        for performance in evaluation.calibration
+        for performance in calibration
         for entry in performance.outings
     }
-    bands = {entry.outing_id: entry for entry in evaluation.bands}
+    by_outing = {entry.outing_id: entry for entry in bands}
     return tuple(
         OutingOutcome(
             run.outing.outing_id,
@@ -690,9 +729,9 @@ def _outcomes(evaluation: BacktestEvaluation) -> tuple[OutingOutcome, ...]:
                     for model in CALIBRATED_MODELS
                 ),
             ),
-            bands.get(run.outing.outing_id),
+            by_outing.get(run.outing.outing_id),
         )
-        for run in evaluation.outings
+        for run in outings
     )
 
 

@@ -323,10 +323,55 @@ agrégats     usage, écoulé ; moyenne à poids égal par performance (effectif
              |L| commun      0.085392 (2)        0.063574 (2)        0.073070 (2)        0.062541 (2)        0.067179 (2)
 ```
 
+Avec `--sensitivity`, la commande enchaîne, après le rapport de l'exécution centrale, la
+sensibilité de [`0010`](docs/decisions/0010-protocole-de-backtest.md), D13 : la même
+déclaration rejouée sous dix-neuf configurations — les neuf paires (Δ, ε) sous l'écoulé,
+et la paire centrale (250 m, 30 m) sous les dix horloges de mouvement —, chacune comparée
+au comparateur (250 m, 30 m, écoulé) sur trois axes : la disponibilité de chaque valeur,
+son support effectif, sa valeur. Neuf appariements au lieu d'un : elle dure plusieurs
+fois l'exécution centrale. Elle s'enregistre en une DÉCLARATION de sensibilité, qui
+nomme la déclaration centrale qu'elle qualifie, puis un RÉSULTAT ou un ÉCHEC, et ne
+compte pas comme un essai de plus (D14). Le rapport
+`MPA_DATA_DIR/rapports/sensibilite-<n° du RÉSULTAT>.txt` donne, par configuration, les
+agrégats d'usage sous son horloge, les trois axes par modèle, `L` de v0 brut performance
+par performance, les fourchettes de sa paire sous l'écoulé et la dérive de v0 brut. La
+sensibilité est rapportée, jamais utilisée pour choisir. Extrait de sa synthèse sur le
+monde synthétique : pour v0 brut, les valeurs comparées, perdues, gagnées, de support
+changé et changées, configuration par configuration.
+
+```bash
+just backtest courbe.csv --sensitivity
+```
+
+```text
+             v0 brut                             valeurs comparées   perdues             gagnées             support changé      valeur changée
+              1  Δ 100 m, ε 15 m, écoulé         72                  0                   0                   64                  59
+              2  Δ 100 m, ε 30 m, écoulé         72                  0                   0                   64                  59
+              3  Δ 100 m, ε 45 m, écoulé         72                  0                   0                   64                  59
+              4  Δ 250 m, ε 15 m, écoulé         72                  0                   0                   0                   0
+              5* Δ 250 m, ε 30 m, écoulé         72                  0                   0                   0                   0
+              6  Δ 250 m, ε 45 m, écoulé         72                  0                   0                   0                   0
+              7  Δ 500 m, ε 15 m, écoulé         72                  0                   0                   64                  47
+              8  Δ 500 m, ε 30 m, écoulé         72                  0                   0                   64                  47
+              9  Δ 500 m, ε 45 m, écoulé         72                  0                   0                   64                  47
+             10  Δ 250 m, ε 30 m, M θ1           72                  30                  0                   35                  35
+             11  Δ 250 m, ε 30 m, M θ2           72                  30                  0                   35                  35
+             12  Δ 250 m, ε 30 m, M θ3           72                  30                  0                   35                  35
+             13  Δ 250 m, ε 30 m, M θ4           72                  30                  0                   35                  35
+             14  Δ 250 m, ε 30 m, M θ5           72                  30                  0                   35                  35
+             15  Δ 250 m, ε 30 m, (M+U) θ1       72                  0                   0                   0                   5
+             16  Δ 250 m, ε 30 m, (M+U) θ2       72                  0                   0                   0                   5
+             17  Δ 250 m, ε 30 m, (M+U) θ3       72                  0                   0                   0                   5
+             18  Δ 250 m, ε 30 m, (M+U) θ4       72                  0                   0                   0                   5
+             19  Δ 250 m, ε 30 m, (M+U) θ5       72                  0                   0                   0                   5
+             * comparateur
+```
+
 | Option de `mperf backtest` | Rôle | Défaut |
 |---|---|---|
 | `--curve courbe.csv` | courbe allure↔pente, **obligatoire** : une entrée déclarée de l'exécution | — |
 | `--descent-threshold F` | seuil des descentes roulantes et raides (diagnostic de `0010` D6), dans [0.60 ; 1] | 0.80 |
+| `--sensitivity` | puis la sensibilité de `0010` D13, enregistrée, et son rapport `sensibilite-<n>.txt` | absente |
 
 ### `just ingest` — l'ingestion de l'export Garmin
 
@@ -365,14 +410,14 @@ restent hors du dépôt ([`docs/analyse/CHARTE.md`](docs/analyse/CHARTE.md), § 
 
 ## État et plan
 
-- **Moteur de prédiction** : M0 à M3 livrés ; M4 (backtest) en cours. Livrés en M4 :
+- **Moteur de prédiction** : M0 à M4 livrés. Livrés en M4 :
   l'appariement d'une trace à un tracé, les métriques d'erreur, la référence de
   répétabilité, le registre des expériences, `just backtest` à cinq modèles, son
   diagnostic de longue course et ses fourchettes (`0010` D12 et D11, au rapport complet ;
   les fourchettes aussi au registre), et l'admission exploratoire d'un effet (`0010` D10,
   hors le figement pour confirmation de D10.7), calculée par la bibliothèque — sa commande
-  viendra avec le premier effet, au M6a.
-  Reste M4d : la sensibilité (D13).
+  viendra avec le premier effet, au M6a ; enfin la sensibilité (`0010` D13,
+  `just backtest courbe.csv --sensitivity`).
 - **Piste analyse** : cadrage livré (AN0 : charte, questions, décisions 0011 à 0013) ;
   AN1 (activités et montées) en cours : son codec commun, l'ingestion des activités
   (`just ingest`) et les horloges du moteur rendues communes (le temps de mouvement)

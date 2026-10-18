@@ -88,6 +88,7 @@ from mountain_perf.schemas import (
     RepeatabilityReference,
     Result,
     ScenarioScores,
+    SensitivityOutcome,
     Unavailability,
 )
 from test_backtest_registry_shape import _render
@@ -176,12 +177,21 @@ def _with_shas(result: Result, shas: Callable[[str], str]) -> Result:
 
 
 def _line_at(event: RegistryEvent) -> bytes:
-    """La ligne canonique d'un événement à son format : avant le format 4, sans
-    ``bands`` aux sorties du RÉSULTAT (M4d-2) ; avant le format 3, sans ``admission``
-    au RÉSULTAT ni ``reference_documents`` à l'expérience (M4c-3), comme le registre
-    l'écrit et la relit."""
+    """La ligne canonique d'un événement à son format : avant le format 5, sans
+    ``sensitivity`` à la DÉCLARATION ni ``pairs`` et ``sensitivity`` au RÉSULTAT
+    (M4d-3) ; avant le format 4, sans ``bands`` aux sorties du RÉSULTAT (M4d-2) ; avant
+    le format 3, sans ``admission`` au RÉSULTAT ni ``reference_documents`` à
+    l'expérience (M4c-3), comme le registre l'écrit et la relit."""
     data = encode_contract(event)
     assert isinstance(data, dict)
+    if event.format_version < 5:
+        declaration = data.get("declaration")
+        if isinstance(declaration, dict):
+            declaration.pop("sensitivity")
+        result = data.get("result")
+        if isinstance(result, dict):
+            result.pop("pairs")
+            result.pop("sensitivity")
     if event.format_version < 4:
         result = data.get("result")
         if isinstance(result, dict):
@@ -362,8 +372,8 @@ def _shape(
 def test_versions() -> None:
     """§ 6.1 : le format écrit, les formats relus, le premier format de chaque type de
     document."""
-    assert REGISTRY_FORMAT_VERSION == 4
-    assert REGISTRY_READABLE_FORMATS == (1, 2, 3, 4)
+    assert REGISTRY_FORMAT_VERSION == 5
+    assert REGISTRY_READABLE_FORMATS == (1, 2, 3, 4, 5)
     assert dict(DOCUMENT_FIRST_FORMAT) == {
         OutingObservation: 1,
         ScenarioScores: 1,
@@ -371,6 +381,7 @@ def test_versions() -> None:
         CalibratedScenarioScores: 2,
         Admission: 3,
         OutingBands: 4,
+        SensitivityOutcome: 5,
     }
     assert tuple(DOCUMENT_FIRST_FORMAT) == DOCUMENT_TYPES
 
@@ -380,11 +391,14 @@ def test_shape_of_format_1_is_unchanged() -> None:
     est celle de M4b-4 — 44 contrats, ``4e2f2b55…`` : le format 2 n'en change aucun ;
     le format 3 n'y ajoute que ``Result.admission`` et
     ``ExperimentDeclaration.reference_documents``, absents des lignes antérieures
-    (M4c-3) ; le format 4, que ``OutingResult.bands`` (M4d-2)."""
+    (M4c-3) ; le format 4, que ``OutingResult.bands`` (M4d-2) ; le format 5, que
+    ``Declaration.sensitivity``, ``Result.pairs`` et ``Result.sensitivity``
+    (M4d-3)."""
     without = {
-        "Result": {"admission"},
+        "Result": {"admission", "pairs", "sensitivity"},
         "ExperimentDeclaration": {"reference_documents"},
         "OutingResult": {"bands"},
+        "Declaration": {"sensitivity"},
     }
     assert _shape([RegistryEvent, *DOCUMENT_TYPES[:3]], without) == (
         44,

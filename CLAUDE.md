@@ -121,6 +121,7 @@ just lint       # ruff
 just fmt        # formatage
 just dictionary # régénère docs/DICTIONNAIRE_DONNEES.md depuis les docstrings
 just backtest courbe.csv  # backtest enregistré des cinq modèles, rapport D15 (M4b-5, M4c-2) ; MPA_DATA_DIR/reference/
+just backtest courbe.csv --sensitivity  # puis la sensibilité D13, enregistrée, rapport sensibilite-<n>.txt (M4d-3)
 just ingest     # raw/ → interim/activities/, extra ingest (AN1-1) ; MPA_DATA_DIR
 uv run mperf profile tests/fixtures/mini_11.gpx  # compte-rendu GPX (M2), --csv pour la grille
 uv run mperf project tests/fixtures/mini_11.gpx --curve tests/fixtures/courbe_synthetique.csv  # temps de passage (M3)
@@ -168,13 +169,14 @@ src/mountain_perf/     le code de la bibliothèque
                        répétabilité (M4b-3)
     registry.py        EventKind, Declaration, Result, Failure, RegistryEvent,
                        RegistryLog, TrialCounts… : registre des expériences (M4b-4) ;
-                       formats 3 (M4c-3) et 4 (M4d-2)
+                       formats 3 (M4c-3), 4 (M4d-2) et 5 (M4d-3)
     calibration.py     ModelKind, CalibrationPopulation, ModelCalibration,
                        CalibratedScenarioScores, CalibratedPerformance… : calage des
                        modèles de référence (M4c-1) ; candidat calé (M4c-3)
     admission.py       contrats du document d'admission (M4c-3)
     drift.py           contrats du diagnostic de longue course, non stockés (M4d-1)
     bands.py           contrats des fourchettes, stockés au registre au format 4 (M4d-2)
+    sensitivity.py     contrats de la sensibilité, stockés au registre au format 5 (M4d-3)
     interim.py         IndexedActivity, ActivityIndex, ActivityRecording et ses canaux,
                        IngestionReport : contrats d'interim/ (AN1-1)
     _dictionary.py     rendu du dictionnaire de données depuis les docstrings
@@ -197,7 +199,9 @@ src/mountain_perf/     le code de la bibliothèque
     matching.py        grille de score, prédicats, franchissements, match_points (M4a-2a)
     segments.py        régimes, admissibilité, couverture, préfixe, totaux admis, match_trace (M4a-2b)
     passages.py        rattachement, recherche, association, chronologie, maintien, observe_passages (M4a-3)
-    sensitivity.py     les 19 configurations de sensibilité, déclarées (M4a-2b)
+    sensitivity.py     les 19 configurations de sensibilité, déclarées (M4a-2b) ;
+                       comparaisons, réserves, qualification : fonctions pures (M4d-3)
+    sensitivity_run.py sensibilité enregistrée d'une centrale, paire par paire (M4d-3)
     metrics.py         seuil, prédicats, métriques du support, diagnostic, enveloppes, C_k,
                        K par défaut, q_usage : métriques D7, fonctions pures (M4b-1)
     scoring.py         observe_outing, usage_forecast, control_forecast, score_scenario,
@@ -206,19 +210,23 @@ src/mountain_perf/     le code de la bibliothèque
     repeatability.py   two_way_fit, contraction_rate, repeatability_reference : référence
                        D8 d'un parcours (M4b-3)
     codec.py           documents du registre : types, premier format, écriture et relecture
-                       par le codec commun (M4b-4, AN1-0) ; formats 3 (M4c-3) et 4 (M4d-2)
+                       par le codec commun (M4b-4, AN1-0) ; formats 3 (M4c-3), 4 (M4d-2)
+                       et 5 (M4d-3)
     registry.py        journal, documents, ajout, relecture, comptage des essais (M4b-4) ;
                        format 2, accord des modèles déclarés et des références D8 (M4c-2) ;
-                       format 3 (M4c-3) ; format 4, accord des fourchettes (M4d-2)
+                       format 3 (M4c-3) ; format 4, accord des fourchettes (M4d-2) ;
+                       format 5, accord de la sensibilité (M4d-3)
     execution.py       git, domaine, déclaration, exécution enregistrée de just backtest (M4b-5) ;
                        cinq modèles et leur calage, calcul avant le RÉSULTAT (M4c-2) ;
-                       observation partagée (M4c-3) ; fourchettes (M4d-2)
-    report.py          valeurs du rapport D15, fonctions pures (M4b-5)
+                       observation partagée (M4c-3) ; fourchettes (M4d-2) ; tracé et
+                       évaluation séparés, pour la sensibilité (M4d-3)
+    report.py          valeurs du rapport D15, fonctions pures (M4b-5) ; sensibilité (M4d-3)
     calibration.py     baseline_scores, calibration_population, calibrate,
                        calibrated_scores, calibrate_performances : calage D9 (M4c-1) ;
                        candidat calé (M4c-3)
     admission.py       règle d'admission D10, fonctions pures (M4c-3)
-    experiment.py      expérience d'admission enregistrée, par API (M4c-3)
+    experiment.py      expérience d'admission enregistrée, par API (M4c-3) ; scores et
+                       entrées de l'admission, repris par la sensibilité (M4d-3)
     drift.py           diagnostic de longue course D12 : SVD de Jacobi, pente
                        descriptive, retraits, cumuls, fonctions pures (M4d-1)
     bands.py           fourchettes D11 : réservoir, résidus, quantiles, bornes, score
@@ -239,7 +247,7 @@ src/mountain_perf/     le code de la bibliothèque
                        segments, couverture et horloges (M4a-2b), passages (M4a-3) ;
                        --curve, --no-reference : scores de v0 brut (M4b-2) ;
                        mperf backtest <manifeste.json> --curve : backtest enregistré, rapport D15 (M4b-5) ;
-                       cinq modèles (M4c-2) ;
+                       cinq modèles (M4c-2) ; --sensitivity : sensibilité D13 (M4d-3) ;
                        mperf ingest : raw/ → interim/activities/ (AN1-1)
 tests/
   conftest.py          MPA_DATA_DIR sur un dossier temporaire neuf pour chaque test (M4c-1)

@@ -49,7 +49,8 @@ def test_contracts_import_only_the_named_contracts() -> None:
     ``CalibratedOutingScores`` depuis M4c-2 (``OutingOutcome``), et
     ``CALIBRATED_KINDS`` — les modèles de D9.1 et le candidat — depuis M4c-3, à la
     place de ``CALIBRATED_MODELS`` ; ``OutingBands`` depuis M4d-2
-    (``OutingOutcome``)."""
+    (``OutingOutcome``) ; ``SensitivityConfiguration`` depuis M4d-3
+    (``SensitivityDeclaration``)."""
     imported = _imports(SCHEMAS_MODULE)
     assert _project(SCHEMAS_MODULE) <= {
         "mountain_perf.validation",
@@ -71,7 +72,10 @@ def test_contracts_import_only_the_named_contracts() -> None:
     }
     assert imported["mountain_perf.schemas.clock"] <= {"CLOCKS", "Clock"}
     assert imported["mountain_perf.schemas.common"] <= {"SourceRef"}
-    assert imported["mountain_perf.schemas.matching"] <= {"Coverage"}
+    assert imported["mountain_perf.schemas.matching"] <= {
+        "Coverage",
+        "SensitivityConfiguration",
+    }
     assert imported["mountain_perf.schemas.metrics"] <= {
         "WEIGHT_SUM_TOLERANCE",
         "MetricValue",
@@ -110,9 +114,15 @@ def test_registry_imports_the_named_modules_only() -> None:
         "mountain_perf.validation",
         "mountain_perf.backtest.codec",
         "mountain_perf.backtest.calendar",
+        "mountain_perf.backtest.sensitivity",
         "mountain_perf.model.curve_io",
     }
     assert imported["mountain_perf.backtest.calendar"] == {"origin"}
+    assert imported["mountain_perf.backtest.sensitivity"] == {
+        "SENSITIVITY_CENTRAL_M",
+        "SENSITIVITY_CLUSTER_RADIUS_M",
+        "SENSITIVITY_CONFIGURATIONS",
+    }
     assert imported["mountain_perf.model.curve_io"] <= {
         "META_SUFFIX",
         "CurveReadResult",
@@ -121,6 +131,7 @@ def test_registry_imports_the_named_modules_only() -> None:
         "collections",
         "collections.abc",
         "contextlib",
+        "dataclasses",
         "datetime",
         "json",
         "os",
@@ -141,7 +152,8 @@ def test_no_module_imports_codec_or_registry_but_the_backtest_package() -> None:
     codec) les importent — et, depuis M4b-5, l'exécution, qui écrit au registre, et
     ``cli.py``, qui lit le nombre d'événements avant tout écrit (§ 6.0 du brief
     M4b-5) — et, depuis M4c-3, l'expérience, qui écrit au registre et calcule
-    l'empreinte des documents D8 qu'elle fige (décision E6). Depuis AN1-0, les noms
+    l'empreinte des documents D8 qu'elle fige (décision E6) — et, depuis M4d-3, la
+    sensibilité, de même. Depuis AN1-0, les noms
     que ``backtest/codec.py`` réexporte du codec commun comptent comme les siens."""
     defined = (
         _defined_names(ast.parse(CODEC_MODULE.read_text(encoding="utf-8")))
@@ -168,6 +180,8 @@ def test_no_module_imports_codec_or_registry_but_the_backtest_package() -> None:
         ("backtest/experiment.py", "mountain_perf.backtest.codec"),
         ("backtest/experiment.py", "mountain_perf.backtest.registry"),
         ("backtest/registry.py", "mountain_perf.backtest.codec"),
+        ("backtest/sensitivity_run.py", "mountain_perf.backtest.codec"),
+        ("backtest/sensitivity_run.py", "mountain_perf.backtest.registry"),
         ("cli.py", "mountain_perf.backtest.registry"),
     ]
 

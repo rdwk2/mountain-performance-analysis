@@ -336,7 +336,9 @@ def prepare_experiment(
             trace = read.traces.get(outing.outing_id)
             if trace is None:
                 continue
-            traced = trace_outing(read, outing, trace, profiles)
+            traced = trace_outing(
+                read, outing, trace, profiles, backtest.declaration.matching
+            )
             observed[outing.outing_id] = ObservedOuting(
                 traced,
                 observe_outing(traced.match, traced.passages, traced.partition),
@@ -561,17 +563,24 @@ def run_experiment(
         ) from error
 
 
-def _answer(
-    preparation: ExperimentPreparation,
-    experiment: ExperimentDeclaration,
-    declared: RegistryEvent,
-    registry_root: Path,
-    recorded_at: datetime | None,
-) -> ExperimentRun:
-    """Les étapes 3 à 5 de ``run_experiment``."""
+@dataclass(frozen=True)
+class ExperimentScores:
+    """Les scores d'une expérience sur ses sorties observées, en mémoire (M4c-3 ;
+    partagés par la sensibilité, M4d-3) : v0 brut et le candidat non calés, puis les
+    scores calés de (0) et (1), par sortie."""
+
+    raw: Mapping[str, OutingScores]
+    calibrated: Mapping[tuple[str, ModelKind], CalibratedOutingScores]
+
+
+def experiment_scores(
+    preparation: ExperimentPreparation, generated_at: datetime
+) -> ExperimentScores:
+    """L'étape 3 de ``run_experiment``, avant l'admission : pour chaque sortie observée,
+    les scores non calés de v0 brut et du candidat, datés de ``generated_at`` ; le
+    calage de (0) et de (1)."""
     backtest = preparation.backtest
     curve = backtest.curve
-    generated_at = declared.recorded_at
     raw: dict[str, OutingScores] = {}
     unscaled: dict[str, dict[ModelKind, OutingScores]] = {}
     for outing_id, seen in preparation.observed.items():
@@ -608,22 +617,16 @@ def _answer(
         for performance in calibration
         for entry in performance.outings
     }
-    inputs = _inputs(preparation, raw, calibrated)
-    admitted = admit(experiment, inputs, experiment.frozen_references)
-    if not isinstance(admitted, Admission):
-        counts = Counter(assessment.motif for assessment in admitted)
-        reason = "aucune performance évaluable : " + ", ".join(
-            f"{motif} {counts[motif]}" for motif in NonEvaluable if counts[motif]
-        )
-        failure = append_failure(
-            registry_root,
-            declared.number,
-            Failure(FailureKind.NOT_EVALUABLE, reason),
-            recorded_at=recorded_at,
-        )
-        return ExperimentRun(
-            preparation, declared, failure, (), None, admitted, line_hash(failure)
-        )
+    return ExperimentScores(MappingProxyType(raw), MappingProxyType(calibrated))
+
+
+def experiment_outcomes(
+    preparation: ExperimentPreparation, scores: ExperimentScores
+) -> tuple[tuple[OutingOutcome, ...], tuple[Exclusion, ...]]:
+    """Ce que le RÉSULTAT d'une expérience porte de ses sorties : v0 brut, (0) et (1)
+    par sortie observée ; les sorties non observées au motif du refus du manifeste, ou
+    « sortie non tracée »."""
+    raw, calibrated = scores.raw, scores.calibrated
     outcomes = tuple(
         OutingOutcome(
             outing_id,
@@ -639,13 +642,48 @@ def _answer(
         )
         for outing_id, seen in preparation.observed.items()
     )
+    return outcomes, experiment_unscored(preparation)
+
+
+def experiment_unscored(preparation: ExperimentPreparation) -> tuple[Exclusion, ...]:
+    """Les sorties déclarées non observées, dans l'ordre des performances, au motif du
+    refus du manifeste, ou « sortie non tracée »."""
+    backtest = preparation.backtest
     refused = {entry.outing_id: entry.reason for entry in backtest.manifest.refused}
-    unscored = tuple(
+    return tuple(
         Exclusion(outing.outing_id, refused.get(outing.outing_id, _UNTRACED))
         for performance in backtest.performances
         for outing in performance.outings
         if outing.outing_id not in preparation.observed
     )
+
+
+def _answer(
+    preparation: ExperimentPreparation,
+    experiment: ExperimentDeclaration,
+    declared: RegistryEvent,
+    registry_root: Path,
+    recorded_at: datetime | None,
+) -> ExperimentRun:
+    """Les étapes 3 à 5 de ``run_experiment``."""
+    scores = experiment_scores(preparation, declared.recorded_at)
+    inputs = admission_inputs(preparation, scores.raw, scores.calibrated)
+    admitted = admit(experiment, inputs, experiment.frozen_references)
+    if not isinstance(admitted, Admission):
+        counts = Counter(assessment.motif for assessment in admitted)
+        reason = "aucune performance évaluable : " + ", ".join(
+            f"{motif} {counts[motif]}" for motif in NonEvaluable if counts[motif]
+        )
+        failure = append_failure(
+            registry_root,
+            declared.number,
+            Failure(FailureKind.NOT_EVALUABLE, reason),
+            recorded_at=recorded_at,
+        )
+        return ExperimentRun(
+            preparation, declared, failure, (), None, admitted, line_hash(failure)
+        )
+    outcomes, unscored = experiment_outcomes(preparation, scores)
     result = append_result(
         registry_root,
         declared.number,
@@ -666,7 +704,7 @@ def _answer(
     )
 
 
-def _inputs(
+def admission_inputs(
     preparation: ExperimentPreparation,
     raw: Mapping[str, OutingScores],
     calibrated: Mapping[tuple[str, ModelKind], CalibratedOutingScores],
