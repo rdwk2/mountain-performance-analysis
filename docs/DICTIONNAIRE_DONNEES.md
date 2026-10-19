@@ -175,6 +175,22 @@
 - `BandElement`
 - `ModelBand`
 - `OutingBands`
+- `Availability`
+- `SupportComponent`
+- `SensitivityMetric`
+- `PerformanceMotif`
+- `SensitivityReserve`
+- `MetricComparison`
+- `PerformanceComparison`
+- `GainComparison`
+- `CommonSet`
+- `ConfigurationOutcome`
+- `ReserveEntry`
+- `SensitivityOutcome`
+- `PairReferences`
+- `ConfigurationReferences`
+- `SensitivityDeclaration`
+- `PairResult`
 
 ---
 
@@ -4799,6 +4815,7 @@ l'instant de la déclaration ni aux origines (M4c).
 | `exclusions` | `tuple[Exclusion, ...]` | — |
 | `models` | `tuple[DeclaredModel, ...]` | — |
 | `experiment` | `ExperimentDeclaration \| None` | — |
+| `sensitivity` | `SensitivityDeclaration \| None` | `None` |
 
 | Propriété calculée | Type | Sens |
 |---|---|---|
@@ -4826,6 +4843,8 @@ Le contenu d'une DÉCLARATION (`0010` D14, D2.6, D10.1).
 - `exclusions` — sans unité — les sorties écartées, avec leur motif.
 - `models` — sans unité — les modèles évalués.
 - `experiment` — sans unité — l'expérience ; absente sans effet testé.
+- `sensitivity` — sans unité — ce qu'ajoute une DÉCLARATION de sensibilité
+  (format 5, M4d-3) ; absent pour une autre déclaration.
 
 Propriétés calculées (jamais stockées) : `outing_ids`, `route_ids`,
 `artifacts`.
@@ -4846,11 +4865,14 @@ Propriétés calculées (jamais stockées) : `outing_ids`, `route_ids`,
 7. `models` non vide, de natures distinctes ;
 8. `experiment` présente : sa base puis son candidat sont des natures de
    `models` ; son horloge et celle de chaque référence figée sont dans
-   `clocks` ; le parcours de chaque `K` est dans `route_ids`.
+   `clocks` ; le parcours de chaque `K` est dans `route_ids` ;
+9. `sensitivity` présent : l'horloge de chacune de ses configurations est dans
+   `clocks` ; ses références figées sont présentes **si et seulement si** la
+   déclaration porte une expérience.
 
 #### Producteur
 
-L'appelant de `append_declaration` (M4b-5, M4c).
+L'appelant de `append_declaration` (M4b-5, M4c, M4d-3).
 
 #### Consommateurs
 
@@ -4997,6 +5019,8 @@ Le contrat ne lit pas le document.
 | `unscored` | `tuple[Exclusion, ...]` | — |
 | `references` | `tuple[RepeatabilityRecord, ...]` | — |
 | `admission` | `str \| None` | `None` |
+| `pairs` | `tuple[PairResult, ...]` | `()` |
+| `sensitivity` | `str \| None` | `None` |
 
 Le contenu d'un RÉSULTAT (`0010` D14, D0).
 
@@ -5007,14 +5031,22 @@ Le contenu d'un RÉSULTAT (`0010` D14, D0).
 - `references` — sans unité — les références D8 des parcours.
 - `admission` — sans unité — le `sha256` du document d'admission d'une
   expérience (format 3, M4c-3) ; absent sans expérience.
+- `pairs` — sans unité — pour une sensibilité, chaque paire `(Δ, ε)` (format 5,
+  M4d-3) ; vide sinon.
+- `sensitivity` — sans unité — pour une sensibilité, le `sha256` du document
+  `SensitivityOutcome` (format 5, M4d-3) ; absent sinon.
 
 #### Invariants
 
-- `outings`, `unscored` et `references` sont des tuples ;
+- `outings`, `unscored`, `references` et `pairs` sont des tuples ;
 - les identifiants de `outings` et de `unscored`, pris ensemble, sont
   distincts ;
 - les parcours de `references` sont distincts ;
-- `admission` présent : un `sha256`.
+- `admission` présent : un `sha256` ;
+- `sensitivity` présent : un `sha256` ; `pairs` non vide **si et seulement
+  si** `sensitivity` est présent ; alors `outings`, `unscored` et
+  `references` sont vides, `admission` absent, et les paires `(Δ, ε)` sont
+  distinctes.
 
 #### Producteur
 
@@ -5108,10 +5140,11 @@ Un événement du registre, une ligne du journal (`0010` D14).
 
 1. `recorded_at` porte un fuseau, normalisé en UTC ; `previous_hash` présent :
    un `sha256` ; `correction_reason` présent : non vide ;
-2. `format_version` dans `REGISTRY_READABLE_FORMATS` (1 à 4, M4d-2) ;
+2. `format_version` dans `REGISTRY_READABLE_FORMATS` (1 à 5, M4d-3) ;
    avant le format 3, ni `Result.admission`, ni `reference_documents` d'une
-   expérience ; avant le format 4, aucune sortie avec `bands` (vérifié en
-   dernier) ;
+   expérience ; avant le format 4, aucune sortie avec `bands` ; avant le format
+   5, ni `Declaration.sensitivity`, ni `Result.pairs`, ni
+   `Result.sensitivity` (vérifiés en dernier) ;
 3. `number >= 1` ;
 4. `previous_hash` absent **si et seulement si** `number == 1` ;
 5. le contenu présent est celui du type, et lui seul ;
@@ -5159,7 +5192,10 @@ journal :
 2. une réponse qui n'est pas une correction est la **seule** de sa déclaration ;
 3. une correction vise un événement du même type ; une réponse qui corrige vise
    une réponse à la même déclaration ;
-4. un événement est corrigé au plus une fois.
+4. un événement est corrigé au plus une fois ;
+5. une DÉCLARATION de sensibilité (M4d-3) nomme une DÉCLARATION centrale qui la
+   précède et n'est pas elle-même une sensibilité, et un RÉSULTAT qui la précède
+   et répond à cette centrale.
 
 Méthodes : `event(number)` (`IndexError` hors de `[1 ; len(events)]`),
 `corrected_by(number)`, `in_force(number)`, `answer(declaration)`.
@@ -5278,6 +5314,7 @@ pas dans la clé.
 | `corrections` | `int` | — |
 | `without_effect` | `int` | — |
 | `by_experiment` | `tuple[ExperimentTrials, ...]` | — |
+| `sensitivities` | `int` | `0` |
 
 Le comptage des essais d'un registre (`0010` D14 ; décision 4 de rdw).
 
@@ -5287,13 +5324,15 @@ Le comptage des essais d'un registre (`0010` D14 ; décision 4 de rdw).
 - `corrections` — sans unité — celles qui en corrigent une autre.
 - `without_effect` — sans unité — celles sans expérience (exécutions sans effet
   testé).
-- `by_experiment` — sans unité — les autres, par couple effet × cible.
+- `by_experiment` — sans unité — les expériences, par couple effet × cible.
+- `sensitivities` — sans unité — les DÉCLARATIONS de sensibilité (M4d-3),
+  comptées à part : elles ne sont pas des essais (exception de D14, M4d-3).
 
 #### Invariants
 
 - `by_experiment` est un tuple ;
-- les trois comptes `>= 0` ; `corrections <= declarations` ;
-- `declarations == without_effect + Σ count` ;
+- les quatre comptes `>= 0` ; `corrections <= declarations` ;
+- `declarations == without_effect + Σ count + sensitivities` ;
 - `by_experiment` ordonné par effet puis par rang de la cible dans
   `ExperimentMetric`, sans doublon (clés strictement croissantes).
 
@@ -5307,8 +5346,9 @@ Le rapport (M4b-5) ; l'admission (M4c).
 
 #### Non promis
 
-Chaque DÉCLARATION compte pour un essai, corrections comprises : la règle ne peut
-que surestimer le nombre d'essais ; un ÉCHEC ne compte pas.
+Chaque DÉCLARATION compte pour un essai, corrections comprises, sauf une
+DÉCLARATION de sensibilité (exception de D14, M4d-3) : la règle ne peut que
+surestimer le nombre d'essais ; un ÉCHEC ne compte pas.
 
 ---
 
@@ -8796,3 +8836,743 @@ registre ; le rapport (M4d-2).
 
 - `C_j`, `K` et la sortie sont recoupés par l'accord du registre, pas ici ;
 - la fenêtre n'est recoupée avec la courbe par rien (la courbe n'est pas relue).
+
+---
+
+## `Availability`
+
+*`mountain_perf.schemas.sensitivity` · énumération*
+
+| Membre | Valeur | Description |
+|---|---|---|
+| `BOTH` | `both_available` | Disponible au comparateur et sous la configuration. |
+| `LOST` | `lost` | Disponible au comparateur, indisponible sous la configuration. |
+| `GAINED` | `gained` | Indisponible au comparateur, disponible sous la configuration. |
+| `NEITHER` | `both_unavailable` | Indisponible des deux côtés, chacun à son motif. |
+
+Axe (i) de la comparaison : la disponibilité d'une valeur au comparateur et sous
+la configuration (`0010` D13 ; précision de M4d-3).
+
+#### Champs
+
+Valeurs décrites dans `AVAILABILITY_DESCRIPTIONS`.
+
+#### Invariants
+
+Énumération fermée ; elle se lit sur la présence des deux valeurs, jamais sur leur
+motif.
+
+#### Producteur
+
+`compare_metric` (`mountain_perf.backtest.sensitivity`).
+
+#### Consommateurs
+
+`MetricComparison` ; le rapport de sensibilité.
+
+#### Non promis
+
+Deux valeurs indisponibles peuvent l'être à des motifs différents : les motifs
+restent dans les valeurs comparées.
+
+---
+
+## `SupportComponent`
+
+*`mountain_perf.schemas.sensitivity` · énumération*
+
+| Membre | Valeur | Description |
+|---|---|---|
+| `SEGMENTS` | `segments` | Segments admis : bornes effectives et classes (de la classe, pour une métrique de régime). |
+| `ZERO_TIMES` | `zero_times` | Segments admis de temps nul sous l'horloge : leurs bornes (D5.5). |
+| `POINTS` | `points` | Points de C_k (D7.3) : abscisses, motifs, et temps nul sous l'horloge. |
+| `TARGETS` | `targets` | Éléments de K (D7.4) : membres, abscisses, motifs, et temps nul sous l'horloge. |
+| `POPULATION` | `population` | Population de calage du modèle sous l'horloge, en usage : C_j^eff et ses retraits (D9.2) ; modèles calés seulement. |
+
+Axe (ii) de la comparaison : une composante du support effectif d'une métrique
+(`0010` D13 ; précision de M4d-3, amendement de l'expert D13-A).
+
+#### Champs
+
+Valeurs décrites dans `SUPPORT_COMPONENT_DESCRIPTIONS`.
+
+#### Invariants
+
+Énumération fermée ; l'ordre est celui de la publication.
+
+#### Producteur
+
+`compare_metric` (`mountain_perf.backtest.sensitivity`).
+
+#### Consommateurs
+
+`MetricComparison` ; le rapport de sensibilité.
+
+#### Non promis
+
+Une composante égale ne dit pas que la valeur l'est ; un effectif égal ne dit
+jamais qu'un support l'est.
+
+---
+
+## `SensitivityMetric`
+
+*`mountain_perf.schemas.sensitivity` · énumération*
+
+| Membre | Valeur | Description |
+|---|---|---|
+| `LEVEL` | `level` | L, le niveau de tout le support admis (D7.2). |
+| `ASCENT_LEVEL` | `ascent_level` | E_R de la montée (D7.2). |
+| `FLAT_LEVEL` | `flat_level` | E_R du plat (D7.2). |
+| `DESCENT_LEVEL` | `descent_level` | E_R de la descente (D7.2). |
+| `ASCENT_DISPERSION` | `ascent_dispersion` | D_R de la montée (D7.2). |
+| `FLAT_DISPERSION` | `flat_dispersion` | D_R du plat (D7.2). |
+| `DESCENT_DISPERSION` | `descent_dispersion` | D_R de la descente (D7.2). |
+| `MAX_ABS_PASSAGE_ERROR` | `max_abs_passage_error_s` | max \|C_k\|, sur les points de D7.3 (secondes). |
+| `USAGE` | `q_usage` | q_usage, sur le K par défaut (D7.4). |
+
+Une métrique comparée par la sensibilité : les métriques d'usage de D15 sous
+l'horloge de la configuration (`0010` D7, D15 ; précision de D13, M4d-3).
+
+#### Champs
+
+Valeurs décrites dans `SENSITIVITY_METRIC_DESCRIPTIONS`.
+
+#### Invariants
+
+Énumération fermée ; l'ordre est celui de la publication, dans chaque modèle.
+
+#### Producteur
+
+`compare_performance` (`mountain_perf.backtest.sensitivity`).
+
+#### Consommateurs
+
+`MetricComparison` ; le rapport de sensibilité.
+
+#### Non promis
+
+`|L|` n'est pas comparé à part : c'est la valeur absolue de `L`.
+
+---
+
+## `PerformanceMotif`
+
+*`mountain_perf.schemas.sensitivity` · énumération*
+
+| Membre | Valeur | Description |
+|---|---|---|
+| `NOT_SCORED` | `not_scored` | Sortie non scorée (non tracée, ou refusée). |
+| `NO_REFERENCE` | `no_reference` | Sortie sans référence : pas d'usage (D3). |
+| `MULTI_OUTING` | `multi_outing_day` | Jour de plusieurs sorties (D0). |
+
+Pourquoi une performance n'a pas de valeurs comparées (`0010` D0, D3 ;
+précision de D15, M4b-5) — un motif qui ne dépend que du manifeste, donc le même
+sous toutes les configurations.
+
+#### Champs
+
+Valeurs décrites dans `PERFORMANCE_MOTIF_DESCRIPTIONS`.
+
+#### Invariants
+
+Énumération fermée.
+
+#### Producteur
+
+`compare_performance` (`mountain_perf.backtest.sensitivity`).
+
+#### Consommateurs
+
+`PerformanceComparison` ; le rapport de sensibilité.
+
+#### Non promis
+
+Rien sur les sorties d'un jour de plusieurs sorties.
+
+---
+
+## `SensitivityReserve`
+
+*`mountain_perf.schemas.sensitivity` · énumération*
+
+| Membre | Valeur | Description |
+|---|---|---|
+| `SIGN_CHANGED` | `sensitivity_sign_changed` | Sensibilité : signe changé — la classe de Ḡ, ou celle d'un G_j comparable, change du comparateur à une configuration. |
+| `VERDICT_CHANGED` | `sensitivity_verdict_changed` | Sensibilité : verdict modifié — une configuration n'a pas le verdict du comparateur (aucune décision comprise). |
+| `EVALUABILITY_LOST` | `sensitivity_evaluability_lost` | Sensibilité : évaluabilité perdue — une performance évaluable au comparateur ne l'est plus, ou un garde-fou calculé au comparateur ne l'est plus. |
+| `SIGN_UNVERIFIABLE` | `sensitivity_sign_unverifiable` | Sensibilité : signe non vérifiable — une configuration sans aucun gain comparable. |
+
+Une réserve de la sensibilité d'une expérience (`0010` D13, D10.6 ; précision
+de M4d-3, amendements de l'expert D13-B, D13-C).
+
+#### Champs
+
+Valeurs décrites dans `SENSITIVITY_RESERVE_DESCRIPTIONS`.
+
+#### Invariants
+
+Énumération fermée ; les réserves se cumulent, dans cet ordre.
+
+#### Producteur
+
+`sensitivity_outcome`.
+
+#### Consommateurs
+
+`ReserveEntry` ; la vue composée ; le rapport.
+
+#### Non promis
+
+Une réserve ne change pas le verdict (D13 : « jamais utilisée pour choisir ») ;
+« sensibilité incomplète », « restante » ou « faite » ne sont pas des réserves : ce
+sont des états de la vue composée (D10.6), jamais stockés.
+
+---
+
+## `MetricComparison`
+
+*`mountain_perf.schemas.sensitivity` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `model` | `ModelKind` | — |
+| `metric` | `SensitivityMetric` | — |
+| `comparator` | `MetricValue` | — |
+| `value` | `MetricValue` | — |
+| `availability` | `Availability` | — |
+| `support` | `tuple[SupportComponent, ...]` | — |
+| `difference` | `float \| None` | — |
+
+Une métrique d'un modèle sur une performance, sous une configuration, comparée au
+comparateur (`0010` D13 ; précision de M4d-3).
+
+#### Champs
+
+- `model` — sans unité — le modèle.
+- `metric` — sans unité — la métrique.
+- `comparator` — unité de la métrique — sa valeur, ou son motif, au comparateur.
+- `value` — unité de la métrique — sa valeur, ou son motif, sous la
+  configuration.
+- `availability` — sans unité — l'axe (i).
+- `support` — sans unité — l'axe (ii) : les composantes du support effectif qui
+  changent, parmi celles de la métrique (`METRIC_COMPONENTS`).
+- `difference` — unité de la métrique — l'axe (iii) : `value − comparator`,
+  quand les deux sont présentes.
+
+#### Invariants
+
+- `availability` est celle que donnent les présences des deux valeurs ;
+- `support` est un tuple, sous-suite de `METRIC_COMPONENTS[metric]` (ordre,
+  sans doublon) ; `POPULATION` seulement pour un modèle calé ;
+- `difference` présent **si et seulement si** les deux valeurs le sont, et vaut
+  `value.value − comparator.value` au bit.
+
+#### Producteur
+
+`compare_metric` (`mountain_perf.backtest.sensitivity`).
+
+#### Consommateurs
+
+`PerformanceComparison` ; le rapport de sensibilité.
+
+#### Non promis
+
+Le contrat ne relit pas les supports : leurs composantes changées sont celles du
+producteur ; l'écart ne prétend pas isoler l'effet du support.
+
+---
+
+## `PerformanceComparison`
+
+*`mountain_perf.schemas.sensitivity` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `civil_date` | `date` | — |
+| `outing_id` | `str` | — |
+| `motif` | `PerformanceMotif \| None` | — |
+| `metrics` | `tuple[MetricComparison, ...]` | — |
+
+| Propriété calculée | Type | Sens |
+|---|---|---|
+| `models` | `tuple[ModelKind, ...]` | Les modèles comparés, dans l'ordre. |
+
+Une performance déclarée, sous une configuration, comparée au comparateur
+(`0010` D13 ; précision de M4d-3).
+
+#### Champs
+
+- `civil_date` — date — le jour de la performance.
+- `outing_id` — sans unité — sa première sortie.
+- `motif` — sans unité — pourquoi elle n'a pas de valeurs comparées ; absent si
+  elle en a.
+- `metrics` — sans unité — les comparaisons, modèle par modèle, chaque modèle
+  dans l'ordre de `SensitivityMetric`.
+
+#### Invariants
+
+- `outing_id` non vide ; `metrics` est un tuple ;
+- `motif` présent **si et seulement si** `metrics` est vide ;
+- `metrics` : par groupes consécutifs d'un modèle, chacun portant toutes les
+  métriques de `SensitivityMetric`, dans l'ordre ; des modèles distincts.
+
+#### Producteur
+
+`compare_performance` (`mountain_perf.backtest.sensitivity`).
+
+#### Consommateurs
+
+`ConfigurationOutcome` ; le rapport de sensibilité.
+
+#### Non promis
+
+Le contrat ne dit pas dans quel ordre les modèles viennent : c'est celui de la
+déclaration, que `SensitivityOutcome` rend commun.
+
+---
+
+## `GainComparison`
+
+*`mountain_perf.schemas.sensitivity` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `civil_date` | `date` | — |
+| `comparator_gain` | `float \| None` | — |
+| `comparator_motif` | `NonEvaluable \| None` | — |
+| `gain` | `float \| None` | — |
+| `motif` | `NonEvaluable \| None` | — |
+| `comparator_class` | `int \| None` | — |
+| `gain_class` | `int \| None` | — |
+
+| Propriété calculée | Type | Sens |
+|---|---|---|
+| `comparable` | `bool` | Les deux gains sont présents. |
+| `class_changed` | `bool` | Comparable, et les deux classes diffèrent. |
+
+Le gain d'une performance déclarée, au comparateur et sous une configuration
+(`0010` D10.2, D13 ; précision de M4d-3, amendement D13-B).
+
+#### Champs
+
+- `civil_date` — date — le jour de la performance.
+- `comparator_gain` — sans unité — `G_j` au comparateur ; absent si la
+  performance n'y est pas évaluable ou si `G_j` y manque.
+- `comparator_motif` — sans unité — son motif de non-évaluabilité au comparateur.
+- `gain` — sans unité — `G_j` sous la configuration ; absent de même.
+- `motif` — sans unité — son motif de non-évaluabilité sous la configuration.
+- `comparator_class`, `gain_class` — sans unité — leurs classes de signe
+  (`sign_class`), présentes avec leur gain.
+
+Propriétés calculées (jamais stockées) : `comparable` (les deux gains présents),
+`class_changed`.
+
+#### Invariants
+
+- un gain présent : fini, et la performance est évaluable de ce côté (motif
+  absent) ;
+- chaque classe présente **si et seulement si** son gain l'est, et vaut
+  `sign_class` du gain.
+
+#### Producteur
+
+`compare_gains` (`mountain_perf.backtest.sensitivity`).
+
+#### Consommateurs
+
+`ConfigurationOutcome` ; le rapport.
+
+#### Non promis
+
+Une valeur absente n'est jamais un zéro : une paire sans les deux gains n'est pas
+comparable, et son motif reste visible (D13-F).
+
+---
+
+## `CommonSet`
+
+*`mountain_perf.schemas.sensitivity` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `days` | `tuple[date, ...]` | — |
+| `entering` | `tuple[date, ...]` | — |
+| `leaving` | `tuple[date, ...]` | — |
+| `comparator_mean` | `float \| None` | — |
+| `mean` | `float \| None` | — |
+
+L'ensemble commun d'une configuration et du comparateur, publié en complément
+des moyennes de chacun sur son propre ensemble (`0010` D13 ; amendement D13-B).
+
+#### Champs
+
+- `days` — dates — les performances où les deux gains sont présents.
+- `entering` — dates — évaluables sous la configuration, pas au comparateur.
+- `leaving` — dates — évaluables au comparateur, pas sous la configuration.
+- `comparator_mean` — sans unité — la moyenne des gains du comparateur sur
+  `days`.
+- `mean` — sans unité — celle des gains de la configuration sur `days`.
+
+#### Invariants
+
+Trois tuples de jours strictement croissants ; les moyennes présentes **si et
+seulement si** `days` n'est pas vide, finies.
+
+#### Producteur
+
+`compare_gains` (`mountain_perf.backtest.sensitivity`).
+
+#### Consommateurs
+
+`ConfigurationOutcome` ; le rapport.
+
+#### Non promis
+
+Les moyennes principales restent celles de chaque admission ; celles-ci ne les
+remplacent pas.
+
+---
+
+## `ConfigurationOutcome`
+
+*`mountain_perf.schemas.sensitivity` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `configuration` | `SensitivityConfiguration` | — |
+| `performances` | `tuple[PerformanceComparison, ...]` | — |
+| `admission` | `Admission \| None` | — |
+| `assessments` | `tuple[PerformanceAssessment, ...] \| None` | — |
+| `gains` | `tuple[GainComparison, ...]` | — |
+| `common` | `CommonSet \| None` | — |
+| `mean_class` | `int \| None` | — |
+| `comparator_mean_class` | `int \| None` | — |
+| `sign_changed` | `bool` | — |
+| `verdict_changed` | `bool` | — |
+| `evaluability_lost` | `bool` | — |
+| `sign_unverifiable` | `bool` | — |
+
+| Propriété calculée | Type | Sens |
+|---|---|---|
+| `experiment` | `bool` | La configuration évalue une expérience (`gains` non vide). |
+| `assessed` | `tuple[PerformanceAssessment, ...]` | Les évaluations de la configuration : celles de l'admission, ou `assessments` ; vide sans expérience. |
+| `verdict` | `AdmissionVerdict \| None` | Le verdict de l'admission ; `None` sans décision. |
+
+Une configuration de la sensibilité et sa comparaison au comparateur (`0010`
+D13 ; précision de M4d-3).
+
+#### Champs
+
+- `configuration` — sans unité — la configuration.
+- `performances` — sans unité — la comparaison de chaque performance déclarée,
+  dans l'ordre des performances.
+- `admission` — sans unité — pour une expérience, l'admission refaite sous la
+  configuration ; absente sans expérience, ou si aucune performance n'y est
+  évaluable.
+- `assessments` — sans unité — pour une expérience sans performance évaluable
+  sous la configuration, les évaluations ; absentes sinon.
+- `gains` — sans unité — pour une expérience, la comparaison du gain de chaque
+  performance, dans l'ordre des performances ; vide sinon.
+- `common` — sans unité — pour une expérience, l'ensemble commun ; absent sinon.
+- `mean_class`, `comparator_mean_class` — sans unité — les classes de signe de
+  `Ḡ` sous la configuration et au comparateur ; absentes sans `Ḡ`.
+- `sign_changed`, `verdict_changed`, `evaluability_lost`,
+  `sign_unverifiable` — sans unité — les réserves de la configuration.
+
+#### Invariants
+
+1. `performances` et `gains` sont des tuples ; `performances` non vide, de
+   jours strictement croissants ;
+2. sans expérience (`gains` vide) : ni admission, ni évaluations, ni ensemble
+   commun, ni classe, et les quatre réserves fausses ;
+3. avec expérience : exactement une de `admission` et `assessments` ;
+   l'admission est sous l'horloge de la configuration ; `gains` porte les jours
+   de `performances` ; le côté « configuration » de chaque gain est celui de
+   ses évaluations (gain et motif) ; `mean_class` est la classe de `Ḡ` de
+   l'admission ; `common` est celui que donnent les gains ;
+   `sign_unverifiable` vaut « aucun gain comparable ».
+
+#### Producteur
+
+`configuration_outcome` (`mountain_perf.backtest.sensitivity`).
+
+#### Consommateurs
+
+`SensitivityOutcome`, qui vérifie le côté « comparateur » ; le rapport.
+
+#### Non promis
+
+Le côté « comparateur » (valeurs, gains, verdict) et les réserves qui en dépendent
+sont vérifiés par `SensitivityOutcome`, qui porte le comparateur.
+
+---
+
+## `ReserveEntry`
+
+*`mountain_perf.schemas.sensitivity` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `reserve` | `SensitivityReserve` | — |
+| `configurations` | `tuple[int, ...]` | — |
+
+Une réserve de la sensibilité et les configurations qui la portent (`0010`
+D13 ; précision de M4d-3).
+
+#### Champs
+
+- `reserve` — sans unité — la réserve.
+- `configurations` — sans unité — les rangs des configurations en cause, dans
+  `SensitivityOutcome.configurations`.
+
+#### Invariants
+
+`configurations` : un tuple non vide de rangs `>= 0` strictement croissants.
+
+#### Producteur
+
+`sensitivity_outcome` (`mountain_perf.backtest.sensitivity`).
+
+#### Consommateurs
+
+`SensitivityOutcome` ; la vue composée ; le rapport.
+
+#### Non promis
+
+Rien sur la gravité d'une réserve : elles se publient, elles ne décident pas.
+
+---
+
+## `SensitivityOutcome`
+
+*`mountain_perf.schemas.sensitivity` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `comparator` | `int` | — |
+| `configurations` | `tuple[ConfigurationOutcome, ...]` | — |
+| `reserves` | `tuple[ReserveEntry, ...]` | — |
+
+| Propriété calculée | Type | Sens |
+|---|---|---|
+| `experiment` | `bool` | La sensibilité est celle d'une expérience. |
+
+Le document d'une sensibilité (`0010` D13, D14 ; précision de M4d-3) : chaque
+configuration comparée au comparateur, et les réserves.
+
+#### Champs
+
+- `comparator` — sans unité — le rang du comparateur dans `configurations`.
+- `configurations` — sans unité — les configurations, dans l'ordre déclaré.
+- `reserves` — sans unité — les réserves, dans l'ordre de `DOCUMENT_RESERVES` ;
+  vide sans expérience.
+
+#### Invariants
+
+1. `configurations` : un tuple non vide, de configurations distinctes, toutes avec
+   ou toutes sans expérience ; `0 <= comparator < len(configurations)` ;
+2. chaque configuration porte les mêmes performances (jours, sorties, motifs) et
+   les mêmes modèles que le comparateur ;
+3. le côté « comparateur » de chaque comparaison est la valeur du comparateur (même
+   performance, modèle, métrique) ; le comparateur, comparé à lui-même, n'a aucune
+   composante changée ;
+4. avec expérience : le côté « comparateur » de chaque gain est celui du
+   comparateur, `comparator_mean_class` aussi ; `sign_changed`,
+   `verdict_changed`, `evaluability_lost` sont ceux que donne la comparaison
+   au comparateur ;
+5. `reserves` : pour chaque réserve de `DOCUMENT_RESERVES`, dans l'ordre, une
+   entrée **si et seulement si** une configuration la porte, avec les rangs de
+   toutes celles qui la portent.
+
+#### Producteur
+
+`sensitivity_outcome` (`mountain_perf.backtest.sensitivity`).
+
+#### Consommateurs
+
+`append_result` (document cité par `Result.sensitivity`) ; la relecture du
+registre ; la vue composée ; le rapport de sensibilité.
+
+#### Non promis
+
+Que les configurations soient celles que la déclaration déclare (accord du
+registre) ; les composantes de support changées ne se recalculent pas ici.
+
+---
+
+## `PairReferences`
+
+*`mountain_perf.schemas.registry` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `score_step_m` | `float` | — |
+| `lateral_tolerance_m` | `float` | — |
+| `references` | `tuple[RepeatabilityRecord, ...]` | — |
+
+Les références D8 d'une paire `(Δ, ε)` de la sensibilité, figées avant la
+DÉCLARATION de sensibilité (`0010` D13, D14 ; précision de M4d-3).
+
+#### Champs
+
+- `score_step_m` — mètres — `Δ`.
+- `lateral_tolerance_m` — mètres — `ε`.
+- `references` — sans unité — le document D8 de chaque parcours du jeu de
+  répétabilité, calculé sur les seules observations de la paire.
+
+#### Invariants
+
+`Δ` et `ε` finis et `> 0` ; `references` est un tuple, de parcours
+distincts.
+
+#### Producteur
+
+`run_sensitivity` (`mountain_perf.backtest.sensitivity_run`).
+
+#### Consommateurs
+
+`SensitivityDeclaration` ; l'accord du registre : le RÉSULTAT publie, pour la
+paire, exactement ces documents.
+
+#### Non promis
+
+Le contrat ne lit pas les documents.
+
+---
+
+## `ConfigurationReferences`
+
+*`mountain_perf.schemas.registry` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `configuration` | `SensitivityConfiguration` | — |
+| `frozen_references` | `tuple[FrozenReference, ...]` | — |
+
+Les références figées d'une expérience sous une configuration de la sensibilité
+(`0010` D10.3, D13 ; précision de M4d-3) : celles de la référence D8 de sa paire,
+sous son horloge, par la règle de l'expérience (locale, puis empruntée).
+
+#### Champs
+
+- `configuration` — sans unité — la configuration.
+- `frozen_references` — sans unité — ses références figées.
+
+#### Invariants
+
+`frozen_references` est un tuple ; chacune est sous l'horloge de la
+configuration.
+
+#### Producteur
+
+`run_sensitivity` (`mountain_perf.backtest.sensitivity_run`).
+
+#### Consommateurs
+
+`SensitivityDeclaration` ; l'admission de la configuration.
+
+#### Non promis
+
+Le contrat ne recalcule pas les références depuis les documents D8.
+
+---
+
+## `SensitivityDeclaration`
+
+*`mountain_perf.schemas.registry` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `central` | `int` | — |
+| `central_hash` | `str` | — |
+| `answer` | `int` | — |
+| `answer_hash` | `str` | — |
+| `configurations` | `tuple[SensitivityConfiguration, ...]` | — |
+| `pairs` | `tuple[PairReferences, ...]` | — |
+| `frozen` | `tuple[ConfigurationReferences, ...] \| None` | — |
+
+Ce qu'une DÉCLARATION de sensibilité ajoute à la déclaration centrale qu'elle
+qualifie (`0010` D13, D14 ; précision et exception de M4d-3).
+
+#### Champs
+
+- `central` — sans unité — le numéro de la DÉCLARATION centrale.
+- `central_hash` — sans unité — le `sha256` de sa ligne.
+- `answer` — sans unité — le numéro du RÉSULTAT qui lui répond.
+- `answer_hash` — sans unité — le `sha256` de sa ligne.
+- `configurations` — sans unité — les configurations, dans l'ordre.
+- `pairs` — sans unité — les références D8 de chaque paire `(Δ, ε)` des
+  configurations, figées avant la DÉCLARATION.
+- `frozen` — sans unité — pour une expérience, les références figées de chaque
+  configuration ; absent sans expérience.
+
+#### Invariants
+
+1. `1 <= central < answer` ; `central_hash` et `answer_hash` sont des
+   `sha256` ;
+2. `configurations` et `pairs` sont des tuples ; `configurations` non vide,
+   sans doublon ;
+3. `pairs` : une entrée par paire `(Δ, ε)` des configurations, dans l'ordre de
+   leur première apparition ;
+4. `frozen` présent : un tuple, une entrée par configuration, de cette
+   configuration, dans l'ordre.
+
+#### Producteur
+
+`run_sensitivity` (`mountain_perf.backtest.sensitivity_run`).
+
+#### Consommateurs
+
+`Declaration` ; `RegistryLog` (liens) ; l'accord du registre ; le comptage des
+essais ; la vue composée (`sensitivity_qualification`).
+
+#### Non promis
+
+Que les configurations soient les dix-neuf de D13, que les lignes nommées soient
+celles du journal, que la déclaration recopie la centrale : c'est l'accord du
+registre qui le vérifie.
+
+---
+
+## `PairResult`
+
+*`mountain_perf.schemas.registry` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `score_step_m` | `float` | — |
+| `lateral_tolerance_m` | `float` | — |
+| `outings` | `tuple[OutingResult, ...]` | — |
+| `unscored` | `tuple[Exclusion, ...]` | — |
+| `references` | `tuple[RepeatabilityRecord, ...]` | — |
+
+Ce que le RÉSULTAT d'une sensibilité porte d'une paire `(Δ, ε)` (`0010` D13,
+D14 ; précision de M4d-3) : ce que porte le RÉSULTAT d'une exécution.
+
+#### Champs
+
+- `score_step_m` — mètres — `Δ`.
+- `lateral_tolerance_m` — mètres — `ε`.
+- `outings` — sans unité — les sorties scorées sous la paire.
+- `unscored` — sans unité — les sorties déclarées non scorées, avec leur motif.
+- `references` — sans unité — les références D8 des parcours, sous la paire.
+
+#### Invariants
+
+- `Δ` et `ε` finis et `> 0` ;
+- `outings`, `unscored` et `references` sont des tuples ;
+- les identifiants de `outings` et de `unscored`, pris ensemble, sont
+  distincts ; les parcours de `references` sont distincts.
+
+#### Producteur
+
+`append_result` (`mountain_perf.backtest.registry`).
+
+#### Consommateurs
+
+`Result` ; la relecture et la vérification du registre ; `load_pair_outcomes`.
+
+#### Non promis
+
+L'accord avec la déclaration est vérifié par le registre, pas par le contrat.

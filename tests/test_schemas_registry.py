@@ -190,11 +190,11 @@ USAGE_EXPERIMENT = replace(
 # ---------------------------------------------------------------------------
 
 
-def test_registry_format_version_is_4() -> None:
-    """``0010`` D14 et ses précisions de M4c-2, M4c-3 et M4d-2 : le format écrit, et
-    les formats relus."""
-    assert REGISTRY_FORMAT_VERSION == 4
-    assert REGISTRY_READABLE_FORMATS == (1, 2, 3, 4)
+def test_registry_format_version_is_5() -> None:
+    """``0010`` D14 et ses précisions de M4c-2, M4c-3, M4d-2 et M4d-3 : le format écrit,
+    et les formats relus."""
+    assert REGISTRY_FORMAT_VERSION == 5
+    assert REGISTRY_READABLE_FORMATS == (1, 2, 3, 4, 5)
 
 
 def test_event_of_format_1_is_accepted() -> None:
@@ -974,8 +974,8 @@ def test_event_recorded_at_is_normalized_to_utc() -> None:
     [
         (
             DECLARED,
-            {"format_version": 5},
-            "format_version vaut l'un de 1, 2, 3, 4, reçu 5",
+            {"format_version": 6},
+            "format_version vaut l'un de 1, 2, 3, 4, 5, reçu 6",
         ),
         (
             DECLARED,
@@ -1048,7 +1048,7 @@ def test_event_recorded_at_is_normalized_to_utc() -> None:
         ),
     ],
     ids=[
-        "format-5",
+        "format-6",
         "number-0",
         "hash-absent-at-2",
         "hash-present-at-1",
@@ -1304,7 +1304,7 @@ def test_trial_counts_sum() -> None:
     """Décision 4 : chaque déclaration compte une fois, avec ou sans effet."""
     _raises(
         COUNTS,
-        "declarations (5) doit valoir without_effect + Σ count (4)",
+        "declarations (5) doit valoir without_effect + Σ count + sensitivities (4)",
         declarations=5,
     )
 

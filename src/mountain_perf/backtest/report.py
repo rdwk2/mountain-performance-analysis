@@ -30,10 +30,12 @@ from mountain_perf.schemas import (
     CALIBRATED_MODELS,
     CLOCKS,
     AdmittedSegment,
+    Availability,
     CalibratedOutingScores,
     CalibrationPopulation,
     Clock,
     ClockScores,
+    ConfigurationOutcome,
     DataSet,
     MatchResult,
     MetricValue,
@@ -44,11 +46,13 @@ from mountain_perf.schemas import (
     OutingObservation,
     OutingScores,
     ParameterSpec,
+    PerformanceComparison,
     RegimeClass,
     RepeatabilityReference,
     RouteProfile,
     Scenario,
     ScenarioScores,
+    SensitivityMetric,
     Unavailability,
 )
 
@@ -874,3 +878,171 @@ def outing_bands_report(
     ``None`` sans usage."""
     outing_id = outing.outing.outing_id
     return next((b for b in run.bands if b.outing_id == outing_id), None)
+
+
+# ---------------------------------------------------------------------------
+# Sensibilité (D13, M4d-3)
+# ---------------------------------------------------------------------------
+
+
+class SensitivityRowKind(StrEnum):
+    """Les lignes de la table d'une configuration de la sensibilité (précision de D15,
+    M4d-3) : celles de la synthèse de ``just backtest`` (``L``, ``|L|``, ``max |C_k|``,
+    ``q_usage``), sous l'horloge de la configuration, puis ``|L|`` sur l'ensemble
+    commun des modèles."""
+
+    LEVEL = "L"
+    ABS_LEVEL = "|L|"
+    MAX_ABS_PASSAGE_ERROR = "max |C_k|"
+    USAGE_TARGET = "q_usage"
+    COMMON_ABS_LEVEL = "|L| commun"
+
+
+@dataclass(frozen=True)
+class SensitivityRow:
+    """Une ligne de la table d'une configuration : sa nature, et par jeu, dans l'ordre
+    de ``DataSet``, un agrégat par modèle comparé, dans l'ordre des modèles."""
+
+    kind: SensitivityRowKind
+    by_set: tuple[tuple[Aggregate, ...], ...]
+
+
+_ROW_METRICS = {
+    SensitivityRowKind.LEVEL: SensitivityMetric.LEVEL,
+    SensitivityRowKind.ABS_LEVEL: SensitivityMetric.LEVEL,
+    SensitivityRowKind.MAX_ABS_PASSAGE_ERROR: SensitivityMetric.MAX_ABS_PASSAGE_ERROR,
+    SensitivityRowKind.USAGE_TARGET: SensitivityMetric.USAGE,
+}
+
+
+def _sensitivity_number(
+    comparison: PerformanceComparison, model: ModelKind, kind: SensitivityRowKind
+) -> float | str:
+    """La valeur d'une ligne pour un modèle et une performance, sous la configuration,
+    ou son motif : celui de la performance, sinon celui de la valeur."""
+    if comparison.motif is not None:
+        return comparison.motif.value
+    metric = _ROW_METRICS[kind]
+    (value,) = [
+        c.value for c in comparison.metrics if c.model is model and c.metric is metric
+    ]
+    return _number(value, absolute=kind is SensitivityRowKind.ABS_LEVEL)
+
+
+def sensitivity_table(
+    configuration: ConfigurationOutcome,
+    datasets: Sequence[tuple[DataSet, ...]],
+    models: Sequence[ModelKind],
+) -> tuple[SensitivityRow, ...]:
+    """La table d'une configuration de la sensibilité (précision de D15, M4d-3) : pour
+    chaque ligne de ``SensitivityRowKind``, chaque jeu et chaque modèle, la moyenne à
+    poids égal par performance sur son propre effectif, les manquants comptés par motif
+    (``aggregate``) ; ``|L|`` commun : sur les performances où tous les modèles ont
+    ``|L|``. ``datasets`` : les jeux de chaque performance, dans l'ordre de la
+    configuration (une performance compte dans le jeu de chacune de ses sorties)."""
+    rows: list[SensitivityRow] = []
+    performances = configuration.performances
+    for kind in SensitivityRowKind:
+        by_set: list[tuple[Aggregate, ...]] = []
+        for dataset in DataSet:
+            members = [
+                p
+                for p, sets in zip(performances, datasets, strict=True)
+                if dataset in sets
+            ]
+            if kind is SensitivityRowKind.COMMON_ABS_LEVEL:
+                common = [
+                    p
+                    for p in members
+                    if all(
+                        not isinstance(
+                            _sensitivity_number(p, m, SensitivityRowKind.ABS_LEVEL), str
+                        )
+                        for m in models
+                    )
+                ]
+                by_set.append(
+                    tuple(
+                        aggregate(
+                            [
+                                _sensitivity_number(p, m, SensitivityRowKind.ABS_LEVEL)
+                                for p in common
+                            ]
+                        )
+                        for m in models
+                    )
+                )
+                continue
+            by_set.append(
+                tuple(
+                    aggregate([_sensitivity_number(p, m, kind) for p in members])
+                    for m in models
+                )
+            )
+        rows.append(SensitivityRow(kind, tuple(by_set)))
+    return tuple(rows)
+
+
+@dataclass(frozen=True)
+class AxisCounts:
+    """Les trois axes d'une configuration pour un modèle (précision de D13, M4d-3) : sur
+    les comparaisons des performances sans motif, combien perdent ou gagnent leur
+    valeur, combien changent de support, combien changent de valeur (écart non nul)."""
+
+    model: ModelKind
+    compared: int
+    lost: int
+    gained: int
+    support: int
+    value: int
+
+
+def axis_counts(
+    configuration: ConfigurationOutcome, models: Sequence[ModelKind]
+) -> tuple[AxisCounts, ...]:
+    """Les comptes des trois axes, par modèle, dans l'ordre de ``models`` (précision de
+    D13, M4d-3)."""
+    counts: list[AxisCounts] = []
+    for model in models:
+        comparisons = [
+            c for p in configuration.performances for c in p.metrics if c.model is model
+        ]
+        counts.append(
+            AxisCounts(
+                model,
+                len(comparisons),
+                sum(c.availability is Availability.LOST for c in comparisons),
+                sum(c.availability is Availability.GAINED for c in comparisons),
+                sum(bool(c.support) for c in comparisons),
+                sum(c.difference not in (None, 0.0) for c in comparisons),
+            )
+        )
+    return tuple(counts)
+
+
+def drift_under(
+    evaluation: BacktestEvaluation, outing: OutingRun, clock: Clock
+) -> OutingDrift | None:
+    """La dérive d'une sortie scorée d'une paire de la sensibilité sous l'horloge de la
+    configuration (précision de D13, M4d-3 ; ``0010`` D12), précédée de l'écoulé si
+    elle en est une autre (le diagnostic tient l'écoulé en premier) ; ``None`` sans
+    usage."""
+    outing_id = outing.outing.outing_id
+    performance = next(
+        p for p in evaluation.preparation.performances if outing.outing in p.outings
+    )
+    calibrated = next(
+        p
+        for p in evaluation.calibration
+        if any(e.outing_id == outing_id for e in p.outings)
+    )
+    return outing_drift(
+        outing.scores,
+        outing.passages,
+        outing.profile,
+        (CLOCKS[0],) if clock == CLOCKS[0] else (CLOCKS[0], clock),
+        calibrated,
+        evaluation.preparation.curve.curve,
+        multi_outing=performance.is_multi_outing,
+        outing_id=outing_id,
+    )

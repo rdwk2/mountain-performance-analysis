@@ -16,6 +16,65 @@ Backtest (à partir de M4) : métrique avant → après.
 
 ---
 
+### 2026-10-19 · M4d-3 — correctifs de relecture
+La relecture C en deux passes (« fusionnable après correction des tests ») et le balayage
+par mutation de la conception n'ont trouvé aucun défaut du code, mais des règles écrites
+que la batterie jointe n'exerçait pas : l'appariement sous lequel chaque paire est tracée
+(le monde n'exerce pas `ε`) ; la référence D8, le calage et les fourchettes d'une paire ;
+pour une expérience, la géométrie des huit autres paires, les exclusions d'admission et le
+`K` sous chaque configuration, une configuration sans décision ; une exception dans le
+calcul d'une paire ; deux clauses de l'invariant 5 de `RegistryLog` ; les documents d'un
+RÉSULTAT de sensibilité à la relecture ; deux contrats de la DÉCLARATION de sensibilité,
+les fourchettes de chaque paire et trois cas de l'exception de D14 ; la vue composée à
+deux centrales ; les valeurs du corps du rapport ; les garanties écrites de la
+bibliothèque. Cinq fichiers de tests de garantie, fournis par la conception, recopiés tels
+quels ; deux docstrings du code fourni corrigées (`PairEvaluation`, `ExperimentScores`) ;
+deux lignes de `BACKLOG.md`.
+Conclusion : `just check` vert, 6 313 tests ; le code de `src/` ne change pas, hors ces
+deux docstrings. Rangé dans `tests/test_backtest_sensitivity_guarantees.py`,
+`tests/test_backtest_sensitivity_run_guarantees.py`,
+`tests/test_backtest_registry_format5_guarantees.py`,
+`tests/test_cli_sensitivity_guarantees.py` et
+`tests/test_schemas_sensitivity_guarantees.py`, branche `m4d/sensibilite`.
+
+---
+
+### 2026-10-18 · M4d-3 — Backtest : sensibilité
+La sensibilité de `0010` D13 est exécutée et enregistrée : neuf exécutions géométriques,
+une par paire `(Δ, ε)`, les dix configurations de mouvement lues dans `(250, 30)` ; chaque
+configuration comparée à son comparateur sur trois axes (disponibilité, support effectif,
+valeur) et, pour une expérience, l'admission refaite, les gains, l'ensemble commun et
+quatre réserves ; le registre au format 5 (DÉCLARATION de sensibilité, RÉSULTAT, document
+de sensibilité ; exception de D14 : une sensibilité ne compte pas comme essai) ; l'option
+`--sensitivity` de `mperf backtest` et son rapport ; la vue composée de D10.6. La session a
+écrit la bibliothèque de `backtest/sensitivity.py` ; les contrats, le reste de `src/`, les
+tests joints et les correctifs du README, de `CLAUDE.md` et du `justfile` sont ceux du
+paquet de la conception, appliqués tels quels — un test joint corrigé en cours de session
+par la conception (le nom du rapport sous Windows). Quatre précisions de `0010` (D10.6,
+D13, D14, D15) ; deux lignes de `BACKLOG.md` closes, huit ajoutées.
+Conclusion : `just check` vert, 6 267 tests (deux sautés sous Windows) ; les 39
+contre-épreuves de la bibliothèque rouges. M4 est complet ; la première sensibilité réelle
+reste à lancer. Rangé dans `src/mountain_perf/backtest/sensitivity.py`,
+`src/mountain_perf/backtest/sensitivity_run.py`, `src/mountain_perf/schemas/sensitivity.py`
+et `docs/decisions/0010-protocole-de-backtest.md`, branche `m4d/sensibilite`.
+
+---
+
+### 2026-10-18 · M4d-2 — première exécution réelle au format 4
+`just backtest` sur le manifeste et la courbe réels (rdw, sur `main` = `1d01625`, arbre
+propre, après une sauvegarde du registre) : la DÉCLARATION 5 et le RÉSULTAT 6, au format 4,
+à la suite des quatre lignes de M4b-5 et M4c-2 ; sceau (empreinte de la dernière ligne)
+`2107f3f7ae86796d2a3605953e2569f326478a1048e3a1ac0ee26fc48c108236` ; rapport
+`rapports/backtest-0006.txt`. Relecture de la conception, en lecture seule : les quatre
+lignes anciennes identiques à l'octet, les 166 documents anciens inchangés, 140 documents
+neufs, dont 11 de fourchettes (une par sortie scorée à référence), chacun à son empreinte.
+Les agrégats d'usage sous l'écoulé, par jeu, sont ceux de l'entrée « M4c-2 — contrôle
+réel » du 2026-10-12, au caractère près : les modèles n'ont pas changé, et D11 ne change
+que le rapport complet et le registre. Le registre réel est désormais au format 4 : le code
+de `main` d'avant M4d-2 ne le relit plus.
+
+---
+
 ### 2026-10-18 · AN1-2b — correctifs de la seconde relecture
 La relecture C des correctifs (« fusionnable après correction des constats 1 et 2 »).
 Dans le dernier pas, le complément place la borne à `max(tolérance, flat_grade × pas)`

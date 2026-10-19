@@ -7,8 +7,8 @@ Un dossier, donné par l'appelant :
 - ``evenements.jsonl`` : le journal, une ligne par événement, son écriture canonique
   suivie de ``\\n`` ; chaque ligne porte l'empreinte de la précédente ;
 - ``documents/<sha256>.json`` : observations, scores avec leurs prévisions, références
-  D8, documents d'admission (M4c-3) et de fourchettes (M4d-2), chacun nommé par
-  l'empreinte de ses octets ;
+  D8, documents d'admission (M4c-3), de fourchettes (M4d-2) et de sensibilité (M4d-3),
+  chacun nommé par l'empreinte de ses octets ;
 - ``verrou`` : présent pendant un ajout, et seulement pendant.
 
 Le code ajoute en fin de journal et ne réécrit jamais rien ; tout s'écrit et se lit en
@@ -24,6 +24,7 @@ import os
 from collections import Counter
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
+from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime
 from pathlib import Path
 
@@ -38,13 +39,20 @@ from mountain_perf.backtest.codec import (
     encode_contract,
     encode_document,
 )
+from mountain_perf.backtest.sensitivity import (
+    SENSITIVITY_CENTRAL_M,
+    SENSITIVITY_CLUSTER_RADIUS_M,
+    SENSITIVITY_CONFIGURATIONS,
+)
 from mountain_perf.model.curve_io import META_SUFFIX, CurveReadResult
 from mountain_perf.schemas import (
     ADMISSION_FIRST_FORMAT,
     BAND_MODELS,
     BANDS_FIRST_FORMAT,
     CALIBRATED_KINDS,
+    CLOCKS,
     REGISTRY_FORMAT_VERSION,
+    SENSITIVITY_FIRST_FORMAT,
     Admission,
     ArtifactRef,
     ArtifactRole,
@@ -67,6 +75,7 @@ from mountain_perf.schemas import (
     OutingOutcome,
     OutingResult,
     OutingScores,
+    PairResult,
     Performance,
     RegistryEvent,
     RegistryLog,
@@ -75,6 +84,8 @@ from mountain_perf.schemas import (
     Result,
     Scenario,
     ScenarioScores,
+    SensitivityConfiguration,
+    SensitivityOutcome,
     SourceRef,
     TrialCounts,
 )
@@ -129,9 +140,19 @@ def _line(event: RegistryEvent) -> bytes:
     format** — avant le format 3, sans la clé ``admission`` du RÉSULTAT ni la clé
     ``reference_documents`` de l'expérience, qui y valent ``null`` (précision de D14,
     M4c-3) ; avant le format 4, sans la clé ``bands`` des sorties du RÉSULTAT, qui y
-    vaut ``null`` (précision de D14, M4d-2) : chaque ligne ancienne se réécrit à
-    l'octet."""
+    vaut ``null`` (précision de D14, M4d-2) ; avant le format 5, sans les clés
+    ``sensitivity`` de la DÉCLARATION, ``pairs`` et ``sensitivity`` du RÉSULTAT, qui y
+    valent ``null`` et ``[]`` (précision de D14, M4d-3) : chaque ligne ancienne se
+    réécrit à l'octet."""
     data = encode_contract(event)
+    if event.format_version < SENSITIVITY_FIRST_FORMAT and isinstance(data, dict):
+        declaration = data.get("declaration")
+        if isinstance(declaration, dict):
+            declaration.pop("sensitivity", None)
+        result = data.get("result")
+        if isinstance(result, dict):
+            result.pop("pairs", None)
+            result.pop("sensitivity", None)
     if event.format_version < BANDS_FIRST_FORMAT and isinstance(data, dict):
         result = data.get("result")
         if isinstance(result, dict):
@@ -182,6 +203,8 @@ def read_registry(root: Path) -> RegistryLog:
     except ContractError as error:
         raise RegistryError(f"{EVENTS_FILE} : {error}") from error
     for event in log.events:
+        if event.declaration is not None and event.declaration.sensitivity is not None:
+            _agree_sensitivity(log, event, _line_prefix(event.number))
         if event.result is not None:
             _agree(
                 _declaration_of(log, event),
@@ -189,6 +212,7 @@ def read_registry(root: Path) -> RegistryLog:
                 _line_prefix(event.number),
                 event.format_version,
             )
+            _agree_central_pair(log, event, _line_prefix(event.number))
             for sha in _cited(event.result):
                 _stored(root, sha)
     return log
@@ -244,7 +268,9 @@ def _read_events(data: bytes) -> tuple[RegistryEvent, ...]:
 
 
 def _upgraded(raw: object) -> object:
-    """Une ligne JSON d'un format antérieur, avant son décodage : avant le format 4,
+    """Une ligne JSON d'un format antérieur, avant son décodage : avant le format 5, sa
+    DÉCLARATION reçoit ``"sensitivity": null``, son RÉSULTAT ``"pairs": []`` et
+    ``"sensitivity": null`` (précision de D14, M4d-3) ; avant le format 4,
     chaque sortie de son RÉSULTAT reçoit ``"bands": null`` (précision de D14, M4d-2) ;
     avant le format 3, son RÉSULTAT reçoit aussi ``"admission": null``, l'expérience de
     sa DÉCLARATION ``"reference_documents": null`` (précision de D14, M4c-3). Une ligne
@@ -254,7 +280,24 @@ def _upgraded(raw: object) -> object:
     if not isinstance(raw, dict):
         return raw
     version = raw.get("format_version")
-    if type(version) is not int or version >= BANDS_FIRST_FORMAT:
+    if type(version) is not int or version >= SENSITIVITY_FIRST_FORMAT:
+        return raw
+    declaration = raw.get("declaration")
+    if isinstance(declaration, dict):
+        if "sensitivity" in declaration:
+            raise CodecError(
+                f"declaration : champ inconnu au format {version} : 'sensitivity'"
+            )
+        raw = {**raw, "declaration": {**declaration, "sensitivity": None}}
+    result = raw.get("result")
+    if isinstance(result, dict):
+        for key in ("pairs", "sensitivity"):
+            if key in result:
+                raise CodecError(
+                    f"result : champ inconnu au format {version} : {key!r}"
+                )
+        raw = {**raw, "result": {**result, "pairs": [], "sensitivity": None}}
+    if version >= BANDS_FIRST_FORMAT:
         return raw
     result = raw.get("result")
     if isinstance(result, dict) and isinstance(result.get("outings"), list):
@@ -302,19 +345,26 @@ def _declaration_of(log: RegistryLog, event: RegistryEvent) -> Declaration:
 def _cited(result: Result) -> list[str]:
     """Les documents d'un résultat, dans l'ordre : par sortie, l'observation puis, par
     modèle, le contrôle et l'usage, puis ses fourchettes (M4d-2) ; puis les références ;
-    le document d'admission en dernier (M4c-3)."""
+    le document d'admission en dernier (M4c-3). Pour une sensibilité (M4d-3), de même
+    paire par paire, puis le document de sensibilité."""
     cited: list[str] = []
-    for outing in result.outings:
-        cited.append(outing.observation)
-        for model in outing.models:
-            cited.append(model.control)
-            if model.usage is not None:
-                cited.append(model.usage)
-        if outing.bands is not None:
-            cited.append(outing.bands)
-    cited.extend(record.reference for record in result.references)
+    for outings, references in (
+        (result.outings, result.references),
+        *((pair.outings, pair.references) for pair in result.pairs),
+    ):
+        for outing in outings:
+            cited.append(outing.observation)
+            for model in outing.models:
+                cited.append(model.control)
+                if model.usage is not None:
+                    cited.append(model.usage)
+            if outing.bands is not None:
+                cited.append(outing.bands)
+        cited.extend(record.reference for record in references)
     if result.admission is not None:
         cited.append(result.admission)
+    if result.sensitivity is not None:
+        cited.append(result.sensitivity)
     return cited
 
 
@@ -379,7 +429,54 @@ def _agree(
     publie pour ce parcours (E6). Enfin (M4d-2), au format 4, une sortie scorée cite
     ses fourchettes si et seulement si elle a une référence, que la déclaration déclare
     les cinq modèles du rapport (``BAND_MODELS``) et qu'elle ne porte pas
-    d'expérience."""
+    d'expérience. Pour une DÉCLARATION de sensibilité (M4d-3) : le RÉSULTAT porte
+    une paire par paire déclarée, dans l'ordre, chacune accordée comme le RÉSULTAT
+    d'une exécution, et un document de sensibilité ; il ne cite pas de document
+    d'admission (les admissions des configurations sont dans le document de
+    sensibilité)."""
+    sensitivity = declaration.sensitivity
+    if sensitivity is None:
+        if result.sensitivity is not None:
+            raise RegistryError(
+                f"{prefix}un RÉSULTAT de sensibilité répond à une DÉCLARATION de "
+                "sensibilité (M4d-3)"
+            )
+        _agree_outings(declaration, result, prefix, format_version)
+        _agree_admission(declaration, result, prefix)
+        return
+    if result.sensitivity is None:
+        raise RegistryError(
+            f"{prefix}une DÉCLARATION de sensibilité reçoit un RÉSULTAT de sensibilité "
+            "(M4d-3)"
+        )
+    declared = [(p.score_step_m, p.lateral_tolerance_m) for p in sensitivity.pairs]
+    present = [(p.score_step_m, p.lateral_tolerance_m) for p in result.pairs]
+    if present != declared:
+        raise RegistryError(
+            f"{prefix}le RÉSULTAT de sensibilité porte les paires déclarées, dans "
+            f"l'ordre : {declared} attendu, reçu {present}"
+        )
+    for pair in result.pairs:
+        _agree_outings(
+            declaration, _pair_view(pair), _pair_prefix(prefix, pair), format_version
+        )
+
+
+def _pair_view(pair: PairResult) -> Result:
+    """Une paire d'un RÉSULTAT de sensibilité vue comme le RÉSULTAT d'une exécution
+    (M4d-3) : ses sorties, ses sorties non scorées, ses références D8."""
+    return Result(pair.outings, pair.unscored, pair.references)
+
+
+def _pair_prefix(prefix: str, pair: PairResult) -> str:
+    return f"{prefix}paire ({pair.score_step_m:g}, {pair.lateral_tolerance_m:g}), "
+
+
+def _agree_outings(
+    declaration: Declaration, result: Result, prefix: str, format_version: int
+) -> None:
+    """La partie de ``_agree`` qui porte sur les sorties et les références D8 d'un
+    résultat d'exécution (ou d'une paire d'une sensibilité, M4d-3)."""
     outings = _declared_outings(declaration)
     fates = [outing.outing_id for outing in result.outings]
     fates += [exclusion.outing_id for exclusion in result.unscored]
@@ -424,6 +521,10 @@ def _agree(
             raise RegistryError(f"{prefix}parcours non déclaré, {record.route_id!r}")
     if format_version >= BANDS_FIRST_FORMAT:
         _agree_bands(declaration, result, outings, prefix)
+
+
+def _agree_admission(declaration: Declaration, result: Result, prefix: str) -> None:
+    """La partie de ``_agree`` qui porte sur le document d'admission (M4c-3)."""
     experiment = declaration.experiment
     if (result.admission is not None) != (experiment is not None):
         raise RegistryError(
@@ -444,6 +545,116 @@ def _agree(
                 f"{prefix}le document D8 de {frozen.route_id!r} n'est pas celui que "
                 "la déclaration a figé (E6)"
             )
+
+
+def _agree_sensitivity(
+    log: RegistryLog, event: RegistryEvent, prefix: str, *, appending: bool = False
+) -> None:
+    """L'accord d'une DÉCLARATION de sensibilité avec la centrale qu'elle qualifie
+    (précision et exception de D14, M4d-3), dans cet ordre : les empreintes des lignes
+    de la centrale et de son RÉSULTAT ; la déclaration recopie la centrale, champ pour
+    champ, hors ``sensitivity`` ; ses configurations sont les dix-neuf de D13, dans leur
+    ordre ; à l'ajout seulement (``appending``), la centrale et son RÉSULTAT sont en
+    vigueur. Les liens (types, ordre) sont ceux de ``RegistryLog``."""
+    declaration = event.declaration
+    assert declaration is not None  # appelant
+    sensitivity = declaration.sensitivity
+    assert sensitivity is not None  # appelant
+    central = log.event(sensitivity.central)
+    answer = log.event(sensitivity.answer)
+    for named, expected, what in (
+        (central, sensitivity.central_hash, "de la DÉCLARATION centrale"),
+        (answer, sensitivity.answer_hash, "du RÉSULTAT central"),
+    ):
+        if line_hash(named) != expected:
+            raise RegistryError(
+                f"{prefix}l'empreinte déclarée de la ligne {what} "
+                f"({named.number}) ne correspond pas"
+            )
+    if replace(declaration, sensitivity=None) != central.declaration:
+        raise RegistryError(
+            f"{prefix}une DÉCLARATION de sensibilité recopie la déclaration centrale, "
+            "hors de la grille ; une autre modification est une expérience neuve "
+            "(exception de D14, M4d-3)"
+        )
+    if sensitivity.configurations != SENSITIVITY_CONFIGURATIONS:
+        raise RegistryError(
+            f"{prefix}une DÉCLARATION de sensibilité déclare les dix-neuf "
+            "configurations de D13, toutes, dans leur ordre (M4d-3)"
+        )
+    central_pair = (
+        *SENSITIVITY_CENTRAL_M,
+        SENSITIVITY_CLUSTER_RADIUS_M,
+    )
+    declared_pair = tuple(
+        declaration.matching[name]
+        for name in ("score_step_m", "lateral_tolerance_m", "cluster_radius_m")
+    )
+    if declared_pair != central_pair:
+        raise RegistryError(
+            f"{prefix}la centrale d'une sensibilité est appariée à (250, 30), r_c "
+            "15 m : son comparateur est une des dix-neuf configurations (M4d-3)"
+        )
+    experiment = declaration.experiment
+    if experiment is not None and sensitivity.frozen is not None:
+        comparator = comparator_configuration(declaration)
+        (entry,) = [e for e in sensitivity.frozen if e.configuration == comparator]
+        if entry.frozen_references != experiment.frozen_references:
+            raise RegistryError(
+                f"{prefix}les références figées du comparateur sont celles de "
+                "l'expérience centrale, dont l'admission est la décision du "
+                "comparateur (M4d-3)"
+            )
+    if not appending:
+        return
+    if not log.in_force(sensitivity.central):
+        raise RegistryError(
+            f"{_REFUSED}la DÉCLARATION centrale {sensitivity.central} est corrigée"
+        )
+    in_force = log.answer(sensitivity.central)
+    if in_force is None or in_force.number != sensitivity.answer:
+        raise RegistryError(
+            f"{_REFUSED}le RÉSULTAT {sensitivity.answer} n'est pas la réponse en "
+            f"vigueur de la DÉCLARATION centrale {sensitivity.central}"
+        )
+
+
+def _agree_central_pair(log: RegistryLog, event: RegistryEvent, prefix: str) -> None:
+    """La paire ``(250, 30)`` d'un RÉSULTAT de sensibilité est le RÉSULTAT central
+    (précision de D14, M4d-3) : mêmes sorties scorées (mêmes documents), mêmes sorties
+    non scorées, mêmes références D8 — rien n'y est recalculé ni réécrit."""
+    result = event.result
+    assert result is not None  # appelant
+    declaration = _declaration_of(log, event)
+    sensitivity = declaration.sensitivity
+    if sensitivity is None:
+        return
+    central = log.event(sensitivity.answer).result
+    assert central is not None  # liens : la réponse centrale est un RÉSULTAT
+    for pair in result.pairs:
+        if (pair.score_step_m, pair.lateral_tolerance_m) != SENSITIVITY_CENTRAL_M:
+            continue
+        if (pair.outings, pair.unscored, pair.references) != (
+            central.outings,
+            central.unscored,
+            central.references,
+        ):
+            raise RegistryError(
+                f"{_pair_prefix(prefix, pair)}la paire de la centrale est son RÉSULTAT "
+                f"({sensitivity.answer}) : mêmes sorties, mêmes documents, mêmes "
+                "références D8 (M4d-3)"
+            )
+
+
+def comparator_configuration(declaration: Declaration) -> SensitivityConfiguration:
+    """Le comparateur d'une sensibilité (précision de D13, M4d-3) : ``(250, 30)`` sous
+    l'écoulé pour ``just backtest``, sous l'horloge déclarée pour une expérience."""
+    clock = (
+        CLOCKS[0] if declaration.experiment is None else declaration.experiment.clock
+    )
+    return SensitivityConfiguration(
+        *SENSITIVITY_CENTRAL_M, SENSITIVITY_CLUSTER_RADIUS_M, clock
+    )
 
 
 def _agree_bands(
@@ -609,7 +820,96 @@ def _agree_documents(
     répétabilité de ce parcours (précision de D14, M4b-5) ; puis le document
     d'admission, décodé au même format, porte la cible et l'horloge de l'expérience
     déclarée (M4c-3) ; en dernier, chaque parcours du jeu de répétabilité a sa
-    référence D8 (précision de D14, M4c-2)."""
+    référence D8 (précision de D14, M4c-2). Pour un RÉSULTAT de sensibilité (M4d-3) :
+    paire par paire, les mêmes contrôles des sorties et des références, puis les
+    références D8 de chaque paire sont celles que la déclaration a figées ; enfin le
+    document de sensibilité (``_check_sensitivity``)."""
+    sensitivity = declaration.sensitivity
+    if sensitivity is None:
+        _agree_outing_documents(
+            declaration, result, read, prefix, document_prefix, format_version
+        )
+        _agree_admission_document(
+            declaration, result, read, prefix, document_prefix, format_version
+        )
+        _agree_reference_routes(declaration, result, prefix)
+        return
+    for pair, frozen in zip(result.pairs, sensitivity.pairs, strict=True):
+        where = _pair_prefix(prefix, pair)
+        view = _pair_view(pair)
+        _agree_outing_documents(
+            declaration, view, read, where, document_prefix, format_version
+        )
+        _agree_reference_routes(declaration, view, where)
+        if pair.references != frozen.references:
+            raise RegistryError(
+                f"{where}les références D8 publiées ne sont pas celles que la "
+                "DÉCLARATION de sensibilité a figées"
+            )
+    assert result.sensitivity is not None  # _agree
+    outcome = _decoded(
+        read, result.sensitivity, SensitivityOutcome, document_prefix, format_version
+    )
+    _check_sensitivity(declaration, outcome, prefix)
+
+
+def _check_sensitivity(
+    declaration: Declaration, outcome: SensitivityOutcome, prefix: str
+) -> None:
+    """Le document de sensibilité (précision de D14, M4d-3), décodé au format de
+    l'événement : ses configurations sont celles de la déclaration ; son comparateur
+    est ``comparator_configuration`` ; il porte une expérience si et seulement si la
+    déclaration en porte une ; ses performances sont celles de la déclaration (jours et
+    premières sorties) ; l'admission de chaque configuration porte la cible déclarée."""
+    assert declaration.sensitivity is not None  # appelant
+    configurations = tuple(c.configuration for c in outcome.configurations)
+    if configurations != declaration.sensitivity.configurations:
+        raise RegistryError(
+            f"{prefix}le document de sensibilité ne porte pas les configurations "
+            "déclarées, dans leur ordre"
+        )
+    expected = comparator_configuration(declaration)
+    if configurations[outcome.comparator] != expected:
+        raise RegistryError(
+            f"{prefix}le comparateur du document de sensibilité n'est pas {expected}"
+        )
+    experiment = declaration.experiment
+    if outcome.experiment != (experiment is not None):
+        raise RegistryError(
+            f"{prefix}le document de sensibilité porte une expérience si et seulement "
+            "si la déclaration en porte une"
+        )
+    days = [
+        (d.performance.civil_date, d.performance.outings[0].outing_id)
+        for d in declaration.performances
+    ]
+    first = outcome.configurations[0]
+    if [(p.civil_date, p.outing_id) for p in first.performances] != days:
+        raise RegistryError(
+            f"{prefix}le document de sensibilité ne porte pas les performances "
+            "déclarées"
+        )
+    if experiment is None:
+        return
+    for configuration in outcome.configurations:
+        admission = configuration.admission
+        if admission is not None and admission.target != experiment.target:
+            raise RegistryError(
+                f"{prefix}l'admission d'une configuration porte une autre cible que "
+                "l'expérience déclarée"
+            )
+
+
+def _agree_outing_documents(
+    declaration: Declaration,
+    result: Result,
+    read: Callable[[str], bytes],
+    prefix: str,
+    document_prefix: str,
+    format_version: int,
+) -> None:
+    """La partie de ``_agree_documents`` qui porte sur les sorties et les références D8
+    (d'une exécution, ou d'une paire d'une sensibilité, M4d-3)."""
     outings = _declared_outings(declaration)
     models = {model.kind: model for model in declaration.models}
     for scored in result.outings:
@@ -641,6 +941,32 @@ def _agree_documents(
         )
         _check_reference_days(declaration, result, record.route_id, reference, prefix)
         _check_reference_outings(declaration, record.route_id, reference, prefix)
+
+
+def _agree_reference_routes(
+    declaration: Declaration, result: Result, prefix: str
+) -> None:
+    """La dernière partie de ``_agree_documents`` : chaque parcours du jeu de
+    répétabilité a sa référence D8 (précision de D14, M4c-2)."""
+    referenced = {record.route_id for record in result.references}
+    for route_id in sorted(_repeatability_routes(declaration)):
+        if route_id not in referenced:
+            raise RegistryError(
+                f"{prefix}le parcours de répétabilité {route_id!r} n'a pas de "
+                "référence D8"
+            )
+
+
+def _agree_admission_document(
+    declaration: Declaration,
+    result: Result,
+    read: Callable[[str], bytes],
+    prefix: str,
+    document_prefix: str,
+    format_version: int,
+) -> None:
+    """La partie de ``_agree_documents`` qui porte sur le document d'admission
+    (M4c-3)."""
     experiment = declaration.experiment
     if result.admission is not None and experiment is not None:
         admission = _decoded(
@@ -653,13 +979,6 @@ def _agree_documents(
             raise RegistryError(
                 f"{prefix}l'admission porte une autre cible ou une autre horloge que "
                 "l'expérience déclarée"
-            )
-    referenced = {record.route_id for record in result.references}
-    for route_id in sorted(_repeatability_routes(declaration)):
-        if route_id not in referenced:
-            raise RegistryError(
-                f"{prefix}le parcours de répétabilité {route_id!r} n'a pas de "
-                "référence D8"
             )
 
 
@@ -905,6 +1224,20 @@ def append_declaration(
     )
 
 
+@dataclass(frozen=True)
+class PairOutcome:
+    """Ce qu'une sensibilité a produit pour une paire ``(Δ, ε)`` (M4d-3), en mémoire :
+    les sorties scorées, les sorties non scorées et les références D8, comme pour une
+    exécution. N'est pas un contrat stocké : ``append_result`` en écrit les
+    documents."""
+
+    score_step_m: float
+    lateral_tolerance_m: float
+    outcomes: tuple[OutingOutcome, ...]
+    unscored: tuple[Exclusion, ...]
+    references: tuple[tuple[str, RepeatabilityReference], ...]
+
+
 def append_result(
     root: Path,
     declaration: int,
@@ -913,6 +1246,8 @@ def append_result(
     unscored: tuple[Exclusion, ...] = (),
     references: tuple[tuple[str, RepeatabilityReference], ...] = (),
     admission: Admission | None = None,
+    pairs: tuple[PairOutcome, ...] = (),
+    sensitivity: SensitivityOutcome | None = None,
     recorded_at: datetime | None = None,
     corrects: int | None = None,
     correction_reason: str | None = None,
@@ -925,10 +1260,14 @@ def append_result(
     chaque sortie déclarée est scorée (``outcomes``) ou écartée avec un motif
     (``unscored``). Le document d'admission
     d'une expérience (``admission``) est écrit en dernier et cité par
-    ``Result.admission`` (M4c-3) ; l'accord à l'ajout est celui de la vérification,
-    documents compris.
+    ``Result.admission`` (M4c-3). Le RÉSULTAT d'une sensibilité (M4d-3) porte ses
+    sorties paire par paire (``pairs``, ``outcomes`` vide) et cite le document de
+    sensibilité (``sensitivity``), écrit en dernier. L'accord à l'ajout est celui de la
+    vérification, documents compris.
     """
-    result, documents = _result_documents(outcomes, unscored, references, admission)
+    result, documents = _result_documents(
+        outcomes, unscored, references, admission, pairs, sensitivity
+    )
     return _append(
         root,
         EventKind.RESULT,
@@ -969,11 +1308,14 @@ def _result_documents(
     unscored: tuple[Exclusion, ...],
     references: tuple[tuple[str, RepeatabilityReference], ...],
     admission: Admission | None = None,
+    pairs: tuple[PairOutcome, ...] = (),
+    sensitivity: SensitivityOutcome | None = None,
 ) -> tuple[Result, dict[str, bytes]]:
     """Étape 0 de l'ajout d'un résultat, avant tout accès au registre : les documents
     écrits en mémoire, dans l'ordre, chacun une fois — par sortie, ses fourchettes après
-    ses modèles (M4d-2) ; le document d'admission en dernier (M4c-3) ; le ``Result``
-    qui les cite."""
+    ses modèles (M4d-2) ; le document d'admission en dernier (M4c-3) ; pour une
+    sensibilité, les paires dans l'ordre, puis le document de sensibilité (M4d-3) ; le
+    ``Result`` qui les cite. Contrats refusés : ``RegistryError``."""
     documents: dict[str, bytes] = {}
 
     def store(value: object) -> str:
@@ -985,29 +1327,57 @@ def _result_documents(
         documents.setdefault(sha, data)
         return sha
 
-    outings: list[OutingResult] = []
-    for outcome in outcomes:
-        observation = store(outcome.scores[0][1].observation)
-        models = tuple(
-            ModelResult(
-                kind,
-                store(scores.control),
-                None if scores.usage is None else store(scores.usage),
+    def outing_results(
+        values: tuple[OutingOutcome, ...],
+    ) -> tuple[OutingResult, ...]:
+        outings: list[OutingResult] = []
+        for outcome in values:
+            observation = store(outcome.scores[0][1].observation)
+            models = tuple(
+                ModelResult(
+                    kind,
+                    store(scores.control),
+                    None if scores.usage is None else store(scores.usage),
+                )
+                for kind, scores in outcome.scores
             )
-            for kind, scores in outcome.scores
-        )
-        bands = None if outcome.bands is None else store(outcome.bands)
-        outings.append(
-            OutingResult(
-                outcome.outing_id, outcome.coverage, observation, models, bands
+            bands = None if outcome.bands is None else store(outcome.bands)
+            outings.append(
+                OutingResult(
+                    outcome.outing_id, outcome.coverage, observation, models, bands
+                )
             )
+        return tuple(outings)
+
+    def records(
+        values: tuple[tuple[str, RepeatabilityReference], ...],
+    ) -> tuple[RepeatabilityRecord, ...]:
+        return tuple(
+            RepeatabilityRecord(route_id, store(reference))
+            for route_id, reference in values
         )
-    records = tuple(
-        RepeatabilityRecord(route_id, store(reference))
-        for route_id, reference in references
-    )
+
+    outings = outing_results(outcomes)
+    cited_references = records(references)
     cited = None if admission is None else store(admission)
-    return Result(tuple(outings), unscored, records, cited), documents
+    try:
+        pair_results = tuple(
+            PairResult(
+                pair.score_step_m,
+                pair.lateral_tolerance_m,
+                outing_results(pair.outcomes),
+                pair.unscored,
+                records(pair.references),
+            )
+            for pair in pairs
+        )
+        outcome = None if sensitivity is None else store(sensitivity)
+        result = Result(
+            outings, unscored, cited_references, cited, pair_results, outcome
+        )
+    except ContractError as error:
+        raise RegistryError(f"{_REFUSED}{error}") from error
+    return result, documents
 
 
 def _append(
@@ -1052,9 +1422,12 @@ def _append(
             extended = RegistryLog((*log.events, event))
         except ContractError as error:
             raise RegistryError(f"{EVENTS_FILE} : {error}") from error
+        if declaration is not None and declaration.sensitivity is not None:
+            _agree_sensitivity(extended, event, _REFUSED, appending=True)
         if result is not None:
             declared = _declaration_of(extended, event)
             _agree(declared, result, _REFUSED, REGISTRY_FORMAT_VERSION)
+            _agree_central_pair(extended, event, _REFUSED)
             _agree_documents(
                 declared,
                 result,
@@ -1165,6 +1538,70 @@ def load_outcomes(
     )
 
 
+def load_pair_outcomes(
+    root: Path, log: RegistryLog, number: int
+) -> tuple[PairOutcome, ...]:
+    """Les paires du RÉSULTAT de sensibilité ``number`` (M4d-3) : pour chacune, ses
+    sorties scorées et ses références D8 reconstruites depuis leurs documents, au format
+    de l'événement ``number`` ; vide pour un autre RÉSULTAT."""
+    result = _result(log, number)
+    format_version = log.event(number).format_version
+
+    def read(sha: str) -> bytes:
+        return _stored(root, sha)
+
+    pairs: list[PairOutcome] = []
+    for pair in result.pairs:
+        prefix = _pair_prefix(_line_prefix(number), pair)
+        outcomes = tuple(
+            OutingOutcome(
+                scored.outing_id,
+                scored.coverage,
+                tuple(_model_scores(scored, read, prefix, "", format_version)),
+                None
+                if scored.bands is None
+                else _decoded(read, scored.bands, OutingBands, "", format_version),
+            )
+            for scored in pair.outings
+        )
+        references = tuple(
+            (
+                record.route_id,
+                _decoded(
+                    read, record.reference, RepeatabilityReference, "", format_version
+                ),
+            )
+            for record in pair.references
+        )
+        pairs.append(
+            PairOutcome(
+                pair.score_step_m,
+                pair.lateral_tolerance_m,
+                outcomes,
+                pair.unscored,
+                references,
+            )
+        )
+    return tuple(pairs)
+
+
+def load_sensitivity(
+    root: Path, log: RegistryLog, number: int
+) -> SensitivityOutcome | None:
+    """Le document de sensibilité du RÉSULTAT ``number`` (M4d-3), au format de
+    l'événement ; ``None`` pour un autre RÉSULTAT."""
+    result = _result(log, number)
+    if result.sensitivity is None:
+        return None
+    return _decoded(
+        lambda sha: _stored(root, sha),
+        result.sensitivity,
+        SensitivityOutcome,
+        "",
+        log.event(number).format_version,
+    )
+
+
 def load_references(
     root: Path, log: RegistryLog, number: int
 ) -> tuple[tuple[str, RepeatabilityReference], ...]:
@@ -1195,10 +1632,13 @@ def load_references(
 def count_trials(log: RegistryLog) -> TrialCounts:
     """Le comptage des essais (``0010`` D14 ; décision 4 de rdw) : chaque DÉCLARATION
     compte, corrections comprises ; les exécutions sans effet à part ; les autres par
-    couple effet × cible, ordonnés par effet puis par rang de la cible."""
-    declarations = [
+    couple effet × cible, ordonnés par effet puis par rang de la cible ; les
+    DÉCLARATIONS de sensibilité à part, hors des essais (exception de D14, M4d-3)."""
+    everything = [
         event.declaration for event in log.events if event.declaration is not None
     ]
+    sensitivities = sum(d.sensitivity is not None for d in everything)
+    declarations = [d for d in everything if d.sensitivity is None]
     corrections = sum(
         event.corrects is not None
         for event in log.events
@@ -1212,13 +1652,14 @@ def count_trials(log: RegistryLog) -> TrialCounts:
     rank = {metric: i for i, metric in enumerate(ExperimentMetric)}
     ordered = sorted(by_pair.items(), key=lambda item: (item[0][0], rank[item[0][1]]))
     return TrialCounts(
-        declarations=len(declarations),
+        declarations=len(everything),
         corrections=corrections,
         without_effect=len(declarations) - sum(by_pair.values()),
         by_experiment=tuple(
             ExperimentTrials(effect, target, count)
             for (effect, target), count in ordered
         ),
+        sensitivities=sensitivities,
     )
 
 

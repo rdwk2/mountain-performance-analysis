@@ -64,7 +64,7 @@ def _shape() -> tuple[int, str]:
 
 
 def test_shape_of_the_stored_contracts() -> None:
-    """D14 : 62 contrats stockés, et leur empreinte de forme d'aujourd'hui — le format
+    """D14 : 74 contrats stockés, et leur empreinte de forme d'aujourd'hui — le format
     2 ajoute ``CalibratedScenarioScores``, ``CalibratedClockScores``,
     ``ModelCalibration`` et ``CalibrationWithdrawal`` (M4c-2) ; le format 3, le
     document d'admission, ``Admission``, et ses huit contrats
@@ -73,9 +73,16 @@ def test_shape_of_the_stored_contracts() -> None:
     deux champs, ``Result.admission`` et ``ExperimentDeclaration.reference_documents``
     (M4c-3) ; le format 4, le document des fourchettes, ``OutingBands``, et ses quatre
     contrats (``ReservoirMember``, ``ModelBand``, ``BandQuantiles``, ``BandElement``),
-    et un champ, ``OutingResult.bands`` (M4d-2) ; les 44 du format 1 gardent leur
-    forme, ces trois champs mis à part (``test_backtest_registry_format2.py``)."""
+    et un champ, ``OutingResult.bands`` (M4d-2) ; le format 5, le document de
+    sensibilité, ``SensitivityOutcome``, et ses six contrats (``ConfigurationOutcome``,
+    ``PerformanceComparison``, ``MetricComparison``, ``GainComparison``,
+    ``CommonSet``, ``ReserveEntry``), la déclaration de sensibilité,
+    ``SensitivityDeclaration``, et ses trois contrats (``PairReferences``,
+    ``ConfigurationReferences``, ``SensitivityConfiguration``), ``PairResult``, et
+    trois champs, ``Declaration.sensitivity``, ``Result.pairs`` et
+    ``Result.sensitivity`` (M4d-3) ; les 44 du format 1 gardent leur forme, ces six
+    champs mis à part (``test_backtest_registry_format2.py``)."""
     assert _shape() == (
-        62,
-        "dc2e87428a6ed0ce1a51075274174c2d1a7a60b05f5c8022f7feeea6902a1058",
+        74,
+        "bd1cc8c992904ee3cdf63c9dacfdd99c52066b339fa451bb72d87479583995db",
     )

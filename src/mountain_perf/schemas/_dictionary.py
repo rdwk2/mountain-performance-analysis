@@ -209,6 +209,7 @@ from mountain_perf.schemas.registry import (
     EXPERIMENT_METRIC_DESCRIPTIONS,
     FAILURE_KIND_DESCRIPTIONS,
     REFERENCE_SOURCE_DESCRIPTIONS,
+    ConfigurationReferences,
     Declaration,
     DeclaredEffect,
     DeclaredModel,
@@ -225,11 +226,14 @@ from mountain_perf.schemas.registry import (
     ModelResult,
     OutingOutcome,
     OutingResult,
+    PairReferences,
+    PairResult,
     ReferenceSource,
     RegistryEvent,
     RegistryLog,
     RepeatabilityRecord,
     Result,
+    SensitivityDeclaration,
     TrialCounts,
 )
 from mountain_perf.schemas.repeatability import (
@@ -259,6 +263,25 @@ from mountain_perf.schemas.scoring import (
     OutingScores,
     Scenario,
     ScenarioScores,
+)
+from mountain_perf.schemas.sensitivity import (
+    AVAILABILITY_DESCRIPTIONS,
+    PERFORMANCE_MOTIF_DESCRIPTIONS,
+    SENSITIVITY_METRIC_DESCRIPTIONS,
+    SENSITIVITY_RESERVE_DESCRIPTIONS,
+    SUPPORT_COMPONENT_DESCRIPTIONS,
+    Availability,
+    CommonSet,
+    ConfigurationOutcome,
+    GainComparison,
+    MetricComparison,
+    PerformanceComparison,
+    PerformanceMotif,
+    ReserveEntry,
+    SensitivityMetric,
+    SensitivityOutcome,
+    SensitivityReserve,
+    SupportComponent,
 )
 from mountain_perf.schemas.trace import RecordedTrace
 
@@ -441,6 +464,22 @@ DOCUMENTED_TYPES: tuple[type, ...] = (
     BandElement,
     ModelBand,
     OutingBands,
+    Availability,
+    SupportComponent,
+    SensitivityMetric,
+    PerformanceMotif,
+    SensitivityReserve,
+    MetricComparison,
+    PerformanceComparison,
+    GainComparison,
+    CommonSet,
+    ConfigurationOutcome,
+    ReserveEntry,
+    SensitivityOutcome,
+    PairReferences,
+    ConfigurationReferences,
+    SensitivityDeclaration,
+    PairResult,
 )
 """Types publiés dans le dictionnaire, dans l'ordre de lecture."""
 
@@ -492,6 +531,11 @@ ENUM_DESCRIPTIONS: Mapping[type[Enum], Mapping[Any, str]] = MappingProxyType(
         ClimbRegime: CLIMB_REGIME_DESCRIPTIONS,
         GradeStratum: GRADE_STRATUM_DESCRIPTIONS,
         AltitudeStratum: ALTITUDE_STRATUM_DESCRIPTIONS,
+        Availability: AVAILABILITY_DESCRIPTIONS,
+        SupportComponent: SUPPORT_COMPONENT_DESCRIPTIONS,
+        SensitivityMetric: SENSITIVITY_METRIC_DESCRIPTIONS,
+        PerformanceMotif: PERFORMANCE_MOTIF_DESCRIPTIONS,
+        SensitivityReserve: SENSITIVITY_RESERVE_DESCRIPTIONS,
     }
 )
 """Description des membres de chaque énumération publiée."""

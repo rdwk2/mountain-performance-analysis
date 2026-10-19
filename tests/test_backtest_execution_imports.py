@@ -130,11 +130,13 @@ def _importers(module: Path, name: str) -> list[str]:
 
 def test_only_the_package_the_report_and_the_command_import_the_execution() -> None:
     """§ 6.0 : ``backtest/__init__.py`` (export), le rapport et ``cli.py`` — depuis
-    M4c-3, l'expérience (la préparation et la chaîne de ``just backtest``)."""
+    M4c-3, l'expérience (la préparation et la chaîne de ``just backtest``) ; depuis
+    M4d-3, la sensibilité (le tracé et l'évaluation de chaque paire)."""
     assert _importers(EXECUTION, "execution") == [
         "backtest/__init__.py",
         "backtest/experiment.py",
         "backtest/report.py",
+        "backtest/sensitivity_run.py",
         "cli.py",
     ]
 

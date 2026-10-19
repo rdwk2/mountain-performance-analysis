@@ -32,7 +32,7 @@ from mountain_perf.schemas.calibration import (
 )
 from mountain_perf.schemas.clock import CLOCKS, Clock
 from mountain_perf.schemas.common import SourceRef
-from mountain_perf.schemas.matching import Coverage
+from mountain_perf.schemas.matching import Coverage, SensitivityConfiguration
 from mountain_perf.schemas.metrics import (
     WEIGHT_SUM_TOLERANCE,
     MetricValue,
@@ -49,7 +49,7 @@ from mountain_perf.validation import (
     require_non_empty,
 )
 
-REGISTRY_FORMAT_VERSION = 4
+REGISTRY_FORMAT_VERSION = 5
 """Version du format que l'ajout d'un événement ou d'un document écrit (``0010`` D14).
 
 Chaque document la porte, chaque événement aussi (``format_version``). Le registre
@@ -65,11 +65,16 @@ sans eux — le registre les ajoute absents avant le décodage, et les retire à
 réécriture canonique (précision de D14, M4c-3). Le format 4 (M4d-2) ajoute le document
 des fourchettes d'une sortie (``OutingBands``) et le champ ``OutingResult.bands`` ; une
 ligne d'un format antérieur se relit et se réécrit de même, sans lui (précision de D14,
-M4d-2)."""
+M4d-2). Le format 5 (M4d-3) ajoute la sensibilité de D13 : le champ
+``Declaration.sensitivity`` (la DÉCLARATION de sensibilité), les champs
+``Result.pairs`` et ``Result.sensitivity`` (son RÉSULTAT) et le document de sensibilité
+(``SensitivityOutcome``) ; une ligne d'un format antérieur se relit et se réécrit de
+même, sans eux (précision de D14, M4d-3)."""
 
-REGISTRY_READABLE_FORMATS: tuple[int, ...] = (1, 2, 3, 4)
-"""Les formats que le registre relit, dans l'ordre (précisions de D14, M4c-2, M4c-3 et
-M4d-2) : chaque ligne au sien, chaque document au format de l'événement qui le cite."""
+REGISTRY_READABLE_FORMATS: tuple[int, ...] = (1, 2, 3, 4, 5)
+"""Les formats que le registre relit, dans l'ordre (précisions de D14, M4c-2, M4c-3,
+M4d-2 et M4d-3) : chaque ligne au sien, chaque document au format de l'événement qui le
+cite."""
 
 ADMISSION_FIRST_FORMAT = 3
 """Le premier format dont le RÉSULTAT d'une expérience cite un document d'admission et
@@ -78,6 +83,11 @@ dont l'expérience fige ses documents D8 (précision de D14, M4c-3)."""
 BANDS_FIRST_FORMAT = 4
 """Le premier format dont le RÉSULTAT de ``just backtest`` cite, pour chaque sortie
 scorée avec usage, le document de ses fourchettes (précision de D14, M4d-2)."""
+
+SENSITIVITY_FIRST_FORMAT = 5
+"""Le premier format qui connaît la sensibilité de D13 : la DÉCLARATION de sensibilité
+(``Declaration.sensitivity``), son RÉSULTAT par paire (``Result.pairs``) et son
+document de sensibilité (``Result.sensitivity``) (précision de D14, M4d-3)."""
 
 CURVE_REF_HASH_LENGTH = 12
 """Nombre de caractères de l'empreinte ``sha256`` du CSV recopiés dans ``curve_ref``
@@ -786,6 +796,191 @@ class ExperimentDeclaration:
             )
 
 
+def _require_pair(step_m: float, tolerance_m: float) -> None:
+    """Refuse une paire ``(Δ, ε)`` non finie ou non positive."""
+    for value, name in ((step_m, "score_step_m"), (tolerance_m, "lateral_tolerance_m")):
+        require_finite(value, name)
+        if value <= 0:
+            raise ContractError(f"{name} doit être > 0, reçu {value}.")
+
+
+@dataclass(frozen=True)
+class PairReferences:
+    """Les références D8 d'une paire ``(Δ, ε)`` de la sensibilité, figées avant la
+    DÉCLARATION de sensibilité (``0010`` D13, D14 ; précision de M4d-3).
+
+    Champs
+    ------
+    - ``score_step_m`` — mètres — ``Δ``.
+    - ``lateral_tolerance_m`` — mètres — ``ε``.
+    - ``references`` — sans unité — le document D8 de chaque parcours du jeu de
+      répétabilité, calculé sur les seules observations de la paire.
+
+    Invariants
+    ----------
+    ``Δ`` et ``ε`` finis et ``> 0`` ; ``references`` est un tuple, de parcours
+    distincts.
+
+    Producteur
+    ----------
+    ``run_sensitivity`` (``mountain_perf.backtest.sensitivity_run``).
+
+    Consommateurs
+    -------------
+    ``SensitivityDeclaration`` ; l'accord du registre : le RÉSULTAT publie, pour la
+    paire, exactement ces documents.
+
+    Non promis
+    ----------
+    Le contrat ne lit pas les documents.
+    """
+
+    score_step_m: float
+    lateral_tolerance_m: float
+    references: tuple[RepeatabilityRecord, ...]
+
+    def __post_init__(self) -> None:
+        _require_pair(self.score_step_m, self.lateral_tolerance_m)
+        require_immutable_sequence(self.references, "references")
+        _require_distinct(
+            [record.route_id for record in self.references],
+            "les références D8 d'une paire portent sur des parcours distincts, reçu "
+            "{!r} deux fois.",
+        )
+
+
+@dataclass(frozen=True)
+class ConfigurationReferences:
+    """Les références figées d'une expérience sous une configuration de la sensibilité
+    (``0010`` D10.3, D13 ; précision de M4d-3) : celles de la référence D8 de sa paire,
+    sous son horloge, par la règle de l'expérience (locale, puis empruntée).
+
+    Champs
+    ------
+    - ``configuration`` — sans unité — la configuration.
+    - ``frozen_references`` — sans unité — ses références figées.
+
+    Invariants
+    ----------
+    ``frozen_references`` est un tuple ; chacune est sous l'horloge de la
+    configuration.
+
+    Producteur
+    ----------
+    ``run_sensitivity`` (``mountain_perf.backtest.sensitivity_run``).
+
+    Consommateurs
+    -------------
+    ``SensitivityDeclaration`` ; l'admission de la configuration.
+
+    Non promis
+    ----------
+    Le contrat ne recalcule pas les références depuis les documents D8.
+    """
+
+    configuration: SensitivityConfiguration
+    frozen_references: tuple[FrozenReference, ...]
+
+    def __post_init__(self) -> None:
+        require_immutable_sequence(self.frozen_references, "frozen_references")
+        for i, reference in enumerate(self.frozen_references):
+            if reference.clock != self.configuration.clock:
+                raise ContractError(
+                    f"la référence figée {i} est sous {reference.clock}, l'horloge de "
+                    f"la configuration ({self.configuration.clock}) attendue."
+                )
+
+
+@dataclass(frozen=True)
+class SensitivityDeclaration:
+    """Ce qu'une DÉCLARATION de sensibilité ajoute à la déclaration centrale qu'elle
+    qualifie (``0010`` D13, D14 ; précision et exception de M4d-3).
+
+    Champs
+    ------
+    - ``central`` — sans unité — le numéro de la DÉCLARATION centrale.
+    - ``central_hash`` — sans unité — le ``sha256`` de sa ligne.
+    - ``answer`` — sans unité — le numéro du RÉSULTAT qui lui répond.
+    - ``answer_hash`` — sans unité — le ``sha256`` de sa ligne.
+    - ``configurations`` — sans unité — les configurations, dans l'ordre.
+    - ``pairs`` — sans unité — les références D8 de chaque paire ``(Δ, ε)`` des
+      configurations, figées avant la DÉCLARATION.
+    - ``frozen`` — sans unité — pour une expérience, les références figées de chaque
+      configuration ; absent sans expérience.
+
+    Invariants
+    ----------
+    1. ``1 <= central < answer`` ; ``central_hash`` et ``answer_hash`` sont des
+       ``sha256`` ;
+    2. ``configurations`` et ``pairs`` sont des tuples ; ``configurations`` non vide,
+       sans doublon ;
+    3. ``pairs`` : une entrée par paire ``(Δ, ε)`` des configurations, dans l'ordre de
+       leur première apparition ;
+    4. ``frozen`` présent : un tuple, une entrée par configuration, de cette
+       configuration, dans l'ordre.
+
+    Producteur
+    ----------
+    ``run_sensitivity`` (``mountain_perf.backtest.sensitivity_run``).
+
+    Consommateurs
+    -------------
+    ``Declaration`` ; ``RegistryLog`` (liens) ; l'accord du registre ; le comptage des
+    essais ; la vue composée (``sensitivity_qualification``).
+
+    Non promis
+    ----------
+    Que les configurations soient les dix-neuf de D13, que les lignes nommées soient
+    celles du journal, que la déclaration recopie la centrale : c'est l'accord du
+    registre qui le vérifie.
+    """
+
+    central: int
+    central_hash: str
+    answer: int
+    answer_hash: str
+    configurations: tuple[SensitivityConfiguration, ...]
+    pairs: tuple[PairReferences, ...]
+    frozen: tuple[ConfigurationReferences, ...] | None
+
+    def __post_init__(self) -> None:
+        if not 1 <= self.central < self.answer:
+            raise ContractError(
+                "central et answer sont des numéros d'événement, la réponse après la "
+                f"déclaration : 1 <= central < answer, reçu {self.central} et "
+                f"{self.answer}."
+            )
+        _require_sha256(self.central_hash, "central_hash")
+        _require_sha256(self.answer_hash, "answer_hash")
+        require_immutable_sequence(self.configurations, "configurations")
+        require_immutable_sequence(self.pairs, "pairs")
+        if not self.configurations:
+            raise ContractError("configurations ne doit pas être vide.")
+        _require_distinct(
+            self.configurations, "une configuration est déclarée une fois, reçu {}."
+        )
+        expected: list[tuple[float, float]] = []
+        for configuration in self.configurations:
+            pair = (configuration.score_step_m, configuration.lateral_tolerance_m)
+            if pair not in expected:
+                expected.append(pair)
+        declared = [(p.score_step_m, p.lateral_tolerance_m) for p in self.pairs]
+        if declared != expected:
+            raise ContractError(
+                "pairs porte une entrée par paire (Δ, ε) des configurations, dans "
+                f"l'ordre de leur première apparition : {expected} attendu, reçu "
+                f"{declared}."
+            )
+        if self.frozen is not None:
+            require_immutable_sequence(self.frozen, "frozen")
+            configurations = tuple(entry.configuration for entry in self.frozen)
+            if configurations != self.configurations:
+                raise ContractError(
+                    "frozen porte une entrée par configuration, dans l'ordre des "
+                    "configurations."
+                )
+
+
 @dataclass(frozen=True)
 class Declaration:
     """Le contenu d'une DÉCLARATION (``0010`` D14, D2.6, D10.1).
@@ -808,6 +1003,8 @@ class Declaration:
     - ``exclusions`` — sans unité — les sorties écartées, avec leur motif.
     - ``models`` — sans unité — les modèles évalués.
     - ``experiment`` — sans unité — l'expérience ; absente sans effet testé.
+    - ``sensitivity`` — sans unité — ce qu'ajoute une DÉCLARATION de sensibilité
+      (format 5, M4d-3) ; absent pour une autre déclaration.
 
     Propriétés calculées (jamais stockées) : ``outing_ids``, ``route_ids``,
     ``artifacts``.
@@ -828,11 +1025,14 @@ class Declaration:
     7. ``models`` non vide, de natures distinctes ;
     8. ``experiment`` présente : sa base puis son candidat sont des natures de
        ``models`` ; son horloge et celle de chaque référence figée sont dans
-       ``clocks`` ; le parcours de chaque ``K`` est dans ``route_ids``.
+       ``clocks`` ; le parcours de chaque ``K`` est dans ``route_ids`` ;
+    9. ``sensitivity`` présent : l'horloge de chacune de ses configurations est dans
+       ``clocks`` ; ses références figées sont présentes **si et seulement si** la
+       déclaration porte une expérience.
 
     Producteur
     ----------
-    L'appelant de ``append_declaration`` (M4b-5, M4c).
+    L'appelant de ``append_declaration`` (M4b-5, M4c, M4d-3).
 
     Consommateurs
     -------------
@@ -862,6 +1062,7 @@ class Declaration:
     exclusions: tuple[Exclusion, ...]
     models: tuple[DeclaredModel, ...]
     experiment: ExperimentDeclaration | None
+    sensitivity: SensitivityDeclaration | None = None
 
     def __post_init__(self) -> None:
         for name in ("protocol_record", "athlete_ref", "curve_ref"):
@@ -883,6 +1084,8 @@ class Declaration:
         self._check_models()
         if self.experiment is not None:
             self._check_experiment(self.experiment)
+        if self.sensitivity is not None:
+            self._check_sensitivity(self.sensitivity)
 
     @property
     def outing_ids(self) -> tuple[str, ...]:
@@ -1005,6 +1208,19 @@ class Declaration:
                     f"le K du parcours {target.route_id!r} doit porter sur un parcours "
                     "des performances déclarées."
                 )
+
+    def _check_sensitivity(self, sensitivity: SensitivityDeclaration) -> None:
+        for i, configuration in enumerate(sensitivity.configurations):
+            if configuration.clock not in self.clocks:
+                raise ContractError(
+                    f"l'horloge de la configuration {i} ({configuration.clock}) doit "
+                    "être une horloge de l'exécution (clocks)."
+                )
+        if (sensitivity.frozen is None) != (self.experiment is None):
+            raise ContractError(
+                "une DÉCLARATION de sensibilité fige les références de chaque "
+                "configuration si et seulement si elle porte une expérience (M4d-3)."
+            )
 
 
 @dataclass(frozen=True)
@@ -1150,6 +1366,61 @@ class RepeatabilityRecord:
 
 
 @dataclass(frozen=True)
+class PairResult:
+    """Ce que le RÉSULTAT d'une sensibilité porte d'une paire ``(Δ, ε)`` (``0010`` D13,
+    D14 ; précision de M4d-3) : ce que porte le RÉSULTAT d'une exécution.
+
+    Champs
+    ------
+    - ``score_step_m`` — mètres — ``Δ``.
+    - ``lateral_tolerance_m`` — mètres — ``ε``.
+    - ``outings`` — sans unité — les sorties scorées sous la paire.
+    - ``unscored`` — sans unité — les sorties déclarées non scorées, avec leur motif.
+    - ``references`` — sans unité — les références D8 des parcours, sous la paire.
+
+    Invariants
+    ----------
+    - ``Δ`` et ``ε`` finis et ``> 0`` ;
+    - ``outings``, ``unscored`` et ``references`` sont des tuples ;
+    - les identifiants de ``outings`` et de ``unscored``, pris ensemble, sont
+      distincts ; les parcours de ``references`` sont distincts.
+
+    Producteur
+    ----------
+    ``append_result`` (``mountain_perf.backtest.registry``).
+
+    Consommateurs
+    -------------
+    ``Result`` ; la relecture et la vérification du registre ; ``load_pair_outcomes``.
+
+    Non promis
+    ----------
+    L'accord avec la déclaration est vérifié par le registre, pas par le contrat.
+    """
+
+    score_step_m: float
+    lateral_tolerance_m: float
+    outings: tuple[OutingResult, ...]
+    unscored: tuple[Exclusion, ...]
+    references: tuple[RepeatabilityRecord, ...]
+
+    def __post_init__(self) -> None:
+        _require_pair(self.score_step_m, self.lateral_tolerance_m)
+        for name in ("outings", "unscored", "references"):
+            require_immutable_sequence(getattr(self, name), name)
+        _require_distinct(
+            [outing.outing_id for outing in self.outings]
+            + [exclusion.outing_id for exclusion in self.unscored],
+            "une sortie est scorée ou écartée, une seule fois, reçu {!r} deux fois.",
+        )
+        _require_distinct(
+            [record.route_id for record in self.references],
+            "les références D8 portent sur des parcours distincts, reçu {!r} deux "
+            "fois.",
+        )
+
+
+@dataclass(frozen=True)
 class Result:
     """Le contenu d'un RÉSULTAT (``0010`` D14, D0).
 
@@ -1160,14 +1431,22 @@ class Result:
     - ``references`` — sans unité — les références D8 des parcours.
     - ``admission`` — sans unité — le ``sha256`` du document d'admission d'une
       expérience (format 3, M4c-3) ; absent sans expérience.
+    - ``pairs`` — sans unité — pour une sensibilité, chaque paire ``(Δ, ε)`` (format 5,
+      M4d-3) ; vide sinon.
+    - ``sensitivity`` — sans unité — pour une sensibilité, le ``sha256`` du document
+      ``SensitivityOutcome`` (format 5, M4d-3) ; absent sinon.
 
     Invariants
     ----------
-    - ``outings``, ``unscored`` et ``references`` sont des tuples ;
+    - ``outings``, ``unscored``, ``references`` et ``pairs`` sont des tuples ;
     - les identifiants de ``outings`` et de ``unscored``, pris ensemble, sont
       distincts ;
     - les parcours de ``references`` sont distincts ;
-    - ``admission`` présent : un ``sha256``.
+    - ``admission`` présent : un ``sha256`` ;
+    - ``sensitivity`` présent : un ``sha256`` ; ``pairs`` non vide **si et seulement
+      si** ``sensitivity`` est présent ; alors ``outings``, ``unscored`` et
+      ``references`` sont vides, ``admission`` absent, et les paires ``(Δ, ε)`` sont
+      distinctes.
 
     Producteur
     ----------
@@ -1190,9 +1469,11 @@ class Result:
     unscored: tuple[Exclusion, ...]
     references: tuple[RepeatabilityRecord, ...]
     admission: str | None = None
+    pairs: tuple[PairResult, ...] = ()
+    sensitivity: str | None = None
 
     def __post_init__(self) -> None:
-        for name in ("outings", "unscored", "references"):
+        for name in ("outings", "unscored", "references", "pairs"):
             require_immutable_sequence(getattr(self, name), name)
         _require_distinct(
             [outing.outing_id for outing in self.outings]
@@ -1206,6 +1487,27 @@ class Result:
         )
         if self.admission is not None:
             _require_sha256(self.admission, "admission")
+        self._check_sensitivity()
+
+    def _check_sensitivity(self) -> None:
+        if self.sensitivity is not None:
+            _require_sha256(self.sensitivity, "sensitivity")
+        if bool(self.pairs) != (self.sensitivity is not None):
+            raise ContractError(
+                "pairs est non vide si et seulement si sensitivity est présent : le "
+                "RÉSULTAT d'une sensibilité (M4d-3)."
+            )
+        if self.sensitivity is None:
+            return
+        if self.outings or self.unscored or self.references or self.admission:
+            raise ContractError(
+                "le RÉSULTAT d'une sensibilité porte ses sorties paire par paire : ni "
+                "outings, ni unscored, ni references, ni admission (M4d-3)."
+            )
+        _require_distinct(
+            [(pair.score_step_m, pair.lateral_tolerance_m) for pair in self.pairs],
+            "les paires (Δ, ε) d'une sensibilité sont distinctes, reçu {} deux fois.",
+        )
 
 
 @dataclass(frozen=True)
@@ -1265,10 +1567,11 @@ class RegistryEvent:
     ----------
     1. ``recorded_at`` porte un fuseau, normalisé en UTC ; ``previous_hash`` présent :
        un ``sha256`` ; ``correction_reason`` présent : non vide ;
-    2. ``format_version`` dans ``REGISTRY_READABLE_FORMATS`` (1 à 4, M4d-2) ;
+    2. ``format_version`` dans ``REGISTRY_READABLE_FORMATS`` (1 à 5, M4d-3) ;
        avant le format 3, ni ``Result.admission``, ni ``reference_documents`` d'une
-       expérience ; avant le format 4, aucune sortie avec ``bands`` (vérifié en
-       dernier) ;
+       expérience ; avant le format 4, aucune sortie avec ``bands`` ; avant le format
+       5, ni ``Declaration.sensitivity``, ni ``Result.pairs``, ni
+       ``Result.sensitivity`` (vérifiés en dernier) ;
     3. ``number >= 1`` ;
     4. ``previous_hash`` absent **si et seulement si** ``number == 1`` ;
     5. le contenu présent est celui du type, et lui seul ;
@@ -1328,6 +1631,7 @@ class RegistryEvent:
         self._check_links()
         self._check_before_format_3()
         self._check_before_format_4()
+        self._check_before_format_5()
 
     def _check_before_format_3(self) -> None:
         """Invariant 2, avant le format 3 : ni document d'admission, ni documents D8
@@ -1357,6 +1661,25 @@ class RegistryEvent:
             raise ContractError(
                 f"un RÉSULTAT du format {version} ne cite pas de fourchettes "
                 "(format 4)."
+            )
+
+    def _check_before_format_5(self) -> None:
+        """Invariant 2, avant le format 5 : ni DÉCLARATION de sensibilité, ni RÉSULTAT
+        de sensibilité (précision de D14, M4d-3)."""
+        version = self.format_version
+        if version >= SENSITIVITY_FIRST_FORMAT:
+            return
+        if self.declaration is not None and self.declaration.sensitivity is not None:
+            raise ContractError(
+                f"une DÉCLARATION du format {version} ne porte pas de sensibilité "
+                "(format 5)."
+            )
+        if self.result is not None and (
+            self.result.pairs or self.result.sensitivity is not None
+        ):
+            raise ContractError(
+                f"un RÉSULTAT du format {version} ne porte pas de sensibilité "
+                "(format 5)."
             )
 
     def _check_content(self) -> None:
@@ -1415,7 +1738,10 @@ class RegistryLog:
     2. une réponse qui n'est pas une correction est la **seule** de sa déclaration ;
     3. une correction vise un événement du même type ; une réponse qui corrige vise
        une réponse à la même déclaration ;
-    4. un événement est corrigé au plus une fois.
+    4. un événement est corrigé au plus une fois ;
+    5. une DÉCLARATION de sensibilité (M4d-3) nomme une DÉCLARATION centrale qui la
+       précède et n'est pas elle-même une sensibilité, et un RÉSULTAT qui la précède
+       et répond à cette centrale.
 
     Méthodes : ``event(number)`` (``IndexError`` hors de ``[1 ; len(events)]``),
     ``corrected_by(number)``, ``in_force(number)``, ``answer(declaration)``.
@@ -1463,6 +1789,33 @@ class RegistryLog:
                 self._check_answer(event, event.answers, answered)
             if event.corrects is not None:
                 self._check_correction(event, event.corrects, corrected)
+            sensitivity = (
+                None if event.declaration is None else event.declaration.sensitivity
+            )
+            if sensitivity is not None:
+                self._check_sensitivity(event, sensitivity)
+
+    def _check_sensitivity(
+        self, event: RegistryEvent, sensitivity: SensitivityDeclaration
+    ) -> None:
+        if sensitivity.answer >= event.number:
+            raise ContractError(
+                f"la DÉCLARATION de sensibilité {event.number} nomme l'événement "
+                f"{sensitivity.answer}, qui ne la précède pas."
+            )
+        central = self.events[sensitivity.central - 1]
+        if central.declaration is None or central.declaration.sensitivity is not None:
+            raise ContractError(
+                f"la DÉCLARATION de sensibilité {event.number} qualifie l'événement "
+                f"{sensitivity.central}, qui n'est pas une DÉCLARATION centrale."
+            )
+        answer = self.events[sensitivity.answer - 1]
+        if answer.kind is not EventKind.RESULT or answer.answers != sensitivity.central:
+            raise ContractError(
+                f"la DÉCLARATION de sensibilité {event.number} nomme l'événement "
+                f"{sensitivity.answer}, qui n'est pas un RÉSULTAT de la déclaration "
+                f"{sensitivity.central}."
+            )
 
     def _check_answer(
         self, event: RegistryEvent, number: int, answered: dict[int, int]
@@ -1693,13 +2046,15 @@ class TrialCounts:
     - ``corrections`` — sans unité — celles qui en corrigent une autre.
     - ``without_effect`` — sans unité — celles sans expérience (exécutions sans effet
       testé).
-    - ``by_experiment`` — sans unité — les autres, par couple effet × cible.
+    - ``by_experiment`` — sans unité — les expériences, par couple effet × cible.
+    - ``sensitivities`` — sans unité — les DÉCLARATIONS de sensibilité (M4d-3),
+      comptées à part : elles ne sont pas des essais (exception de D14, M4d-3).
 
     Invariants
     ----------
     - ``by_experiment`` est un tuple ;
-    - les trois comptes ``>= 0`` ; ``corrections <= declarations`` ;
-    - ``declarations == without_effect + Σ count`` ;
+    - les quatre comptes ``>= 0`` ; ``corrections <= declarations`` ;
+    - ``declarations == without_effect + Σ count + sensitivities`` ;
     - ``by_experiment`` ordonné par effet puis par rang de la cible dans
       ``ExperimentMetric``, sans doublon (clés strictement croissantes).
 
@@ -1713,18 +2068,20 @@ class TrialCounts:
 
     Non promis
     ----------
-    Chaque DÉCLARATION compte pour un essai, corrections comprises : la règle ne peut
-    que surestimer le nombre d'essais ; un ÉCHEC ne compte pas.
+    Chaque DÉCLARATION compte pour un essai, corrections comprises, sauf une
+    DÉCLARATION de sensibilité (exception de D14, M4d-3) : la règle ne peut que
+    surestimer le nombre d'essais ; un ÉCHEC ne compte pas.
     """
 
     declarations: int
     corrections: int
     without_effect: int
     by_experiment: tuple[ExperimentTrials, ...]
+    sensitivities: int = 0
 
     def __post_init__(self) -> None:
         require_immutable_sequence(self.by_experiment, "by_experiment")
-        for name in ("declarations", "corrections", "without_effect"):
+        for name in ("declarations", "corrections", "without_effect", "sensitivities"):
             value: int = getattr(self, name)
             if value < 0:
                 raise ContractError(f"{name} doit être >= 0, reçu {value}.")
@@ -1733,11 +2090,16 @@ class TrialCounts:
                 f"corrections ({self.corrections}) ne dépasse pas declarations "
                 f"({self.declarations}) : une correction est une déclaration."
             )
-        total = self.without_effect + sum(t.count for t in self.by_experiment)
+        total = (
+            self.without_effect
+            + sum(t.count for t in self.by_experiment)
+            + self.sensitivities
+        )
         if self.declarations != total:
             raise ContractError(
                 f"declarations ({self.declarations}) doit valoir without_effect + "
-                f"Σ count ({total}) : chaque déclaration compte une fois."
+                f"Σ count + sensitivities ({total}) : chaque déclaration compte une "
+                "fois."
             )
         keys = [(t.effect, _METRIC_ORDER.index(t.target)) for t in self.by_experiment]
         for previous, current in pairwise(keys):

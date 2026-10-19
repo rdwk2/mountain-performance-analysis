@@ -287,16 +287,17 @@ def test_band_constants_follow_0010_d11() -> None:
 
 
 def test_band_types_are_documented_in_reading_order() -> None:
-    """Les cinq contrats ferment le dictionnaire, dans l'ordre de lecture, juste après
-    ceux de la dérive (M4d-1)."""
-    assert DOCUMENTED_TYPES[-5:] == (
+    """Les cinq contrats suivent ceux de la dérive (M4d-1) dans le dictionnaire, dans
+    l'ordre de lecture ; ceux de la sensibilité viennent après eux (M4d-3)."""
+    names = [cls.__name__ for cls in DOCUMENTED_TYPES]
+    start = names.index("OutingDrift") + 1
+    assert DOCUMENTED_TYPES[start : start + 5] == (
         ReservoirMember,
         BandQuantiles,
         BandElement,
         ModelBand,
         OutingBands,
     )
-    assert DOCUMENTED_TYPES[-6].__name__ == "OutingDrift"
 
 
 # ---------------------------------------------------------------------------

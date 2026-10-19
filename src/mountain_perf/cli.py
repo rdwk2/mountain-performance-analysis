@@ -41,8 +41,13 @@ from mountain_perf.backtest import (
     ReferenceGeometry,
     ReportMetric,
     ScoredPerformance,
+    SensitivityEvaluation,
+    SensitivityRow,
+    SensitivityRowKind,
+    SensitivityRun,
     TraceSeries,
     aggregate_table,
+    axis_counts,
     band_common_row,
     band_table,
     band_window_counts,
@@ -54,6 +59,7 @@ from mountain_perf.backtest import (
     descent_fractions,
     descent_subclasses,
     dplus_per_km,
+    drift_under,
     failure_reason,
     geometry_diagnostic,
     git_state,
@@ -67,7 +73,9 @@ from mountain_perf.backtest import (
     report_clocks,
     route_comparisons,
     run_backtest,
+    run_sensitivity,
     scored_performances,
+    sensitivity_table,
     stop_episodes,
     subclass_metrics,
     third_clock_is_elapsed,
@@ -103,6 +111,7 @@ from mountain_perf.schemas import (
     DRIFT_IDENTIFICATION_THRESHOLD,
     DRIFT_WEAK_SEPARATION,
     AdmittedTotals,
+    Availability,
     CalibratedOutingScores,
     CalibratedScenarioScores,
     CalibrationPopulation,
@@ -110,6 +119,7 @@ from mountain_perf.schemas import (
     ClockKind,
     ClockScores,
     ClockTotals,
+    ConfigurationOutcome,
     DataSet,
     DriftDiagnostic,
     DriftFit,
@@ -141,7 +151,10 @@ from mountain_perf.schemas import (
     ScenarioScores,
     ScorePointObservation,
     SegmentExclusion,
+    SensitivityConfiguration,
+    SensitivityMetric,
     StopEpisode,
+    SupportComponent,
     SupportMetrics,
     Unavailability,
 )
@@ -1164,6 +1177,62 @@ def _report_name(number: int) -> str:
     return f"{REPORTS_DIR}/backtest-{number:04d}.txt"
 
 
+def _sensitivity_report_name(number: int) -> str:
+    """``rapports/sensibilite-0004.txt`` : le rapport de sensibilité du RÉSULTAT
+    ``number`` (précision de D15, M4d-3)."""
+    return f"{REPORTS_DIR}/sensibilite-{number:04d}.txt"
+
+
+SENSITIVITY_ROW_FORMATS: Mapping[SensitivityRowKind, Callable[[float], str]] = {
+    SensitivityRowKind.LEVEL: _log,
+    SensitivityRowKind.ABS_LEVEL: _plain,
+    SensitivityRowKind.MAX_ABS_PASSAGE_ERROR: _abs_seconds,
+    SensitivityRowKind.USAGE_TARGET: _plain,
+    SensitivityRowKind.COMMON_ABS_LEVEL: _plain,
+}
+"""La mise en forme des lignes de la table d'une configuration : comme la synthèse."""
+
+AVAILABILITY_LABELS: Mapping[Availability, str] = {
+    Availability.BOTH: "disponible",
+    Availability.LOST: "perdue",
+    Availability.GAINED: "gagnée",
+    Availability.NEITHER: "indisponible",
+}
+"""Libellés de l'axe (i) de la sensibilité (précision de D13, M4d-3)."""
+
+SUPPORT_COMPONENT_LABELS: Mapping[SupportComponent, str] = {
+    SupportComponent.SEGMENTS: "segments",
+    SupportComponent.ZERO_TIMES: "temps nuls",
+    SupportComponent.POINTS: "points de C_k",
+    SupportComponent.TARGETS: "K",
+    SupportComponent.POPULATION: "population",
+}
+"""Libellés de l'axe (ii) de la sensibilité (précision de D13, M4d-3)."""
+
+AXIS_ROWS = (
+    ("comparées", "compared"),
+    ("perdues", "lost"),
+    ("gagnées", "gained"),
+    ("support changé", "support"),
+    ("valeur changée", "value"),
+)
+"""Les lignes des trois axes au rapport de sensibilité : libellé, champ d'``AxisCounts``
+(précision de D13, M4d-3)."""
+
+SENSITIVITY_LEGEND = (
+    "sensibilité de 0010 D13 : rapportée, jamais utilisée pour choisir ; chaque "
+    "configuration est comparée au comparateur, Δ 250 m, ε 30 m, sous l'écoulé",
+    "trois axes : disponibilité (perdue, gagnée), support effectif (segments, temps "
+    "nuls, points de C_k, K, population de calage), valeur (écart à la configuration "
+    "moins le comparateur) ; un effectif égal ne dit pas qu'un support l'est",
+    "D n'est pas normalisé par Δ ; les dix configurations de mouvement sont "
+    "l'exécution (250, 30) lue sous leur horloge ; fourchettes : en écoulé, par paire",
+    "dérive : v0 brut sous l'horloge de la configuration, pente descriptive (0010 "
+    "D12), jamais une fatigue",
+)
+"""La légende du rapport de sensibilité (précision de D15, M4d-3)."""
+
+
 def _age(days: int) -> str:
     """Un âge de la courbe, toujours signé : ``+16``, ``−49``, ``+0``."""
     return f"{days:+d}".replace("-", "−")
@@ -1477,6 +1546,197 @@ def _summary_parts(
         "géométrie usage − contrôle : rapport complet"
     )
     return head, lines
+
+
+def _configuration_title(configuration: SensitivityConfiguration) -> str:
+    """``Δ 100 m, ε 15 m, écoulé``."""
+    return (
+        f"Δ {configuration.score_step_m:g} m, ε "
+        f"{configuration.lateral_tolerance_m:g} m, {_clock_label(configuration.clock)}"
+    )
+
+
+def _sensitivity_table_lines(rows: Sequence[SensitivityRow]) -> list[str]:
+    """Par jeu, les cinq modèles côte à côte, chaque ligne sur son propre effectif,
+    ses manquants."""
+    lines: list[str] = []
+    for d, dataset in enumerate(DataSet):
+        lines.append(
+            _row(DATA_SET_LABELS[dataset], [MODEL_LABELS[m] for m in REPORT_MODELS])
+        )
+        for row in rows:
+            formatted = SENSITIVITY_ROW_FORMATS[row.kind]
+            values = row.by_set[d]
+            lines.append(
+                _row(
+                    row.kind.value,
+                    [_aggregate_cell(value, formatted) for value in values],
+                )
+            )
+            missing = [
+                f"{MODEL_LABELS[model]} {_missing(value)}"
+                for model, value in zip(REPORT_MODELS, values, strict=True)
+                if value.missing
+            ]
+            if missing and row.kind is not SensitivityRowKind.COMMON_ABS_LEVEL:
+                lines.append(f"{_INDENT}{'  manquants':<16}{' ; '.join(missing)}")
+    return lines
+
+
+def _level_comparison_lines(configuration: ConfigurationOutcome) -> list[str]:
+    """``L`` de v0 brut, performance par performance : comparateur, configuration,
+    disponibilité, écart, composantes du support changées — ou le motif."""
+    lines = [
+        _row(
+            "L de v0 brut",
+            [
+                "comparateur",
+                "configuration",
+                "disponibilité",
+                "écart",
+                "support changé",
+            ],
+        )
+    ]
+    for performance in configuration.performances:
+        day = performance.civil_date.isoformat()
+        if performance.motif is not None:
+            lines.append(_row(day, [MISSING_LABELS[performance.motif.value]]))
+            continue
+        (level,) = [
+            c
+            for c in performance.metrics
+            if c.model is ModelKind.V0_RAW and c.metric is SensitivityMetric.LEVEL
+        ]
+        support = ", ".join(SUPPORT_COMPONENT_LABELS[c] for c in level.support)
+        lines.append(
+            _row(
+                day,
+                [
+                    _label(level.comparator, _log),
+                    _label(level.value, _log),
+                    AVAILABILITY_LABELS[level.availability],
+                    "—" if level.difference is None else _log(level.difference),
+                    support or "—",
+                ],
+            )
+        )
+    return lines
+
+
+def _sensitivity_drift_lines(evaluation: BacktestEvaluation, clock: Clock) -> list[str]:
+    """La dérive de v0 brut sous l'horloge de la configuration, une ligne par sortie
+    scorée avec usage (précision de D15, M4d-3 ; ``0010`` D12) : ``b``, ``rho_u``,
+    rang, ``ddl``, retraits, signe, étendue, mentions — ou le motif."""
+    lines = [
+        f"{'dérive':<13}0010 D12, usage ; v0 brut sous {_clock_label(clock)} ; pente "
+        "descriptive du log-rapport, une ligne par sortie scorée avec usage",
+        _drift_row(
+            "sortie",
+            ["b", "rho_u", "rang", "ddl", "retraits", "signe", "étendue", "mentions"],
+        ),
+    ]
+    for outing in evaluation.outings:
+        drift = drift_under(evaluation, outing, clock)
+        if drift is None:
+            continue
+        (diagnostic,) = [
+            d
+            for d in drift.diagnostics
+            if d.model is ModelKind.V0_RAW and d.clock == clock
+        ]
+        lines.append(_drift_row(outing.outing.outing_id, _drift_fit_cells(diagnostic)))
+    return lines
+
+
+def _sensitivity_configuration_lines(
+    evaluation: SensitivityEvaluation,
+    rank: int,
+    datasets: Sequence[tuple[DataSet, ...]],
+) -> list[str]:
+    """Le rapport d'une configuration (précision de D15, M4d-3) : ses agrégats d'usage
+    sous son horloge ; les trois axes par modèle ; ``L`` de v0 brut performance par
+    performance ; en écoulé, les fourchettes de sa paire ; la dérive de v0 brut sous
+    son horloge."""
+    outcome = evaluation.outcome
+    configuration = outcome.configurations[rank]
+    spec = configuration.configuration
+    title = f"{rank + 1}/{len(outcome.configurations)}  {_configuration_title(spec)}"
+    if rank == outcome.comparator:
+        title += " — comparateur"
+    lines = [
+        f"{'sensibilité':<13}configuration {title}",
+        f"{'agrégats':<13}usage, {_clock_label(spec.clock)} ; moyenne à poids égal "
+        "par performance (effectif) ; |L| commun : performances où les cinq modèles "
+        "ont une valeur",
+    ]
+    lines += _sensitivity_table_lines(
+        sensitivity_table(configuration, datasets, REPORT_MODELS)
+    )
+    counts = axis_counts(configuration, REPORT_MODELS)
+    lines.append(_row("axes", [MODEL_LABELS[c.model] for c in counts]))
+    for label, field in AXIS_ROWS:
+        lines.append(_row(label, [str(getattr(c, field)) for c in counts]))
+    lines += _level_comparison_lines(configuration)
+    (pair,) = [
+        p
+        for p in evaluation.pairs
+        if p.pair == (spec.score_step_m, spec.lateral_tolerance_m)
+    ]
+    assert pair.evaluation is not None  # une sensibilité de just backtest
+    if spec.clock.kind is ClockKind.ELAPSED:
+        lines += _band_aggregate_lines(scored_performances(pair.evaluation))
+    lines += _sensitivity_drift_lines(pair.evaluation, spec.clock)
+    return lines
+
+
+def _sensitivity_body(
+    evaluation: SensitivityEvaluation, central: BacktestRun
+) -> list[str]:
+    """Le corps du rapport de sensibilité (précision de D15, M4d-3), calculé avant le
+    RÉSULTAT : chaque configuration, dans l'ordre, puis la légende."""
+    datasets = [entry.datasets for entry in scored_performances(central)]
+    lines: list[str] = []
+    for rank in range(len(evaluation.outcome.configurations)):
+        lines += _sensitivity_configuration_lines(evaluation, rank, datasets)
+    lines.append(f"{'légende':<13}{SENSITIVITY_LEGEND[0]}")
+    lines += [f"{_INDENT}{text}" for text in SENSITIVITY_LEGEND[1:]]
+    return lines
+
+
+def _sensitivity_summary(run: SensitivityRun, name: str) -> list[str]:
+    """La synthèse de la sensibilité (précision de D15, M4d-3) : ce qu'elle qualifie,
+    le registre, une ligne par configuration (pour v0 brut, les valeurs comparées,
+    perdues, gagnées, de support changé et changées), le rapport."""
+    evaluation = run.evaluation
+    declared = evaluation.declaration_event
+    assert declared.declaration is not None  # une DÉCLARATION
+    sensitivity = declared.declaration.sensitivity
+    assert sensitivity is not None  # de sensibilité
+    lines = [
+        f"{'sensibilité':<13}0010 D13 : qualifie la déclaration {sensitivity.central} "
+        f"et son résultat {sensitivity.answer} ; {len(sensitivity.configurations)} "
+        f"configurations, {len(sensitivity.pairs)} paires (Δ, ε) ; rapportée, jamais "
+        "utilisée pour choisir",
+        f"{'registre':<13}déclaration {declared.number}, résultat "
+        f"{run.answer_event.number} ; dernière ligne sha256 {run.seal}",
+        f"{_INDENT}à recopier au JOURNAL : l'empreinte de la dernière ligne scelle le "
+        "registre",
+        f"{_INDENT}{'v0 brut':<36}{'valeurs comparées':<20}{'perdues':<20}"
+        f"{'gagnées':<20}{'support changé':<20}valeur changée",
+    ]
+    for rank, configuration in enumerate(evaluation.outcome.configurations):
+        (counts,) = axis_counts(configuration, (ModelKind.V0_RAW,))
+        mark = "*" if rank == evaluation.outcome.comparator else ""
+        lines.append(
+            f"{_INDENT}{rank + 1:>2}{mark:<2}"
+            f"{_configuration_title(configuration.configuration):<32}"
+            f"{counts.compared:<20}{counts.lost:<20}{counts.gained:<20}"
+            f"{counts.support:<20}{counts.value}"
+        )
+    lines.append(f"{_INDENT}* comparateur")
+    lines.append(f"{'rapport':<13}{name}")
+    return lines
 
 
 def _summary(
@@ -2533,10 +2793,13 @@ def _run_backtest(args: argparse.Namespace) -> int:
         return 1
     registry = data / REGISTRY_DIR
     events = len(read_registry(registry).events) if registry.exists() else 0
-    planned = _report_name(events + 2)
-    if (data / planned).exists():
-        print(REPORT_EXISTS_ERROR.format(name=planned), file=sys.stderr)
-        return 1
+    planned = [_report_name(events + 2)]
+    if args.sensitivity:
+        planned.append(_sensitivity_report_name(events + 4))
+    for name in planned:
+        if (data / name).exists():
+            print(REPORT_EXISTS_ERROR.format(name=name), file=sys.stderr)
+            return 1
     preparation = prepare_backtest(
         args.manifest, args.curve, commit=state.commit, tree_modified=False
     )
@@ -2575,6 +2838,69 @@ def _run_backtest(args: argparse.Namespace) -> int:
                 created.unlink()
         message = REPORT_NOT_WRITTEN_ERROR.format(
             number=run.result_event.number,
+            seal=run.seal,
+            name=name,
+            reason=failure_reason(error),
+        )
+        print(message, file=sys.stderr)
+        return 1
+    for line in summary:
+        print(line, flush=True)
+    if not args.sensitivity:
+        return 0
+    return _run_sensitivity(run, registry, data)
+
+
+def _write_report(data: Path, name: str, text: str) -> None:
+    """Un rapport écrit sous ``MPA_DATA_DIR``, jamais réécrit : un rapport interrompu
+    pendant son écriture ne garde pas son nom."""
+    created: Path | None = None
+    try:
+        (data / REPORTS_DIR).mkdir(exist_ok=True)
+        with (data / name).open("x", encoding="utf-8", newline="\n") as report:
+            created = data / name
+            report.write(text)
+    except BaseException:
+        if created is not None:
+            with contextlib.suppress(OSError):
+                created.unlink()
+        raise
+
+
+def _run_sensitivity(central: BacktestRun, registry: Path, data: Path) -> int:
+    """La sensibilité de ``mperf backtest --sensitivity`` (précision de D15, M4d-3),
+    après l'exécution centrale et son rapport : une ligne par paire observée, puis
+    l'empreinte de la DÉCLARATION de sensibilité dès son ajout, le rapport calculé avant
+    le RÉSULTAT, le rapport écrit, la synthèse."""
+    computed: list[list[str]] = []
+
+    def progress(pair: tuple[float, float]) -> None:
+        print(f"{'paire':<13}Δ {pair[0]:g} m, ε {pair[1]:g} m observée", flush=True)
+
+    def announce(event: RegistryEvent, seal: str) -> None:
+        line = DECLARATION_RECORDED.format(
+            label=f"{'sensibilité':<13}déclaration ", number=event.number, seal=seal
+        )
+        print(line, flush=True)
+
+    def compute(evaluation: SensitivityEvaluation) -> None:
+        computed.append(_sensitivity_body(evaluation, central))
+
+    run = run_sensitivity(
+        central,
+        registry,
+        on_pair=progress,
+        on_declaration=announce,
+        before_result=compute,
+    )
+    (body,) = computed
+    name = _sensitivity_report_name(run.answer_event.number)
+    summary = _sensitivity_summary(run, name)
+    try:
+        _write_report(data, name, "\n".join([*summary, *body]) + "\n")
+    except (Exception, KeyboardInterrupt) as error:
+        message = REPORT_NOT_WRITTEN_ERROR.format(
+            number=run.answer_event.number,
             seal=run.seal,
             name=name,
             reason=failure_reason(error),
@@ -2748,6 +3074,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         type=Path,
         metavar="courbe.csv",
         help="Courbe allure↔pente, entrée déclarée de l'exécution (0010 D2.6)",
+    )
+    backtest_parser.add_argument(
+        "--sensitivity",
+        action="store_true",
+        help="Puis la sensibilité de 0010 D13 : 19 configurations, neuf appariements",
     )
     backtest_parser.add_argument(
         "--descent-threshold",
