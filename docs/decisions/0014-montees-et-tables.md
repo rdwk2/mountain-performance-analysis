@@ -118,20 +118,30 @@ paramètre (`CLIMB_PARAMETER_SPECS`). En résumé :
    maximum. Puis un replat, même montant, reste hors de la montée : la borne de départ
    avance tant que `z̃` monte de moins de 2 % (la pente d'un replat) sur le pas de
    grille de distance réalisée qui la suit, et se place, dans le premier pas qui monte
-   d'au moins autant, au dernier instant à 1 m du minimum de ce pas ; la borne d'arrivée
-   recule de même, au premier instant à 1 m du maximum de son pas. Sans ce
-   resserrement, la tolérance lue sur toute la fenêtre posait la borne au bout d'un
-   replat qui monte de 1 à 2 %, jusqu'à 200 m hors de la montée : la VAM s'y diluait, et
-   la coupe du point 2 ne lisait plus le temps du replat (constat 1 de la relecture de
-   la PR #31). Le resserrement se lit à un pas de grille près, et au bruit de `z̃`
-   près : un bout de replat plus court qu'un pas peut rester dans la montée (quand la
-   tolérance lue sur la fenêtre pose déjà la borne à moins d'un pas du pied ou du haut,
-   ce que font un replat à peine montant, le bruit ou un enregistrement espacé), et près
-   de 2 % le bruit de l'altitude sur un pas décide s'il monte assez. Les variantes de la
-   stabilité (pente des replats à ± 1 point, tolérance, grille) en marquent une partie ;
-   un bout qui ôte moins de 5 % à la VAM laisse la montée stable. Le gain `G` est le
-   maximum moins le minimum de `z̃` là où les bornes se placent. La clé d'une montée est son
-   instant de départ.
+   d'au moins autant, au dernier instant à 1 m du minimum de ce pas (à la tolérance, et
+   au moins à 2 % du pas, ce qu'un replat peut monter sur un pas : aux défauts, les deux
+   valent 1 m) ; la borne d'arrivée recule de même, au premier instant à 1 m du maximum
+   de son pas. Sans ce resserrement, la tolérance lue sur toute la fenêtre posait la
+   borne au bout d'un replat qui monte de 1 à 2 %, jusqu'à 200 m hors de la montée : la
+   VAM s'y diluait, et la coupe du point 2 ne lisait plus le temps du replat (constat 1
+   de la relecture de la PR #31). Le resserrement se lit à un pas de grille près, et au
+   bruit de `z̃` près. Un bout de replat plus court qu'un pas peut rester dans la montée,
+   quand la tolérance lue sur la fenêtre pose déjà la borne à moins d'un pas du pied ou
+   du haut (ce que font un replat à peine montant, le bruit ou un enregistrement
+   espacé) ; sans bruit, de 0,51 à 0,65 % environ, la côte de 30 m des tests en garde
+   ainsi jusqu'à 45 s de chaque côté et perd jusqu'à 31 % de sa VAM (la stabilité l'y
+   marque). Et chaque pas se teste seul contre 2 % : quand le bruit de `z̃` sur un pas
+   vaut la marge du replat, un pas qui monte assez par le bruit arrête le resserrement,
+   et la borne reste dans le replat, au pas où le bruit l'a arrêté (au pire là où la
+   fenêtre l'a posée, comme sans resserrement). Avec un bruit comme celui des tests (un
+   écart type d'environ 0,14 m sur un pas), la règle tient de 0,9 à 1,3 % environ, cède
+   dès 1,4 % et rend presque toute l'erreur à 1,8–1,9 % (relecture C des correctifs de la
+   PR #31) ; un baromètre plus calme recule la limite. La stabilité ne marque pas ces
+   montées à coup sûr : un bout qui ôte moins de 5 % à la VAM laisse la montée stable, et
+   près d'un replat montant, les variantes de grille et de tolérance peuvent garder leurs
+   propres bouts et rendre instable une montée dont la référence est juste. Le gain `G`
+   est le maximum moins le minimum de `z̃` là où les bornes se placent. La clé d'une
+   montée est son instant de départ.
 4. **Les filtres, sur les mesures** : un gain d'au moins
    `D_min_eff = max(D_min ; n × pas × V_haute)`, avec `D_min` = 20 m, `n` = 30 pas et
    `V_haute` = 2 000 m/h (une vitesse ascensionnelle soutenue de très haut niveau : la
@@ -266,7 +276,8 @@ besoin.
   GPS qui erre.
 - **Domaine C** : sur une côte pointue synthétique entre deux replats, A sous-estime la
   VAM d'autant plus que la côte est courte, C la retrouve, même entre deux replats qui
-  montent de moins de 2 % (point 3). B perdrait le profil commun
+  montent de moins de 2 %, à un bout de replat de moins d'un pas près, et tant que le
+  bruit de l'altitude reste petit devant leur marge (point 3). B perdrait le profil commun
   avec le moteur, que la charte impose et dont la détection a besoin (une grille à pas
   fixe, lissée).
 - **Régimes C** : A sélectionne sur la mesure ; B aussi, d'un cran plus loin (un

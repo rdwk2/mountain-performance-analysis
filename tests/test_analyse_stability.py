@@ -175,11 +175,12 @@ def test_a_long_regular_climb_is_stable_under_every_variant() -> None:
 
 
 def test_a_flat_that_only_one_variant_cuts() -> None:
-    """Un replat de 210 m entre deux côtes de 60 m : la référence garde une seule
+    """Un replat de 200 m entre deux côtes de 60 m : la référence garde une seule
     montée ; sous ``flat_length_half``, le replat coupe. La montée n'est pas retrouvée
-    dans toutes les variantes, mais dans assez pour rester stable. (À 220 m, le replat
-    atteint son seuil à l'arrondi près sous ``grid_25_m``, qui coupe aussi.)"""
-    flat = (210.0, 0.0, 1.0)
+    dans toutes les variantes, mais dans assez pour rester stable. (Sous ``grid_25_m``,
+    le replat du profil fait trois pas de 25 m, sous son seuil de quatre ; dès 204 m, il
+    l'atteint.)"""
+    flat = (200.0, 0.0, 1.0)
     segments = [FLAT, climb_at(600, 0.15, 60), flat, climb_at(600, 0.15, 60), FLAT]
     track = motion_track(recording(segments, noise=False))
     assert track is not None
@@ -201,6 +202,26 @@ def test_a_climb_that_a_variant_shortens_is_unstable(noise: bool) -> None:
     result = stability(reference, variant_climbs(track), PARAMETERS)
     assert result.max_relative_deviation is not None
     assert result.max_relative_deviation > 0.05
+    assert result.stable is False
+
+
+@pytest.mark.parametrize("grade", [0.0055, 0.006, 0.00645])
+def test_a_bit_of_flat_under_a_step_makes_a_short_climb_unstable(grade: float) -> None:
+    """La limite « à un pas près » que dit ``0014`` (point 3), épinglée : une côte de
+    30 m à 600 m/h entre deux replats de 300 m qui montent de ``grade``, sans bruit. La
+    tolérance lue sur la fenêtre pose la borne à moins d'un pas du pied (ou du haut) :
+    le premier pas monte déjà assez, le resserrement ne fait rien, et la montée garde un
+    bout de replat qui dilue sa VAM de plus de 5 %. Les variantes de lissage, de grille
+    et de tolérance n'ont pas ce bout et lisent la VAM de la côte : la montée est
+    instable. Une règle qui lirait ce premier pas changerait ce test avec ``0014``."""
+    flat = (300.0, grade, 1.0)
+    segments = [FLAT, flat, climb_at(600, 0.15, 30), flat, FLAT]
+    track = motion_track(recording(segments, noise=False))
+    assert track is not None
+    (reference,) = climbs(track)
+    assert reference.vertical_speed_ms is not None
+    assert reference.vertical_speed_ms * 3600.0 < 0.95 * 600.0
+    result = stability(reference, variant_climbs(track), PARAMETERS)
     assert result.stable is False
 
 

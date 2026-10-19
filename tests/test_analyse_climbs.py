@@ -94,13 +94,35 @@ def test_a_rising_flat_stays_out_of_the_climb(grade: float, gain_m: float) -> No
     """Constat 1 de la C de la PR #31 : 300 m de replat à ``grade`` de part et d'autre
     d'une côte à 600 m/h, sans bruit. Un replat qui monte de moins de ``flat_grade``
     reste hors de la montée, comme un replat plat ou qui descend : la VAM ne se dilue
-    pas. (À 0,5 %, la tolérance lue sur la fenêtre pose déjà la borne à moins d'un pas
-    du pied, où le resserrement ne la voit pas : 584 m/h pour la côte de 30 m, la limite
-    que dit ``0014``.)"""
+    pas. (De 0,5 à 0,65 %, la tolérance lue sur la fenêtre pose déjà la borne à moins
+    d'un pas du pied, où le resserrement ne la voit pas : la limite que dit ``0014``,
+    épinglée dans ``test_analyse_stability``.)"""
     flat = (300.0, grade, 1.0)
     segments = [FLAT, flat, climb_at(600, 0.15, gain_m), flat, FLAT]
     (measure,) = _climbs(segments, noise=False)
     assert _vam_m_per_h(measure) == pytest.approx(600.0, rel=0.015)
+
+
+@pytest.mark.parametrize("grade", [0.01, 0.015, 0.019])
+def test_a_rising_flat_is_read_in_distance(grade: float) -> None:
+    """Le même cas, les replats parcourus à 2 m/s (un instant toutes les 2 m) : le pas
+    et sa pente se lisent sur la distance réalisée, pas sur le temps."""
+    flat = (300.0, grade, 2.0)
+    segments = [FLAT, flat, climb_at(600, 0.15, 30), flat, FLAT]
+    (measure,) = _climbs(segments, noise=False)
+    assert _vam_m_per_h(measure) == pytest.approx(600.0, rel=0.015)
+
+
+@pytest.mark.parametrize("seed", range(10))
+def test_near_flat_grade_the_noise_decides(seed: int) -> None:
+    """La limite que dit ``0014`` (relecture C des correctifs de la PR #31), épinglée :
+    à 1,9 %, avec le bruit du fixture, un pas du replat monte de 2 % par le bruit et
+    arrête le resserrement ; la côte de 30 m garde du replat et sa VAM reste diluée.
+    Une règle plus robuste au bruit changerait ce test avec ``0014``."""
+    flat = (300.0, 0.019, 1.0)
+    segments = [FLAT, flat, climb_at(600, 0.15, 30), flat, FLAT]
+    (measure,) = _climbs(segments, seed=seed)
+    assert _vam_m_per_h(measure) < 0.95 * 600.0
 
 
 @pytest.mark.parametrize("seed", range(8))
@@ -643,8 +665,9 @@ def test_a_second_climb_below_the_first_keeps_its_own_top() -> None:
 
 def test_interpolate() -> None:
     """Linéaire par intervalle, prolongée par le premier et le dernier intervalle ;
-    en une abscisse répétée, la valeur la plus à droite ; un intervalle de longueur
-    nulle au bout rend sa valeur de gauche."""
+    en une abscisse répétée, la valeur la plus à droite, sauf en la dernière abscisse,
+    où c'est l'avant-dernière valeur (la valeur de gauche du dernier intervalle) ;
+    au-delà d'un bout répété, la valeur de gauche de son intervalle."""
     xs, ys = (0.0, 1.0, 3.0, 4.0), (0.0, 10.0, 0.0, 5.0)
     cases = {0.5: 5.0, 1.0: 10.0, 2.0: 5.0, 3.5: 2.5, -1.0: -10.0, 5.0: 10.0}
     for x, expected in cases.items():
@@ -655,6 +678,8 @@ def test_interpolate() -> None:
     assert interpolate((0.0, 1.0, 1.0, 2.0), (0.0, 1.0, 7.0, 9.0), 1.0) == 7.0
     assert interpolate((0.0, 0.0, 1.0), (5.0, 3.0, 9.0), 0.0) == 3.0
     assert interpolate((0.0, 0.0, 1.0), (5.0, 3.0, 9.0), -1.0) == 5.0
+    assert interpolate((0.0, 0.0, 0.0, 1.0), (2.0, 3.0, 4.0, 9.0), 0.0) == 4.0
+    assert interpolate((0.0, 1.0, 1.0, 1.0), (0.0, 1.0, 5.0, 7.0), 1.0) == 5.0
 
 
 @pytest.mark.parametrize(
@@ -735,6 +760,29 @@ def test_time_bounds_leave_a_rising_flat_out() -> None:
     start, end, gain = bounds
     assert (start, end) == (402.0, 456.0)
     assert gain == pytest.approx(9.94, abs=1e-9)
+
+
+@pytest.mark.parametrize(
+    ("tolerance", "bounds"),
+    [(0.5, (400.0, 458.0)), (1.0, (400.0, 458.0)), (2.0, (401.0, 457.0))],
+)
+def test_the_complement_reaches_what_a_flat_step_can_rise(
+    tolerance: float, bounds: tuple[float, float]
+) -> None:
+    """Étape 5 (constat 2 de la relecture C des correctifs de la PR #31) : dans le
+    dernier pas, la borne se place à ``max(tolérance, flat_grade × pas)`` du minimum
+    (du maximum) de ce pas. 200 m à 1,5 % de part et d'autre d'une côte de 9 m, sans
+    bruit : un pas de replat peut y monter de 0,75 m ; à 0,5 m de tolérance, la borne
+    se place donc comme à 1 m (à 0,5 m seuls, elle resterait 16 m dans le replat :
+    383 s, le pied étant à 399 s) ; à 2 m, un instant plus haut dans la côte."""
+    rising = (200.0, 0.015, 1.0)
+    level = (200.0, 0.0, 1.0)
+    segments = [level, rising, (60.0, 0.15, 1.0), rising, level]
+    track = motion_track(recording(segments, noise=False))
+    assert track is not None
+    result = _time_bounds(track, 300.0, 560.0, 150.0, tolerance, 50.0, 0.02)
+    assert result is not None
+    assert result[:2] == bounds
 
 
 def test_time_bounds_settle_in_the_step_where_the_rise_starts() -> None:

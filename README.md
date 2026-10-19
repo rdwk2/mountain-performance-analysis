@@ -387,12 +387,14 @@ restent hors du dépôt ([`docs/analyse/CHARTE.md`](docs/analyse/CHARTE.md), § 
 
 Les montées se détectent sur le profil du moteur ; leurs bornes et leur gain se lisent
 en temps, sur l'altitude lissée du moteur, et un replat qui monte doucement reste hors
-de la montée. Un drapeau marque une montée sans la retirer. Les deux fichiers portent
-leur provenance : l'empreinte d'`interim/`, la version du paquet et tous les paramètres
-de la définition ; régénérés depuis le même `interim/` par le même code, avec le même
-`athlete.toml` et la même version de pyarrow (celle de `uv.lock`), ils sont identiques
-à l'octet sur la même plateforme (d'un système à l'autre, les derniers chiffres d'un
-nombre peuvent différer).
+de la montée, à un pas de grille près (un bout plus court qu'un pas peut y rester et
+diluer la VAM d'une côte courte) ; près de la pente d'un replat, le bruit de l'altitude
+peut y laisser bien plus (`docs/decisions/0014`). Un drapeau marque une montée sans la
+retirer. Les deux fichiers portent leur provenance : l'empreinte d'`interim/`, la
+version du paquet et tous les paramètres de la définition ; régénérés depuis le même
+`interim/` par le même code, avec le même `athlete.toml` et la même version de pyarrow
+(celle de `uv.lock`), ils sont identiques à l'octet sur la même plateforme (d'un système
+à l'autre, les derniers chiffres d'un nombre peuvent différer).
 
 `MPA_DATA_DIR/athlete.toml` peut déclarer, dans sa table `[analyse]`, la vitesse
 ascensionnelle de référence qui fixe la frontière des régimes, et les produits de

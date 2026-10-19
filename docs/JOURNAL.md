@@ -16,6 +16,28 @@ Backtest (à partir de M4) : métrique avant → après.
 
 ---
 
+### 2026-10-18 · AN1-2b — correctifs de la seconde relecture
+La relecture C des correctifs (« fusionnable après correction des constats 1 et 2 »).
+Dans le dernier pas, le complément place la borne à `max(tolérance, flat_grade × pas)`
+du minimum ou du maximum du pas : aux défauts, les deux valent 1 m et rien ne change ;
+sous une tolérance plus fine que ce qu'un replat monte sur un pas, la borne ne reste
+plus dans le replat. `0014` écrit les limites mesurées du resserrement et ce qu'en
+disent les variantes de la stabilité : il se lit à un pas près (sans bruit, de 0,51 à
+0,65 % environ, la côte de 30 m des tests garde un bout de replat) ; chaque pas se teste
+seul contre `flat_grade`, et un pas qui monte assez par le bruit l'arrête (avec le bruit
+des tests, la règle tient de 0,9 à 1,3 % environ et cède dès 1,4 %). Le README et le
+domaine C le disent aussi. Tests : le complément à trois tolérances, un replat montant
+parcouru à 2 m/s (le pas se lit en distance), les deux limites épinglées (à 1,9 % avec
+bruit ; vers 0,6 % sans bruit, où la montée est instable) ; le test de la stabilité
+passe son replat à 200 m (à 210 m, le replat atteint déjà son seuil sous `grid_25_m`) ;
+la docstring d'`interpolate` dit le comportement à chaque bout ; trois lignes au
+`BACKLOG`. Conclusion : `just check` vert, 6 027 tests avec tous les extras ; aux
+défauts, les bornes et les mesures des montées ne changent pas, la stabilité peut
+changer. Rangé dans `src/mountain_perf/analyse/climbs.py`, `tests/test_analyse_*.py`,
+`docs/decisions/0014-montees-et-tables.md`, branche `an1/montees-tables`.
+
+---
+
 ### 2026-10-18 · AN1-2b — correctifs de relecture
 La relecture C (« fusionnable après correction du constat 1 ») et le contrôle réel de
 la PR. Une montée bordée d'un replat qui monte doucement (de 1 à 2 %) l'absorbait : la
@@ -30,12 +52,13 @@ l'arrondi des fonctions trigonométriques en décidait d'une plateforme à l'aut
 fusion, coupe), une montée à deux drapeaux, chaque compte par régime, les 33 défauts
 de la définition, les noms publiés du format Parquet, des clôtures d'import qui voient
 `from mountain_perf import backtest`, une entrée de plus pour `_profile_bounds` ; un
-test de la stabilité passe son replat de 220 à 210 m (220 m tombe au seuil sous
-`grid_25_m`). Textes : `interpolate`, `athlete.toml` dans « les mêmes octets », la
-variante de lissage, les régimes du README ; dictionnaire régénéré ; deux lignes au
+test de la stabilité passe son replat de 220 à 210 m (puis 200 m : correctifs de la
+seconde relecture). Textes : `interpolate`, `athlete.toml` dans « les mêmes octets »,
+la variante de lissage, les régimes du README ; dictionnaire régénéré ; deux lignes au
 `BACKLOG` (une propriété de la chaîne ; les égalités du profil sur un palier).
 Conclusion : `just check` vert, 6 008 tests avec tous les extras ; les montées
-bordées d'un replat montant perdent ce replat. Rangé dans
+bordées d'un replat montant perdent ce replat, à un pas près (près de `flat_grade`, le
+bruit en décide : correctifs de la seconde relecture). Rangé dans
 `src/mountain_perf/analyse/climbs.py`, `tests/test_analyse_*.py`,
 `docs/decisions/0014-montees-et-tables.md`, branche `an1/montees-tables`.
 

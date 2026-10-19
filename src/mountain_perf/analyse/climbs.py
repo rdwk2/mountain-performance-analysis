@@ -29,9 +29,10 @@ La chaîne, dans cet ordre :
    montant, reste hors de la montée : la borne de départ avance tant que ``z̃`` monte de
    moins de ``flat_grade`` sur le pas de grille de ``d_r`` qui la suit, et se place,
    dans le premier pas qui monte d'au moins autant, au dernier instant à la tolérance
-   du minimum de ce pas ; la borne d'arrivée recule de même, au premier instant à la
-   tolérance du maximum de son pas. Le gain ``G`` est le maximum moins le minimum de
-   ``z̃`` là où les bornes se sont placées (les fenêtres, ou ces pas) ;
+   du minimum de ce pas, une tolérance d'au moins ``flat_grade`` fois le pas (ce qu'un
+   replat peut monter sur un pas) ; la borne d'arrivée recule de même, au premier
+   instant à cette tolérance du maximum de son pas. Le gain ``G`` est le maximum moins
+   le minimum de ``z̃`` là où les bornes se sont placées (les fenêtres, ou ces pas) ;
 6. les filtres, sur les mesures : ``G`` d'au moins
    ``max(min_gain_m ; min_climb_steps × pas × max_sustained_vertical_speed_ms)``,
    le pas étant l'intervalle médian de la montée ; une longueur parcourue en M
@@ -308,10 +309,11 @@ def motion_track(
 
 def interpolate(xs: Sequence[float], ys: Sequence[float], x: float) -> float:
     """``ys`` interpolée linéairement en ``x`` sur ``xs`` (croissants au sens large),
-    prolongée par le premier ou le dernier intervalle hors de ``xs``. Une abscisse
-    répétée est un saut : en elle, la valeur la plus à droite ; un premier ou un
-    dernier intervalle de longueur nulle rend sa valeur de gauche, prolongée au-delà
-    du bout."""
+    prolongée par le premier ou le dernier intervalle hors de ``xs``. En une abscisse
+    répétée, la valeur la plus à droite, sauf en la dernière abscisse de ``xs``, où
+    c'est l'avant-dernière valeur de ``ys`` (la valeur de gauche du dernier
+    intervalle) ; au-delà d'un bout répété (un premier ou un dernier intervalle de
+    longueur nulle), la valeur de gauche de cet intervalle."""
     i = max(0, min(bisect_right(xs, x) - 1, len(xs) - 2))
     if xs[i + 1] == xs[i]:
         return ys[i]
@@ -447,6 +449,7 @@ def _time_bounds(
         return None
     start, low = _lowest(zs, a0, a1 - 1, tolerance)
     end, high = _highest(zs, b0, b1 - 1, tolerance)
+    reach = max(tolerance, flat_grade * step_m)
     first, rise = start, end
     while first < end:
         j = bisect_left(d, d[first] + step_m, first + 1, end)
@@ -455,7 +458,7 @@ def _time_bounds(
             break
         first += 1
     if first > start:
-        start, low = _lowest(zs, first, rise, tolerance)
+        start, low = _lowest(zs, first, rise, reach)
     last, rise = end, start
     while last > start:
         j = bisect_right(d, d[last] - step_m, start + 1, last) - 1
@@ -464,7 +467,7 @@ def _time_bounds(
             break
         last -= 1
     if last < end:
-        end, high = _highest(zs, rise, last, tolerance)
+        end, high = _highest(zs, rise, last, reach)
     if track.time_s[end] <= track.time_s[start]:
         return None
     return track.time_s[start], track.time_s[end], high - low
