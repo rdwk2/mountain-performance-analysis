@@ -16,6 +16,29 @@ Backtest (à partir de M4) : métrique avant → après.
 
 ---
 
+### 2026-10-19 · M4d-3 — correctifs de relecture
+La relecture C en deux passes (« fusionnable après correction des tests ») et le balayage
+par mutation de la conception n'ont trouvé aucun défaut du code, mais des règles écrites
+que la batterie jointe n'exerçait pas : l'appariement sous lequel chaque paire est tracée
+(le monde n'exerce pas `ε`) ; la référence D8, le calage et les fourchettes d'une paire ;
+pour une expérience, la géométrie des huit autres paires, les exclusions d'admission et le
+`K` sous chaque configuration, une configuration sans décision ; une exception dans le
+calcul d'une paire ; deux clauses de l'invariant 5 de `RegistryLog` ; les documents d'un
+RÉSULTAT de sensibilité à la relecture ; deux contrats de la DÉCLARATION de sensibilité,
+les fourchettes de chaque paire et trois cas de l'exception de D14 ; la vue composée à
+deux centrales ; les valeurs du corps du rapport ; les garanties écrites de la
+bibliothèque. Cinq fichiers de tests de garantie, fournis par la conception, recopiés tels
+quels ; deux docstrings du code fourni corrigées (`PairEvaluation`, `ExperimentScores`) ;
+deux lignes de `BACKLOG.md`.
+Conclusion : `just check` vert, 6 313 tests ; le code de `src/` ne change pas, hors ces
+deux docstrings. Rangé dans `tests/test_backtest_sensitivity_guarantees.py`,
+`tests/test_backtest_sensitivity_run_guarantees.py`,
+`tests/test_backtest_registry_format5_guarantees.py`,
+`tests/test_cli_sensitivity_guarantees.py` et
+`tests/test_schemas_sensitivity_guarantees.py`, branche `m4d/sensibilite`.
+
+---
+
 ### 2026-10-18 · M4d-3 — Backtest : sensibilité
 La sensibilité de `0010` D13 est exécutée et enregistrée : neuf exécutions géométriques,
 une par paire `(Δ, ε)`, les dix configurations de mouvement lues dans `(250, 30)` ; chaque
