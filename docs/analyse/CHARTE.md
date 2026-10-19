@@ -1,7 +1,8 @@
 # Charte de la piste analyse
 
 *Version 2, validée le 2026-10-08 après une relecture experte indépendante ; § 2 mis à
-jour le 2026-10-09 (source des séries d'activité). Sources : `docs/PIEGES_DATA.md`,
+jour le 2026-10-09 (source des séries d'activité) ; §§ 2 à 4 et 6 mis à jour le
+2026-10-17 (la montée, `docs/decisions/0014`). Sources : `docs/PIEGES_DATA.md`,
 `docs/analyse/QUESTIONS.md` et les decision records du dépôt. Sans chiffre tiré des
 données.*
 
@@ -35,16 +36,17 @@ d'analyse, relu, et qui doit respecter la charte.*
 |---|---|---|---|
 | `raw/` | l'export Garmin, immuable (fichiers en lecture seule), et les sources extérieures (§ 12) | l'acquisition, et l'athlète | — |
 | `interim/` | les contrats normalisés (activités, séries, nuits, jours), avec leurs `QualityFlag` | l'ingestion, dans `src/mountain_perf/ingest/` | **aucune** pour le lire ; l'écriture depuis les FIT demande l'extra `ingest` ; format décrit dans `docs/decisions/0013`, relu par le moteur avant fusion |
-| `processed/` | les tables d'analyse : `jours`, `activités`, `montées` (plus tard `descentes`, `plats`) | le code d'analyse | l'extra `analyse` (`docs/decisions/0011`) |
-| `resultats/` | les sorties de chaque question, datées (§ 10) | les commandes d'analyse | idem |
+| `processed/` | les tables d'analyse : `activites` et `montees` (`docs/decisions/0014`), puis `jours` (plus tard `descentes`, `plats`) | le code d'analyse (`mperf tables`) | aucune pour le calcul ; l'écriture en Parquet demande l'extra `analyse` (`docs/decisions/0011`, `0014`) |
+| `resultats/` | les sorties de chaque question, datées (§ 10) | les commandes d'analyse | l'extra `analyse` (`docs/decisions/0011`) |
 
 - **Le moteur ne lit jamais `processed/`** ; il lit `interim/` par les contrats
   (`docs/decisions/0013`).
-- Tout est régénérable depuis `raw/` par une commande : supprimer `interim/` et
-  `processed/` ne perd rien.
+- Tout est régénérable depuis `raw/` par une commande (`just process`) : supprimer
+  `interim/` et `processed/` ne perd rien.
 - **Distance et profil** : par les fonctions du moteur (`gpx/geo.py`,
-  `gpx/profile.py`), jamais réimplémentées. Une montée est un segment du profil du
-  moteur.
+  `gpx/profile.py`), jamais réimplémentées. Une montée se détecte sur le profil du
+  moteur ; ses bornes et son gain se lisent en temps, sur l'altitude lissée du moteur
+  (`docs/decisions/0014`).
 - **Source des séries d'activité** : les séries d'une activité (positions, altitude,
   temps, FC) viennent du FIT, à pleine résolution, lu par fitdecode
   (`docs/decisions/0011` et `0013`). `activity_details` suffit pour le D+ et
@@ -57,10 +59,14 @@ d'analyse, relu, et qui doit respecter la charte.*
   montagne.
 - **Définition robuste de la montée.** La VAM d'une même montée peut changer nettement
   selon qu'un petit replat la coupe ou non : la définition (hystérésis, fusion des
-  replats) se fige dans le brief d'AN1, avec un contrôle de stabilité.
-- **Durée minimale relative au pas.** Une montée n'est retenue que si sa durée dépasse
-  30 fois le pas d'échantillonnage de son fichier (erreur de durée sous ~3 %). Le pas
-  est une colonne de la table `montées`.
+  replats) est fixée par `docs/decisions/0014`, avec un contrôle de stabilité par
+  variantes déclarées, recalculé à chaque régénération.
+- **Gain minimal relatif au pas.** Une montée n'est retenue que si son gain couvre au
+  moins 30 pas d'échantillonnage à une vitesse ascensionnelle soutenue de très haut
+  niveau (`docs/decisions/0014`) : à toute vitesse plausible, sa durée dépasse 30 pas
+  (erreur de durée sous ~3 %). La durée ne filtre pas : à gain égal, une montée lente
+  dure plus longtemps, et filtrer par la durée sélectionnerait sur la mesure. Le pas
+  et le plus long intervalle sont des colonnes de la table `montees`.
 - **Pièges** : `docs/PIEGES_DATA.md`.
 
 ## 3. Configuration, seuils et notes de l'athlète
@@ -72,6 +78,11 @@ commande de préremplissage) :
 - **`athlete.toml`** : ce que les données ne disent pas, ou ce que l'athlète veut
   fixer (identifiant, fuseau de référence, FC max déclarée, sports pris en compte).
   Toute valeur absente se calcule depuis les données, avec sa méthode écrite.
+  **Exception** : la vitesse ascensionnelle de référence `V_ref`, qui fixe en gain la
+  frontière des régimes de montées, se déclare (table `[analyse]`) et prend, absente,
+  le défaut du projet : la calculer sur les VAM de l'athlète ferait dépendre les
+  régimes de la mesure (`docs/decisions/0014`). La même table peut déclarer les
+  produits de montre qui portent un baromètre.
 - **`journal.csv`** : les événements que Garmin ne contient pas. Une ligne par
   événement : `debut`, `fin`, `type` (`maladie`, `blessure`, `course`, `deplacement`
   (une absence temporaire), `demenagement` (un changement durable de lieu de vie, donc
@@ -92,7 +103,7 @@ commande de préremplissage) :
   deviennent mesurables.
 
 **Les grandeurs calculées depuis les données** :
-- **Seuils** : un seuil calculé (« grosse sortie », pente minimale d'une montée…) se
+- **Seuils** : un seuil calculé (« grosse sortie »…) se
   fige par version du plan : méthode, période de calcul et valeur écrites dans le
   résultat. Le recalculer fait une nouvelle version. En prévision, il se calcule à
   date (§ 7). Une lecture promue fige les siens à sa déclaration (§ 8).
@@ -110,7 +121,7 @@ commande de préremplissage) :
 |---|---|
 | **le jour** | la journée Garmin ; **la nuit appartient au jour du réveil**. « Décalage 1 » = la nuit qui suit le jour de la sortie, c'est-à-dire la nuit rattachée au jour suivant (un test synthétique le vérifie) |
 | **la sortie** | une activité ; une journée à plusieurs sorties se traite comme le dit le plan |
-| **la montée** (puis descente, plat) | un segment du profil du moteur au-dessus d'une pente et d'une durée minimales (§ 2) |
+| **la montée** (puis descente, plat) | détectée sur le profil du moteur, bornée en temps, au-dessus d'un gain et d'une pente minimaux (§ 2, `docs/decisions/0014`) |
 | **l'événement** | une « grosse sortie », une maladie… suivi sur une fenêtre fixée d'avance. La normale de référence se calcule sur une fenêtre close avant l'événement, hors jours d'événement. La réponse se compare à des jours témoins sans événement, appariés (jour de la semaine, saison, charge des jours précédents). La durée de retour se lit sur la courbe de réponse moyenne, estimée nuit par nuit avec une bande simultanée : la première nuit où la bande tient dans ± le plus petit écart utile. Jamais la moyenne des premiers franchissements de seuil |
 
 Un plan d'analyse nomme toujours son unité, et donne l'effectif en unités
@@ -229,12 +240,12 @@ est aussi une saison.
   les comparaisons faites sont rapportées, y compris celles qui ne donnent rien.
 - **Vocabulaire.** Dans un plan : lectures « principales » et « secondaires ».
   « Confirmatoire » est réservé à la vérification d'une lecture promue (§ 8).
-- **Choix figés.** Les choix d'analyse (seuils, pente et durée minimales d'une montée,
-  fenêtres, exclusions, transformation) se figent dans le plan avant tout calcul sur
-  données réelles. Un choix changé après avoir vu un résultat compte pour un essai de
-  plus. Les variantes plausibles se déclarent d'avance et se rapportent toutes
-  (sensibilité), jamais la meilleure seule ; un estimateur robuste (Huber, ou médiane)
-  fait partie des sensibilités déclarées.
+- **Choix figés.** Les choix d'analyse (seuils, fenêtres, exclusions, transformation ;
+  la définition de la montée est celle de `docs/decisions/0014`) se figent dans le plan
+  avant tout calcul sur données réelles. Un choix changé après avoir vu un résultat
+  compte pour un essai de plus. Les variantes plausibles se déclarent d'avance et se
+  rapportent toutes (sensibilité), jamais la meilleure seule ; un estimateur robuste
+  (Huber, ou médiane) fait partie des sensibilités déclarées.
 - **Déjà vue.** Une relation regardée dans un notebook ou un tableau de bord avant son
   plan est « déjà vue » sur ces données.
 - **Un seul athlète.** Les conclusions valent pour cet athlète. Une relation retrouvée

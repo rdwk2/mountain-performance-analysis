@@ -1000,7 +1000,10 @@ class TimerEvent:
 
     Consommateurs
     -------------
-    Le diagnostic des trous (``0013``, point 1) ; les horloges de la piste (AN1-2).
+    Le diagnostic des trous (``0013``, point 1) ; les tables de ``processed/``
+    (``mountain_perf.analyse.tables``, ``0014``), qui comptent les arrêts du
+    chronomètre et les pauses automatiques d'une activité et de chacune de ses
+    montées. La partition M/S/U (``mountain_perf.clocks``) ne les lit pas.
 
     Non promis
     ----------

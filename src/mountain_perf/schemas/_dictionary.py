@@ -184,6 +184,19 @@ from mountain_perf.schemas.outing import (
     Unavailability,
 )
 from mountain_perf.schemas.parameters import ParameterSet, ParameterSpec
+from mountain_perf.schemas.processed import (
+    ALTITUDE_STRATUM_DESCRIPTIONS,
+    CLIMB_FLAG_DESCRIPTIONS,
+    CLIMB_REGIME_DESCRIPTIONS,
+    GRADE_STRATUM_DESCRIPTIONS,
+    ActivityRow,
+    AltitudeStratum,
+    ClimbFlag,
+    ClimbRegime,
+    ClimbRow,
+    GradeStratum,
+    ProcessedProvenance,
+)
 from mountain_perf.schemas.projection import Passage, Projection, Segment
 from mountain_perf.schemas.reference import (
     TIMING_CONVENTION_DESCRIPTIONS,
@@ -412,6 +425,13 @@ DOCUMENTED_TYPES: tuple[type, ...] = (
     ViewRefusalCount,
     RecordingMismatch,
     IngestionReport,
+    ClimbFlag,
+    ClimbRegime,
+    GradeStratum,
+    AltitudeStratum,
+    ClimbRow,
+    ActivityRow,
+    ProcessedProvenance,
     DriftInterval,
     DriftFit,
     DriftDiagnostic,
@@ -468,6 +488,10 @@ ENUM_DESCRIPTIONS: Mapping[type[Enum], Mapping[Any, str]] = MappingProxyType(
         IndexField: INDEX_FIELD_DESCRIPTIONS,
         RefusalReason: REFUSAL_REASON_DESCRIPTIONS,
         ViewRefusal: VIEW_REFUSAL_DESCRIPTIONS,
+        ClimbFlag: CLIMB_FLAG_DESCRIPTIONS,
+        ClimbRegime: CLIMB_REGIME_DESCRIPTIONS,
+        GradeStratum: GRADE_STRATUM_DESCRIPTIONS,
+        AltitudeStratum: ALTITUDE_STRATUM_DESCRIPTIONS,
     }
 )
 """Description des membres de chaque énumération publiée."""

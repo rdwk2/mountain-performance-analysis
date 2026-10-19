@@ -262,7 +262,8 @@ class ClockPartition:
     Consommateurs
     -------------
     Les horloges cumulées, les totaux et les épisodes d'arrêt (M4a) ; les totaux sur
-    support admis (M4a-2) ; l'association arrêt → passage (M4a-3).
+    support admis (M4a-2) ; l'association arrêt → passage (M4a-3) ; les montées et
+    les tables de la piste analyse (``mountain_perf.analyse``, AN1-2b).
 
     Non promis
     ----------

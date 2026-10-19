@@ -174,7 +174,9 @@ class Route:
 
     Producteur
     ----------
-    La lecture GPX (M2).
+    La lecture GPX (M2) ; la vue positions et altitude d'un enregistrement, mise en
+    tracé par les montées de la piste analyse (``mountain_perf.analyse.climbs``,
+    AN1-2b).
 
     Consommateurs
     -------------
@@ -317,7 +319,8 @@ class RouteProfile:
     Consommateurs
     -------------
     Le moteur de projection (M3), le backtest (M4), l'interface (M5), le découpage
-    en segments (M1b).
+    en segments (M1b) ; les montées et les tables de la piste analyse
+    (``mountain_perf.analyse``, AN1-2b).
 
     Non promis
     ----------

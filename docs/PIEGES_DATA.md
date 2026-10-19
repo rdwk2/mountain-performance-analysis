@@ -11,7 +11,17 @@
 
 **La VAM réelle se calcule comme `D+ ÷ temps de mouvement`.**
 Ne **pas** utiliser le champ `directVerticalSpeed` : il est quantifié (~720 paliers),
-donc inexploitable pour une courbe fine.
+donc inexploitable pour une courbe fine. Pour une montée, le D+ du numérateur est le
+gain pris *pendant* le mouvement (`docs/decisions/0014`) : le gain d'un trou, d'une
+pause ou d'un arrêt n'entre pas au numérateur quand son temps n'est pas au
+dénominateur. De même, une pente se lit sur un seul support : le gain et la longueur
+des mêmes intervalles.
+
+**Classer ou filtrer des montées par leur durée sélectionne sur la mesure** : à gain
+égal, une montée lente dure plus longtemps. Une durée minimale écarte les montées
+rapides, une frontière de régime en durée y fait passer une montée selon sa vitesse.
+Les régimes se lisent sur le gain, à une vitesse de référence déclarée, et le gain
+minimal se rapporte au pas d'échantillonnage (`docs/decisions/0014`).
 
 **Le champ `directGradeAdjustedSpeed` (GAP) n'est pas fiable** aux transitions de
 pente. Pour caractériser les descentes, utiliser la **vitesse brute par tranche de
@@ -204,6 +214,26 @@ localement le tracé.
 **La densité d'échantillonnage varie fortement d'une source à l'autre.** Toujours
 rééchantillonner sur une grille à pas fixe avant de calculer quoi que ce soit ;
 un calcul de pente point-à-point sur des points irréguliers donne du bruit.
+
+**Les bornes d'une côte prises sur le profil lissé sous-estiment sa VAM**, d'autant
+plus que la côte est courte : le lissage rabote son sommet, et les bornes englobent
+une part des replats voisins. Détecter sur le profil, mais placer les bornes et lire le
+gain en temps, sur l'altitude lissée par bloc du moteur (`docs/decisions/0014`).
+
+**Une borne cherchée à l'extrême de l'altitude dans une fenêtre fuit dans un replat qui
+monte doucement** : quand le terrain qui borde une côte continue de monter à 1 ou 2 %,
+le minimum (ou le maximum) de la fenêtre est à son bout, pas au pied (ou au haut), et la
+côte absorbe un bout de replat, lent et presque sans gain. Resserrer les bornes tant
+que l'altitude monte moins vite que la pente d'un replat (`docs/decisions/0014`).
+
+**Une montée peut ne pas être humaine** : une remontée mécanique (un télésiège pendant
+une sortie de ski), un véhicule. Sa VAM ou sa vitesse horizontale sort de toute échelle
+humaine ; elle se marque, avec des seuils déclarés, et ne se corrige pas.
+
+**L'altitude barométrique dérive avec la pression** : sur une boucle, l'arrivée ne
+revient pas exactement à l'altitude du départ. La fermeture altimétrique d'une boucle,
+rapportée à sa durée, en est un indicateur ; une montée sans baromètre attesté (le FIT
+ne décrit pas toujours ses capteurs) a une altitude GPS, plus bruitée.
 
 ---
 
