@@ -63,6 +63,8 @@ from mountain_perf.backtest import (
     append_failure,
     append_result,
     calibrate_performances,
+    content_hash,
+    encode_document,
     evaluation_bands,
     failure_reason,
     frozen_references,
@@ -80,6 +82,7 @@ from mountain_perf.backtest import (
 from mountain_perf.schemas import (
     CLOCKS,
     CalibratedOutingScores,
+    ClockKind,
     Declaration,
     EventKind,
     ExperimentMetric,
@@ -90,6 +93,7 @@ from mountain_perf.schemas import (
     OutingScores,
     ParameterSet,
     RegistryEvent,
+    RepeatabilityRecord,
     SensitivityConfiguration,
 )
 from mountain_perf.schemas.admission import NonEvaluable
@@ -265,15 +269,25 @@ def test_pair_d8_references_are_computed_on_its_observations(
     world: BacktestSensitivity,
 ) -> None:
     """Précision de D13 (M4d-3) : la référence D8 de chaque parcours, pour une paire,
-    sur les observations **de la paire** — figée par la DÉCLARATION, publiée par le
-    RÉSULTAT ; pour ``(100, 15)``, pas celle de la centrale."""
+    sur les observations **de la paire** — en mémoire, figée par la DÉCLARATION de
+    sensibilité et publiée par son RÉSULTAT (les mêmes documents) ; pour
+    ``(100, 15)``, pas celle de la centrale."""
+    log = read_registry(world.registry)
+    sensitivity = _declaration(log.events[2]).sensitivity
+    result = log.events[3].result
+    assert sensitivity is not None
+    assert result is not None
     performances = world.central.preparation.performances
-    differs = 0
-    for evaluated in world.run.evaluation.pairs:
+    for rank, evaluated in enumerate(world.run.evaluation.pairs):
         expected = repeatability_references(performances, _observations(evaluated))
         assert evaluated.references == expected
-        differs += expected != world.central.references
-    assert differs > 0
+        records = tuple(
+            RepeatabilityRecord(route_id, content_hash(encode_document(reference)))
+            for route_id, reference in expected
+        )
+        assert sensitivity.pairs[rank].references == records
+        assert result.pairs[rank].references == records
+    assert _pair(world, OTHER_PAIR).references != world.central.references
 
 
 def test_pair_calibration_is_computed_on_its_scores(world: BacktestSensitivity) -> None:
@@ -316,7 +330,6 @@ def test_pair_bands_are_computed_on_its_scores(world: BacktestSensitivity) -> No
     """Précision de D13 (M4d-3) : pour ``just backtest``, les fourchettes de D11 de
     chaque paire, calculées sur ses scores et son calage — pour ``(100, 15)``, pas
     celles de la centrale."""
-    differs = 0
     for evaluated in world.run.evaluation.pairs:
         evaluation = evaluated.evaluation
         assert evaluation is not None
@@ -330,8 +343,10 @@ def test_pair_bands_are_computed_on_its_scores(world: BacktestSensitivity) -> No
         assert expected
         published = tuple(o.bands for o in evaluated.outcomes if o.bands is not None)
         assert published == expected
-        differs += expected != world.central.bands
-    assert differs > 0
+    other = _pair(world, OTHER_PAIR)
+    assert tuple(o.bands for o in other.outcomes if o.bands is not None) != (
+        world.central.bands
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -430,12 +445,15 @@ def test_configuration_without_evaluable_performance_has_no_decision(
     excluded: Variant,
 ) -> None:
     """Précision de D13 (M4d-3) : « sans performance évaluable, la configuration n'a que
-    ses évaluations, sans décision » — sous les cinq ``M θ``, l'expérience à exclusion
-    n'a aucune performance évaluable ; sous ``M θ2``, ses évaluations sont celles de la
-    même expérience dédiée, déclarée sous cette horloge (un ÉCHEC « non évaluable »)."""
+    ses évaluations, sans décision » — sous les cinq ``M θ``, et sous elles seules,
+    l'expérience à exclusion n'a aucune performance évaluable ; sous ``M θ2``, ses
+    évaluations sont celles de la même expérience dédiée, déclarée sous cette horloge
+    (un ÉCHEC « non évaluable »)."""
     outcome = excluded.run.evaluation.outcome
     undecided = [c for c in outcome.configurations if c.admission is None]
-    assert len(undecided) == 5
+    assert [c.configuration for c in undecided] == [
+        c for c in SENSITIVITY_CONFIGURATIONS if c.clock.kind is ClockKind.MOVING
+    ]
     for configuration in undecided:
         assert configuration.assessments is not None
         assert all(a.motif is not None for a in configuration.assessments)

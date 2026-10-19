@@ -5,7 +5,8 @@ que les tests joints ne tenaient pas — correctifs de la relecture de la PR #32
 - Ses imports (§ 6.0 du brief), lus sur l'arbre syntaxique : du projet, le package
   ``mountain_perf.schemas`` et cinq noms de ``mountain_perf.schemas.sensitivity``, aucun
   module de ``backtest/`` ; hors du projet, ``__future__``, ``collections.abc``,
-  ``dataclasses``, ``datetime``, ``enum`` au plus ; ni ``open``.
+  ``dataclasses``, ``datetime``, ``enum`` au plus ; ni ``open``, ni ``__import__``,
+  ``exec`` ou ``eval``.
 - ``Side`` et ``SensitivityQualification`` : des dataclasses gelées (§ 6.2).
 - ``SensitivityStatus`` : ses membres, leurs valeurs, leur ordre (§ 6.2).
 """
@@ -47,7 +48,8 @@ def test_library_imports_what_the_brief_allows() -> None:
     """§ 6.0 du brief : la bibliothèque importe le package ``mountain_perf.schemas`` et
     cinq noms des contrats de la sensibilité, aucun module de ``backtest/`` ; hors du
     projet, ``__future__``, ``collections.abc``, ``dataclasses``, ``datetime``, ``enum``
-    au plus. Fonctions pures, sans lecture ni écriture : ni ``open``."""
+    au plus. Sans lecture ni écriture : ni ``open``, ni ``__import__``, ``exec`` ou
+    ``eval``."""
     tree = ast.parse(Path(library.__file__).read_text(encoding="utf-8"))
     modules: set[str] = set()
     contracts: set[str] = set()

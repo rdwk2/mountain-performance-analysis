@@ -4,8 +4,8 @@ PR #32 (relecture C en deux passes).
 
 - L'invariant 5 de ``RegistryLog``, clauses 1 et 3 : le RÉSULTAT que nomme une
   DÉCLARATION de sensibilité la précède, et répond à la centrale.
-- La relecture contrôle les documents d'un RÉSULTAT de sensibilité : ceux de chaque
-  paire, et le document de sensibilité.
+- La relecture contrôle les documents d'un RÉSULTAT de sensibilité, présents et
+  intacts : ceux de chaque paire, et le document de sensibilité.
 - Les contrats de la DÉCLARATION de sensibilité d'une expérience : une entrée de
   ``frozen`` par configuration, dans l'ordre ; chaque référence figée sous l'horloge de
   sa configuration.
@@ -214,14 +214,20 @@ def _cited_by_the_central(log: RegistryLog) -> set[str]:
     return cited
 
 
+DAMAGES = {"altere": "document altéré", "absent": "document introuvable"}
+"""Ce qu'on fait au document, et le motif du refus."""
+
+
+@pytest.mark.parametrize("damage", list(DAMAGES))
 @pytest.mark.parametrize("kind", ["observation", "scores", "fourchettes", "d8"])
-def test_altered_document_of_a_pair_is_refused_on_reading(
-    tmp_path: Path, world: BacktestSensitivity, kind: str
+def test_damaged_document_of_a_pair_is_refused_on_reading(
+    tmp_path: Path, world: BacktestSensitivity, kind: str, damage: str
 ) -> None:
     """Précision de D14 (M4d-3) : chaque document cité par une paire du RÉSULTAT de
     sensibilité est présent et intact à la relecture (``read_registry``, celle que
-    tout ajout refait) — un document de la paire ``(100, 15)``, cité par elle seule,
-    altéré après l'écriture, est refusé."""
+    tout ajout refait) — un document de la paire ``(100, 15)``, cité par elle seule
+    (observation, scores, fourchettes, document D8), altéré ou retiré après
+    l'écriture, est refusé."""
     root = copy_registry(world.registry, tmp_path / "registre")
     log = read_registry(root)
     result = log.events[3].result
@@ -244,9 +250,12 @@ def test_altered_document_of_a_pair_is_refused_on_reading(
     assert own
     sha = own[0]
     path = root / DOCUMENTS_DIR / f"{sha}.json"
-    path.write_bytes(path.read_bytes() + b" ")
+    if damage == "altere":
+        path.write_bytes(path.read_bytes() + b" ")
+    else:
+        path.unlink()
     with pytest.raises(
-        RegistryError, match=re.escape(f"documents/{sha}.json : document altéré")
+        RegistryError, match=re.escape(f"documents/{sha}.json : {DAMAGES[damage]}")
     ):
         read_registry(root)
 
