@@ -113,8 +113,9 @@ def pair_matching(pair: Pair) -> ParameterSet:
 class PairEvaluation:
     """Une paire ``(Δ, ε)`` calculée, en mémoire : ses sorties scorées et non scorées,
     ses références D8 ; pour ``just backtest``, l'évaluation de la paire (sorties
-    tracées, calage, fourchettes : le rapport s'en sert) ; pour une expérience, la
-    décision de chacune de ses configurations, dans l'ordre des configurations."""
+    tracées, calage, fourchettes : le rapport s'en sert). Pour une expérience,
+    ``evaluation`` est absente : la décision de chaque configuration est dans le
+    document de sensibilité (``SensitivityEvaluation.outcome``)."""
 
     pair: Pair
     outcomes: tuple[OutingOutcome, ...]

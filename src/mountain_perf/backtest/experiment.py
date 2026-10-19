@@ -566,8 +566,9 @@ def run_experiment(
 @dataclass(frozen=True)
 class ExperimentScores:
     """Les scores d'une expérience sur ses sorties observées, en mémoire (M4c-3 ;
-    partagés par la sensibilité, M4d-3) : v0 brut et le candidat non calés, puis les
-    scores calés de (0) et (1), par sortie."""
+    partagés par la sensibilité, M4d-3) : v0 brut, non calé, par sortie ; les scores
+    calés de (0) et (1), par sortie et par modèle. Les scores non calés du candidat ne
+    sont pas gardés."""
 
     raw: Mapping[str, OutingScores]
     calibrated: Mapping[tuple[str, ModelKind], CalibratedOutingScores]
