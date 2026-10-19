@@ -2,8 +2,9 @@
 # Elle ne peut être verte que si le code ne dépend d'aucun fichier privé.
 #
 # Deux temps (docs/decisions/0011) : d'abord sans aucun extra, comme un `mperf`
-# installé seul (les tests qui lisent des FIT se sautent, par
-# `pytest.importorskip("fitdecode")`) ; puis toute la suite avec tous les extras.
+# installé seul (les tests qui lisent des FIT ou écrivent du Parquet se sautent, par
+# `pytest.importorskip("fitdecode")` et `pytest.importorskip("pyarrow")`) ; puis toute
+# la suite avec tous les extras.
 name: CI
 
 on:

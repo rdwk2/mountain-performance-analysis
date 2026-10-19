@@ -57,12 +57,14 @@ class RecordedTrace:
 
     Producteur
     ----------
-    ``read_trace`` (``mountain_perf.gpx.trace_reader``).
+    ``read_trace`` (``mountain_perf.gpx.trace_reader``) ; les montées de la piste
+    analyse, depuis la vue positions et altitude d'un enregistrement
+    (``mountain_perf.analyse.climbs``, AN1-2b).
 
     Consommateurs
     -------------
     Le manifeste (M4a) ; les séries dérivées et les horloges (M4a) ; l'appariement
-    (M4a-2).
+    (M4a-2) ; les montées de la piste analyse (AN1-2b).
 
     Non promis
     ----------

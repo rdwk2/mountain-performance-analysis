@@ -13,7 +13,8 @@ un usage personnel d'abord ; le dépôt ne contient aucune donnée personnelle.
 Une seconde piste partage le dépôt et sa méthode : l'analyse des données
 d'entraînement, de récupération et de sommeil de l'athlète, des tableaux de bord
 jusqu'à l'apprentissage automatique (jalons `AN`, [`docs/analyse/`](docs/analyse/)).
-Elle ingère déjà les activités de l'export Garmin (`mperf ingest`).
+Elle ingère déjà les activités de l'export Garmin (`mperf ingest`) et en tire les
+tables des activités et des montées (`mperf tables`).
 
 ![La chaîne de mountain-performance-analysis sur des données synthétiques : courbe allure↔pente, profil d'un tracé avec temps de passage projetés par v0 et réalisés, écart mesuré tous les 250 m](docs/img/chaine.svg)
 
@@ -63,7 +64,11 @@ Aucune dépendance de calcul : la seule dépendance d'exécution est `tzdata`, s
 Windows. La lecture des FIT de l'ingestion demande en plus l'extra `ingest`
 (fitdecode, [`0011`](docs/decisions/0011-bibliotheques-analyse.md)) :
 `uv sync --locked --extra ingest`, ou `just ingest`, qui l'installe de lui-même ; sans
-lui, les tests qui lisent des FIT se sautent. `just check` enchaîne trois recettes :
+lui, les tests qui lisent des FIT se sautent. L'écriture des tables de `processed/` en
+Parquet demande l'extra `analyse` (pyarrow,
+[`0014`](docs/decisions/0014-montees-et-tables.md)) : `uv sync --locked --extra
+analyse`, ou `just process` ; sans lui, les tests qui écrivent du Parquet se sautent.
+`just check` enchaîne trois recettes :
 
 | Recette | Ce qu'elle lance |
 |---|---|
@@ -79,9 +84,10 @@ une machine vierge, sous Python 3.12, sans extra, puis toute la suite avec tous 
 extras, à chaque push et à chaque pull request.
 
 `MPA_DATA_DIR`, le dossier des données personnelles hors du dépôt, sert au backtest
-enregistré (`just backtest` : manifeste, courbe, registre, rapports) et à l'ingestion
-(`just ingest` : `raw/` lu, `interim/activities/` écrit) ; les autres commandes ne le
-lisent pas, les tests non plus
+enregistré (`just backtest` : manifeste, courbe, registre, rapports), à l'ingestion
+(`just ingest` : `raw/` lu, `interim/activities/` écrit) et aux tables (`just process` :
+l'ingestion, puis `interim/` et `athlete.toml` lus, `processed/` écrit) ; les autres
+commandes ne le lisent pas, les tests non plus
 ([`tests/conftest.py`](tests/conftest.py) le pose sur un dossier temporaire neuf
 pour chaque test). Pour le renseigner, copier [`.env.example`](.env.example) en
 `.env` ; `just` charge `.env` s'il existe. Sous Windows, écrire le chemin avec des
@@ -89,11 +95,11 @@ barres obliques.
 
 ## Utilisation : `mperf`
 
-Cinq sous-commandes, installées par `uv sync` ; `ingest` demande en plus l'extra
-`ingest`. Les exemples ci-dessous ont été exécutés depuis la racine du dépôt, sur des
-fixtures synthétiques commitées ([`tests/fixtures/`](tests/fixtures/README.md)) ; celui
-du backtest, sur le monde synthétique que les tests écrivent dans un dossier
-temporaire.
+Six sous-commandes, installées par `uv sync` ; `ingest` et `tables` demandent en plus
+leur extra (`ingest`, `analyse`). Les exemples ci-dessous ont été exécutés depuis la
+racine du dépôt, sur des fixtures synthétiques commitées
+([`tests/fixtures/`](tests/fixtures/README.md)) ; celui du backtest, sur le monde
+synthétique que les tests écrivent dans un dossier temporaire.
 
 ### `mperf profile` — le profil d'un GPX
 
@@ -408,6 +414,54 @@ les désaccords et les activités sans vue `Activity` ; suit une ligne par coupl
 type de la source) de ces dernières. Pas d'exemple ici : sur l'export réel, ces nombres
 restent hors du dépôt ([`docs/analyse/CHARTE.md`](docs/analyse/CHARTE.md), § 10).
 
+### `just process` — les tables des activités et des montées
+
+`just process` régénère tout depuis `raw/` : l'ingestion (`mperf ingest`, extra
+`ingest`), puis `mperf tables` (extra `analyse`), qui lit
+`MPA_DATA_DIR/interim/activities/` et écrit deux tables Parquet dans
+`MPA_DATA_DIR/processed/` ([`0014`](docs/decisions/0014-montees-et-tables.md)) :
+
+- `activites.parquet`, une ligne par activité de l'index : les valeurs de l'index, le
+  temps de mouvement du moteur sous ses cinq conventions, le pas, les trous et les
+  pauses, l'appareil, et les montées comptées par régime ;
+- `montees.parquet`, une ligne par montée : ses bornes en temps, son gain, sa vitesse
+  ascensionnelle (le gain pris en mouvement divisé par le temps en mouvement, avec sa
+  variante et son enveloppe), sa pente, son régime (côte, intermédiaire, montée longue,
+  ski de randonnée, ski de randonnée court, autre sport), ses strates de pente et
+  d'altitude, ses drapeaux et sa stabilité.
+
+Les montées se détectent sur le profil du moteur ; leurs bornes et leur gain se lisent
+en temps, sur l'altitude lissée du moteur, et un replat qui monte doucement reste hors
+de la montée, à un pas de grille près (un bout plus court qu'un pas peut y rester et
+diluer la VAM d'une côte courte) ; près de la pente d'un replat, le bruit de l'altitude
+peut y laisser bien plus (`docs/decisions/0014`). Un drapeau marque une montée sans la
+retirer. Les deux fichiers portent leur provenance : l'empreinte d'`interim/`, la
+version du paquet et tous les paramètres de la définition ; régénérés depuis le même
+`interim/` par le même code, avec le même `athlete.toml` et la même version de pyarrow
+(celle de `uv.lock`), ils sont identiques à l'octet sur la même plateforme (d'un système
+à l'autre, les derniers chiffres d'un nombre peuvent différer).
+
+`MPA_DATA_DIR/athlete.toml` peut déclarer, dans sa table `[analyse]`, la vitesse
+ascensionnelle de référence qui fixe la frontière des régimes, et les produits de
+montre qui portent un baromètre :
+
+```toml
+[analyse]
+reference_vertical_speed_m_per_h = 900
+barometer_products = [{ manufacturer = "garmin", product = 1 }]
+```
+
+Absente, la vitesse prend le défaut du projet (900 m/h) ; elle ne se calcule pas sur
+les données, pour que les régimes ne dépendent pas de la mesure.
+
+```bash
+just process
+```
+
+Après l'ingestion, `mperf tables` dit le nombre d'activités et de montées, les
+montées par régime, les montées marquées et instables, l'empreinte d'`interim/` et les
+fichiers écrits. Pas d'exemple ici, pour la même raison.
+
 ## État et plan
 
 - **Moteur de prédiction** : M0 à M4 livrés. Livrés en M4 :
@@ -420,9 +474,9 @@ restent hors du dépôt ([`docs/analyse/CHARTE.md`](docs/analyse/CHARTE.md), § 
   `just backtest courbe.csv --sensitivity`).
 - **Piste analyse** : cadrage livré (AN0 : charte, questions, décisions 0011 à 0013) ;
   AN1 (activités et montées) en cours : son codec commun, l'ingestion des activités
-  (`just ingest`) et les horloges du moteur rendues communes (le temps de mouvement)
-  livrés ; restent les tables de `processed/` (activités et montées), la figure de Q1
-  et la commande qui régénère `interim/` et `processed/` (AN1-2b et AN1-2c).
+  (`just ingest`), les horloges du moteur rendues communes (le temps de mouvement),
+  les tables de `processed/` (activités et montées) et la commande qui régénère
+  `interim/` et `processed/` (`just process`) livrés ; reste la figure de Q1 (AN1-2c).
 
 Le détail :
 
@@ -449,6 +503,7 @@ sont au statut « acceptée » :
 - [0011 — Bibliothèques de la piste analyse](docs/decisions/0011-bibliotheques-analyse.md)
 - [0012 — Notebooks et règle 7](docs/decisions/0012-notebooks-et-regle-7.md)
 - [0013 — Ingestion des activités et format d'`interim/`](docs/decisions/0013-ingestion-et-interim.md)
+- [0014 — Les montées et les tables de `processed/`](docs/decisions/0014-montees-et-tables.md)
 
 Autres documents :
 
@@ -472,8 +527,8 @@ Code, ouvert dans un clone du dépôt, n'y touche pas : le hook de
 ([`scripts/hooks/proteger_donnees.py`](scripts/hooks/proteger_donnees.py)) refuse ses
 outils de fichiers sous ce dossier, qu'il connaît par `MPA_DATA_DIR` (l'environnement,
 sinon le `.env` du clone), et ses commandes qui le nomment ou qui écrivent dans les
-données ; les commandes sur les données réelles (`just ingest`, `just backtest`) sont
-lancées par l'humain. C'est un garde-fou, pas une enceinte : une commande qui atteint le
-dossier sans le nommer n'est pas vue. Les tests et les exemples
+données ; les commandes sur les données réelles (`just ingest`, `just process`,
+`just backtest`) sont lancées par l'humain. C'est un garde-fou, pas une enceinte : une
+commande qui atteint le dossier sans le nommer n'est pas vue. Les tests et les exemples
 ci-dessus n'utilisent que les fixtures synthétiques de
 [`tests/fixtures/`](tests/fixtures/README.md).

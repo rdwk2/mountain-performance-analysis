@@ -45,3 +45,9 @@ backtest curve *options:
 # avec l'extra ingest (fitdecode).
 ingest:
     uv run --extra ingest mperf ingest
+
+# Régénère interim/ puis processed/ depuis raw/ (AN1-2b, docs/decisions/0014) :
+# l'ingestion (extra ingest), puis les tables de processed/ (mperf tables, extra analyse).
+process:
+    uv run --extra ingest mperf ingest
+    uv run --extra analyse mperf tables

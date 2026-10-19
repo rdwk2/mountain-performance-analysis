@@ -1,6 +1,7 @@
 # Questions de la piste analyse
 
-*Version 1, validée le 2026-10-07. Ne contient aucun chiffre tiré des données.*
+*Version 1, validée le 2026-10-07 ; Q1 précisée le 2026-10-17 par la définition de la
+montée (`docs/decisions/0014`). Ne contient aucun chiffre tiré des données.*
 
 *Écrite avant toute analyse des relations entre variables : l'examen des données n'a
 décrit les variables qu'une à une. Une version suivante s'écrira quand de nouvelles
@@ -29,15 +30,18 @@ questions viendront ; elle sera datée.*
 
 ## Thème A — Progression
 
-**Q1 — La VAM progresse-t-elle, à pente, durée et altitude comparables ?** *(AN1 :
+**Q1 — La VAM progresse-t-elle, à pente, gain et altitude comparables ?** *(AN1 :
 figure descriptive ; inférence dans un jalon de question)*
 - En régimes séparés, qui ne se comparent pas entre eux : (a) montées longues ; (b)
   côtes courtes ; (c) ski de randonnée. Raison : le terrain pratiqué peut changer avec
   la saison, et la date seule mêle alors forme et terrain.
-- Unité : la montée (segment du profil du moteur, au-dessus d'une pente et d'une durée
-  minimales), regroupée par sortie. Mesure : `vertical_speed_ms` = D+ ÷ temps de
-  mouvement. Facteur : la date.
-- Confusions : pente, durée de la montée, altitude, chaleur, place dans la sortie,
+- Unité : la montée (détectée sur le profil du moteur, bornée en temps, au-dessus d'un
+  gain et d'une pente minimaux, `docs/decisions/0014`), regroupée par sortie. Mesure :
+  `vertical_speed_ms` = gain pris en mouvement ÷ temps en mouvement. Facteur : la date.
+- « Gain comparable » : la version 1 disait « durée comparable » ; les régimes et les
+  strates se lisent sur le terrain (gain, pente, altitude), jamais sur la durée, qui
+  dépend de la mesure (`docs/decisions/0014`).
+- Confusions : pente, gain de la montée, altitude, chaleur, place dans la sortie,
   intention, technicité, sac, intensité choisie (FC).
 
 **Q2 — L'efficience en montée progresse-t-elle (VAM à FC comparable, ou par battement

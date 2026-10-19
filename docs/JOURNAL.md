@@ -75,6 +75,75 @@ de `main` d'avant M4d-2 ne le relit plus.
 
 ---
 
+### 2026-10-18 · AN1-2b — correctifs de la seconde relecture
+La relecture C des correctifs (« fusionnable après correction des constats 1 et 2 »).
+Dans le dernier pas, le complément place la borne à `max(tolérance, flat_grade × pas)`
+du minimum ou du maximum du pas : aux défauts, les deux valent 1 m et rien ne change ;
+sous une tolérance plus fine que ce qu'un replat monte sur un pas, la borne ne reste
+plus dans le replat. `0014` écrit les limites mesurées du resserrement et ce qu'en
+disent les variantes de la stabilité : il se lit à un pas près (sans bruit, de 0,51 à
+0,65 % environ, la côte de 30 m des tests garde un bout de replat) ; chaque pas se teste
+seul contre `flat_grade`, et un pas qui monte assez par le bruit l'arrête (avec le bruit
+des tests, la règle tient de 0,9 à 1,3 % environ et cède dès 1,4 %). Le README et le
+domaine C le disent aussi. Tests : le complément à trois tolérances, un replat montant
+parcouru à 2 m/s (le pas se lit en distance), les deux limites épinglées (à 1,9 % avec
+bruit ; vers 0,6 % sans bruit, où la montée est instable) ; le test de la stabilité
+passe son replat à 200 m (à 210 m, le replat atteint déjà son seuil sous `grid_25_m`) ;
+la docstring d'`interpolate` dit le comportement à chaque bout ; trois lignes au
+`BACKLOG`. Conclusion : `just check` vert, 6 027 tests avec tous les extras ; aux
+défauts, les bornes et les mesures des montées ne changent pas, la stabilité peut
+changer. Rangé dans `src/mountain_perf/analyse/climbs.py`, `tests/test_analyse_*.py`,
+`docs/decisions/0014-montees-et-tables.md`, branche `an1/montees-tables`.
+
+---
+
+### 2026-10-18 · AN1-2b — correctifs de relecture
+La relecture C (« fusionnable après correction du constat 1 ») et le contrôle réel de
+la PR. Une montée bordée d'un replat qui monte doucement (de 1 à 2 %) l'absorbait : la
+borne en temps se posait au bout de sa fenêtre, la VAM se diluait et la coupe des
+replats ne lisait plus leur temps. Les bornes en temps se resserrent désormais tant que
+l'altitude lissée monte de moins de `flat_grade` sur un pas de grille de distance
+réalisée, puis se placent par la tolérance dans le premier pas qui monte d'au moins
+autant (`0014`, point 3 ; un piège de plus). Le seuil de longueur d'un replat est atteint à
+l'arrondi près, comme en `0010` D5.2 : aux défauts, il vaut trois pas de grille, et
+l'arrondi des fonctions trigonométriques en décidait d'une plateforme à l'autre
+(contrôle réel). Tests : replats montants (avec et sans bruit, échantillonnage espacé,
+fusion, coupe), une montée à deux drapeaux, chaque compte par régime, les 33 défauts
+de la définition, les noms publiés du format Parquet, des clôtures d'import qui voient
+`from mountain_perf import backtest`, une entrée de plus pour `_profile_bounds` ; un
+test de la stabilité passe son replat de 220 à 210 m (puis 200 m : correctifs de la
+seconde relecture). Textes : `interpolate`, `athlete.toml` dans « les mêmes octets »,
+la variante de lissage, les régimes du README ; dictionnaire régénéré ; deux lignes au
+`BACKLOG` (une propriété de la chaîne ; les égalités du profil sur un palier).
+Conclusion : `just check` vert, 6 008 tests avec tous les extras ; les montées
+bordées d'un replat montant perdent ce replat, à un pas près (près de `flat_grade`, le
+bruit en décide : correctifs de la seconde relecture). Rangé dans
+`src/mountain_perf/analyse/climbs.py`, `tests/test_analyse_*.py`,
+`docs/decisions/0014-montees-et-tables.md`, branche `an1/montees-tables`.
+
+---
+
+### 2026-10-18 · AN1-2b — Montées et tables
+Les montées d'une activité et les tables de `processed/` (`docs/decisions/0014`,
+acceptée). La montée se détecte sur le profil du moteur ; ses bornes et son gain se
+lisent en temps, sur l'altitude lissée et les horloges communes (`0010` D4.4 et D5) ; sa
+VAM principale est le gain pris en mouvement divisé par le temps en mouvement, avec une
+variante et une enveloppe sur les cinq conventions. Régimes lus sur le gain, à une
+vitesse de référence déclarée dans `athlete.toml` (exception à la charte, § 3) ;
+strates de pente et d'altitude ; drapeaux qui marquent sans retirer ; stabilité sous
+douze variantes déclarées. Deux tables Parquet, `activites` et `montees`, avec leur
+provenance, écrites par `mperf tables` ; `just process` régénère `interim/` et
+`processed/` depuis `raw/` ; le hook refuse les deux à Claude Code. L'extra `analyse`
+(pyarrow seul, importé par `analyse/parquet.py` seul). Contrats dans
+`schemas/processed.py`, dictionnaire régénéré ; charte, Q1, pièges, `CLAUDE.md`,
+README, ROADMAP, CI ; quatre lignes au `BACKLOG`.
+Conclusion : `just check` vert, 5 714 tests avec tous les extras ; la figure de Q1
+lira ces tables (AN1-2c). Rangé dans `src/mountain_perf/analyse/`,
+`src/mountain_perf/schemas/processed.py`, `docs/decisions/0014-montees-et-tables.md`,
+branche `an1/montees-tables`.
+
+---
+
 ### 2026-10-18 · M4d-2 — correctifs de relecture
 La relecture C (verdict « fusionnable en l'état ») et le balayage par mutation de la
 conception n'ont trouvé aucun défaut du code, mais des règles écrites que la batterie
