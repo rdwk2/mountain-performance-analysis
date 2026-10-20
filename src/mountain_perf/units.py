@@ -120,3 +120,36 @@ def format_vam(vertical_speed_ms: float) -> str:
         return UNDEFINED
     vertical_speed_mh: int = round(vertical_speed_ms * S_PER_H)
     return f"{vertical_speed_mh} m/h"
+
+
+def format_count(value: float) -> str:
+    """Entiers d'affichage, avec espaces ASCII pour séparer les milliers (rapports de
+    ``mperf`` ; déplacé de ``cli.py`` en M5).
+
+    Renvoie :data:`UNDEFINED` si l'entrée n'est pas finie.
+    """
+    if not math.isfinite(value):
+        return UNDEFINED
+    return f"{value:,.0f}".replace(",", " ")
+
+
+def format_grade(grade: float) -> str:
+    """Pente en pourcentage, signe compris : ``+45 %``, ``−40 %`` (rapports de
+    ``mperf`` ; déplacé de ``cli.py`` en M5).
+
+    Renvoie :data:`UNDEFINED` si l'entrée n'est pas finie.
+    """
+    if not math.isfinite(grade):
+        return UNDEFINED
+    return f"{grade * 100:+.0f} %".replace("-", "−")
+
+
+def format_share(share: float) -> str:
+    """Fraction en pourcentage arrondi. La fraction, elle, vient du moteur (rapports de
+    ``mperf`` ; déplacé de ``cli.py`` en M5).
+
+    Renvoie :data:`UNDEFINED` si l'entrée n'est pas finie.
+    """
+    if not math.isfinite(share):
+        return UNDEFINED
+    return f"{100 * share:.0f} %"
