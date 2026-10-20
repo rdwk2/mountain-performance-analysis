@@ -51,3 +51,10 @@ ingest:
 process:
     uv run --extra ingest mperf ingest
     uv run --extra analyse mperf tables
+
+# L'interface (M5, docs/decisions/0016) : une appli Streamlit locale, sur MPA_DATA_DIR
+# (routes/, sorties/, reference/), avec l'extra tableau ; à ouvrir sur
+# http://localhost:8501. Serveur local seulement, sans télémétrie :
+# .streamlit/config.toml, lu depuis la racine, où just lance ses recettes.
+ui:
+    uv run --extra tableau streamlit run src/mountain_perf/ui/app.py

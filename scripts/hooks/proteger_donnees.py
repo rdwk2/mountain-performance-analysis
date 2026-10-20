@@ -13,9 +13,13 @@ Lu sur l'entrée standard : l'appel d'outil en JSON (``tool_name``, ``tool_input
 - une commande (``Bash``, ``PowerShell``, ``Monitor``) qui nomme ce dossier, sa
   variable, ou une commande qui écrit dans les données (``mperf ingest``,
   ``mperf backtest``, ``mperf tables``, ``just ingest``, ``just backtest``,
-  ``just process``, options de ``just`` comprises, et ``python -m mountain_perf.cli``
-  suivi de ``ingest``, ``backtest``, ``tables`` ou ``process`` ; sans casse,
-  ``mperf.exe`` et ``just.exe`` compris, sous-commande entre guillemets comprise).
+  ``just process``, ``just ui``, options de ``just`` comprises, et
+  ``python -m mountain_perf.cli`` suivi de ``ingest``, ``backtest``, ``tables`` ou
+  ``process`` ; sans casse, ``mperf.exe`` et ``just.exe`` compris, sous-commande entre
+  guillemets comprise ; une recette ``ui-…`` ou ``process-…`` est une autre recette) ;
+- une commande qui lance l'interface (M5, ``0016``), qui lit et écrit les données :
+  ``streamlit run`` sous toutes ses formes (``streamlit.exe``, ``python -m
+  streamlit``, ``uv run streamlit``, guillemets, casse, options avant ``run``).
 
 ``MPA_DATA_DIR`` vient de l'environnement, sinon du ``.env`` à la racine du projet
 (``CLAUDE_PROJECT_DIR``, lu en UTF-8, marque d'ordre des octets admise ; ``export`` en
@@ -73,7 +77,13 @@ SHELL_TOOLS = {"Bash", "PowerShell", "Monitor"}
 WRITING_COMMANDS = re.compile(
     r"\b(?:mperf|just|mountain_perf\.cli)(?:\.exe)?[\"']?"
     r"(?:\s+-\S+(?:\s+[^\s-]\S*)?)*"
-    r"\s+[\"']?(?:ingest|backtest|tables|process)\b",
+    r"\s+[\"']?(?:ingest|backtest|tables|process|ui)(?![\w-])",
+    re.IGNORECASE,
+)
+INTERFACE_COMMANDS = re.compile(
+    r"\bstreamlit(?:\.exe)?[\"']?"
+    r"(?:\s+-\S+(?:\s+[^\s-]\S*)?)*"
+    r"\s+[\"']?run(?![\w-])",
     re.IGNORECASE,
 )
 HOME_PREFIXES = (
@@ -253,6 +263,8 @@ def decide(call: dict[str, object], root: str | None) -> str | None:
         command = _text(tool_input.get("command"), "command")
         if WRITING_COMMANDS.search(command):
             return "commande qui écrit dans les données : rdw la lance lui-même"
+        if INTERFACE_COMMANDS.search(command):
+            return "commande qui lance l'interface : rdw la lance lui-même"
         if VARIABLE.lower() in command.lower():
             return f"commande qui nomme {VARIABLE}"
         if root and _names(command, root):
