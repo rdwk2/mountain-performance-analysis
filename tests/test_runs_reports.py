@@ -8,6 +8,7 @@ ce qui l'écrit en dur et ne change pas : les blocs du README
 (``test_readme_examples.py``), ``test_cli_project.py`` et ``test_cli_profile.py``.
 """
 
+import io
 import math
 import shutil
 import subprocess
@@ -17,18 +18,22 @@ from pathlib import Path
 
 import pytest
 
+from mountain_perf.controls import ParameterControl, changed_values, parameter_controls
 from mountain_perf.gpx import (
+    PROFILE_PARAMETER_DISPLAYS,
     PROFILE_PARAMETER_SPECS,
     GpxError,
     build_profile_with_diagnostics,
     read_gpx,
 )
 from mountain_perf.model import (
+    PROJECTION_PARAMETER_DISPLAYS,
     PROJECTION_PARAMETER_SPECS,
     project_with_diagnostics,
     read_curve,
     route_endpoints,
 )
+from mountain_perf.model.export import write_passages_csv
 from mountain_perf.reports import grid_lines, passage_lines, projection_summary_lines
 from mountain_perf.runs import project_route
 from mountain_perf.schemas import ParameterSet
@@ -153,3 +158,82 @@ def test_formats_show_a_dash_on_a_non_finite_input(
     formatted: Callable[[float], str], value: float
 ) -> None:
     assert formatted(value) == "—"
+
+
+# ---------------------------------------------------------------------------
+# L'export de l'interface est celui de la commande (commit 2 du brief M5-1)
+# ---------------------------------------------------------------------------
+
+PROFILE_CONTROLS = parameter_controls(
+    PROFILE_PARAMETER_SPECS, PROFILE_PARAMETER_DISPLAYS
+)
+PROJECTION_CONTROLS = parameter_controls(
+    PROJECTION_PARAMETER_SPECS, PROJECTION_PARAMETER_DISPLAYS
+)
+
+
+def _all_values(controls: tuple[ParameterControl, ...]) -> dict[str, float]:
+    """Toutes les valeurs, au défaut et en flottants : ce que rendent les contrôles
+    d'une page qu'on n'a pas touchée."""
+    return {control.spec.name: control.default for control in controls}
+
+
+def _interface_csv(projection_values: dict[str, float]) -> str:
+    run = project_route(
+        GPX,
+        CURVE,
+        changed_values(PROFILE_CONTROLS, _all_values(PROFILE_CONTROLS)),
+        changed_values(PROJECTION_CONTROLS, projection_values),
+    )
+    stream = io.StringIO()
+    write_passages_csv(run.projection, stream)
+    return stream.getvalue()
+
+
+def _command_csv(*options: str) -> str:
+    out = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            MPERF,
+            "project",
+            str(GPX),
+            "--curve",
+            str(CURVE),
+            "--csv",
+            *options,
+        ],
+        capture_output=True,
+        encoding="utf-8",
+        check=True,
+    )
+    return out.stdout
+
+
+def test_the_interface_export_is_the_command_export_at_the_defaults() -> None:
+    assert _interface_csv(_all_values(PROJECTION_CONTROLS)) == _command_csv()
+
+
+def test_the_interface_export_is_the_command_export_with_a_changed_effort() -> None:
+    values = {**_all_values(PROJECTION_CONTROLS), "effort": 0.9}
+    assert _interface_csv(values) == _command_csv("--effort", "0.9")
+
+
+def test_a_complete_set_of_floats_would_not_be_the_command_export() -> None:
+    """La raison de ``changed_values`` : le jeu complet des contrôles, transmis tel
+    quel, porte ``grid_step_m = 50.0`` et écrit ``0.0`` là où la commande écrit
+    ``0``."""
+    run = project_route(
+        GPX,
+        CURVE,
+        _all_values(PROFILE_CONTROLS),
+        _all_values(PROJECTION_CONTROLS),
+    )
+    stream = io.StringIO()
+    write_passages_csv(run.projection, stream)
+    complete = stream.getvalue().splitlines()
+    command = _command_csv().splitlines()
+    assert complete[0] == command[0]
+    assert complete[1] != command[1]
+    assert complete[1].split(",")[1] == "0.0"
+    assert command[1].split(",")[1] == "0"

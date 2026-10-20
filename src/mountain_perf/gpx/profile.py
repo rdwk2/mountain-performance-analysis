@@ -17,6 +17,7 @@ from mountain_perf.gpx.geo import (
 )
 from mountain_perf.schemas import (
     NamedPoint,
+    ParameterDisplay,
     ParameterSet,
     ParameterSpec,
     ResolvedPoint,
@@ -58,6 +59,19 @@ PROFILE_PARAMETER_SPECS: tuple[ParameterSpec, ...] = (
         description="Séparation minimale des passages ; 0 = aucune contrainte.",
     ),
 )
+
+PROFILE_PARAMETER_DISPLAYS: tuple[ParameterDisplay, ...] = (
+    ParameterDisplay("grid_step_m", "Pas de la grille (m)", 10, 200, 5),
+    ParameterDisplay("smoothing_window_m", "Lissage de l'altitude (m)", 0, 500, 25),
+    ParameterDisplay(
+        "point_match_max_offset_m", "Écart maximal d'un lieu au tracé (m)", 10, 500, 10
+    ),
+    ParameterDisplay(
+        "point_match_min_separation_m", "Séparation des passages (m)", 0, 2000, 50
+    ),
+)
+"""Plages d'affichage des paramètres du profil dans l'interface (M5) ; jamais
+stockées."""
 
 
 class ProfileError(ValueError):

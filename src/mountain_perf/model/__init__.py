@@ -13,6 +13,7 @@ from mountain_perf.model.baselines import (
     baseline_timeline,
 )
 from mountain_perf.model.curve_io import (
+    CURVE_PARAMETER_DISPLAYS,
     CURVE_PARAMETER_SPECS,
     CurveError,
     CurveReadResult,
@@ -22,7 +23,9 @@ from mountain_perf.model.curve_io import (
 )
 from mountain_perf.model.engine import (
     ENGINE_VERSION,
+    MODEL_PARAMETER_DISPLAYS,
     MODEL_PARAMETER_SPECS,
+    PROJECTION_PARAMETER_DISPLAYS,
     PROJECTION_PARAMETER_SPECS,
     ProjectedTimeline,
     ProjectionDiagnostics,
@@ -37,12 +40,15 @@ __all__ = [
     "BASELINES",
     "BASELINE_VERSION",
     "CONSTANT_SPEED_MS",
+    "CURVE_PARAMETER_DISPLAYS",
     "CURVE_PARAMETER_SPECS",
     "ENGINE_VERSION",
     "MAX_SAFE_GRADE",
+    "MODEL_PARAMETER_DISPLAYS",
     "MODEL_PARAMETER_SPECS",
     "NAISMITH_CLIMB_S_PER_M",
     "NAISMITH_SPEED_MS",
+    "PROJECTION_PARAMETER_DISPLAYS",
     "PROJECTION_PARAMETER_SPECS",
     "TOBLER_DECAY",
     "TOBLER_OFFSET",

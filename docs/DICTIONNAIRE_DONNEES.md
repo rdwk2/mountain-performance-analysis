@@ -11,6 +11,7 @@
 - `SourceRef`
 - `ParameterSpec`
 - `ParameterSet`
+- `ParameterDisplay`
 - `PointKind`
 - `NamedPoint`
 - `Route`
@@ -438,6 +439,58 @@ qui l'a produit (`RouteProfile.build_parameters`, `Projection` en M1b).
   construction n'a pas d'effet ;
 - l'objet n'est pas hachable (la table est un `Mapping`) ;
 - aucune validation croisée entre paramètres.
+
+---
+
+## `ParameterDisplay`
+
+*`mountain_perf.schemas.parameters` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `name` | `str` | — |
+| `label` | `str` | — |
+| `low` | `float` | — |
+| `high` | `float` | — |
+| `step` | `float` | — |
+
+Plage d'affichage d'un paramètre dans l'interface (M5) : le curseur qui le règle.
+
+#### Champs
+
+- `name` — sans unité — le `ParameterSpec.name` du paramètre affiché.
+- `label` — sans unité — libellé du contrôle, en français.
+- `low` — en unité de la spec — borne basse du curseur, incluse.
+- `high` — en unité de la spec — borne haute du curseur, incluse.
+- `step` — en unité de la spec — pas du curseur, `> 0`.
+
+#### Invariants
+
+- `name` et `label` non vides ;
+- `low`, `high`, `step` finis ;
+- `low < high` ;
+- `step > 0`.
+
+#### Producteur
+
+Déclaration statique, à côté de chaque tuple de specs :
+`PROFILE_PARAMETER_DISPLAYS` (profil), `CURVE_PARAMETER_DISPLAYS`,
+`MODEL_PARAMETER_DISPLAYS` et
+`PROJECTION_PARAMETER_DISPLAYS` (moteur).
+
+#### Consommateurs
+
+`parameter_controls` (`mountain_perf.controls`), qui en fait les contrôles de
+l'interface (M5).
+
+#### Non promis
+
+- jamais stockée : ni au registre, ni dans une projection ; changer une plage ne
+  change aucun résultat (`ParameterSpec`, lui, est stocké au registre : un champ
+  de plus y demanderait un nouveau format, pour un besoin d'affichage) ;
+- la cohérence avec la spec (plage dans les garde-fous, défaut dans la plage) n'est
+  pas vérifiée ici, mais par `parameter_controls` ;
+- `high − low` n'est pas forcément un multiple de `step`.
 
 ---
 
