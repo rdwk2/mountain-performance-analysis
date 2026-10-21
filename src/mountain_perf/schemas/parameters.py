@@ -144,3 +144,64 @@ class ParameterSet:
     def __getitem__(self, name: str) -> float:
         """Valeur du paramètre ``name`` ; ``KeyError`` s'il n'est pas déclaré."""
         return self.values[name]
+
+
+@dataclass(frozen=True)
+class ParameterDisplay:
+    """Plage d'affichage d'un paramètre dans l'interface (M5) : le curseur qui le règle.
+
+    Champs
+    ------
+    - ``name`` — sans unité — le ``ParameterSpec.name`` du paramètre affiché.
+    - ``label`` — sans unité — libellé du contrôle, en français.
+    - ``low`` — en unité de la spec — borne basse du curseur, incluse.
+    - ``high`` — en unité de la spec — borne haute du curseur, incluse.
+    - ``step`` — en unité de la spec — pas du curseur, ``> 0``.
+
+    Invariants
+    ----------
+    - ``name`` et ``label`` non vides ;
+    - ``low``, ``high``, ``step`` finis ;
+    - ``low < high`` ;
+    - ``step > 0``.
+
+    Producteur
+    ----------
+    Déclaration statique, à côté de chaque tuple de specs :
+    ``PROFILE_PARAMETER_DISPLAYS`` (profil), ``CURVE_PARAMETER_DISPLAYS``,
+    ``MODEL_PARAMETER_DISPLAYS`` et
+    ``PROJECTION_PARAMETER_DISPLAYS`` (moteur).
+
+    Consommateurs
+    -------------
+    ``parameter_controls`` (``mountain_perf.controls``), qui en fait les contrôles de
+    l'interface (M5).
+
+    Non promis
+    ----------
+    - jamais stockée : ni au registre, ni dans une projection ; changer une plage ne
+      change aucun résultat (``ParameterSpec``, lui, est stocké au registre : un champ
+      de plus y demanderait un nouveau format, pour un besoin d'affichage) ;
+    - la cohérence avec la spec (plage dans les garde-fous, défaut dans la plage) n'est
+      pas vérifiée ici, mais par ``parameter_controls`` ;
+    - ``high − low`` n'est pas forcément un multiple de ``step``.
+    """
+
+    name: str
+    label: str
+    low: float
+    high: float
+    step: float
+
+    def __post_init__(self) -> None:
+        require_non_empty(self.name, "name")
+        require_non_empty(self.label, f"{self.name}.label")
+        require_finite(self.low, f"{self.name}.low")
+        require_finite(self.high, f"{self.name}.high")
+        require_finite(self.step, f"{self.name}.step")
+        if not self.low < self.high:
+            raise ContractError(
+                f"{self.name} : low ({self.low}) doit être < high ({self.high})."
+            )
+        if not self.step > 0:
+            raise ContractError(f"{self.name} : step ({self.step}) doit être > 0.")

@@ -1,0 +1,12 @@
+# La configuration de l'interface (M5, docs/decisions/0016), lue par Streamlit quand
+# il est lancé depuis la racine du dépôt, comme le fait `just ui`.
+
+[server]
+# Rien d'accessible depuis le réseau : le serveur n'écoute que la machine.
+address = "localhost"
+# Pas d'invite au premier lancement, pas d'ouverture automatique du navigateur.
+headless = true
+
+[browser]
+# Pas de télémétrie.
+gatherUsageStats = false

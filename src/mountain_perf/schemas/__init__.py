@@ -212,7 +212,11 @@ from mountain_perf.schemas.outing import (
     RouteReference,
     Unavailability,
 )
-from mountain_perf.schemas.parameters import ParameterSet, ParameterSpec
+from mountain_perf.schemas.parameters import (
+    ParameterDisplay,
+    ParameterSet,
+    ParameterSpec,
+)
 from mountain_perf.schemas.processed import (
     ALTITUDE_STRATUM_DESCRIPTIONS,
     CLIMB_FLAG_DESCRIPTIONS,
@@ -538,6 +542,7 @@ __all__ = [
     "PaceCurve",
     "PairReferences",
     "PairResult",
+    "ParameterDisplay",
     "ParameterSet",
     "ParameterSpec",
     "Passage",

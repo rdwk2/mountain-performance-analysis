@@ -17,9 +17,10 @@ import pytest
 
 from fixtures.curves import SUPPORT_CURVE
 from fixtures.projection import CURVE_REF, ENDPOINTS, SIX_INTERVAL_PROFILE
-from mountain_perf.cli import PASSAGE_CSV_HEADER, main, write_passages_csv
+from mountain_perf.cli import main
 from mountain_perf.gpx.geo import EARTH_RADIUS_M
 from mountain_perf.model.engine import PROJECTION_PARAMETER_SPECS, project
+from mountain_perf.model.export import PASSAGE_CSV_HEADER, write_passages_csv
 from mountain_perf.schemas import ParameterSet
 
 FIXTURES = Path(__file__).parent / "fixtures"

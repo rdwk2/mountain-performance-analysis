@@ -2,9 +2,11 @@
 # Elle ne peut être verte que si le code ne dépend d'aucun fichier privé.
 #
 # Deux temps (docs/decisions/0011) : d'abord sans aucun extra, comme un `mperf`
-# installé seul (les tests qui lisent des FIT, écrivent du Parquet ou rendent la figure
-# de Q1 se sautent, par `pytest.importorskip("fitdecode")`, `pytest.importorskip("pyarrow")`
-# et `pytest.importorskip("plotly")`) ; puis toute la suite avec tous les extras.
+# installé seul (les tests qui lisent des FIT, écrivent du Parquet, rendent la figure de
+# Q1 ou ouvrent l'interface se sautent, par `pytest.importorskip("fitdecode")`,
+# `pytest.importorskip("pyarrow")`, `pytest.importorskip("plotly")` et
+# `pytest.importorskip("streamlit")`) ; puis toute la suite, et les types, avec tous les
+# extras.
 name: CI
 
 on:
@@ -37,3 +39,7 @@ jobs:
 
       - name: Tests, avec tous les extras (verrouillés)
         run: uv run --locked --all-extras pytest
+
+      # Les types de ui/ contre ceux de Streamlit, absent de l'étape 1 (M5, 0016).
+      - name: Types, avec tous les extras (verrouillés)
+        run: uv run --locked --all-extras mypy

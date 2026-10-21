@@ -71,6 +71,10 @@ Parquet et la figure de Q1 demandent l'extra `analyse` (pyarrow et plotly,
 [`0015`](docs/decisions/0015-figure-de-q1.md)) : `uv sync --locked --extra analyse`,
 ou `just process` et `just q1` ; sans lui, les tests qui écrivent du Parquet ou rendent
 la figure se sautent.
+L'interface demande l'extra `tableau` (Streamlit,
+[`0016`](docs/decisions/0016-interface-v0.md)) : `uv sync --locked --extra tableau`, ou
+`just ui` ; sans lui, les tests de l'interface se sautent. Le serveur n'écoute que la
+machine, sans télémétrie (`.streamlit/config.toml`).
 `just check` enchaîne trois recettes :
 
 | Recette | Ce qu'elle lance |
@@ -83,15 +87,16 @@ la figure se sautent.
 [`docs/DICTIONNAIRE_DONNEES.md`](docs/DICTIONNAIRE_DONNEES.md) ; `just figure`
 régénère la figure ci-dessus. La CI
 ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) lance `just check` sur
-une machine vierge, sous Python 3.12, sans extra, puis toute la suite avec tous les
-extras, à chaque push et à chaque pull request.
+une machine vierge, sous Python 3.12, sans extra, puis toute la suite, et les types, avec
+tous les extras, à chaque push et à chaque pull request.
 
 `MPA_DATA_DIR`, le dossier des données personnelles hors du dépôt, sert au backtest
 enregistré (`just backtest` : manifeste, courbe, registre, rapports), à l'ingestion
 (`just ingest` : `raw/` lu, `interim/activities/` écrit), aux tables (`just process` :
-l'ingestion, puis `interim/` et `athlete.toml` lus, `processed/` écrit) et à la figure
-de Q1 (`just q1` : `processed/` lu, `resultats/Q1/` écrit) ; les autres commandes ne le
-lisent pas, les tests non plus
+l'ingestion, puis `interim/` et `athlete.toml` lus, `processed/` écrit), à la figure
+de Q1 (`just q1` : `processed/` lu, `resultats/Q1/` écrit) et à l'interface
+(`just ui` : `routes/`, `sorties/` et `reference/` lus ; `routes/` et `sorties/` écrits
+par l'ajout d'un fichier) ; les autres commandes ne le lisent pas, les tests non plus
 ([`tests/conftest.py`](tests/conftest.py) le pose sur un dossier temporaire neuf
 pour chaque test). Pour le renseigner, copier [`.env.example`](.env.example) en
 `.env` ; `just` charge `.env` s'il existe. Sous Windows, écrire le chemin avec des
@@ -513,9 +518,43 @@ montre, et le dossier écrit ; si les tables viennent d'un autre commit que le c
 ligne le dit. Pas d'exemple ici : la figure et ses comptes restent hors du dépôt
 ([`docs/analyse/CHARTE.md`](docs/analyse/CHARTE.md), § 10).
 
+## Interface : `just ui`
+
+L'interface ([`0016`](docs/decisions/0016-interface-v0.md)) est une appli Streamlit
+locale, sur `MPA_DATA_DIR`, avec l'extra `tableau`. Elle ne calcule rien (règle 7 de
+[`CLAUDE.md`](CLAUDE.md)) : ce qu'elle montre vient des fonctions mêmes de `mperf` et de
+la bibliothèque. Une page aujourd'hui, « projection » ; la page « sortie » viendra avec
+M5-2.
+
+```bash
+just ui
+```
+
+puis `http://localhost:8501` dans le navigateur.
+
+- **Les entrées** : un préparé (un GPX de `MPA_DATA_DIR/routes/`) et une courbe (un CSV
+  de `MPA_DATA_DIR/reference/` et son compagnon `.meta.json`), choisis dans la barre
+  latérale.
+- **L'ajout d'un fichier** (barre latérale) : un GPX téléversé va, au choix, dans les
+  préparés (`routes/`) ou dans les sorties (`sorties/`, une trace horodatée). Il est lu
+  d'abord, comme la page le lira, puis écrit sous son nom, au clic seulement ; un
+  fichier de même nom n'est jamais écrasé, et rien n'est supprimé.
+- **Les réglages** sont générés depuis les specs des paramètres du profil et du moteur :
+  un curseur par paramètre, sur sa plage d'affichage.
+- **La page montre** la synthèse de `mperf project` (son texte même), le profil avec les
+  passages, la vitesse projetée, et le tableau des passages, avec, pour chaque tronçon,
+  l'allure et la montée horaire moyennes ; une heure de départ facultative, à l'heure de
+  Paris, donne l'heure de chaque passage.
+- **L'export CSV** des passages a le texte de `mperf project --csv` lancée avec les
+  seules options qui s'écartent d'un défaut (aux fins de ligne près : sous Windows, la
+  commande écrit des CRLF, la page des LF). C'est un format pour un programme
+  (virgules, point décimal, UTF-8 sans marque d'en-tête) : Excel en français ne l'ouvre
+  pas tel quel (`BACKLOG.md`).
+
 ## État et plan
 
-- **Moteur de prédiction** : M0 à M4 livrés. Livrés en M4 :
+- **Moteur de prédiction** : M0 à M4 livrés ; M5 (interface v0) en cours : la page
+  « projection » livrée (`just ui`), reste la page « sortie ». Livrés en M4 :
   l'appariement d'une trace à un tracé, les métriques d'erreur, la référence de
   répétabilité, le registre des expériences, `just backtest` à cinq modèles, son
   diagnostic de longue course et ses fourchettes (`0010` D12 et D11, au rapport complet ;
@@ -556,6 +595,7 @@ sont au statut « acceptée » :
 - [0013 — Ingestion des activités et format d'`interim/`](docs/decisions/0013-ingestion-et-interim.md)
 - [0014 — Les montées et les tables de `processed/`](docs/decisions/0014-montees-et-tables.md)
 - [0015 — La figure de Q1](docs/decisions/0015-figure-de-q1.md)
+- [0016 — Interface v0](docs/decisions/0016-interface-v0.md)
 
 Autres documents :
 
@@ -580,7 +620,7 @@ Code, ouvert dans un clone du dépôt, n'y touche pas : le hook de
 outils de fichiers sous ce dossier, qu'il connaît par `MPA_DATA_DIR` (l'environnement,
 sinon le `.env` du clone), et ses commandes qui le nomment ou qui écrivent dans les
 données ; les commandes sur les données réelles (`just ingest`, `just process`,
-`just q1`, `just backtest`) sont lancées par l'humain. C'est un garde-fou, pas une
-enceinte : une commande qui atteint le dossier sans le nommer n'est pas vue. Les tests
-et les exemples ci-dessus n'utilisent que les fixtures synthétiques de
+`just q1`, `just backtest`, `just ui`) sont lancées par l'humain. C'est un garde-fou,
+pas une enceinte : une commande qui atteint le dossier sans le nommer n'est pas vue. Les
+tests et les exemples ci-dessus n'utilisent que les fixtures synthétiques de
 [`tests/fixtures/`](tests/fixtures/README.md).

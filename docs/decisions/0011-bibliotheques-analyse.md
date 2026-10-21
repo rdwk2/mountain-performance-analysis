@@ -56,6 +56,13 @@ clôtures d'import vérifiées par le lint et par la CI.
 | `tableau` | streamlit | le module du tableau de bord, fixé à AN2 avec le moteur (`ui/` porte l'interface M5) | AN2 |
 | `ml` | scikit-learn | `src/mountain_perf/analyse/` | la première question d'apprentissage |
 
+*Note du 2026-10-20 (M5-1, `0016`) : l'extra `tableau` est ouvert par M5-1, l'interface du
+moteur, et non par AN2 ; l'appli est commune à l'interface et au tableau de bord d'AN2 (une
+page par usage, sous `ui/`). Streamlit ne s'importe que sous `ui/` et dans ses tests.
+Streamlit est typé (`py.typed`), mais absent de l'étape 1 de la CI : il reçoit la dérogation
+`ignore_missing_imports`, et une étape de plus, avec tous les extras, vérifie `ui/` contre
+ses types.*
+
 Groupe de développement à part (`[dependency-groups]`, `analyse-dev`) :
 `pandas-stubs`, `scipy-stubs`, `types-openpyxl` et `marimo` (notebooks). Il n'entre
 pas dans `dev`, que `uv sync` installe par défaut : les stubs tirent numpy, que la

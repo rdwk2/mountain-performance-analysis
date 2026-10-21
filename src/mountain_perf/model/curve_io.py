@@ -26,6 +26,7 @@ from mountain_perf.schemas import (
     GRADE_RANGE,
     CurveProvenance,
     PaceCurve,
+    ParameterDisplay,
     ParameterSet,
     ParameterSpec,
     SourceRef,
@@ -53,6 +54,14 @@ tranche — n'a pas de sens physique atteignable ; elle existe parce que
 ``ParameterSpec`` exige un maximum fini, et elle transforme une faute de frappe en
 erreur de contrat plutôt qu'en courbe vide.
 """
+
+CURVE_PARAMETER_DISPLAYS: tuple[ParameterDisplay, ...] = (
+    ParameterDisplay(
+        "curve_min_support_min", "Support minimal d'une tranche (min)", 0, 60, 1
+    ),
+)
+"""Plages d'affichage des paramètres de la lecture de courbe dans l'interface (M5) ;
+jamais stockées."""
 
 CURVE_HEADER: Final = ("grade_pct", "kmh", "hr", "vam_mh", "time_min")
 """En-tête exigé du CSV. ``hr`` et ``vam_mh`` sont lues et validées, puis ignorées :

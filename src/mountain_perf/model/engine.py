@@ -24,11 +24,12 @@ from datetime import UTC, datetime
 from itertools import accumulate
 from typing import Final
 
-from mountain_perf.model.curve_io import CURVE_PARAMETER_SPECS
+from mountain_perf.model.curve_io import CURVE_PARAMETER_DISPLAYS, CURVE_PARAMETER_SPECS
 from mountain_perf.model.pace import PaceModel
 from mountain_perf.schemas import (
     NamedPoint,
     PaceCurve,
+    ParameterDisplay,
     ParameterSet,
     ParameterSpec,
     Passage,
@@ -69,6 +70,12 @@ Les bornes sont plus larges que l'usage utile pour ne pas transformer une
 exploration en erreur de contrat.
 """
 
+MODEL_PARAMETER_DISPLAYS: tuple[ParameterDisplay, ...] = (
+    ParameterDisplay("effort", "Effort", 0.7, 1.2, 0.01),
+)
+"""Plages d'affichage des paramètres du modèle dans l'interface (M5) ; jamais
+stockées."""
+
 PROJECTION_PARAMETER_SPECS: tuple[ParameterSpec, ...] = (
     MODEL_PARAMETER_SPECS + CURVE_PARAMETER_SPECS
 )
@@ -77,6 +84,12 @@ PROJECTION_PARAMETER_SPECS: tuple[ParameterSpec, ...] = (
 Ceux de la grille sont déjà dans ``profile.build_parameters`` : une projection
 porte donc l'échelle qui l'a produite, ce que le biais d'échelle de D6 exige.
 """
+
+PROJECTION_PARAMETER_DISPLAYS: tuple[ParameterDisplay, ...] = (
+    MODEL_PARAMETER_DISPLAYS + CURVE_PARAMETER_DISPLAYS
+)
+"""Plages d'affichage des paramètres d'une projection dans l'interface (M5) ; jamais
+stockées."""
 
 
 @dataclass(frozen=True)
