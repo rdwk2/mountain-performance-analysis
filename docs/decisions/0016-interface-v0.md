@@ -54,9 +54,10 @@ ouvre l'extra `tableau`.
   courbe est choisie dans `reference/`.
 - **Rien n'est codé en deux fois** : ce qui vivait dans `cli.py` et que l'interface
   appelle passe en bibliothèque (`runs.py`, `reports.py`, `model/export.py`, trois
-  formats de `units.py`), sans changer la sortie de `mperf`. L'export de la page est
-  celui de `mperf project --csv` lancée avec les seules options qui s'écartent d'un
-  défaut. Ce que la page calcule est dans `model/views.py`.
+  formats de `units.py`), sans changer la sortie de `mperf`. L'export de la page a le
+  texte de `mperf project --csv` lancée avec les seules options qui s'écartent d'un
+  défaut, aux fins de ligne près (la commande écrit des CRLF sous Windows). Ce que la
+  page calcule est dans `model/views.py`.
 - **Les pages** : deux pages, deux PR (M5-1, la projection ; M5-2, la sortie) ; une page
   par module de `ui/`, déclarée par une ligne de `PAGES` dans `ui/app.py`.
 - **La configuration** de Streamlit est dans `.streamlit/config.toml`, versionné : le

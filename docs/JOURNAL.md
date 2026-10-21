@@ -36,6 +36,14 @@ page se teste par `AppTest`, sur les fixtures ; le contrôle réel est celui de 
 Rangé dans `src/mountain_perf/ui/`, `controls.py`, `data_files.py`, `runs.py`,
 `reports.py`, `model/export.py`, `model/views.py`, `docs/decisions/0016-interface-v0.md`,
 branche `m5/interface-projection`.
+Relecture de la PR : une C et le balayage de la conception, sans défaut du code ; des
+lacunes des tests, fermées par cinq fichiers de garanties (la page : les erreurs d'un
+préparé posé à la main, le champ d'un paramètre sans plage, les cellules du tableau, les
+messages de l'ajout, l'export ; l'ajout dans un dossier déjà peuplé ; l'ordre des
+invariants des plages ; les clôtures d'import sous toutes leurs formes ; la synthèse de
+`mperf project`). L'export de la page a le texte de `mperf project --csv` aux fins de
+ligne près (sous Windows, la commande écrit des CRLF) : le README et `0016` le disent.
+Quatre lignes de `BACKLOG.md`.
 
 ---
 

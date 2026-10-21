@@ -105,9 +105,9 @@ def changed_values(
     Un paramètre laissé à son défaut n'est pas transmis, comme une option absente de
     ``mperf`` : le jeu de valeurs prend alors le défaut de la spec tel quel. Un entier
     reste un entier : ``grid_step_m`` vaut ``50``, et ``50.0`` ferait écrire ``0.0`` au
-    lieu de ``0`` dans le CSV. L'export de l'interface est ainsi, à l'octet, celui de la
-    commande lancée avec les seules options qui s'écartent d'un défaut (donner un défaut
-    à la commande, ``--step-m 50``, change son CSV).
+    lieu de ``0`` dans le CSV. L'export de l'interface a ainsi le texte de la commande
+    lancée avec les seules options qui s'écartent d'un défaut, aux fins de ligne près
+    (donner un défaut à la commande, ``--step-m 50``, change son CSV).
     """
     defaults = {control.spec.name: control.default for control in controls}
     unknown = sorted(set(values) - set(defaults))

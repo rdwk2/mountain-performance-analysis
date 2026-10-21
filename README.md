@@ -495,8 +495,11 @@ puis `http://localhost:8501` dans le navigateur.
   passages, la vitesse projetée, et le tableau des passages, avec, pour chaque tronçon,
   l'allure et la montée horaire moyennes ; une heure de départ facultative, à l'heure de
   Paris, donne l'heure de chaque passage.
-- **L'export CSV** des passages est, à l'octet, celui de `mperf project --csv` lancée
-  avec les seules options qui s'écartent d'un défaut.
+- **L'export CSV** des passages a le texte de `mperf project --csv` lancée avec les
+  seules options qui s'écartent d'un défaut (aux fins de ligne près : sous Windows, la
+  commande écrit des CRLF, la page des LF). C'est un format pour un programme
+  (virgules, point décimal, UTF-8 sans marque d'en-tête) : Excel en français ne l'ouvre
+  pas tel quel (`BACKLOG.md`).
 
 ## État et plan
 
