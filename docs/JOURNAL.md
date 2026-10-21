@@ -16,6 +16,30 @@ Backtest (à partir de M4) : métrique avant → après.
 
 ---
 
+### 2026-10-21 · AN1-2c — Figure de Q1
+La figure descriptive de Q1 et ce qu'il lui faut. `mperf tables` écrit une troisième
+table, `processed/variantes.parquet` (les montées que la stabilité calcule sous chaque
+variante, avec leur régime, leurs strates et leurs drapeaux sous ses paramètres), met
+les trois tables en place par échange de dossier et écrit le commit du code dans leur
+provenance (un clone modifié est refusé). `mperf q1` (`just q1`, extra `analyse`) lit
+`processed/` et écrit `resultats/Q1/<date>_<empreinte>/`, jamais réécrit : une page
+HTML autonome (plotly ; deux vues, les montées non marquées puis les seules stables ;
+trois panneaux, une colonne par strate de pente ; un point par activité et par strate
+d'altitude, résumé `Σ G_M / Σ M` ; la stabilité du point sous les variantes ; les
+changements de montre), `points.csv`, `flux.csv` et `provenance.json`. L'état git
+devient commun (`gitstate.py`), `backtest/execution.py` garde ses messages ; plotly entre
+dans l'extra `analyse`, importé par `analyse/plot.py` seul ; le hook refuse `mperf q1`
+et `just q1`. `0015` (neuve) ; précisions d'AN1-2c dans `0014` ; la charte (§ 2),
+`CLAUDE.md`, le README, la ROADMAP (AN1 fini), le commentaire de la CI et `.env.example`
+suivent ; deux lignes du `BACKLOG` faites, une neuve.
+Conclusion : `just check` vert, 6 964 tests avec tous les extras ; AN1 est fini.
+Rangé dans `src/mountain_perf/analyse/` (`q1.py`, `results.py`, `plot.py`),
+`src/mountain_perf/gitstate.py`, `tests/test_analyse_*.py`, `tests/test_cli_q1.py`,
+`tests/test_gitstate.py`, `docs/decisions/0015-figure-de-q1.md`, branche
+`an1/figure-q1`.
+
+---
+
 ### 2026-10-19 · M4d-3 — correctifs de relecture
 La relecture C en deux passes (« fusionnable après correction des tests ») et le balayage
 par mutation de la conception n'ont trouvé aucun défaut du code, mais des règles écrites
