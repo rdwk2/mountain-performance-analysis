@@ -1,7 +1,9 @@
-"""Clôtures d'import de la piste analyse (``docs/decisions/0011``, ``0014``) :
-``analyse/`` lit les horloges communes, jamais ``mountain_perf.backtest`` ; pyarrow
-n'entre que par ``analyse/parquet.py`` ; les tables se calculent sans lui ; le moteur
-n'importe pas ``analyse/``."""
+"""Clôtures d'import de la piste analyse (``docs/decisions/0011``, ``0014``,
+``0015``) : ``analyse/`` lit les horloges communes, jamais ``mountain_perf.backtest`` ;
+l'état git commun, que ``cli.py`` lit pour elle, n'importe que la bibliothèque
+standard ; pyarrow n'entre que par ``analyse/parquet.py``, plotly que par
+``analyse/plot.py`` ; les tables, la figure et les résultats se calculent sans eux ; le
+moteur n'importe pas ``analyse/``."""
 
 from __future__ import annotations
 
@@ -68,13 +70,32 @@ def test_only_the_parquet_module_imports_pyarrow() -> None:
     assert importers == ["analyse/parquet.py"]
 
 
+def test_only_the_plot_module_imports_plotly() -> None:
+    importers = sorted(
+        path.relative_to(SOURCE).as_posix()
+        for path in SOURCE.rglob("*.py")
+        if any(m == "plotly" or m.startswith("plotly.") for m in _imports(path))
+    )
+    assert importers == ["analyse/plot.py"]
+
+
+def test_the_common_git_state_uses_the_standard_library() -> None:
+    """``gitstate.py`` n'importe que la bibliothèque standard : ni le moteur, ni la
+    piste."""
+    imports = _imports(SOURCE / "gitstate.py")
+    assert not any(m.startswith("mountain_perf") for m in imports)
+    assert {m.split(".")[0] for m in imports} <= set(sys.stdlib_module_names) | {
+        "__future__"
+    }
+
+
 def test_the_engine_does_not_import_analyse() -> None:
     for folder in ("schemas", "gpx", "model", "backtest", "ingest"):
         for path in sorted((SOURCE / folder).rglob("*.py")):
             assert not any(
                 m.startswith("mountain_perf.analyse") for m in _imports(path)
             ), path
-    for name in ("codec.py", "validation.py", "config.py", "units.py"):
+    for name in ("codec.py", "validation.py", "config.py", "units.py", "gitstate.py"):
         assert not any(
             m.startswith("mountain_perf.analyse") for m in _imports(SOURCE / name)
         ), name
@@ -84,23 +105,27 @@ def test_the_engine_does_not_import_analyse() -> None:
         ), name
 
 
-EXTRAS = ("pyarrow", "fitdecode", "mountain_perf.ingest.fit")
-"""Les deux extras, et le seul module qui importe le second."""
+EXTRAS = ("pyarrow", "plotly", "fitdecode", "mountain_perf.ingest.fit")
+"""Les extras, et le seul module qui importe fitdecode."""
 
 
 @pytest.mark.parametrize(
     ("module", "forbidden"),
     [
         ("mountain_perf.analyse.tables", (*EXTRAS, "mountain_perf.backtest")),
+        ("mountain_perf.analyse.q1", (*EXTRAS, "mountain_perf.backtest")),
+        ("mountain_perf.analyse.results", (*EXTRAS, "mountain_perf.backtest")),
+        ("mountain_perf.gitstate", (*EXTRAS, "mountain_perf.backtest")),
         ("mountain_perf.cli", EXTRAS),
     ],
 )
 def test_tables_compute_without_the_extras(
     module: str, forbidden: tuple[str, ...]
 ) -> None:
-    """Dans un processus neuf, importer le calcul des tables ne charge ni un extra,
-    ni le moteur ; importer ``mperf`` ne charge aucun extra (``mperf tables`` importe
-    l'écriture Parquet dans la commande)."""
+    """Dans un processus neuf, importer le calcul des tables, de la figure ou des
+    résultats, ou l'état git commun, ne charge ni un extra, ni le moteur ; importer
+    ``mperf`` ne charge aucun extra (``mperf tables`` et ``mperf q1`` importent la
+    lecture et l'écriture Parquet, et le rendu, dans la commande)."""
     code = (
         "import sys\n"
         f"import {module}\n"

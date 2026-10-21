@@ -2,7 +2,8 @@
 
 *Version 2, validée le 2026-10-08 après une relecture experte indépendante ; § 2 mis à
 jour le 2026-10-09 (source des séries d'activité) ; §§ 2 à 4 et 6 mis à jour le
-2026-10-17 (la montée, `docs/decisions/0014`). Sources : `docs/PIEGES_DATA.md`,
+2026-10-17 (la montée, `docs/decisions/0014`) ; § 2 mis à jour le 2026-10-20 (la
+table des variantes, `docs/decisions/0015`). Sources : `docs/PIEGES_DATA.md`,
 `docs/analyse/QUESTIONS.md` et les decision records du dépôt. Sans chiffre tiré des
 données.*
 
@@ -36,7 +37,7 @@ d'analyse, relu, et qui doit respecter la charte.*
 |---|---|---|---|
 | `raw/` | l'export Garmin, immuable (fichiers en lecture seule), et les sources extérieures (§ 12) | l'acquisition, et l'athlète | — |
 | `interim/` | les contrats normalisés (activités, séries, nuits, jours), avec leurs `QualityFlag` | l'ingestion, dans `src/mountain_perf/ingest/` | **aucune** pour le lire ; l'écriture depuis les FIT demande l'extra `ingest` ; format décrit dans `docs/decisions/0013`, relu par le moteur avant fusion |
-| `processed/` | les tables d'analyse : `activites` et `montees` (`docs/decisions/0014`), puis `jours` (plus tard `descentes`, `plats`) | le code d'analyse (`mperf tables`) | aucune pour le calcul ; l'écriture en Parquet demande l'extra `analyse` (`docs/decisions/0011`, `0014`) |
+| `processed/` | les tables d'analyse : `activites`, `montees` et `variantes` (`docs/decisions/0014`, `0015`), puis `jours` (plus tard `descentes`, `plats`) | le code d'analyse (`mperf tables`) | aucune pour le calcul ; l'écriture en Parquet demande l'extra `analyse` (`docs/decisions/0011`, `0014`) |
 | `resultats/` | les sorties de chaque question, datées (§ 10) | les commandes d'analyse | l'extra `analyse` (`docs/decisions/0011`) |
 
 - **Le moteur ne lit jamais `processed/`** ; il lit `interim/` par les contrats

@@ -30,8 +30,9 @@ Python. Usage personnel d'abord, projet portfolio ensuite. Le repo est public.
    Les tests n'utilisent **que** les fixtures synthétiques de `tests/fixtures/`,
    qui sont minuscules, inventées, et commitées. Claude Code ne lit ni n'écrit rien
    sous `MPA_DATA_DIR` : le hook de `.claude/settings.json` le refuse, et les
-   commandes sur les données réelles (`just ingest`, `just process`, `just backtest`,
-   `just ui`, et `streamlit run`, que le hook refuse aussi) sont lancées par l'humain.
+   commandes sur les données réelles (`just ingest`, `just process`, `just q1`,
+   `just backtest`, `just ui`, et `streamlit run`, que le hook refuse aussi) sont
+   lancées par l'humain.
 
 2. **`just check` doit être vert avant tout commit.**
    Si tu n'arrives pas à le rendre vert, tu t'arrêtes et tu le dis. Tu ne
@@ -124,6 +125,7 @@ just backtest courbe.csv  # backtest enregistré des cinq modèles, rapport D15 
 just backtest courbe.csv --sensitivity  # puis la sensibilité D13, enregistrée, rapport sensibilite-<n>.txt (M4d-3)
 just ingest     # raw/ → interim/activities/, extra ingest (AN1-1) ; MPA_DATA_DIR
 just process    # raw/ → interim/ → processed/ : ingest, puis mperf tables, extras ingest et analyse (AN1-2b)
+just q1         # processed/ → resultats/Q1/<date>_<empreinte>/ : la figure de Q1, extra analyse (AN1-2c)
 just ui         # l'interface (M5) : appli Streamlit locale sur MPA_DATA_DIR, extra tableau
 uv run mperf profile tests/fixtures/mini_11.gpx  # compte-rendu GPX (M2), --csv pour la grille
 uv run mperf project tests/fixtures/mini_11.gpx --curve tests/fixtures/courbe_synthetique.csv  # temps de passage (M3)
@@ -147,6 +149,8 @@ src/mountain_perf/     le code de la bibliothèque
   clocks.py            fenêtres, qualification, confirmation, partition M/S/U, horloges
                        cumulées, totaux, épisodes ; commun au moteur et à la piste analyse
                        (M4a, AN1-2a)
+  gitstate.py          état git du code exécuté (commit, arbre modifié) ; commun au
+                       moteur et à la piste analyse (M4b-5, AN1-2c)
   controls.py          contrôles de l'interface générés depuis les specs (M5)
   data_files.py        fichiers de l'interface : lister, ajouter dans routes/ et sorties/ (M5)
   runs.py              enchaînements des commandes, communs à mperf et à l'interface (M5)
@@ -185,8 +189,9 @@ src/mountain_perf/     le code de la bibliothèque
     sensitivity.py     contrats de la sensibilité, stockés au registre au format 5 (M4d-3)
     interim.py         IndexedActivity, ActivityIndex, ActivityRecording et ses canaux,
                        IngestionReport : contrats d'interim/ (AN1-1)
-    processed.py       ClimbRow, ActivityRow, ProcessedProvenance, drapeaux, régimes,
-                       strates : contrats des tables de processed/ (AN1-2b)
+    processed.py       ClimbRow, ClimbVariantRow, ActivityRow, ProcessedProvenance,
+                       drapeaux, régimes, strates : contrats des tables de processed/
+                       (AN1-2b, AN1-2c)
     _dictionary.py     rendu du dictionnaire de données depuis les docstrings
   gpx/                 lecture GPX, profil, grille de pente (M2)
     geo.py             haversine 2D, polyligne dédoublonnée, projection point-segment
@@ -227,7 +232,8 @@ src/mountain_perf/     le code de la bibliothèque
                        format 2, accord des modèles déclarés et des références D8 (M4c-2) ;
                        format 3 (M4c-3) ; format 4, accord des fourchettes (M4d-2) ;
                        format 5, accord de la sensibilité (M4d-3)
-    execution.py       git, domaine, déclaration, exécution enregistrée de just backtest (M4b-5) ;
+    execution.py       git (depuis gitstate.py, AN1-2c), domaine, déclaration, exécution
+                       enregistrée de just backtest (M4b-5) ;
                        cinq modèles et leur calage, calcul avant le RÉSULTAT (M4c-2) ;
                        observation partagée (M4c-3) ; fourchettes (M4d-2) ; tracé et
                        évaluation séparés, pour la sensibilité (M4d-3)
@@ -250,18 +256,26 @@ src/mountain_perf/     le code de la bibliothèque
     index.py           read_index : l'index de l'export
     fit.py             read_fit : le lecteur FIT, lecture stricte
     export.py          ingest_export : raw/ → interim/activities/
-  analyse/             tables de `processed/` et méthodes statistiques de la piste
-                       analyse (AN1) ; Python pur, sauf `parquet.py`, seul importeur de
-                       l'extra `analyse` (`0011`, `0014`) ; n'importe jamais `backtest/`
+  analyse/             tables de `processed/`, figures et méthodes statistiques de la
+                       piste analyse (AN1) ; Python pur, sauf `parquet.py` (pyarrow) et
+                       `plot.py` (plotly), seuls importeurs de l'extra `analyse`
+                       (`0011`, `0014`, `0015`) ; n'importe jamais `backtest/`
     climbs.py          la montée : vue, horloges communes, profil, bornes et gain en
                        temps, horloge du gain, mesures (AN1-2b)
     quality.py         drapeaux, régimes par le gain, strates (AN1-2b)
-    stability.py       variantes déclarées, appariement en temps, stabilité (AN1-2b)
+    stability.py       variantes déclarées, appariement en temps, stabilité (AN1-2b) ;
+                       paramètres de chaque variante (AN1-2c)
     athlete.py         table [analyse] d'athlete.toml : V_ref, produits barométriques
                        (AN1-2b)
     tables.py          interim/ → lignes des tables activites et montees, provenance
-                       (AN1-2b)
-    parquet.py         écriture et relecture des tables en Parquet (AN1-2b)
+                       (AN1-2b) ; table variantes (AN1-2c)
+    parquet.py         écriture et relecture des tables en Parquet (AN1-2b) ; trois
+                       tables, mises en place par échange de dossier (AN1-2c)
+    q1.py              figure de Q1 : points, stabilité des points, flux, changements
+                       de montre ; Python pur (AN1-2c)
+    results.py         dossier de résultats de Q1 : CSV, provenance, écriture jamais
+                       réécrite ; Python pur (AN1-2c)
+    plot.py            rendu HTML de la figure de Q1 ; seul importeur de plotly (AN1-2c)
   ui/                  interface — appelle la bibliothèque, ne calcule rien (M5) ;
                        extra tableau, seul importeur de streamlit (0016)
     app.py             point d'entrée ; PAGES, une ligne par page
@@ -274,7 +288,8 @@ src/mountain_perf/     le code de la bibliothèque
                        mperf backtest <manifeste.json> --curve : backtest enregistré, rapport D15 (M4b-5) ;
                        cinq modèles (M4c-2) ; --sensitivity : sensibilité D13 (M4d-3) ;
                        mperf ingest : raw/ → interim/activities/ (AN1-1) ;
-                       mperf tables : interim/ → processed/ (AN1-2b)
+                       mperf tables : interim/ → processed/ (AN1-2b) ;
+                       mperf q1 : processed/ → resultats/Q1/ (AN1-2c)
 tests/
   conftest.py          MPA_DATA_DIR sur un dossier temporaire neuf pour chaque test (M4c-1)
   strategies.py        stratégies Hypothesis des contrats, réutilisées par tous les jalons

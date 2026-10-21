@@ -15,7 +15,7 @@ from typing import Any
 
 import pytest
 
-from fixtures.processed import write_interim
+from fixtures.processed import COMMIT, write_interim
 from mountain_perf.analyse.athlete import DEFAULT_SETTINGS
 from mountain_perf.analyse.tables import Tables, build_tables
 from mountain_perf.schemas import ContractError
@@ -23,6 +23,7 @@ from mountain_perf.schemas.processed import (
     ActivityRow,
     ClimbFlag,
     ClimbRow,
+    ClimbVariantRow,
     ProcessedProvenance,
 )
 
@@ -34,7 +35,7 @@ NO_RECORDING = "Sans enregistrement, aucun champ de l'enregistrement."
 def tables(tmp_path_factory: pytest.TempPathFactory) -> Tables:
     folder = tmp_path_factory.mktemp("interim")
     write_interim(folder)
-    return build_tables(folder, DEFAULT_SETTINGS)
+    return build_tables(folder, DEFAULT_SETTINGS, commit=COMMIT)
 
 
 @pytest.fixture(scope="module")
@@ -61,7 +62,9 @@ def no_recording(tables: Tables) -> ActivityRow:
 
 
 def _refused(
-    row: ClimbRow | ActivityRow | ProcessedProvenance, message: str, **changes: Any
+    row: ClimbRow | ClimbVariantRow | ActivityRow | ProcessedProvenance,
+    message: str,
+    **changes: Any,
 ) -> None:
     """``changes`` est refusé, et le message commence par ``message``."""
     with pytest.raises(ContractError, match=f"^{re.escape(message)}"):
@@ -411,6 +414,13 @@ def test_a_known_sport_may_still_have_no_view(walk: ActivityRow) -> None:
             "interim_sha256 : 64 chiffres hexadécimaux minuscules.",
         ),
         ({"package_version": ""}, "package_version ne doit pas être vide."),
+        ({"commit": "0" * 12}, "commit : 40 ou 64 chiffres hexadécimaux minuscules."),
+        ({"commit": "0" * 39}, "commit : 40 ou 64 chiffres hexadécimaux minuscules."),
+        ({"commit": "0" * 41}, "commit : 40 ou 64 chiffres hexadécimaux minuscules."),
+        ({"commit": "0" * 63}, "commit : 40 ou 64 chiffres hexadécimaux minuscules."),
+        ({"commit": "A" * 40}, "commit : 40 ou 64 chiffres hexadécimaux minuscules."),
+        ({"commit": "g" * 40}, "commit : 40 ou 64 chiffres hexadécimaux minuscules."),
+        ({"commit": ""}, "commit : 40 ou 64 chiffres hexadécimaux minuscules."),
         (
             {"reference_vertical_speed_ms": 0.0},
             "reference_vertical_speed_ms doit être > 0.",
@@ -438,6 +448,7 @@ def test_a_known_sport_may_still_have_no_view(walk: ActivityRow) -> None:
         ({"parameters": (("a", float("nan")),)}, "a doit être fini, reçu nan."),
         ({"activity_count": -1}, "Les comptes sont positifs ou nuls."),
         ({"climb_count": -1}, "Les comptes sont positifs ou nuls."),
+        ({"variant_climb_count": -1}, "Les comptes sont positifs ou nuls."),
     ],
 )
 def test_provenance_refusals(
@@ -457,3 +468,86 @@ def test_provenance_of_empty_tables(tables: Tables) -> None:
     passent."""
     empty = dataclasses.replace(tables.provenance, activity_count=0, climb_count=0)
     assert (empty.activity_count, empty.climb_count) == (0, 0)
+
+
+@pytest.mark.parametrize("commit", ["0123456789abcdef" * 2 + "01234567", "f" * 64])
+def test_provenance_takes_both_lengths_of_commit(tables: Tables, commit: str) -> None:
+    """Un commit SHA-1 (40 chiffres) ou SHA-256 (64 chiffres) de git."""
+    assert dataclasses.replace(tables.provenance, commit=commit).commit == commit
+
+
+# --- la table des variantes (AN1-2c) --------------------------------------------
+
+
+@pytest.fixture(scope="module")
+def variant_row(tables: Tables) -> ClimbVariantRow:
+    """La montée longue d'``a1`` sous la première variante."""
+    row = tables.variants[1]
+    assert row.activity_ref == "a1"
+    return row
+
+
+def test_the_synthetic_variant_rows_are_valid(tables: Tables) -> None:
+    assert len(tables.variants) == 36
+    assert all(isinstance(r, ClimbVariantRow) for r in tables.variants)
+
+
+@pytest.mark.parametrize(
+    ("changes", "message"),
+    [
+        (
+            {"activity_ref": ".."},
+            "activity_ref doit être fait de lettres et de chiffres ASCII",
+        ),
+        ({"activity_ref": "a/1"}, "activity_ref doit être fait de lettres"),
+        ({"variant": ""}, "variant ne doit pas être vide."),
+        ({"variant": "  "}, "variant ne doit pas être vide."),
+        ({"start_offset_s": float("nan")}, "start_offset_s doit être fini"),
+        ({"end_offset_s": float("inf")}, "end_offset_s doit être fini"),
+        ({"gain_m": float("nan")}, "gain_m doit être fini"),
+        ({"moving_gain_m": float("-inf")}, "moving_gain_m doit être fini"),
+        ({"moving_s": float("nan")}, "moving_s doit être fini"),
+        (
+            {"start_offset_s": -1.0},
+            "Il faut 0 <= start_offset_s < end_offset_s.",
+        ),
+        (
+            {"start_offset_s": 100.0, "end_offset_s": 100.0},
+            "Il faut 0 <= start_offset_s < end_offset_s.",
+        ),
+        (
+            {"start_offset_s": 101.0, "end_offset_s": 100.0},
+            "Il faut 0 <= start_offset_s < end_offset_s.",
+        ),
+        ({"gain_m": -0.5}, "gain_m doit être >= 0, reçu -0.5."),
+        ({"moving_s": -1.0}, "moving_s doit être >= 0, reçu -1.0."),
+        (
+            {"flags": (ClimbFlag.SPIKE, ClimbFlag.NON_BAROMETRIC)},
+            "flags doit être trié, sans doublon.",
+        ),
+        (
+            {"flags": (ClimbFlag.SPIKE, ClimbFlag.SPIKE)},
+            "flags doit être trié, sans doublon.",
+        ),
+    ],
+)
+def test_variant_row_refusals(
+    variant_row: ClimbVariantRow, changes: dict[str, Any], message: str
+) -> None:
+    _refused(variant_row, message, **changes)
+
+
+def test_variant_row_limits(variant_row: ClimbVariantRow) -> None:
+    """Un départ à zéro, un gain et un temps nuls, un gain en M négatif (signé, comme
+    celui de la montée), une montée sans strate d'altitude : acceptés."""
+    row = dataclasses.replace(
+        variant_row,
+        start_offset_s=0.0,
+        gain_m=0.0,
+        moving_s=0.0,
+        moving_gain_m=-1.0,
+        altitude_stratum=None,
+    )
+    assert (row.start_offset_s, row.gain_m, row.moving_s) == (0.0, 0.0, 0.0)
+    assert row.moving_gain_m == -1.0
+    assert row.altitude_stratum is None

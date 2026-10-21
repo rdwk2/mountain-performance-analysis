@@ -2817,16 +2817,31 @@ TABLES_EXTRA_ERROR = (
 )
 """Le message de ``mperf tables`` sans pyarrow."""
 
+TABLES_MODIFIED_TREE_ERROR = (
+    "Erreur : un fichier suivi du code exécuté est modifié : mperf tables écrit le "
+    "commit du code dans la provenance des tables. Committer ou annuler la "
+    "modification."
+)
+"""Le message de ``mperf tables`` sur un clone modifié (AN1-2c)."""
+
+
+def _package_directory() -> Path:
+    """Le dossier du paquet exécuté, dont l'état git va dans les tables et les
+    résultats de la piste analyse (AN1-2c)."""
+    return Path(mountain_perf.__file__).resolve().parent
+
 
 def _run_tables() -> int:
     """``mperf tables`` : écrit ``MPA_DATA_DIR/processed`` depuis
-    ``MPA_DATA_DIR/interim`` (``docs/decisions/0014``), puis affiche le résumé.
+    ``MPA_DATA_DIR/interim`` (``docs/decisions/0014``), puis affiche le résumé. L'état
+    git du paquet exécuté se lit d'abord : un clone modifié est refusé, rien n'est lu
+    ni écrit ; le commit va dans la provenance des tables (AN1-2c).
 
     L'écriture s'importe ici, pas en tête du module : ``mperf`` s'importe sans l'extra
     ``analyse`` ; seule l'absence de pyarrow est dite, toute autre
-    ``ModuleNotFoundError`` se propage. ``InterimError``, ``AthleteError``,
-    ``TablesError`` (l'activité, ou l'index, nommés), ``ConfigError``, ``OSError`` :
-    « Erreur : <message> », code 1."""
+    ``ModuleNotFoundError`` se propage. ``GitStateError``, ``InterimError``,
+    ``AthleteError``, ``TablesError`` (l'activité, ou l'index, nommés),
+    ``ConfigError``, ``OSError`` : « Erreur : <message> », code 1."""
     try:
         from mountain_perf.analyse.parquet import write_tables
     except ModuleNotFoundError as error:
@@ -2834,6 +2849,7 @@ def _run_tables() -> int:
             raise
         print(TABLES_EXTRA_ERROR, file=sys.stderr)
         return 1
+    from mountain_perf import gitstate
     from mountain_perf.analyse.athlete import AthleteError, read_athlete
     from mountain_perf.analyse.tables import TablesError, build_tables
     from mountain_perf.ingest.interim import InterimError
@@ -2841,9 +2857,20 @@ def _run_tables() -> int:
 
     try:
         folder = data_dir()
-        tables = build_tables(folder, read_athlete(folder))
-        activities_path, climbs_path = write_tables(folder, tables)
-    except (InterimError, AthleteError, TablesError, ConfigError, OSError) as error:
+        state = gitstate.git_state(_package_directory())
+        if state.modified:
+            print(TABLES_MODIFIED_TREE_ERROR, file=sys.stderr)
+            return 1
+        tables = build_tables(folder, read_athlete(folder), commit=state.commit)
+        activities_path, climbs_path, variants_path = write_tables(folder, tables)
+    except (
+        gitstate.GitStateError,
+        InterimError,
+        AthleteError,
+        TablesError,
+        ConfigError,
+        OSError,
+    ) as error:
         print(f"Erreur : {error}", file=sys.stderr)
         return 1
     provenance = tables.provenance
@@ -2856,8 +2883,101 @@ def _run_tables() -> int:
     print(
         f"Montées instables : {sum(1 for row in tables.climbs if row.stable is False)}"
     )
+    print(f"Montées des variantes : {provenance.variant_climb_count}")
     print(f"Empreinte d'interim/ : {provenance.interim_sha256}")
-    print(f"-> {activities_path.name}, {climbs_path.name}")
+    print(f"Commit : {provenance.commit}")
+    print(f"-> {activities_path.name}, {climbs_path.name}, {variants_path.name}")
+    return 0
+
+
+Q1_EXTRA_ERROR = (
+    "Erreur : la figure de Q1 demande l'extra analyse. Installer : uv sync --extra "
+    "analyse"
+)
+"""Le message de ``mperf q1`` sans pyarrow ou sans plotly."""
+
+Q1_MODIFIED_TREE_ERROR = (
+    "Erreur : un fichier suivi du code exécuté est modifié : mperf q1 écrit le "
+    "commit du code dans ses résultats (CHARTE, § 10). Committer ou annuler la "
+    "modification."
+)
+"""Le message de ``mperf q1`` sur un clone modifié."""
+
+
+def _today() -> date:
+    """La date locale du jour, celle du dossier de résultats."""
+    return date.today()
+
+
+def _run_q1() -> int:
+    """``mperf q1`` (AN1-2c, ``docs/decisions/0015``), dans cet ordre :
+    ``MPA_DATA_DIR`` ; l'état git du paquet exécuté, un clone modifié refusé ; les
+    tables de ``processed/`` ; la figure ; le dossier de résultats, jamais réécrit ;
+    le résumé.
+
+    La lecture et le rendu s'importent ici : ``mperf`` s'importe sans l'extra
+    ``analyse`` ; seule l'absence de pyarrow ou de plotly est dite, toute autre
+    ``ModuleNotFoundError`` se propage. ``ConfigError``, ``GitStateError``,
+    ``FileNotFoundError`` et ``OSError``, ``ProcessedError``, ``ResultsError`` :
+    « Erreur : <message> », code 1."""
+    try:
+        from mountain_perf.analyse.parquet import ProcessedError, read_tables
+        from mountain_perf.analyse.plot import figure_html
+    except ModuleNotFoundError as error:
+        if error.name not in ("pyarrow", "plotly"):
+            raise
+        print(Q1_EXTRA_ERROR, file=sys.stderr)
+        return 1
+    from mountain_perf import gitstate
+    from mountain_perf.analyse.q1 import Q1_PANELS, PointStatus, View, q1_figure
+    from mountain_perf.analyse.results import RESULTS_DIR, ResultsError, write_results
+
+    try:
+        folder = data_dir()
+        state = gitstate.git_state(_package_directory())
+        if state.modified:
+            print(Q1_MODIFIED_TREE_ERROR, file=sys.stderr)
+            return 1
+        figure = q1_figure(read_tables(folder))
+        written = write_results(
+            folder,
+            figure,
+            figure_html(figure),
+            commit=state.commit,
+            package_version=mountain_perf.__version__,
+            generated_on=_today(),
+        )
+    except (
+        ConfigError,
+        gitstate.GitStateError,
+        ProcessedError,
+        ResultsError,
+        OSError,
+    ) as error:
+        print(f"Erreur : {error}", file=sys.stderr)
+        return 1
+    for view in View:
+        print(f"Vue {view.value} :")
+        for panel in Q1_PANELS:
+            mine = [p for p in figure.points if p.view is view and p.panel is panel]
+            shown = [p for p in mine if p.status is PointStatus.SHOWN]
+            hidden = sum(1 for p in mine if p.status is PointStatus.SMALL_FACET)
+            line = f"  {panel.value} : {len(shown)} points montrés, {hidden} cachés"
+            if view is View.MAIN:
+                unstable = sum(
+                    1
+                    for p in shown
+                    if p.stability is not None and not p.stability.stable
+                )
+                line += f", {unstable} instables"
+            print(line)
+    print(f"Changements d'appareil : {len(figure.device_changes)}")
+    if figure.provenance.commit != state.commit:
+        print(
+            f"Tables écrites par un autre commit ({figure.provenance.commit[:12]}) : "
+            "relancer just process si leur calcul a changé."
+        )
+    print(f"-> {(RESULTS_DIR / written.name).as_posix()}/")
     return 0
 
 
@@ -2953,6 +3073,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         "tables",
         help="Écrire les tables de MPA_DATA_DIR/processed depuis interim (AN1-2b)",
     )
+    commands.add_parser(
+        "q1",
+        help="Écrire la figure de Q1 sous MPA_DATA_DIR/resultats/Q1 (AN1-2c)",
+    )
     args = parser.parse_args(argv)
     if args.command == "project" and args.curve is None:
         print(project_parser.format_usage(), file=sys.stderr, end="")
@@ -2971,6 +3095,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _run_ingest()
         if args.command == "tables":
             return _run_tables()
+        if args.command == "q1":
+            return _run_q1()
         if args.command == "backtest":
             return _run_backtest(args)
         if args.command == "project":

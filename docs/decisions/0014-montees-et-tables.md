@@ -319,3 +319,25 @@ besoin.
   la chaîne ; les variantes de la stabilité, si une variante instable domine ; les
   trous de D4.4 en enregistrement « intelligent » (`BACKLOG`, M6b) ; DuckDB si
   `processed/` dépasse la mémoire (`0011`).
+
+## Précisions d'AN1-2c
+
+*Ajoutées par la PR AN1-2c, avec la figure de Q1 (`0015`).*
+
+1. **Trois tables.** `processed/variantes.parquet` (`ClimbVariantRow`) garde les
+   montées que la stabilité calcule sous chaque variante, avec leur régime, leurs strates
+   et leurs drapeaux sous les paramètres de la variante ; la stabilité des points de la
+   figure la lit (`0015`).
+2. **Le commit dans la provenance.** `ProcessedProvenance` porte le compte des montées
+   des variantes et le commit du code qui écrit les tables : la version du paquet ne
+   distinguait pas deux états du code. `mperf tables` lit l'état git du paquet exécuté
+   et refuse un clone dont un fichier suivi est modifié, comme `just backtest`.
+3. **La mise en place.** Les trois fichiers s'écrivent dans `processed.nouveau/` ; puis
+   `processed/` devient `processed.ancien/`, `processed.nouveau/` devient `processed/`,
+   et l'ancien dossier est supprimé (les restes d'une écriture interrompue le sont
+   d'abord), comme `interim/activities/` (`0013`). Une écriture qui échoue laisse les
+   tables d'avant ; si le nouveau dossier ne prend pas sa place, l'ancien reprend la
+   sienne. `read_tables` refuse des tables d'avant AN1-2c (sans `variantes.parquet`, ou
+   une provenance sans les nouveaux champs), une table qui manque ou qui ne se relit
+   pas, avec un message qui dit de relancer `just process`.
+4. **L'extra `analyse`** prend plotly, que seul `analyse/plot.py` importe (`0015`).

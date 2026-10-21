@@ -14,6 +14,7 @@ from pathlib import Path
 import pytest
 
 from fixtures.processed import (
+    COMMIT,
     GAP,
     HEART_RATE_FROM_S,
     HEART_RATE_STEP_S,
@@ -64,14 +65,14 @@ MOVING = IntervalState.MOVING
 def walk(tmp_path_factory: pytest.TempPathFactory) -> tuple[Path, Tables]:
     folder = tmp_path_factory.mktemp("interim")
     write_interim(folder)
-    return folder, build_tables(folder, DEFAULT_SETTINGS)
+    return folder, build_tables(folder, DEFAULT_SETTINGS, commit=COMMIT)
 
 
 @pytest.fixture(scope="module")
 def gap(tmp_path_factory: pytest.TempPathFactory) -> tuple[Path, Tables]:
     folder = tmp_path_factory.mktemp("trou")
     write_gap_interim(folder)
-    return folder, build_tables(folder, DEFAULT_SETTINGS)
+    return folder, build_tables(folder, DEFAULT_SETTINGS, commit=COMMIT)
 
 
 def _track(folder: Path, ref: str) -> tuple[ActivityRecording, MotionTrack]:

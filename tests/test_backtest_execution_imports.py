@@ -58,6 +58,7 @@ def test_execution_imports_the_named_modules_only() -> None:
         "mountain_perf.backtest.scoring",
         "mountain_perf.backtest.segments",
         "mountain_perf.backtest.series",
+        "mountain_perf.gitstate",
         "mountain_perf.gpx",
         "mountain_perf.model",
         "mountain_perf.schemas",
@@ -70,7 +71,6 @@ def test_execution_imports_the_named_modules_only() -> None:
         "datetime",
         "math",
         "pathlib",
-        "subprocess",
     }
 
 
