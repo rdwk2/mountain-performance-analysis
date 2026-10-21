@@ -30,8 +30,8 @@ Python. Usage personnel d'abord, projet portfolio ensuite. Le repo est public.
    Les tests n'utilisent **que** les fixtures synthétiques de `tests/fixtures/`,
    qui sont minuscules, inventées, et commitées. Claude Code ne lit ni n'écrit rien
    sous `MPA_DATA_DIR` : le hook de `.claude/settings.json` le refuse, et les
-   commandes sur les données réelles (`just ingest`, `just process`, `just backtest`)
-   sont lancées par l'humain.
+   commandes sur les données réelles (`just ingest`, `just process`, `just backtest`,
+   `just ui`, et `streamlit run`, que le hook refuse aussi) sont lancées par l'humain.
 
 2. **`just check` doit être vert avant tout commit.**
    Si tu n'arrives pas à le rendre vert, tu t'arrêtes et tu le dis. Tu ne
@@ -124,6 +124,7 @@ just backtest courbe.csv  # backtest enregistré des cinq modèles, rapport D15 
 just backtest courbe.csv --sensitivity  # puis la sensibilité D13, enregistrée, rapport sensibilite-<n>.txt (M4d-3)
 just ingest     # raw/ → interim/activities/, extra ingest (AN1-1) ; MPA_DATA_DIR
 just process    # raw/ → interim/ → processed/ : ingest, puis mperf tables, extras ingest et analyse (AN1-2b)
+just ui         # l'interface (M5) : appli Streamlit locale sur MPA_DATA_DIR, extra tableau
 uv run mperf profile tests/fixtures/mini_11.gpx  # compte-rendu GPX (M2), --csv pour la grille
 uv run mperf project tests/fixtures/mini_11.gpx --curve tests/fixtures/courbe_synthetique.csv  # temps de passage (M3)
 uv run mperf match tests/fixtures/appariement_reference.gpx tests/fixtures/appariement_trace_x01.gpx  # points de score (M4a-2a)
@@ -146,9 +147,13 @@ src/mountain_perf/     le code de la bibliothèque
   clocks.py            fenêtres, qualification, confirmation, partition M/S/U, horloges
                        cumulées, totaux, épisodes ; commun au moteur et à la piste analyse
                        (M4a, AN1-2a)
+  controls.py          contrôles de l'interface générés depuis les specs (M5)
+  data_files.py        fichiers de l'interface : lister, ajouter dans routes/ et sorties/ (M5)
+  runs.py              enchaînements des commandes, communs à mperf et à l'interface (M5)
+  reports.py           textes de mperf profile et project, communs (M5)
   schemas/             les contrats de données (M1) — aucune E/S, aucun algorithme
     common.py          Sport, QualityFlag, SourceRef, plages physiques
-    parameters.py      ParameterSpec, ParameterSet
+    parameters.py      ParameterSpec, ParameterSet ; ParameterDisplay (M5)
     route.py           PointKind, NamedPoint, Route, ResolvedPoint, RouteProfile
     activity.py        Activity, TrackPointStream (M1b)
     curve.py           PaceCurve, CurveProvenance (M1b)
@@ -192,6 +197,9 @@ src/mountain_perf/     le code de la bibliothèque
                        la chronologie projetée d'un profil (M4b-2)
     baselines.py       vitesse constante, Naismith, Tobler : allures et chronologies
                        des baselines de 0010 D9.1 (M4c-1)
+    export.py          export CSV des passages (M3, M5)
+    views.py           ce que l'interface affiche d'une projection : passages, vitesses,
+                       heures (M5)
   backtest/            évaluation contre des performances réelles (M4)
     calendar.py        jour civil à Paris, origine o_j, disponibilité (M4a)
     manifest.py        load_manifest, ManifestReadResult, ManifestError (M4a)
@@ -254,7 +262,11 @@ src/mountain_perf/     le code de la bibliothèque
     tables.py          interim/ → lignes des tables activites et montees, provenance
                        (AN1-2b)
     parquet.py         écriture et relecture des tables en Parquet (AN1-2b)
-  ui/                  interface — appelle la bibliothèque, ne calcule rien (M5)
+  ui/                  interface — appelle la bibliothèque, ne calcule rien (M5) ;
+                       extra tableau, seul importeur de streamlit (0016)
+    app.py             point d'entrée ; PAGES, une ligne par page
+    components.py      dossier des données, ajout d'un fichier, contrôles
+    projection.py      la page projection, M5-1
   cli.py               mperf profile <fichier.gpx>, compte-rendu ou CSV sur stdout ;
                        mperf match <référence.gpx> <trace.gpx>, points de score (M4a-2a),
                        segments, couverture et horloges (M4a-2b), passages (M4a-3) ;
@@ -275,6 +287,7 @@ docs/                  ROADMAP, JOURNAL, PIEGES_DATA, MODELE_V1, decisions/,
                        DICTIONNAIRE_DONNEES (généré — ne pas éditer à la main)
 notebooks/             exploration, fichiers marimo sans sortie ; calcul jetable, tout
                        chiffre rapporté vient de `src/` (règle 7)
+.streamlit/config.toml configuration de l'interface : localhost, sans télémétrie (M5)
 ```
 
 Les données réelles vivent **hors du repo**, sous `MPA_DATA_DIR` :
@@ -284,7 +297,8 @@ $MPA_DATA_DIR/
   raw/          export Garmin brut — IMMUABLE
   interim/      parsé et normalisé — régénérable depuis raw/
   processed/    prêt à l'analyse — régénérable
-  routes/       GPX personnels
+  routes/       tracés préparés (GPX), ajoutés à la main ou par l'interface (M5)
+  sorties/      traces des sorties (GPX horodatés), ajoutées par l'interface (M5)
   reference/    performances réelles (jeu de backtest)
   registre/     registre des expériences (0010 D14), écrit par just backtest seul
   rapports/     rapports D15 de just backtest, jamais réécrits

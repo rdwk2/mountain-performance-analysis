@@ -76,3 +76,7 @@ c'était de mélanger, pas de choisir l'un ou l'autre.
 **À revisiter** : si un jour le projet couvre le VTT ou le ski de randonnée, les
 formats d'affichage changeront (km/h en VTT, VAM en ski). L'unité interne, elle,
 ne bougera pas — c'est bien l'intérêt de la séparation.
+
+*Note du 2026-10-20 (M5-1, `0016`) : l'interface v0 montre, pour chaque tronçon, l'allure
+et la montée horaire moyennes, les deux, sans choix selon le régime ; ce choix, et le seuil
+de pente qu'il demande, sont reportés à M9 (`BACKLOG.md`).*

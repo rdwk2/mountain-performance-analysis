@@ -16,6 +16,57 @@ Backtest (à partir de M4) : métrique avant → après.
 
 ---
 
+### 2026-10-21 · M5-1 — Interface v0 : projection
+L'interface v0, sa première page (brief M5-1, révision 2, et cinq précisions de la
+relecture du plan). Ce que la page appelle et qui vivait dans `cli.py` est passé en
+bibliothèque sans changer la sortie de `mperf` : l'enchaînement (`runs.py`), les textes
+(`reports.py`), l'export CSV (`model/export.py`), trois formats (`units.py`). Puis les
+plages d'affichage (`ParameterDisplay`, non stockées), les contrôles générés depuis les
+specs (`controls.py`), l'ajout de fichiers dans `routes/` et `sorties/` (`data_files.py`,
+vérifié dans un dossier temporaire du système, jamais d'écrasement), ce que la page
+affiche (`model/views.py`, heures en temps universel puis à Paris). Enfin l'extra
+`tableau` (Streamlit 1.66 ; `uv.lock` : 31 paquets ajoutés, aucune version changée),
+l'appli sous `ui/` (une page par module, déclarée dans `PAGES`), sa configuration locale
+sans télémétrie, la recette de lancement, le hook qui refuse à Claude Code de lancer
+l'interface, l'étape de types de la CI avec tous les extras ; la décision `0016`.
+Conclusion : `just check` vert sans extra (6 773 tests, 11 sautés), et avec tous les
+extras `pytest` (6 908 tests) et `mypy` verts ; les 34 contre-épreuves du § 8.3 (et de
+la précision 5) rougissent chacune son test, sur des copies, le dépôt jamais muté. La
+page se teste par `AppTest`, sur les fixtures ; le contrôle réel est celui de rdw.
+Rangé dans `src/mountain_perf/ui/`, `controls.py`, `data_files.py`, `runs.py`,
+`reports.py`, `model/export.py`, `model/views.py`, `docs/decisions/0016-interface-v0.md`,
+branche `m5/interface-projection`.
+
+---
+
+### 2026-10-19 · M4d-3 — première sensibilité réelle
+`just backtest courbe.csv --sensitivity` sur le manifeste et la courbe réels (rdw, sur
+`main` = `be8affd`, arbre propre, après une sauvegarde du registre) : la centrale,
+DÉCLARATION 7 et RÉSULTAT 8, rapport `rapports/backtest-0008.txt` ; puis la sensibilité
+de D13 qui la qualifie, DÉCLARATION 9 et RÉSULTAT 10, au format 5, rapport
+`rapports/sensibilite-0010.txt` ; sceau (empreinte de la dernière ligne)
+`0f0b9a00f9ac045e284498a2aecd81582489b78da4191b3e7bf4398f1967d1fb`. Relecture de la
+conception, en lecture seule, par le code de `be8affd` : les six lignes anciennes
+identiques à l'octet, les 306 documents anciens inchangés, 1 204 documents neufs (140
+pour la centrale, 1 064 pour la sensibilité, environ 35 Mo), chacun à son empreinte ;
+l'accord du format 5 passe ; la vue composée de la centrale (D10.6) est « sensibilité
+faite », sans réserve ; un oracle indépendant de D13, recalculé depuis les documents
+stockés, ne trouve aucun écart ; la sensibilité ne compte pas comme essai (exception de
+D14). Le rapport central est celui du RÉSULTAT 6 au caractère près, hors le commit, les
+numéros, le sceau et le nom du rapport. Sur les 99 valeurs de v0 brut comparées par
+configuration : sous les huit autres appariements, 0 à 4 perdues, 0 à 14 gagnées, 56 à
+93 au support changé, 51 à 72 à la valeur changée ; sous les cinq `M_θ`, 28 perdues, 49
+au support changé, 40 à la valeur changée ; sous les cinq `(M+U)_θ`, aucune perdue ni
+gagnée, aucun support changé, 3 à 24 valeurs changées. Le rapport de sensibilité est
+celui de l'exécution faite en conception sous Linux sur une copie du registre, hors le
+sceau, à un compte près : sous `M θ3`, Naismith a 34 valeurs changées au lieu de 35.
+« Valeur changée » compte tout écart non nul, et des écarts d'arrondi (de l'ordre de
+`1e−17` sur une dispersion) diffèrent d'une plateforme à l'autre (ligne de
+`BACKLOG.md`). Le registre réel est désormais au format 5 : le code de `main` d'avant
+M4d-3 ne le relit plus.
+
+---
+
 ### 2026-10-19 · M4d-3 — correctifs de relecture
 La relecture C en deux passes (« fusionnable après correction des tests ») et le balayage
 par mutation de la conception n'ont trouvé aucun défaut du code, mais des règles écrites
