@@ -24,6 +24,8 @@ from test_ingest_interim import REPORT
 from test_schemas_interim import SOURCE, entry
 
 PLUS2 = timezone(timedelta(hours=2))
+COMMIT = "c0ffee" * 6 + "c0ff"
+"""Le commit inventé des tables synthétiques (40 chiffres hexadécimaux)."""
 
 
 def _with_heart_rate(rec: ActivityRecording, bpm: float) -> ActivityRecording:

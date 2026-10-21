@@ -223,6 +223,7 @@ from mountain_perf.schemas.processed import (
     ClimbFlag,
     ClimbRegime,
     ClimbRow,
+    ClimbVariantRow,
     GradeStratum,
     ProcessedProvenance,
 )
@@ -460,6 +461,7 @@ __all__ = [
     "ClimbFlag",
     "ClimbRegime",
     "ClimbRow",
+    "ClimbVariantRow",
     "Clock",
     "ClockConvention",
     "ClockKind",

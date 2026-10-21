@@ -13,8 +13,9 @@ un usage personnel d'abord ; le dépôt ne contient aucune donnée personnelle.
 Une seconde piste partage le dépôt et sa méthode : l'analyse des données
 d'entraînement, de récupération et de sommeil de l'athlète, des tableaux de bord
 jusqu'à l'apprentissage automatique (jalons `AN`, [`docs/analyse/`](docs/analyse/)).
-Elle ingère déjà les activités de l'export Garmin (`mperf ingest`) et en tire les
-tables des activités et des montées (`mperf tables`).
+Elle ingère déjà les activités de l'export Garmin (`mperf ingest`), en tire les
+tables des activités et des montées (`mperf tables`) et la figure descriptive de sa
+première question, la vitesse ascensionnelle à terrain comparable (`mperf q1`).
 
 ![La chaîne de mountain-performance-analysis sur des données synthétiques : courbe allure↔pente, profil d'un tracé avec temps de passage projetés par v0 et réalisés, écart mesuré tous les 250 m](docs/img/chaine.svg)
 
@@ -65,9 +66,11 @@ Windows. La lecture des FIT de l'ingestion demande en plus l'extra `ingest`
 (fitdecode, [`0011`](docs/decisions/0011-bibliotheques-analyse.md)) :
 `uv sync --locked --extra ingest`, ou `just ingest`, qui l'installe de lui-même ; sans
 lui, les tests qui lisent des FIT se sautent. L'écriture des tables de `processed/` en
-Parquet demande l'extra `analyse` (pyarrow,
-[`0014`](docs/decisions/0014-montees-et-tables.md)) : `uv sync --locked --extra
-analyse`, ou `just process` ; sans lui, les tests qui écrivent du Parquet se sautent.
+Parquet et la figure de Q1 demandent l'extra `analyse` (pyarrow et plotly,
+[`0014`](docs/decisions/0014-montees-et-tables.md),
+[`0015`](docs/decisions/0015-figure-de-q1.md)) : `uv sync --locked --extra analyse`,
+ou `just process` et `just q1` ; sans lui, les tests qui écrivent du Parquet ou rendent
+la figure se sautent.
 `just check` enchaîne trois recettes :
 
 | Recette | Ce qu'elle lance |
@@ -85,9 +88,10 @@ extras, à chaque push et à chaque pull request.
 
 `MPA_DATA_DIR`, le dossier des données personnelles hors du dépôt, sert au backtest
 enregistré (`just backtest` : manifeste, courbe, registre, rapports), à l'ingestion
-(`just ingest` : `raw/` lu, `interim/activities/` écrit) et aux tables (`just process` :
-l'ingestion, puis `interim/` et `athlete.toml` lus, `processed/` écrit) ; les autres
-commandes ne le lisent pas, les tests non plus
+(`just ingest` : `raw/` lu, `interim/activities/` écrit), aux tables (`just process` :
+l'ingestion, puis `interim/` et `athlete.toml` lus, `processed/` écrit) et à la figure
+de Q1 (`just q1` : `processed/` lu, `resultats/Q1/` écrit) ; les autres commandes ne le
+lisent pas, les tests non plus
 ([`tests/conftest.py`](tests/conftest.py) le pose sur un dossier temporaire neuf
 pour chaque test). Pour le renseigner, copier [`.env.example`](.env.example) en
 `.env` ; `just` charge `.env` s'il existe. Sous Windows, écrire le chemin avec des
@@ -95,8 +99,8 @@ barres obliques.
 
 ## Utilisation : `mperf`
 
-Six sous-commandes, installées par `uv sync` ; `ingest` et `tables` demandent en plus
-leur extra (`ingest`, `analyse`). Les exemples ci-dessous ont été exécutés depuis la
+Sept sous-commandes, installées par `uv sync` ; `ingest`, `tables` et `q1` demandent en
+plus leur extra (`ingest`, `analyse`). Les exemples ci-dessous ont été exécutés depuis la
 racine du dépôt, sur des fixtures synthétiques commitées
 ([`tests/fixtures/`](tests/fixtures/README.md)) ; celui du backtest, sur le monde
 synthétique que les tests écrivent dans un dossier temporaire.
@@ -414,11 +418,11 @@ les désaccords et les activités sans vue `Activity` ; suit une ligne par coupl
 type de la source) de ces dernières. Pas d'exemple ici : sur l'export réel, ces nombres
 restent hors du dépôt ([`docs/analyse/CHARTE.md`](docs/analyse/CHARTE.md), § 10).
 
-### `just process` — les tables des activités et des montées
+### `just process` — les tables des activités, des montées et des variantes
 
 `just process` régénère tout depuis `raw/` : l'ingestion (`mperf ingest`, extra
 `ingest`), puis `mperf tables` (extra `analyse`), qui lit
-`MPA_DATA_DIR/interim/activities/` et écrit deux tables Parquet dans
+`MPA_DATA_DIR/interim/activities/` et écrit trois tables Parquet dans
 `MPA_DATA_DIR/processed/` ([`0014`](docs/decisions/0014-montees-et-tables.md)) :
 
 - `activites.parquet`, une ligne par activité de l'index : les valeurs de l'index, le
@@ -428,18 +432,28 @@ restent hors du dépôt ([`docs/analyse/CHARTE.md`](docs/analyse/CHARTE.md), § 
   ascensionnelle (le gain pris en mouvement divisé par le temps en mouvement, avec sa
   variante et son enveloppe), sa pente, son régime (côte, intermédiaire, montée longue,
   ski de randonnée, ski de randonnée court, autre sport), ses strates de pente et
-  d'altitude, ses drapeaux et sa stabilité.
+  d'altitude, ses drapeaux et sa stabilité ;
+- `variantes.parquet`, une ligne par montée de chaque variante déclarée de la
+  définition (celles que la stabilité recalcule) : ses bornes, son gain, son gain pris
+  en mouvement et son temps en mouvement, son régime, ses strates et ses drapeaux sous
+  les paramètres de la variante ; la stabilité des points de la figure de Q1 la lit
+  ([`0015`](docs/decisions/0015-figure-de-q1.md)).
 
 Les montées se détectent sur le profil du moteur ; leurs bornes et leur gain se lisent
 en temps, sur l'altitude lissée du moteur, et un replat qui monte doucement reste hors
 de la montée, à un pas de grille près (un bout plus court qu'un pas peut y rester et
 diluer la VAM d'une côte courte) ; près de la pente d'un replat, le bruit de l'altitude
 peut y laisser bien plus (`docs/decisions/0014`). Un drapeau marque une montée sans la
-retirer. Les deux fichiers portent leur provenance : l'empreinte d'`interim/`, la
-version du paquet et tous les paramètres de la définition ; régénérés depuis le même
-`interim/` par le même code, avec le même `athlete.toml` et la même version de pyarrow
-(celle de `uv.lock`), ils sont identiques à l'octet sur la même plateforme (d'un système
-à l'autre, les derniers chiffres d'un nombre peuvent différer).
+retirer. Les trois fichiers portent la même provenance : l'empreinte d'`interim/`, le
+commit et la version du paquet, et tous les paramètres de la définition ; régénérés
+depuis le même `interim/` par le même code, avec le même `athlete.toml` et la même
+version de pyarrow (celle de `uv.lock`), ils sont identiques à l'octet sur la même
+plateforme (d'un système à l'autre, les derniers chiffres d'un nombre peuvent
+différer). Comme pour `just backtest`, le code exécuté doit être celui d'un clone git,
+installé par `uv sync`, et `mperf tables` refuse un clone dont un fichier suivi est
+modifié : le commit doit dire le code qui a écrit les tables. Les trois fichiers
+s'écrivent dans un dossier à part, puis prennent ensemble la place de `processed/` :
+une écriture qui échoue laisse les tables d'avant.
 
 `MPA_DATA_DIR/athlete.toml` peut déclarer, dans sa table `[analyse]`, la vitesse
 ascensionnelle de référence qui fixe la frontière des régimes, et les produits de
@@ -459,8 +473,45 @@ just process
 ```
 
 Après l'ingestion, `mperf tables` dit le nombre d'activités et de montées, les
-montées par régime, les montées marquées et instables, l'empreinte d'`interim/` et les
-fichiers écrits. Pas d'exemple ici, pour la même raison.
+montées par régime, les montées marquées et instables, les montées des variantes,
+l'empreinte d'`interim/`, le commit et les fichiers écrits. Pas d'exemple ici, pour la
+même raison.
+
+### `just q1` — la figure de Q1
+
+`just q1` (`mperf q1`, extra `analyse`) lit les tables de `MPA_DATA_DIR/processed/` et
+écrit la figure de Q1, « la VAM progresse-t-elle, à pente, gain et altitude
+comparables ? » ([`docs/analyse/QUESTIONS.md`](docs/analyse/QUESTIONS.md),
+[`0015`](docs/decisions/0015-figure-de-q1.md)), dans un dossier neuf de
+`MPA_DATA_DIR/resultats/Q1/`, nommé par la date du jour et une empreinte de ses entrées,
+jamais réécrit :
+
+- `figure.html`, une page autonome (plotly.js inclus) : une rangée par régime (montées
+  longues, côtes, ski de randonnée), une colonne par strate de pente ; un point par
+  activité et par strate d'altitude (la couleur), placé à sa date ; en ordonnée, sa
+  vitesse ascensionnelle en m/h, échelle logarithmique : le gain pris en mouvement
+  divisé par le temps en mouvement, sommés sur ses montées gardées (non marquées,
+  d'une activité à une seule session, avec leurs strates). Un point creux
+  est instable sous les variantes de la définition ; un trait pointillé marque chaque
+  changement de montre ; une facette de moins de cinq activités reste vide. Une seconde
+  vue ne garde que les montées stables. Figure descriptive : ni courbe ajustée, ni
+  lissage, ni intervalle ;
+- `points.csv`, les points des deux vues ; `flux.csv`, mois par mois et par régime, ce
+  que la figure montre et ce qu'elle écarte, par motif ;
+- `provenance.json` : le commit et la version du paquet, la période, la provenance des
+  tables lues, les paramètres de la figure, l'empreinte de chaque fichier.
+
+```bash
+just q1
+```
+
+`mperf q1` demande, comme `mperf tables`, un clone git dont aucun fichier suivi n'est
+modifié. Il refuse des tables d'avant cette figure (sans `variantes.parquet`), une table
+qui manque ou qui ne se relit pas : relancer `just process`. Il
+dit, par vue et par régime, les points montrés, cachés et instables, les changements de
+montre, et le dossier écrit ; si les tables viennent d'un autre commit que le code, une
+ligne le dit. Pas d'exemple ici : la figure et ses comptes restent hors du dépôt
+([`docs/analyse/CHARTE.md`](docs/analyse/CHARTE.md), § 10).
 
 ## État et plan
 
@@ -473,10 +524,10 @@ fichiers écrits. Pas d'exemple ici, pour la même raison.
   viendra avec le premier effet, au M6a ; enfin la sensibilité (`0010` D13,
   `just backtest courbe.csv --sensitivity`).
 - **Piste analyse** : cadrage livré (AN0 : charte, questions, décisions 0011 à 0013) ;
-  AN1 (activités et montées) en cours : son codec commun, l'ingestion des activités
+  AN1 (activités et montées) livré : son codec commun, l'ingestion des activités
   (`just ingest`), les horloges du moteur rendues communes (le temps de mouvement),
-  les tables de `processed/` (activités et montées) et la commande qui régénère
-  `interim/` et `processed/` (`just process`) livrés ; reste la figure de Q1 (AN1-2c).
+  les tables de `processed/` et la commande qui régénère `interim/` et `processed/`
+  (`just process`), la figure de Q1 (`just q1`).
 
 Le détail :
 
@@ -504,6 +555,7 @@ sont au statut « acceptée » :
 - [0012 — Notebooks et règle 7](docs/decisions/0012-notebooks-et-regle-7.md)
 - [0013 — Ingestion des activités et format d'`interim/`](docs/decisions/0013-ingestion-et-interim.md)
 - [0014 — Les montées et les tables de `processed/`](docs/decisions/0014-montees-et-tables.md)
+- [0015 — La figure de Q1](docs/decisions/0015-figure-de-q1.md)
 
 Autres documents :
 
@@ -528,7 +580,7 @@ Code, ouvert dans un clone du dépôt, n'y touche pas : le hook de
 outils de fichiers sous ce dossier, qu'il connaît par `MPA_DATA_DIR` (l'environnement,
 sinon le `.env` du clone), et ses commandes qui le nomment ou qui écrivent dans les
 données ; les commandes sur les données réelles (`just ingest`, `just process`,
-`just backtest`) sont lancées par l'humain. C'est un garde-fou, pas une enceinte : une
-commande qui atteint le dossier sans le nommer n'est pas vue. Les tests et les exemples
-ci-dessus n'utilisent que les fixtures synthétiques de
+`just q1`, `just backtest`) sont lancées par l'humain. C'est un garde-fou, pas une
+enceinte : une commande qui atteint le dossier sans le nommer n'est pas vue. Les tests
+et les exemples ci-dessus n'utilisent que les fixtures synthétiques de
 [`tests/fixtures/`](tests/fixtures/README.md).

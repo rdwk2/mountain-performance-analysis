@@ -1,5 +1,6 @@
-"""Contrats de ``processed/`` (AN1-2b, ``docs/decisions/0014``) : les tables
-``activites`` et ``montees`` de la piste analyse, et leur provenance.
+"""Contrats de ``processed/`` (AN1-2b et AN1-2c, ``docs/decisions/0014``) : les
+tables ``activites``, ``montees`` et ``variantes`` de la piste analyse, et leur
+provenance.
 
 Une ligne de table est un contrat : ses champs, leurs unités et leurs invariants sont
 ici, et le dictionnaire de données les publie. Les tables s'écrivent en Parquet par
@@ -526,6 +527,73 @@ class ClimbRow:
 
 
 @dataclass(frozen=True)
+class ClimbVariantRow:
+    """Une ligne de la table ``variantes`` : une montée retenue sous une variante
+    déclarée de la définition (``analyse/stability.py``), pour une activité qui a au
+    moins une montée de référence.
+
+    Champs
+    ------
+    - ``activity_ref`` — sans unité — l'activité (index de l'export).
+    - ``variant`` — sans unité — le nom de la variante, dans ``VARIANTS`` de
+      ``mountain_perf.analyse.stability``.
+    - ``start_offset_s``, ``end_offset_s`` — secondes — bornes en temps de la montée
+      sous la variante, depuis le départ de l'enregistrement ; la clé de la table est
+      ``(activity_ref, variant, start_offset_s)``.
+    - ``gain_m`` — mètres — ``G`` sous la variante.
+    - ``moving_gain_m``, ``moving_s`` — mètres, secondes — ``G_M,θc`` et ``M_θc`` sous
+      la variante.
+    - ``regime``, ``grade_stratum``, ``altitude_stratum`` — sans unité — régime et
+      strates, sous les paramètres de la variante et la ``V_ref`` des tables.
+    - ``flags`` — sans unité — les drapeaux sous les paramètres de la variante, triés.
+
+    Invariants
+    ----------
+    - ``activity_ref`` valide ; ``variant`` non vide ;
+    - ``0 <= start_offset_s < end_offset_s`` ; nombres finis ;
+    - ``gain_m`` et ``moving_s`` positifs ou nuls ;
+    - ``flags`` triés, sans doublon.
+
+    Producteur
+    ----------
+    ``mountain_perf.analyse.tables``, depuis les montées que la stabilité des montées
+    calcule déjà sous chaque variante.
+
+    Consommateurs
+    -------------
+    La stabilité des points de la figure de Q1 (``mountain_perf.analyse.q1``).
+
+    Non promis
+    ----------
+    - un identifiant de montée d'une variante à l'autre, ou d'une version de la
+      définition à l'autre ;
+    - les autres mesures d'une montée de variante (elles restent dans le calcul).
+    """
+
+    activity_ref: str
+    variant: str
+    start_offset_s: float
+    end_offset_s: float
+    gain_m: float
+    moving_gain_m: float
+    moving_s: float
+    regime: ClimbRegime
+    grade_stratum: GradeStratum
+    altitude_stratum: AltitudeStratum | None
+    flags: tuple[ClimbFlag, ...]
+
+    def __post_init__(self) -> None:
+        require_activity_ref(self.activity_ref)
+        require_non_empty(self.variant, "variant")
+        _check_numbers(self, dataclasses.fields(self))
+        if not 0 <= self.start_offset_s < self.end_offset_s:
+            raise ContractError("Il faut 0 <= start_offset_s < end_offset_s.")
+        _check_non_negative(self, "gain_m", "moving_s")
+        if list(self.flags) != sorted(set(self.flags)):
+            raise ContractError("flags doit être trié, sans doublon.")
+
+
+@dataclass(frozen=True)
 class ActivityRow:
     """Une ligne de la table ``activites`` : une entrée de l'index de l'export, de
     tout type.
@@ -758,6 +826,8 @@ class ProcessedProvenance:
     - ``interim_sha256`` — sans unité — empreinte d'``interim/activities/`` : SHA-256
       de la liste triée des chemins relatifs et des SHA-256 de ses documents.
     - ``package_version`` — sans unité — version du paquet qui a écrit les tables.
+    - ``commit`` — sans unité — commit git du code qui a écrit les tables ;
+      ``mperf tables`` refuse un arbre de travail modifié (AN1-2c).
     - ``reference_vertical_speed_ms`` — m/s — ``V_ref`` utilisée ;
       ``reference_vertical_speed_declared`` — sans unité — déclarée dans
       ``athlete.toml``, ou défaut du projet.
@@ -765,12 +835,14 @@ class ProcessedProvenance:
       ``fabricant:produit``, triés.
     - ``parameters`` — sans unité — tous les paramètres de la définition, par nom
       ``famille.nom`` (profil, montée, drapeaux, régimes, stabilité), triés.
-    - ``activity_count``, ``climb_count`` — sans unité — lignes des deux tables.
+    - ``activity_count``, ``climb_count``, ``variant_climb_count`` — sans unité —
+      lignes des trois tables.
 
     Invariants
     ----------
     - ``interim_sha256`` : 64 chiffres hexadécimaux minuscules ;
-    - ``package_version`` non vide ; ``reference_vertical_speed_ms > 0`` ;
+    - ``package_version`` non vide ; ``commit`` : 40 ou 64 chiffres hexadécimaux
+      minuscules (SHA-1 ou SHA-256 de git) ; ``reference_vertical_speed_ms > 0`` ;
     - ``barometer_products`` et ``parameters`` triés, sans doublon ; valeurs finies ;
     - comptes positifs ou nuls.
 
@@ -794,12 +866,14 @@ class ProcessedProvenance:
 
     interim_sha256: str
     package_version: str
+    commit: str
     reference_vertical_speed_ms: float
     reference_vertical_speed_declared: bool
     barometer_products: tuple[str, ...]
     parameters: tuple[tuple[str, float], ...]
     activity_count: int
     climb_count: int
+    variant_climb_count: int
 
     def __post_init__(self) -> None:
         if len(self.interim_sha256) != 64 or any(
@@ -807,6 +881,10 @@ class ProcessedProvenance:
         ):
             raise ContractError("interim_sha256 : 64 chiffres hexadécimaux minuscules.")
         require_non_empty(self.package_version, "package_version")
+        if len(self.commit) not in (40, 64) or any(
+            c not in "0123456789abcdef" for c in self.commit
+        ):
+            raise ContractError("commit : 40 ou 64 chiffres hexadécimaux minuscules.")
         require_finite(self.reference_vertical_speed_ms, "reference_vertical_speed_ms")
         if self.reference_vertical_speed_ms <= 0:
             raise ContractError("reference_vertical_speed_ms doit être > 0.")
@@ -817,5 +895,5 @@ class ProcessedProvenance:
             raise ContractError("parameters doit être trié par nom, sans doublon.")
         for name, value in self.parameters:
             require_finite(value, name)
-        if self.activity_count < 0 or self.climb_count < 0:
+        if min(self.activity_count, self.climb_count, self.variant_climb_count) < 0:
             raise ContractError("Les comptes sont positifs ou nuls.")

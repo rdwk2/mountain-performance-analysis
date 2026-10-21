@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 
 from fixtures.montees import FLAT, climb_at, recording
-from fixtures.processed import write_interim, write_one
+from fixtures.processed import COMMIT, write_interim, write_one
 from mountain_perf.analyse import tables as tables_module
 from mountain_perf.analyse.athlete import DEFAULT_SETTINGS, AthleteSettings
 from mountain_perf.analyse.climbs import (
@@ -64,7 +64,7 @@ def data_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 @pytest.fixture(scope="module")
 def tables(data_dir: Path) -> Tables:
-    return build_tables(data_dir, DEFAULT_SETTINGS)
+    return build_tables(data_dir, DEFAULT_SETTINGS, commit=COMMIT)
 
 
 def test_one_activity_row_per_index_entry_in_index_order(tables: Tables) -> None:
@@ -108,7 +108,7 @@ def test_vertical_speed_of_the_long_climb(tables: Tables) -> None:
 
 
 def test_barometric_from_the_file_or_the_declaration(data_dir: Path) -> None:
-    plain = build_tables(data_dir, DEFAULT_SETTINGS)
+    plain = build_tables(data_dir, DEFAULT_SETTINGS, commit=COMMIT)
     (ski,) = (c for c in plain.climbs if c.activity_ref == "a2")
     assert ski.barometric is False
     assert ClimbFlag.NON_BAROMETRIC in ski.flags
@@ -117,7 +117,7 @@ def test_barometric_from_the_file_or_the_declaration(data_dir: Path) -> None:
     declared = dataclasses.replace(
         DEFAULT_SETTINGS, barometer_products=frozenset({("garmin", 1)})
     )
-    again = build_tables(data_dir, declared)
+    again = build_tables(data_dir, declared, commit=COMMIT)
     (ski,) = (c for c in again.climbs if c.activity_ref == "a2")
     assert ski.barometric is True
     assert {a.activity_ref: a for a in again.activities}["a2"].barometric is True
@@ -126,7 +126,7 @@ def test_barometric_from_the_file_or_the_declaration(data_dir: Path) -> None:
 
 def test_the_declared_reference_speed_moves_the_regimes(data_dir: Path) -> None:
     slow = AthleteSettings(300.0 / 3600.0, True, frozenset())
-    tables = build_tables(data_dir, slow)
+    tables = build_tables(data_dir, slow, commit=COMMIT)
     short, _ = (c for c in tables.climbs if c.activity_ref == "a1")
     assert short.regime is ClimbRegime.INTERMEDIATE  # 60 m > 300 m/h × 5 min = 25 m
     assert tables.provenance.reference_vertical_speed_declared is True
@@ -162,7 +162,12 @@ def test_preceding_ascent_and_moving_time(tables: Tables) -> None:
 def test_the_provenance(data_dir: Path, tables: Tables) -> None:
     provenance = tables.provenance
     assert provenance.interim_sha256 == interim_sha256(data_dir)
-    assert (provenance.activity_count, provenance.climb_count) == (4, 3)
+    assert provenance.commit == COMMIT
+    assert (
+        provenance.activity_count,
+        provenance.climb_count,
+        provenance.variant_climb_count,
+    ) == (4, 3, 36)
     names = [name for name, _ in provenance.parameters]
     assert names == sorted(names)
     assert ("climb.min_gain_m", 20.0) in provenance.parameters
@@ -230,7 +235,7 @@ def test_a_climb_with_two_flags_lists_them_sorted(tmp_path: Path) -> None:
         [FLAT, climb_at(2376, 0.06, 150), FLAT], noise=False, barometer=False
     )
     write_one(tmp_path, rec)
-    (climb,) = build_tables(tmp_path, DEFAULT_SETTINGS).climbs
+    (climb,) = build_tables(tmp_path, DEFAULT_SETTINGS, commit=COMMIT).climbs
     assert climb.flags == (ClimbFlag.NON_BAROMETRIC, ClimbFlag.NON_HUMAN)
 
 
@@ -261,7 +266,7 @@ def test_each_regime_count_reads_its_own_regime(
     compte dans la colonne de son régime et dans aucune autre (côtes, intermédiaires,
     montées longues, ski de randonnée, ski de randonnée court, autres sports)."""
     write_one(tmp_path, recording(segments, noise=False), source_activity_type)
-    tables = build_tables(tmp_path, DEFAULT_SETTINGS)
+    tables = build_tables(tmp_path, DEFAULT_SETTINGS, commit=COMMIT)
     (activity,) = tables.activities
     assert activity.climb_count == 1
     assert (
@@ -275,7 +280,7 @@ def test_each_regime_count_reads_its_own_regime(
 
 
 def test_the_same_interim_gives_the_same_tables(data_dir: Path, tables: Tables) -> None:
-    assert build_tables(data_dir, DEFAULT_SETTINGS) == tables
+    assert build_tables(data_dir, DEFAULT_SETTINGS, commit=COMMIT) == tables
 
 
 def test_the_interim_fingerprint_follows_the_documents(tmp_path: Path) -> None:
@@ -350,7 +355,7 @@ def test_the_timer_stops_of_a_closed_window() -> None:
 
 def _one(tmp_path: Path, rec: ActivityRecording) -> Tables:
     write_one(tmp_path, rec)
-    return build_tables(tmp_path, DEFAULT_SETTINGS)
+    return build_tables(tmp_path, DEFAULT_SETTINGS, commit=COMMIT)
 
 
 def test_a_winter_activity(tmp_path: Path) -> None:
@@ -463,7 +468,7 @@ def test_an_activity_that_breaks_a_contract_is_named(
     monkeypatch.setattr(tables_module, "_track_summary", broken)
     write_interim(tmp_path)
     with pytest.raises(TablesError, match=r"^activité a1 : contrat violé$"):
-        build_tables(tmp_path, DEFAULT_SETTINGS)
+        build_tables(tmp_path, DEFAULT_SETTINGS, commit=COMMIT)
 
 
 def test_the_interim_fingerprint_ignores_files_that_are_not_documents(
@@ -510,7 +515,7 @@ def test_the_sport_of_the_activity_goes_to_the_flags(
     « non humaine » à pied seulement."""
     rec = recording([FLAT, climb_at(2376, 0.06, 150), FLAT], noise=False)
     write_one(tmp_path, rec, source_activity_type)
-    (climb,) = build_tables(tmp_path, DEFAULT_SETTINGS).climbs
+    (climb,) = build_tables(tmp_path, DEFAULT_SETTINGS, commit=COMMIT).climbs
     assert (ClimbFlag.NON_HUMAN in climb.flags) is flagged
 
 
@@ -581,7 +586,7 @@ def test_a_document_that_does_not_read_back_is_named(
     assert old in data
     path.write_bytes(data.replace(old, new, 1))
     with pytest.raises(TablesError, match=message):
-        build_tables(tmp_path, DEFAULT_SETTINGS)
+        build_tables(tmp_path, DEFAULT_SETTINGS, commit=COMMIT)
 
 
 @pytest.mark.parametrize(("margin_m", "loop"), [(0.0, False), (1e-6, True)])
@@ -637,7 +642,9 @@ def test_a_loop_closes_strictly_under_its_distance(
     )
     definition = dataclasses.replace(DEFAULT_DEFINITION, quality=quality)
     write_one(tmp_path, rec)
-    (activity,) = build_tables(tmp_path, DEFAULT_SETTINGS, definition).activities
+    (activity,) = build_tables(
+        tmp_path, DEFAULT_SETTINGS, definition, commit=COMMIT
+    ).activities
     assert activity.loop is loop
     zs = track.smoothed_elevation_m
     assert zs[0] != zs[1]
@@ -758,7 +765,7 @@ def test_the_definition_reaches_the_climbs_and_their_variants(tmp_path: Path) ->
         for m in climbs(track)
     ]
     write_one(tmp_path, rec)
-    rows = build_tables(tmp_path, DEFAULT_SETTINGS, definition).climbs
+    rows = build_tables(tmp_path, DEFAULT_SETTINGS, definition, commit=COMMIT).climbs
     assert [
         (
             r.start_offset_s - track.offset_s,
@@ -816,7 +823,7 @@ def test_the_definition_reaches_the_slow_moving_time(tmp_path: Path) -> None:
     )
     strict = dataclasses.replace(DEFAULT_DEFINITION, climb=climb)
     write_one(tmp_path, rec)
-    (default,) = build_tables(tmp_path, DEFAULT_SETTINGS).climbs
-    (row,) = build_tables(tmp_path, DEFAULT_SETTINGS, strict).climbs
+    (default,) = build_tables(tmp_path, DEFAULT_SETTINGS, commit=COMMIT).climbs
+    (row,) = build_tables(tmp_path, DEFAULT_SETTINGS, strict, commit=COMMIT).climbs
     assert default.slow_moving_s > 240.0
     assert row.slow_moving_s < 30.0

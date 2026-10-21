@@ -139,21 +139,33 @@ def _best(
     return best if best_value >= min_jaccard else None
 
 
+def variant_parameters(
+    profile: ParameterSet | None = None,
+    climb: ParameterSet | None = None,
+) -> tuple[tuple[ParameterSet, ParameterSet], ...]:
+    """Les paramètres du profil et de la montée de chaque variante de
+    :data:`VARIANTS`, dans son ordre, à partir des paramètres de référence donnés."""
+    profile = profile or ParameterSet(PROFILE_PARAMETER_SPECS)
+    climb = climb or ParameterSet(CLIMB_PARAMETER_SPECS)
+    return tuple(
+        (
+            ParameterSet(
+                PROFILE_PARAMETER_SPECS, variant.profile(dict(profile.values))
+            ),
+            ParameterSet(CLIMB_PARAMETER_SPECS, variant.climb(dict(climb.values))),
+        )
+        for variant in VARIANTS
+    )
+
+
 def variant_climbs(
     track: MotionTrack,
     profile: ParameterSet | None = None,
     climb: ParameterSet | None = None,
 ) -> tuple[tuple[ClimbMeasure, ...], ...]:
     """Les montées de ``track`` sous chaque variante de :data:`VARIANTS`, dans son
-    ordre, à partir des paramètres de référence donnés."""
-    profile = profile or ParameterSet(PROFILE_PARAMETER_SPECS)
-    climb = climb or ParameterSet(CLIMB_PARAMETER_SPECS)
-    out = []
-    for variant in VARIANTS:
-        p = ParameterSet(PROFILE_PARAMETER_SPECS, variant.profile(dict(profile.values)))
-        c = ParameterSet(CLIMB_PARAMETER_SPECS, variant.climb(dict(climb.values)))
-        out.append(climbs(track, p, c))
-    return tuple(out)
+    ordre, aux paramètres de :func:`variant_parameters`."""
+    return tuple(climbs(track, p, c) for p, c in variant_parameters(profile, climb))
 
 
 def stability(

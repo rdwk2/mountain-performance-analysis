@@ -1,7 +1,8 @@
 """``mperf tables`` (AN1-2b, ``docs/decisions/0014``) : ``MPA_DATA_DIR/interim`` →
 ``MPA_DATA_DIR/processed``, sur l'``interim/`` synthétique de
 ``tests/fixtures/processed.py``. Le dossier des données est celui que ``conftest.py``
-pose pour chaque test, jamais celui de ``.env``."""
+pose pour chaque test, jamais celui de ``.env`` ; l'état git du paquet est fixé (un
+clone propre, au commit des fixtures), sauf dans les tests qui le changent."""
 
 from __future__ import annotations
 
@@ -11,17 +12,33 @@ from pathlib import Path
 
 import pytest
 
+import mountain_perf
 import mountain_perf.analyse
 import mountain_perf.analyse.tables
-from fixtures.processed import write_interim
-from mountain_perf.analyse.athlete import DEFAULT_SETTINGS
+from fixtures.processed import COMMIT, write_interim
+from mountain_perf import gitstate
+from mountain_perf.analyse.athlete import DEFAULT_SETTINGS, AthleteError, read_athlete
 from mountain_perf.analyse.tables import build_tables
 from mountain_perf.cli import main
 from mountain_perf.config import data_dir
+from mountain_perf.gitstate import GitFailure, GitState, GitStateError
 from mountain_perf.schemas import ContractError
 
 
-def test_cli_tables_writes_both_tables_and_says_what_it_wrote(
+@pytest.fixture(autouse=True)
+def clean_clone(monkeypatch: pytest.MonkeyPatch) -> list[Path]:
+    """Un clone propre, au commit des fixtures ; rend les dossiers lus."""
+    seen: list[Path] = []
+
+    def state(directory: Path) -> GitState:
+        seen.append(directory)
+        return GitState(COMMIT, False)
+
+    monkeypatch.setattr(gitstate, "git_state", state)
+    return seen
+
+
+def test_cli_tables_writes_the_three_tables_and_says_what_it_wrote(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     pytest.importorskip("pyarrow")
@@ -30,7 +47,7 @@ def test_cli_tables_writes_both_tables_and_says_what_it_wrote(
     folder = data_dir()
     write_interim(folder)
     assert main(["tables"]) == 0
-    tables = build_tables(folder, DEFAULT_SETTINGS)
+    tables = build_tables(folder, DEFAULT_SETTINGS, commit=COMMIT)
     assert read_tables(folder) == tables
     assert capsys.readouterr().out.splitlines() == [
         "Activités : 4",
@@ -43,9 +60,12 @@ def test_cli_tables_writes_both_tables_and_says_what_it_wrote(
         "  other_sport : 0",
         "Montées marquées : 1",
         "Montées instables : 0",
+        "Montées des variantes : 36",
         f"Empreinte d'interim/ : {tables.provenance.interim_sha256}",
-        "-> activites.parquet, montees.parquet",
+        f"Commit : {COMMIT}",
+        "-> activites.parquet, montees.parquet, variantes.parquet",
     ]
+    assert len(tables.variants) == 36
 
 
 def test_cli_tables_reads_the_declarations_of_the_athlete() -> None:
@@ -169,3 +189,77 @@ def test_cli_tables_names_a_document_that_does_not_read_back(
         "Erreur : activité a2 : document au format 9, 1 attendu\n"
     )
     assert not (folder / "processed").exists()
+
+
+def test_cli_tables_reads_the_state_of_the_executed_package(
+    clean_clone: list[Path],
+) -> None:
+    """L'état git lu est celui du paquet exécuté, et son commit va dans la
+    provenance des trois tables (AN1-2c)."""
+    pytest.importorskip("pyarrow")
+    from mountain_perf.analyse.parquet import read_tables
+
+    write_interim(data_dir())
+    assert main(["tables"]) == 0
+    assert clean_clone == [Path(mountain_perf.__file__).resolve().parent]
+    assert read_tables(data_dir()).provenance.commit == COMMIT
+
+
+def test_cli_tables_refuses_a_modified_clone(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Un fichier suivi modifié : le message, code 1, rien de lu ni d'écrit (un
+    ``interim/`` absent ne se voit pas). Sans pyarrow, l'extra se dit d'abord."""
+    pytest.importorskip("pyarrow")
+    monkeypatch.setattr(gitstate, "git_state", lambda directory: GitState(COMMIT, True))
+    assert main(["tables"]) == 1
+    assert capsys.readouterr().err == (
+        "Erreur : un fichier suivi du code exécuté est modifié : mperf tables écrit "
+        "le commit du code dans la provenance des tables. Committer ou annuler la "
+        "modification.\n"
+    )
+    assert not (data_dir() / "processed").exists()
+
+
+def test_cli_tables_reads_the_git_state_before_athlete_toml(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Un clone modifié et un ``athlete.toml`` refusé (le test le vérifie d'abord) :
+    l'état git se lit d'abord, et seul son refus est dit."""
+    pytest.importorskip("pyarrow")
+    monkeypatch.setattr(gitstate, "git_state", lambda directory: GitState(COMMIT, True))
+    folder = data_dir()
+    write_interim(folder)
+    (folder / "athlete.toml").write_text("[analyse]\nvref = 1\n", encoding="utf-8")
+    with pytest.raises(AthleteError):
+        read_athlete(folder)
+    assert main(["tables"]) == 1
+    assert capsys.readouterr().err.startswith(
+        "Erreur : un fichier suivi du code exécuté est modifié : mperf tables"
+    )
+    assert not (folder / "processed").exists()
+
+
+@pytest.mark.parametrize(
+    ("failure", "message"),
+    [
+        (GitFailure.GIT_MISSING, "git introuvable"),
+        (GitFailure.NOT_A_REPOSITORY, "le code exécuté n'est pas dans un dépôt git"),
+    ],
+)
+def test_cli_tables_without_a_git_state(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    failure: GitFailure,
+    message: str,
+) -> None:
+    pytest.importorskip("pyarrow")
+
+    def fails(directory: Path) -> GitState:
+        raise GitStateError(failure)
+
+    monkeypatch.setattr(gitstate, "git_state", fails)
+    write_interim(data_dir())
+    assert main(["tables"]) == 1
+    assert capsys.readouterr().err == f"Erreur : {message}\n"
+    assert not (data_dir() / "processed").exists()
