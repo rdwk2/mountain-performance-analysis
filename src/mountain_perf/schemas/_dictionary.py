@@ -194,6 +194,7 @@ from mountain_perf.schemas.processed import (
     ClimbFlag,
     ClimbRegime,
     ClimbRow,
+    ClimbVariantRow,
     GradeStratum,
     ProcessedProvenance,
 )
@@ -453,6 +454,7 @@ DOCUMENTED_TYPES: tuple[type, ...] = (
     GradeStratum,
     AltitudeStratum,
     ClimbRow,
+    ClimbVariantRow,
     ActivityRow,
     ProcessedProvenance,
     DriftInterval,

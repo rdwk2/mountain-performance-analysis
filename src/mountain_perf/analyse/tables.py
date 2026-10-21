@@ -1,11 +1,13 @@
-"""De ``interim/`` aux lignes des tables ``activites`` et ``montees`` (AN1-2b,
-``docs/decisions/0014``).
+"""De ``interim/`` aux lignes des tables ``activites``, ``montees`` et ``variantes``
+(AN1-2b et AN1-2c, ``docs/decisions/0014``).
 
 Pour chaque entrée de l'index, dans l'ordre de l'index : sa vue ``Activity`` (ou le
 motif de son refus), son enregistrement s'il existe, la vue positions et altitude
 (:func:`~mountain_perf.analyse.climbs.motion_track`), les montées retenues et leurs
 mesures, leur stabilité sous les variantes déclarées, leurs drapeaux, leur régime et
-leurs strates.
+leurs strates ; puis les montées de chaque variante, avec leurs drapeaux, leur régime
+et leurs strates sous les paramètres de la variante (la table ``variantes``, que lit la
+stabilité des points de la figure de Q1).
 
 Les instants des enregistrements partent du départ de l'enregistrement ; ceux d'une
 :class:`~mountain_perf.analyse.climbs.MotionTrack`, du premier instant de sa vue
@@ -57,8 +59,10 @@ from mountain_perf.analyse.quality import (
 )
 from mountain_perf.analyse.stability import (
     STABILITY_PARAMETER_SPECS,
+    VARIANTS,
     stability,
     variant_climbs,
+    variant_parameters,
 )
 from mountain_perf.codec import CodecError
 from mountain_perf.gpx.geo import deduplicated_polyline, haversine_m
@@ -89,6 +93,7 @@ from mountain_perf.schemas.processed import (
     ActivityRow,
     ClimbRegime,
     ClimbRow,
+    ClimbVariantRow,
     ProcessedProvenance,
 )
 from mountain_perf.validation import ContractError
@@ -139,10 +144,11 @@ DEFAULT_DEFINITION = Definition(
 
 @dataclass(frozen=True)
 class Tables:
-    """Les deux tables et leur provenance."""
+    """Les trois tables et leur provenance."""
 
     activities: tuple[ActivityRow, ...]
     climbs: tuple[ClimbRow, ...]
+    variants: tuple[ClimbVariantRow, ...]
     provenance: ProcessedProvenance
 
 
@@ -409,6 +415,59 @@ class _TrackSummary:
     mean_heart_rate_bpm: float | None
     heart_rate_coverage: float
     climbs: tuple[ClimbRow, ...]
+    variants: tuple[ClimbVariantRow, ...]
+
+
+def _variant_rows(
+    entry: IndexedActivity,
+    track: MotionTrack,
+    variants: Sequence[Sequence[ClimbMeasure]],
+    *,
+    barometric: bool,
+    drift: bool,
+    settings: AthleteSettings,
+    definition: Definition,
+) -> tuple[ClimbVariantRow, ...]:
+    """Les lignes de la table ``variantes`` d'une activité : les montées de chaque
+    variante, dans l'ordre de :data:`VARIANTS`, puis du temps."""
+    sport = SOURCE_TYPE_SPORTS.get(entry.source_activity_type)
+    parameters = variant_parameters(definition.profile, definition.climb)
+    rows = []
+    for variant, (_, climb), measures in zip(
+        VARIANTS, parameters, variants, strict=True
+    ):
+        for measure in measures:
+            flags = climb_flags(
+                measure,
+                sport,
+                barometric=barometric,
+                altimetric_drift=drift,
+                climb=climb,
+                quality=definition.quality,
+            )
+            rows.append(
+                ClimbVariantRow(
+                    activity_ref=entry.activity_ref,
+                    variant=variant.name,
+                    start_offset_s=track.offset_s + measure.span.start_s,
+                    end_offset_s=track.offset_s + measure.span.end_s,
+                    gain_m=measure.span.gain_m,
+                    moving_gain_m=measure.moving_gain_m[CENTRAL_CONVENTION_INDEX],
+                    moving_s=measure.moving_s[CENTRAL_CONVENTION_INDEX],
+                    regime=regime(
+                        measure.span.gain_m,
+                        sport,
+                        settings.reference_vertical_speed_ms,
+                        definition.regimes,
+                    ),
+                    grade_stratum=grade_stratum(
+                        measure, climb, definition.regimes, definition.quality
+                    ),
+                    altitude_stratum=altitude_stratum(measure, definition.regimes),
+                    flags=tuple(sorted(flags)),
+                )
+            )
+    return tuple(rows)
 
 
 def _track_summary(
@@ -435,6 +494,7 @@ def _track_summary(
     closure = zs[-1] - zs[0]
     drift = altimetric_drift(closure_distance, closure, elapsed, definition.quality)
     rows: tuple[ClimbRow, ...] = ()
+    variant_rows: tuple[ClimbVariantRow, ...] = ()
     if profile is not None:
         measures = climbs(track, definition.profile, definition.climb)
         variants = (
@@ -458,6 +518,16 @@ def _track_summary(
             )
             for rank, measure in enumerate(measures, start=1)
         )
+        if measures:
+            variant_rows = _variant_rows(
+                entry,
+                track,
+                variants,
+                barometric=barometric,
+                drift=drift,
+                settings=settings,
+                definition=definition,
+            )
     t = track.time_s
     steps = [t[i + 1] - t[i] for i in range(len(t) - 1)]
     gap_count, gap_s = _gaps(track, 0.0, elapsed)
@@ -498,6 +568,7 @@ def _track_summary(
         mean_heart_rate_bpm=math.fsum(with_hr) / len(with_hr) if with_hr else None,
         heart_rate_coverage=len(with_hr) / len(t),
         climbs=rows,
+        variants=variant_rows,
     )
 
 
@@ -583,9 +654,13 @@ def build_tables(
     data_dir: Path,
     settings: AthleteSettings,
     definition: Definition = DEFAULT_DEFINITION,
+    *,
+    commit: str,
 ) -> Tables:
-    """Les deux tables d'``interim/`` sous ``data_dir``, dans l'ordre de l'index ;
-    les montées d'une activité dans l'ordre du temps. :class:`TablesError` si
+    """Les trois tables d'``interim/`` sous ``data_dir``, dans l'ordre de l'index ;
+    les montées d'une activité dans l'ordre du temps ; ses montées de variantes dans
+    l'ordre de ``VARIANTS``, puis du temps ; ``commit``, celui du code qui les écrit,
+    va dans leur provenance (``mperf tables`` le lit, AN1-2c). :class:`TablesError` si
     l'index ou l'enregistrement d'une activité ne se relit pas (``CodecError`` : un
     document d'un autre format, ou abîmé ; ``ContractError`` : un contrat en refuse la
     relecture), ou si les lignes d'une activité violent un contrat ;
@@ -596,6 +671,7 @@ def build_tables(
         raise TablesError(f"index d'interim/ : {error}") from error
     activity_rows: list[ActivityRow] = []
     climb_rows: list[ClimbRow] = []
+    variant_rows: list[ClimbVariantRow] = []
     for entry in index.entries:
         refusal = activity_view(index, entry).refusal
         try:
@@ -617,9 +693,11 @@ def build_tables(
             raise TablesError(f"activité {entry.activity_ref} : {error}") from error
         if summary is not None:
             climb_rows += summary.climbs
+            variant_rows += summary.variants
     provenance = ProcessedProvenance(
         interim_sha256=interim_sha256(data_dir),
         package_version=__version__,
+        commit=commit,
         reference_vertical_speed_ms=settings.reference_vertical_speed_ms,
         reference_vertical_speed_declared=settings.reference_vertical_speed_declared,
         barometer_products=tuple(
@@ -628,5 +706,8 @@ def build_tables(
         parameters=definition.items(),
         activity_count=len(activity_rows),
         climb_count=len(climb_rows),
+        variant_climb_count=len(variant_rows),
     )
-    return Tables(tuple(activity_rows), tuple(climb_rows), provenance)
+    return Tables(
+        tuple(activity_rows), tuple(climb_rows), tuple(variant_rows), provenance
+    )
