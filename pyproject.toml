@@ -17,6 +17,7 @@ ingest = [
     "fitdecode>=0.11",
 ]
 analyse = [
+    "plotly>=7.1",
     "pyarrow>=21",
 ]
 
@@ -68,10 +69,12 @@ allowed-confusables = ["×", "−", "’", "…", "–"]
 [tool.ruff.lint.flake8-tidy-imports.banned-api]
 "fitdecode".msg = "fitdecode ne s'importe que dans src/mountain_perf/ingest/fit.py, jamais dans un test (0011 l'y permettrait ; 0013 en fait le seul importeur)."
 "pyarrow".msg = "pyarrow ne s'importe que dans src/mountain_perf/analyse/parquet.py (0011, 0014)."
+"plotly".msg = "plotly ne s'importe que dans src/mountain_perf/analyse/plot.py (0011, 0015)."
 
 [tool.ruff.lint.per-file-ignores]
 "src/mountain_perf/ingest/fit.py" = ["TID251"]
 "src/mountain_perf/analyse/parquet.py" = ["TID251"]
+"src/mountain_perf/analyse/plot.py" = ["TID251"]
 
 [tool.mypy]
 # Strict sur src/ (exigence du projet). tests/ passe aussi : pytest et hypothesis
@@ -96,4 +99,10 @@ ignore_missing_imports = true
 # (0011, 0014).
 [[tool.mypy.overrides]]
 module = ["pyarrow", "pyarrow.*"]
+ignore_missing_imports = true
+
+# plotly n'a ni marqueur py.typed ni stubs : il n'entre que par
+# src/mountain_perf/analyse/plot.py (0011, 0015).
+[[tool.mypy.overrides]]
+module = ["plotly", "plotly.*"]
 ignore_missing_imports = true
