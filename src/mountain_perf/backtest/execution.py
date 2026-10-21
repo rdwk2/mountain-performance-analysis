@@ -11,7 +11,6 @@ portent aucun chemin absolu (règle 1 de ``CLAUDE.md``).
 from __future__ import annotations
 
 import math
-import subprocess
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -48,6 +47,9 @@ from mountain_perf.backtest.repeatability import repeatability_reference
 from mountain_perf.backtest.scoring import realized_profile, v0_scores
 from mountain_perf.backtest.segments import match_trace
 from mountain_perf.backtest.series import TraceSeries, build_series
+from mountain_perf.gitstate import GitFailure, GitStateError
+from mountain_perf.gitstate import GitState as GitState
+from mountain_perf.gitstate import git_state as common_git_state
 from mountain_perf.gpx import (
     PROFILE_PARAMETER_SPECS,
     GpxError,
@@ -157,48 +159,20 @@ class BacktestError(RuntimeError):
 # ---------------------------------------------------------------------------
 
 
-@dataclass(frozen=True)
-class GitState:
-    """Le commit du code exécuté et l'état de son arbre de travail : ``modified`` si
-    un fichier suivi est modifié, indexé ou non (``0010`` D14)."""
-
-    commit: str
-    modified: bool
-
-
-def _git(directory: Path, *arguments: str) -> str:
-    try:
-        completed = subprocess.run(
-            ["git", "-C", str(directory), *arguments],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            check=False,
-        )
-    except OSError:
-        raise BacktestError(_GIT_MISSING) from None
-    if completed.returncode != 0:
-        raise BacktestError(_NOT_A_REPOSITORY)
-    return completed.stdout
-
-
 def git_state(directory: Path) -> GitState:
     """L'état git du dépôt qui contient ``directory`` (précision de D14, M4b-5 ;
-    décision Q7) : ``git rev-parse HEAD``, puis ``git --no-optional-locks status
-    --porcelain --untracked-files=no``, modifié si sa sortie n'est pas vide — un
-    fichier non suivi ne compte pas. Le statut ne rafraîchit pas l'index : aucun
-    verrou ``.git/index.lock`` n'est posé (M4c-2). ``BacktestError`` sans ``git``, ou
-    hors d'un dépôt."""
-    commit = _git(directory, "rev-parse", "HEAD").strip()
-    # --no-optional-locks : le statut lit l'index sans le réécrire, donc sans verrou.
-    status = _git(
-        directory,
-        "--no-optional-locks",
-        "status",
-        "--porcelain",
-        "--untracked-files=no",
-    )
-    return GitState(commit, status != "")
+    décision Q7), lu par ``mountain_perf.gitstate`` (commun depuis AN1-2c) :
+    ``BacktestError`` sans ``git``, ou hors d'un dépôt, avec les messages de
+    ``just backtest``."""
+    try:
+        return common_git_state(directory)
+    except GitStateError as error:
+        message = (
+            _GIT_MISSING
+            if error.failure is GitFailure.GIT_MISSING
+            else _NOT_A_REPOSITORY
+        )
+        raise BacktestError(message) from None
 
 
 # ---------------------------------------------------------------------------
