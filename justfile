@@ -51,3 +51,8 @@ ingest:
 process:
     uv run --extra ingest mperf ingest
     uv run --extra analyse mperf tables
+
+# La figure de Q1 (AN1-2c, docs/decisions/0015) : MPA_DATA_DIR/processed →
+# MPA_DATA_DIR/resultats/Q1/<date>_<empreinte>/, avec l'extra analyse (pyarrow, plotly).
+q1:
+    uv run --extra analyse mperf q1

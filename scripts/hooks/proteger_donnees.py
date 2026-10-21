@@ -12,9 +12,10 @@ Lu sur l'entrée standard : l'appel d'outil en JSON (``tool_name``, ``tool_input
   ``MPA_DATA_DIR`` ou le contient ;
 - une commande (``Bash``, ``PowerShell``, ``Monitor``) qui nomme ce dossier, sa
   variable, ou une commande qui écrit dans les données (``mperf ingest``,
-  ``mperf backtest``, ``mperf tables``, ``just ingest``, ``just backtest``,
-  ``just process``, options de ``just`` comprises, et ``python -m mountain_perf.cli``
-  suivi de ``ingest``, ``backtest``, ``tables`` ou ``process`` ; sans casse,
+  ``mperf backtest``, ``mperf tables``, ``mperf q1``, ``just ingest``,
+  ``just backtest``, ``just process``, ``just q1``, options de ``just`` comprises, et
+  ``python -m mountain_perf.cli`` suivi de ``ingest``, ``backtest``, ``tables``,
+  ``process`` ou ``q1`` ; sans casse,
   ``mperf.exe`` et ``just.exe`` compris, sous-commande entre guillemets comprise).
 
 ``MPA_DATA_DIR`` vient de l'environnement, sinon du ``.env`` à la racine du projet
@@ -73,7 +74,7 @@ SHELL_TOOLS = {"Bash", "PowerShell", "Monitor"}
 WRITING_COMMANDS = re.compile(
     r"\b(?:mperf|just|mountain_perf\.cli)(?:\.exe)?[\"']?"
     r"(?:\s+-\S+(?:\s+[^\s-]\S*)?)*"
-    r"\s+[\"']?(?:ingest|backtest|tables|process)\b",
+    r"\s+[\"']?(?:ingest|backtest|tables|process|q1)\b",
     re.IGNORECASE,
 )
 HOME_PREFIXES = (
