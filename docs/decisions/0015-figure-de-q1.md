@@ -36,10 +36,11 @@ inclus ne le change pas.
 
 **La stabilité de la figure.**
 
-**A. Retirer les montées instables.** Une montée coupée en deux par une variante est
-« instable » au sens de `0014` (aucune montée de la variante ne la recouvre à 50 %),
-alors que le point, qui somme ses morceaux, ne bouge pas tant qu'ils restent dans son
-panneau et ses strates : la figure perdrait sans motif une grande part des côtes.
+**A. Retirer les montées instables.** Une montée que les variantes coupent en morceaux
+peut être « instable » au sens de `0014` (quand aucun morceau ne la recouvre à 50 %),
+alors que le point, qui somme ses morceaux, en garde le gain, au replat qui les sépare
+près, tant qu'ils restent dans son panneau et ses strates : la figure perdrait une
+grande part des côtes.
 
 **B. Afficher la part de montées instables d'un point.** Même confusion entre la montée
 et le point.
@@ -101,9 +102,9 @@ positif ne se place pas sur l'axe logarithmique ; les deux sont comptés au flux
 
 ### La stabilité du point
 
-Pour chaque variante `v`, la part de chaque montée du point couverte en temps par la
-réunion des montées de `v` de la même activité, non marquées, du même panneau et des
-mêmes strates ; `kept_v`, le gain du point pondéré par ces parts, divisé par
+Pour chaque variante `v`, la part de chaque montée du point couverte en temps écoulé
+par la réunion des montées de `v` de la même activité, non marquées, du même panneau
+et des mêmes strates ; `kept_v`, le gain du point pondéré par ces parts, divisé par
 `Σ G_M,θc`. Le point est **retrouvé** dans `v` si `kept_v ≥ 0,8` ; son résumé sous `v`
 est le rapport des sommes des montées de `v` de l'activité, non marquées, du même
 panneau et des mêmes strates (le point tel que `v` le dessinerait). Il est **stable**
@@ -112,13 +113,20 @@ y reste sous 5 % ; comme pour la montée, une variante qui le retrouve sans rés
 temps en M) n'entre pas dans l'écart.
 Le régime et les strates d'une montée de `v` se lisent sur elle, sous les paramètres
 de `v`. Une montée que `v` coupe en deux reste couverte si ses morceaux restent dans
-le panneau et les strates du point ; sinon, comme une montée que `v` marque, ou
-qu'elle réunit à une autre en une montée d'un autre régime, elle ne l'est plus. Ainsi,
-un morceau dont le gain est sous celui qui ouvre le panneau en sort, même quand la
-montée entière y était. Le symbole creux dit donc qu'une variante dessinerait le point
-autrement : avec moins de gain dans son panneau et ses strates, ou une autre VAM. Les
-trois seuils sont déclarés (`Q1_PARAMETER_SPECS`), aux valeurs de la stabilité des
-montées, sans en dépendre.
+le panneau et les strates du point, au temps qui les sépare près : le replat ou la
+contre-pente où `v` coupe, et tout arrêt qui s'y trouve, comptent comme perdus, si
+bien qu'un long arrêt à cet endroit peut faire que `v` ne retrouve plus le point ; et
+le résumé sous `v` ne compte plus le temps ni le gain de ce replat. Un morceau qui
+sort du panneau ou des strates du point ne le couvre plus, comme une montée que `v`
+marque, ou qu'elle réunit à une autre en une montée d'un autre régime. Ainsi, un
+morceau dont le gain est sous celui qui ouvre le panneau en sort, même quand la
+montée entière y était. Le symbole creux dit donc qu'une variante dessinerait le
+point autrement, avec moins de gain dans son panneau et ses strates ou une autre VAM,
+ou qu'elle en coupe une montée en morceaux que sépare un temps long, un arrêt par
+exemple. Les trois seuils sont déclarés (`Q1_PARAMETER_SPECS`). La part du gain
+retrouvée, 0,8, est propre au point (une montée est retrouvée à un recouvrement de
+0,5, `0014`) ; la part des variantes, 0,8, et l'écart, 5 %, reprennent les valeurs de
+la stabilité des montées, sans en dépendre.
 
 ### Le flux
 
@@ -181,11 +189,12 @@ compris (`ruff`, TID251) ; le calcul (`analyse/q1.py`) et l'écriture des résul
   indépendantes (même jour, même forme, même chaleur) ; un point par montée donnerait à
   une sortie riche en côtes un poids qu'elle n'a pas. La strate d'altitude reste dans le
   point, parce que l'altitude est une confusion de Q1.
-- **La stabilité du point plutôt que celle des montées** : le critère de `0014` est
-  fait pour la montée, qu'une variante peut couper sans rien changer au point, quand
-  ses morceaux restent dans son panneau et ses strates. Le transposer garde ses seuils
-  et son sens (« la variante retrouve-t-elle ce que je dessine ? ») au niveau de ce
-  qui est dessiné. Retirer les montées instables reste regardable, comme sensibilité
+- **La stabilité du point plutôt que celle des montées** : le critère de `0014` juge
+  la montée, qu'une variante peut couper en morceaux qui restent dans le panneau et
+  les strates du point : la montée peut alors être instable, et le point ne pas
+  l'être. Le transposer garde son sens (« la variante retrouve-t-elle ce que je
+  dessine ? ») au niveau de ce qui est dessiné, et deux de ses trois seuils. Retirer
+  les montées instables reste regardable, comme sensibilité
   (la seconde vue), pas comme vue principale.
 - **Une troisième table** : la figure ne lit que `processed/`, comme toute question ;
   la stabilité des montées calcule déjà les montées des variantes, et les garder coûte
@@ -213,6 +222,9 @@ compris (`ruff`, TID251) ; le calcul (`analyse/q1.py`) et l'écriture des résul
   montres (le trait pointillé la signale, il ne la corrige pas) ; un point stable quand
   sa facette est cachée (sa stabilité se calcule, elle ne se montre pas).
 - **À revisiter** : le seuil de facette et les seuils de la stabilité du point, avec
-  le plan de Q1 ; une vue par sport à l'intérieur d'un panneau, si un panneau mêle des
-  sports qui ne se comparent pas ; le résumé, si la question passe de la sortie à la
-  montée.
+  le plan de Q1, comme la part couverte lue en temps écoulé (un long arrêt à l'endroit
+  d'une coupe peut faire manquer le point à la variante qui coupe, ou retirer cette
+  variante de l'écart ; le temps entre deux montées d'une variante pourrait ne compter
+  ni pour ni contre) ; une vue par sport à l'intérieur d'un panneau, si un panneau mêle
+  des sports qui ne se comparent pas ; le résumé, si la question passe de la sortie à
+  la montée.

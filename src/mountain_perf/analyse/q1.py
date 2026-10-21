@@ -25,7 +25,8 @@ restent dans les points, avec leur statut.
 chaque variante de ``VARIANTS``, la part du gain du point qui reste dans une montée de
 la variante, de la même activité, non marquée, du même panneau et des mêmes strates
 (chaque montée du point pèse son ``G_M,θc``, multiplié par la part de son intervalle
-``[t_a ; t_b]`` que couvre la réunion de ces montées) ; le point est retrouvé dans la
+``[t_a ; t_b]`` que couvre la réunion de ces montées, en temps écoulé : le temps entre
+deux de ces montées, arrêts compris, est perdu) ; le point est retrouvé dans la
 variante si cette part atteint ``min_kept_fraction``, et son résumé sous la variante
 est le rapport des sommes de ces montées. Il est stable s'il est retrouvé dans au moins
 ``min_found_fraction`` des variantes et si le plus grand écart relatif de son résumé,
@@ -75,8 +76,9 @@ Q1_PARAMETER_SPECS: tuple[ParameterSpec, ...] = (
         0.8,
         0.0,
         1.0,
-        "Part minimale du gain d'un point qui reste dans son panneau et ses strates"
-        " sous une variante, pour qu'il y soit retrouvé.",
+        "Part minimale du gain d'un point que couvrent, en temps écoulé, les"
+        " montées d'une variante de son panneau et de ses strates, pour qu'il y soit"
+        " retrouvé.",
     ),
     ParameterSpec(
         "min_found_fraction",
@@ -95,8 +97,9 @@ Q1_PARAMETER_SPECS: tuple[ParameterSpec, ...] = (
         "Plus grand écart relatif du résumé admis pour un point stable.",
     ),
 )
-"""Les paramètres de la figure (``docs/decisions/0015``), aux valeurs de la stabilité
-des montées, sans en dépendre."""
+"""Les paramètres de la figure (``docs/decisions/0015``). La part du gain retrouvée est
+propre au point ; la part des variantes et l'écart reprennent les valeurs de la
+stabilité des montées, sans en dépendre."""
 
 Q1_PANELS: tuple[ClimbRegime, ...] = (
     ClimbRegime.LONG_CLIMB,
@@ -135,8 +138,8 @@ class PointStatus(StrEnum):
 class PointStability:
     """La stabilité d'un point sous les variantes : la part des variantes où il est
     retrouvé, la plus petite part de son gain qui reste, le plus grand écart relatif
-    de son résumé là où il est retrouvé (``None`` s'il ne l'est nulle part), et le
-    critère."""
+    de son résumé là où il est retrouvé (``None`` si aucune variante qui le retrouve
+    n'a de résumé), et le critère."""
 
     found_fraction: float
     min_kept_fraction: float

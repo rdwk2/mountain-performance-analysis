@@ -16,6 +16,27 @@ Backtest (à partir de M4) : métrique avant → après.
 
 ---
 
+### 2026-10-21 · AN1-2c — correctifs de relecture
+La relecture C (« fusionnable après correction de C1 ») n'a trouvé aucun défaut du
+calcul, mais des phrases de `0015` que le code contredit et des garanties écrites
+qu'aucun test ne tenait. `0015` dit maintenant que la part couverte d'un point se lit en
+temps écoulé : le temps qui sépare les morceaux d'une montée qu'une variante coupe,
+arrêts compris, est perdu, et un long arrêt à cet endroit peut faire que la variante
+ne retrouve plus le point ; la règle reste (décision de rdw), et une lecture
+qui ne compterait pas ce temps est à revisiter avec le plan de Q1. Les seuils de la
+stabilité du point sont dits tels qu'ils sont : la part du gain retrouvée est propre au
+point. Cinq tests de la conception, recopiés tels quels : les poids de la part qui reste
+dans la convention centrale, un long arrêt à l'endroit d'une coupe, la réunion de deux
+montées d'une variante qui se chevauchent, un point retrouvé sans temps en M, le mois
+d'une montée partie après minuit. La description d'un paramètre et deux docstrings de
+`q1.py` ; deux lignes de `BACKLOG.md`.
+Conclusion : `just check` vert, 6 969 tests avec tous les extras ; ni le calcul ni la
+figure ne changent. Rangé dans `tests/test_analyse_q1.py`,
+`docs/decisions/0015-figure-de-q1.md` et `src/mountain_perf/analyse/q1.py`, branche
+`an1/figure-q1`.
+
+---
+
 ### 2026-10-21 · AN1-2c — Figure de Q1
 La figure descriptive de Q1 et ce qu'il lui faut. `mperf tables` écrit une troisième
 table, `processed/variantes.parquet` (les montées que la stabilité calcule sous chaque
