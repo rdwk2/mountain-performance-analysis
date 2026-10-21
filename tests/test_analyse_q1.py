@@ -979,3 +979,110 @@ def test_the_flux_of_the_stable_only_view() -> None:
         "stable_only_points_hidden": 4,
         "stable_only_points_non_positive": 1,
     }
+
+
+# --- la relecture C de la PR (AN1-2c) -------------------------------------------
+
+
+def test_the_kept_gain_weights_each_climb_by_the_central_convention() -> None:
+    """Les poids de la part qui reste, et leur somme, sont les ``G_M,θc`` de la
+    convention centrale : deux montées dont le gain pris en mouvement diffère selon la
+    convention ; une variante ne garde que la première, qui pèse 300 m sur 400 sous
+    θc (100 sur 300 sous la première convention, 160 sur 300 sous la dernière). Le gain
+    pris hors de M, 50 m en U sur la première montée, n'y entre pas."""
+    assert CENTRAL_CONVENTION_INDEX == 1
+    when = start(0)
+    climbs = [
+        climb(
+            "a",
+            when,
+            1000,
+            3000,
+            300,
+            1800,
+            moving_gain_m_by_convention=(100.0, 300.0, 120.0, 140.0, 160.0),
+            undetermined_gain_m_by_convention=(50.0,) * 5,
+        ),
+        climb(
+            "a",
+            when,
+            4000,
+            5000,
+            100,
+            600,
+            moving_gain_m_by_convention=(200.0, 100.0, 180.0, 160.0, 140.0),
+        ),
+    ]
+    first = VARIANTS[0].name
+    variants = [
+        r
+        for r in same_in_every_variant(climbs)
+        if not (r.variant == first and r.start_offset_s == 4000)
+    ]
+    (point,) = main_points(
+        q1_figure(tables_of([activity("a", when)], climbs, variants))
+    )
+    assert point.stability is not None
+    assert point.stability.min_kept_fraction == 300 / 400
+
+
+def test_a_long_stop_where_a_variant_cuts_a_climb_is_lost() -> None:
+    """Une variante coupe une montée de 600 m en deux morceaux de 300 m qui restent
+    dans le panneau, avec le même gain et le même temps en M ; entre eux, l'athlète
+    s'est arrêté 600 s. Le temps écoulé qui les sépare est perdu (``0015``, « La
+    stabilité du point ») : 1 400 s couvertes sur 2 000, le point n'est pas retrouvé
+    dans cette variante, alors que ses morceaux gardent le gain et le temps en M de la
+    montée."""
+    when = start(0)
+    climbs = [climb("a", when, 1000, 3000, 600, 1400)]
+    variants = [variant("a", v.name, 1000, 3000, 600, 1400) for v in VARIANTS[1:]]
+    variants += [
+        variant("a", VARIANTS[0].name, 1000, 1700, 300, 700),
+        variant("a", VARIANTS[0].name, 2300, 3000, 300, 700),
+    ]
+    (point,) = main_points(
+        q1_figure(tables_of([activity("a", when)], climbs, variants))
+    )
+    s = point.stability
+    assert s is not None
+    assert s.min_kept_fraction == 0.7
+    assert s.found_fraction == 11 / 12
+    assert s.max_relative_deviation == 0.0
+
+
+def test_overlapping_climbs_of_a_variant_cover_their_union_once() -> None:
+    """Deux montées d'une même variante qui se chevauchent (des lignes écrites à la
+    main : la chaîne fusionne de telles montées) couvrent la réunion de leurs
+    intervalles, une seule fois : de 1 000 à 2 600 s d'une montée de 1 000 à
+    3 000 s, 80 % de son temps, et non 110 %."""
+    first = VARIANTS[0].name
+    variants = [variant("a", v.name, 1000, 3000, 300, 1800) for v in VARIANTS[1:]]
+    variants += [
+        variant("a", first, 1000, 2200, 180, 1080),
+        variant("a", first, 1600, 2600, 150, 900),
+    ]
+    assert _stability(variants).min_kept_fraction == 0.8
+
+
+def test_a_point_found_only_without_moving_time_is_not_stable() -> None:
+    """Chaque variante retrouve le point, mais aucune n'a de temps en M (des lignes
+    écrites à la main : la chaîne marque une telle montée) : aucun écart ne se lit,
+    et le point n'est pas stable."""
+    s = _stability([variant("a", v.name, 1000, 3000, 300, 0) for v in VARIANTS])
+    assert (s.found_fraction, s.max_relative_deviation, s.stable) == (1.0, None, False)
+
+
+def test_the_climbs_of_the_flux_are_in_the_month_of_their_activity() -> None:
+    """Une activité partie le 31 mars à 23 h 30, dont la montée commence le 1er avril
+    à 0 h 10 : le flux la compte en mars, le mois de l'activité, comme son point."""
+    late = datetime(2024, 3, 31, 23, 30, tzinfo=PLUS2)
+    after_midnight = climb("a", late, 2400, 4200, 300, 1800)
+    assert month_of(after_midnight.local_start_time) == "2024-04"
+    figure = q1_figure(tables_of([activity("a", late)], [after_midnight]))
+    climbs = {
+        m.month: m.climbs
+        for m in figure.month_panels
+        if m.panel is ClimbRegime.LONG_CLIMB
+    }
+    assert climbs == {"2024-03": 1}
+    assert [month_of(p.start_time) for p in main_points(figure)] == ["2024-03"]
