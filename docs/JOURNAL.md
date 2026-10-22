@@ -16,6 +16,34 @@ Backtest (à partir de M4) : métrique avant → après.
 
 ---
 
+### 2026-10-22 · M5-2 — Interface v0 : sortie
+La seconde page de l'interface, « sortie » : `mperf match --curve` en interface, le
+contrôle d'une sortie par v0 brut à l'effort 1, sans réglage et sans rien écrire (brief
+M5-2, révision 1 bis, et trois précisions de la relecture du plan). L'enchaînement de
+`mperf match` est passé en bibliothèque (`runs.py` : `match_outing`, puis
+`check_outing`, et `in_curve_window`, la règle de `0010` D2.2 au jour civil à Paris) ;
+`runs.py` n'importe que les modules purs de `backtest/`, par une liste testée, et la
+sortie de `mperf match` n'a pas changé d'un octet (quatre cas comparés avant et après).
+Les libellés communs à la commande et à la page sont passés de `cli.py` à
+`outing_views.py`, avec ce que la page affiche : le tracé suivi (la partie comparée et
+le préfixe comparable, écrits séparément), prévu contre réalisé et l'effort effectif
+`e* = exp(L)` sur le préparé et sur le chemin suivi, l'écart cumulé aux points et le plus
+grand. Puis l'écart signé (`units.py`), la page (`ui/sortie.py`, calcul au clic seulement,
+résultat gardé avec le trio de fichiers, six erreurs de lecture affichées sans trace
+Python), et la liste « sans streamlit » dérivée du paquet (87 modules).
+Conclusion : `just check` vert sans extra (7 046 tests, 36 sautés) ; avec tous les
+extras, `pytest` (7 287 tests, 2 sautés) et `mypy` verts. Les 33 contre-épreuves du
+§ 8.3 (34 mutations : celle de la seconde figure jouée sous ses deux formes) rougissent
+chacune son test, sur des copies, le dépôt jamais muté ; les trois de la liste « sans
+streamlit » sans extra. Un passage de `just check` a rougi une fois sur le garde-fou de
+lenteur de Hypothesis (`test_central_invariant`, hors du périmètre), vert rejoué tel
+quel. La page se teste par `AppTest`, sur les fixtures ; le contrôle réel est celui de
+rdw.
+Rangé dans `runs.py`, `outing_views.py`, `units.py`, `src/mountain_perf/ui/sortie.py`,
+`docs/decisions/0016-interface-v0.md` (section M5-2), branche `m5/interface-sortie`.
+
+---
+
 ### 2026-10-21 · M5-1 — Interface v0 : projection
 L'interface v0, sa première page (brief M5-1, révision 2, et cinq précisions de la
 relecture du plan). Ce que la page appelle et qui vivait dans `cli.py` est passé en

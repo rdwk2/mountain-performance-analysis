@@ -523,8 +523,7 @@ ligne le dit. Pas d'exemple ici : la figure et ses comptes restent hors du dép�
 L'interface ([`0016`](docs/decisions/0016-interface-v0.md)) est une appli Streamlit
 locale, sur `MPA_DATA_DIR`, avec l'extra `tableau`. Elle ne calcule rien (règle 7 de
 [`CLAUDE.md`](CLAUDE.md)) : ce qu'elle montre vient des fonctions mêmes de `mperf` et de
-la bibliothèque. Une page aujourd'hui, « projection » ; la page « sortie » viendra avec
-M5-2.
+la bibliothèque. Deux pages : « projection » et « sortie ».
 
 ```bash
 just ui
@@ -550,11 +549,24 @@ puis `http://localhost:8501` dans le navigateur.
   commande écrit des CRLF, la page des LF). C'est un format pour un programme
   (virgules, point décimal, UTF-8 sans marque d'en-tête) : Excel en français ne l'ouvre
   pas tel quel (`BACKLOG.md`).
+- **La page « sortie »** : un préparé, la trace d'une sortie faite sur lui (un GPX de
+  `MPA_DATA_DIR/sorties/`) et une courbe, puis « Comparer » : rien n'est calculé avant
+  le clic. Elle montre le jour de la sortie (le jour à Paris de son premier instant),
+  la partie comparée du préparé et le préfixe comparable (`0010` D4.11), prévu contre
+  réalisé sous les horloges du rapport, et l'effort effectif `e* = exp(L)` sur ton
+  préparé et sur le chemin suivi, avec ses limites : rétrospectif, limité à la partie
+  comparée, faussé par les arrêts sous l'écoulé, il mêle l'effort du jour et l'erreur
+  du modèle, et, sur le préparé, l'écart entre le préparé et le chemin suivi. Puis
+  l'écart cumulé aux points, et le plus grand. Un avertissement en tête quand la sortie
+  tombe dans la période d'estimation de la courbe (`0010` D2.2). C'est le contrôle d'une
+  sortie par v0 brut, à l'effort 1, sans réglage, et rien n'est écrit : pas une erreur
+  du modèle, dont le chiffre qui fait foi reste celui du backtest. Le détail (régimes,
+  enveloppes, épisodes) : `mperf match --curve`.
 
 ## État et plan
 
-- **Moteur de prédiction** : M0 à M4 livrés ; M5 (interface v0) en cours : la page
-  « projection » livrée (`just ui`), reste la page « sortie ». Livrés en M4 :
+- **Moteur de prédiction** : M0 à M4 livrés ; M5 (interface v0) livré, ses deux pages
+  (`just ui`) ; le « Fini quand » de la ROADMAP se constate à l'usage. Livrés en M4 :
   l'appariement d'une trace à un tracé, les métriques d'erreur, la référence de
   répétabilité, le registre des expériences, `just backtest` à cinq modèles, son
   diagnostic de longue course et ses fourchettes (`0010` D12 et D11, au rapport complet ;

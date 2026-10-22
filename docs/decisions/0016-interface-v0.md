@@ -96,3 +96,50 @@ ouvre l'extra `tableau`.
   s'appliquent), et le code de `ui/` doit passer les deux.
 - **À revisiter** : un cache (`st.cache_data`), si un long tracé rend la page lente ; un
   dossier d'ajout au choix, si le besoin revient.
+
+## M5-2 — la page « sortie » (2026-10-22)
+
+- **Ce qu'elle fait** : elle compare une sortie à son préparé par `mperf match --curve` —
+  un préparé de `routes/`, une trace de `sorties/`, une courbe de `reference/`, puis
+  « Comparer ». C'est le contrôle d'une sortie par **v0 brut à l'effort 1**, sans
+  manifeste, ni calage, ni baselines, sans réglage (les paramètres de l'appariement à
+  leurs défauts) ; elle ne rejoue pas le backtest et **n'écrit rien**, ni au registre ni
+  ailleurs. Ce n'est pas une erreur du modèle : le chiffre qui fait foi reste celui du
+  backtest. Le calcul ne se fait qu'au clic ; le résultat est gardé dans
+  `st.session_state` avec les trois fichiers comparés, et masqué quand un autre trio est
+  choisi.
+- **L'enchaînement** de `mperf match` est dans `runs.py` (`match_outing`, puis
+  `check_outing`, en deux temps comme la commande, qui imprime ses dix premières sections
+  avant de calculer les scores) ; la commande et la page l'appellent, et la sortie de
+  `mperf match` n'a pas changé. Ce que la page montre en plus est dans `outing_views.py`,
+  qui ne lit que les contrats, avec les libellés que la commande et la page partagent.
+- **Pourquoi `runs.py` importe `backtest/` et `ui/` non** : l'appariement, les passages
+  et les scores de v0 brut vivent dans `backtest/` ; les recopier coderait deux fois la
+  même chose. `runs.py` n'en importe que les **modules purs** — `calendar`, `geometry`,
+  `matching`, `passages`, `scoring`, `segments` —, jamais le registre, l'exécution
+  enregistrée ni le paquet lui-même ; une liste testée le dit
+  (`tests/test_ui_imports.py`, `RUNS_BACKTEST_MODULES`). `ui/` n'importe toujours aucun
+  module de `backtest/` : l'interface ne touche jamais au protocole scellé.
+- **L'effort effectif** : `e* = exp(L)`, `L` le niveau du support (`0010` D7.1), celui
+  que publie `mperf match`, jamais celui du sous-support à temps positifs (D5.5), qui est
+  un diagnostic. Pour v0, la durée prévue est inversement proportionnelle à l'effort,
+  donc `e* = P / T` : l'effort auquel v0 aurait prévu le temps réel sur la partie
+  comparée. Il est montré sous chaque horloge du rapport, **sur le préparé** (usage) et
+  **sur le chemin suivi** (contrôle), côte à côte : le temps réel `T` est le même, seul
+  le temps prévu change, et le rapport des deux vaut `exp(G)`, `G = L_usage −
+  L_contrôle` (`0010` D3). Ses limites, écrites dans la page : il est rétrospectif ;
+  limité au support comparé ; faussé par les arrêts sous l'écoulé ; il mêle l'effort du
+  jour et l'erreur du modèle (la courbe, les pentes) ; sur le préparé, s'y ajoute l'écart
+  entre le préparé et le chemin suivi (raccourcis, détours, GPS).
+- **« Dans la fenêtre »** : la règle de `0010` D2.2, celle des fourchettes — le **jour
+  civil à Paris du premier instant de la trace**, entre `date_from` et `date_to` du
+  compagnon de la courbe, bornes comprises. Dans la fenêtre, un avertissement en tête de
+  la page : l'écart y est optimiste. Ce jour est écrit en tête de la page.
+- **La partie comparée et le préfixe comparable** sont deux publications distinctes de
+  `0010` D4.11, écrites séparément : la partie comparée (tous les segments admis, sa
+  part du préparé) peut aller au-delà du préfixe comparable (jusqu'au premier segment
+  non admis), où s'arrêtent les écarts aux points. L'écart cumulé `C_k` (`0010` D7.3)
+  est celui de l'usage, avec le plus grand en valeur absolue sous chaque horloge.
+- **Ce qui n'est pas montré** : les régimes (`E_R`, `D_R`), les enveloppes, les épisodes
+  d'arrêt, `q_usage`, le rapport complet ; on les lit dans `mperf match --curve`
+  (`BACKLOG.md`, si le détail manque à l'usage).
