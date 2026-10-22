@@ -49,6 +49,10 @@ from mountain_perf.units import (
 )
 from mountain_perf.validation import ContractError
 
+PLACE_COLOR = "gray"
+"""La couleur des lieux du profil, leur règle et leur nom : sans couleur donnée, Vega
+les dessine en noir, illisibles sur le thème sombre ; le gris se lit sur les deux."""
+
 
 def _name(path: Path) -> str:
     return path.name
@@ -64,7 +68,9 @@ def _profile_chart(
     elevation_m: Sequence[float],
     rows: Sequence[PassageRow],
 ) -> dict[str, Any]:
-    """Le profil, une règle verticale pointillée et le nom de chaque passage."""
+    """Le profil, une règle verticale pointillée et le nom de chaque passage ; la
+    règle et le nom en ``PLACE_COLOR``, lisibles sur le thème clair comme sur le
+    sombre."""
     passages = [{"distance (m)": row.distance_m, "passage": row.name} for row in rows]
     return {
         "layer": [
@@ -88,7 +94,7 @@ def _profile_chart(
             },
             {
                 "data": {"values": passages},
-                "mark": {"type": "rule", "strokeDash": [4, 4]},
+                "mark": {"type": "rule", "strokeDash": [4, 4], "color": PLACE_COLOR},
                 "encoding": {
                     "x": DISTANCE_AXIS,
                     "tooltip": [
@@ -106,6 +112,7 @@ def _profile_chart(
                     "baseline": "bottom",
                     "dx": 4,
                     "dy": -4,
+                    "color": PLACE_COLOR,
                 },
                 "encoding": {
                     "x": DISTANCE_AXIS,
