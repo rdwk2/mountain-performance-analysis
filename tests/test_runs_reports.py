@@ -37,7 +37,12 @@ from mountain_perf.model.export import write_passages_csv
 from mountain_perf.reports import grid_lines, passage_lines, projection_summary_lines
 from mountain_perf.runs import project_route
 from mountain_perf.schemas import ParameterSet
-from mountain_perf.units import format_count, format_grade, format_share
+from mountain_perf.units import (
+    format_count,
+    format_grade,
+    format_share,
+    format_signed_duration,
+)
 from mountain_perf.validation import ContractError
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -152,8 +157,47 @@ def test_format_share_rounds_half_to_even() -> None:
     assert format_share(0.125) == "12 %"
 
 
+@pytest.mark.parametrize(
+    ("duration_s", "text"),
+    [
+        (0, "0:00"),
+        (0.4, "0:00"),
+        (-0.4, "0:00"),
+        (75, "+1:15"),
+        (-75, "−1:15"),
+        (59.5, "+1:00"),
+        (3600, "+1:00:00"),
+        (-3725, "−1:02:05"),
+    ],
+)
+def test_format_signed_duration(duration_s: float, text: str) -> None:
+    """Un écart de temps (§ 6.4 du brief M5-2) : signe toujours écrit, ``−`` U+2212,
+    heures omises sous une heure, ``0:00`` sans signe."""
+    assert format_signed_duration(duration_s) == text
+
+
+@pytest.mark.parametrize(
+    ("duration_s", "text"),
+    [
+        (0.5, "0:00"),
+        (-0.5, "0:00"),
+        (60.5, "+1:00"),
+        (-60.5, "−1:00"),
+        (2.5, "+0:02"),
+    ],
+)
+def test_format_signed_duration_rounds_half_to_even(
+    duration_s: float, text: str
+) -> None:
+    """Des valeurs qui séparent l'arrondi au pair de l'arrondi au demi supérieur
+    (révision 1 du brief M5-2, constat 3 de B)."""
+    assert format_signed_duration(duration_s) == text
+
+
 @pytest.mark.parametrize("value", [math.nan, math.inf, -math.inf])
-@pytest.mark.parametrize("formatted", [format_count, format_grade, format_share])
+@pytest.mark.parametrize(
+    "formatted", [format_count, format_grade, format_share, format_signed_duration]
+)
 def test_formats_show_a_dash_on_a_non_finite_input(
     formatted: Callable[[float], str], value: float
 ) -> None:

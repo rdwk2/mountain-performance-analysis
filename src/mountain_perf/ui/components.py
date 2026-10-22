@@ -1,5 +1,6 @@
 """Les composants communs aux pages : le dossier des données, l'ajout d'un fichier, les
-contrôles des paramètres. Mise en forme seule : tout vient de la bibliothèque."""
+contrôles des paramètres, l'abscisse des figures. Mise en forme seule : tout vient de la
+bibliothèque."""
 
 from collections.abc import Sequence
 from pathlib import Path
@@ -26,6 +27,14 @@ KIND_LABELS: dict[FileKind, str] = {
     FileKind.OUTING: f"une sortie ({FOLDERS[FileKind.OUTING]}/)",
 }
 """Le libellé de chaque sorte, avec son dossier."""
+
+DISTANCE_AXIS = {
+    "field": "distance (m)",
+    "type": "quantitative",
+    "axis": {"format": "d"},
+}
+"""L'abscisse commune des deux figures : des mètres entiers, sans séparateur de milliers
+à l'anglaise (``1,550`` se lirait 1,55)."""
 
 
 def data_folder() -> Path | None:

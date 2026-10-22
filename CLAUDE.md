@@ -153,8 +153,13 @@ src/mountain_perf/     le code de la bibliothèque
                        moteur et à la piste analyse (M4b-5, AN1-2c)
   controls.py          contrôles de l'interface générés depuis les specs (M5)
   data_files.py        fichiers de l'interface : lister, ajouter dans routes/ et sorties/ (M5)
-  runs.py              enchaînements des commandes, communs à mperf et à l'interface (M5)
+  runs.py              enchaînements de `mperf project` et `mperf match`, communs à
+                       mperf et à l'interface ; importe les seuls modules purs de
+                       `backtest/` (M5)
   reports.py           textes de mperf profile et project, communs (M5)
+  outing_views.py      ce que la page sortie affiche d'une sortie : tracé suivi,
+                       effort effectif, écarts ; libellés communs avec mperf match
+                       (M5-2)
   schemas/             les contrats de données (M1) — aucune E/S, aucun algorithme
     common.py          Sport, QualityFlag, SourceRef, plages physiques
     parameters.py      ParameterSpec, ParameterSet ; ParameterDisplay (M5)
@@ -279,8 +284,10 @@ src/mountain_perf/     le code de la bibliothèque
   ui/                  interface — appelle la bibliothèque, ne calcule rien (M5) ;
                        extra tableau, seul importeur de streamlit (0016)
     app.py             point d'entrée ; PAGES, une ligne par page
-    components.py      dossier des données, ajout d'un fichier, contrôles
+    components.py      dossier des données, ajout d'un fichier, contrôles, l'abscisse
+                       des figures
     projection.py      la page projection, M5-1
+    sortie.py          la page sortie, M5-2
   cli.py               mperf profile <fichier.gpx>, compte-rendu ou CSV sur stdout ;
                        mperf match <référence.gpx> <trace.gpx>, points de score (M4a-2a),
                        segments, couverture et horloges (M4a-2b), passages (M4a-3) ;

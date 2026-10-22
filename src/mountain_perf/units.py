@@ -153,3 +153,28 @@ def format_share(share: float) -> str:
     if not math.isfinite(share):
         return UNDEFINED
     return f"{100 * share:.0f} %"
+
+
+def format_signed_duration(duration_s: float) -> str:
+    """Un écart de temps, signe toujours écrit : ``"+1:15"``, ``"−2:40"``,
+    ``"+1:02:05"`` (page « sortie », M5-2).
+
+    Arrondi à la seconde (``round``, au pair) ; ``+`` ou ``−`` (U+2212, comme
+    :func:`format_grade`) ; heures omises sous une heure (``m:ss``), écrites au-delà
+    (``h:mm:ss``) ; ``"0:00"`` sans signe quand l'arrondi vaut zéro.
+    :func:`format_duration` rend un tiret pour une durée négative : il ne convient pas
+    à un écart.
+
+    Renvoie :data:`UNDEFINED` si l'entrée n'est pas finie.
+    """
+    if not math.isfinite(duration_s):
+        return UNDEFINED
+    total_s = round(duration_s)
+    if total_s == 0:
+        return "0:00"
+    sign = "+" if total_s > 0 else "−"
+    hours, rest_s = divmod(abs(total_s), 3600)
+    minutes, seconds = divmod(rest_s, 60)
+    if hours:
+        return f"{sign}{hours}:{minutes:02d}:{seconds:02d}"
+    return f"{sign}{minutes}:{seconds:02d}"
