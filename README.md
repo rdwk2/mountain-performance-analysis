@@ -531,24 +531,24 @@ just ui
 
 puis `http://localhost:8501` dans le navigateur.
 
-- **Les entrées** : un préparé (un GPX de `MPA_DATA_DIR/routes/`) et une courbe (un CSV
-  de `MPA_DATA_DIR/reference/` et son compagnon `.meta.json`), choisis dans la barre
-  latérale.
-- **L'ajout d'un fichier** (barre latérale) : un GPX téléversé va, au choix, dans les
-  préparés (`routes/`) ou dans les sorties (`sorties/`, une trace horodatée). Il est lu
-  d'abord, comme la page le lira, puis écrit sous son nom, au clic seulement ; un
-  fichier de même nom n'est jamais écrasé, et rien n'est supprimé.
-- **Les réglages** sont générés depuis les specs des paramètres du profil et du moteur :
-  un curseur par paramètre, sur sa plage d'affichage.
-- **La page montre** la synthèse de `mperf project` (son texte même), le profil avec les
-  passages, la vitesse projetée, et le tableau des passages, avec, pour chaque tronçon,
-  l'allure et la montée horaire moyennes ; une heure de départ facultative, à l'heure de
-  Paris, donne l'heure de chaque passage.
-- **L'export CSV** des passages a le texte de `mperf project --csv` lancée avec les
-  seules options qui s'écartent d'un défaut (aux fins de ligne près : sous Windows, la
-  commande écrit des CRLF, la page des LF). C'est un format pour un programme
-  (virgules, point décimal, UTF-8 sans marque d'en-tête) : Excel en français ne l'ouvre
-  pas tel quel (`BACKLOG.md`).
+- **L'ajout d'un fichier** (barre latérale, sur les deux pages) : un GPX téléversé va,
+  au choix, dans les préparés (`routes/`) ou dans les sorties (`sorties/`, une trace
+  horodatée). Il est lu d'abord, comme la page le lira, puis écrit sous son nom, au clic
+  seulement ; un fichier de même nom n'est jamais écrasé, et rien n'est supprimé.
+- **La page « projection »** : un préparé (un GPX de `MPA_DATA_DIR/routes/`) et une
+  courbe (un CSV de `MPA_DATA_DIR/reference/` et son compagnon `.meta.json`), choisis
+  dans la barre latérale.
+  - **Les réglages** sont générés depuis les specs des paramètres du profil et du
+    moteur : un curseur par paramètre, sur sa plage d'affichage.
+  - **Elle montre** la synthèse de `mperf project` (son texte même), le profil avec les
+    passages, la vitesse projetée, et le tableau des passages, avec, pour chaque
+    tronçon, l'allure et la montée horaire moyennes ; une heure de départ facultative, à
+    l'heure de Paris, donne l'heure de chaque passage.
+  - **L'export CSV** des passages a le texte de `mperf project --csv` lancée avec les
+    seules options qui s'écartent d'un défaut (aux fins de ligne près : sous Windows, la
+    commande écrit des CRLF, la page des LF). C'est un format pour un programme
+    (virgules, point décimal, UTF-8 sans marque d'en-tête) : Excel en français ne
+    l'ouvre pas tel quel (`BACKLOG.md`).
 - **La page « sortie »** : un préparé, la trace d'une sortie faite sur lui (un GPX de
   `MPA_DATA_DIR/sorties/`) et une courbe, puis « Comparer » : rien n'est calculé avant
   le clic. Elle montre le jour de la sortie (le jour à Paris de son premier instant),

@@ -39,6 +39,17 @@ streamlit » sans extra. Un passage de `just check` a rougi une fois sur le gard
 lenteur de Hypothesis (`test_central_invariant`, hors du périmètre), vert rejoué tel
 quel. La page se teste par `AppTest`, sur les fixtures ; le contrôle réel est celui de
 rdw.
+Relecture de la PR (une C complète, le balayage `mutmut` et une seconde lecture de la
+conception, le contrôle réel de rdw) : aucun défaut du code, la sortie de `mperf match`
+identique à l'octet sur vingt-six chemins ; des garanties sans test, fermées par trois
+fichiers de tests neufs (les lieux nommés et les écarts indisponibles dans les écarts et
+dans la page, les horloges distinctes, le jour d'une trace qui passe minuit à Paris, le
+changement d'heure d'octobre, le trio du résultat gardé, les légendes au texte du brief,
+les deux figures, la ligne de `PAGES`, les six modules de `backtest/`, les objets gelés,
+le signe d'un écart d'une seconde). Le contrôle réel a montré les lieux du profil de la
+page « projection » en noir, illisibles sur le thème sombre : ils sont en gris. Le
+README sépare ce qui est commun aux deux pages de ce qui est propre à la projection ;
+deux lignes de `BACKLOG.md`.
 Rangé dans `runs.py`, `outing_views.py`, `units.py`, `src/mountain_perf/ui/sortie.py`,
 `docs/decisions/0016-interface-v0.md` (section M5-2), branche `m5/interface-sortie`.
 

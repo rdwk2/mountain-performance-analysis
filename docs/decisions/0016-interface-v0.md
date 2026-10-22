@@ -87,7 +87,8 @@ ouvre l'extra `tableau`.
 
 - **Facile** : un effet ajouté au moteur avec sa spec apparaît dans l'interface ; M5-2
   et AN2 ajoutent chacune une page (un module et une ligne de `PAGES`) sans toucher aux
-  autres.
+  autres, sauf pour mettre en commun ce qu'elles partagent (M5-2 : l'abscisse des
+  figures, `DISTANCE_AXIS`, passée de la page « projection » à `components.py`).
 - **Choix reporté** : l'allure et la montée horaire moyennes sont montrées toutes deux,
   pour chaque tronçon ; le choix selon le régime de `0002`, et le seuil de pente qu'il
   demande, sont reportés à M9 (note datée dans `0002`).
