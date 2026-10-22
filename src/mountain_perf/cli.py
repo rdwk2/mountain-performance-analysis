@@ -20,7 +20,6 @@ from typing import TextIO
 
 import mountain_perf
 from mountain_perf.backtest import (
-    MATCHING_PARAMETER_SPECS,
     NO_REFERENCE,
     NOT_SCORED,
     PARIS,
@@ -51,9 +50,7 @@ from mountain_perf.backtest import (
     band_common_row,
     band_table,
     band_window_counts,
-    build_series,
     civil_date,
-    clock_partition,
     common_row,
     curve_age_days,
     descent_fractions,
@@ -63,13 +60,10 @@ from mountain_perf.backtest import (
     failure_reason,
     geometry_diagnostic,
     git_state,
-    match_trace,
-    observe_passages,
     origins_before_curve,
     outing_bands_report,
     outing_drift_report,
     prepare_backtest,
-    reference_geometry,
     report_clocks,
     route_comparisons,
     run_backtest,
@@ -79,7 +73,6 @@ from mountain_perf.backtest import (
     stop_episodes,
     subclass_metrics,
     third_clock_is_elapsed,
-    v0_scores,
 )
 from mountain_perf.backtest.registry import RegistryError, read_registry
 from mountain_perf.config import ConfigError, data_dir
@@ -93,16 +86,20 @@ from mountain_perf.gpx import (
     build_profile_with_diagnostics,
     read_gpx,
 )
-from mountain_perf.gpx.trace_reader import TraceError, read_trace
+from mountain_perf.gpx.trace_reader import TraceError
 from mountain_perf.model import (
-    PROJECTION_PARAMETER_SPECS,
     CurveError,
     CurveReadResult,
-    read_curve,
 )
 from mountain_perf.model.export import write_passages_csv
+from mountain_perf.outing_views import (
+    METRIC_UNAVAILABILITY_LABELS,
+    POINT_STATUS_LABELS,
+    clock_label,
+    point_name,
+)
 from mountain_perf.reports import grid_lines, passage_lines, projection_summary_lines
-from mountain_perf.runs import project_route
+from mountain_perf.runs import check_outing, match_outing, project_route
 from mountain_perf.schemas import (
     BAND_LABEL,
     CALIBRATED_MODELS,
@@ -130,7 +127,6 @@ from mountain_perf.schemas import (
     ModelBand,
     ModelCalibration,
     ModelKind,
-    ObservedPoint,
     OutingLabel,
     OutingObservation,
     OutingScores,
@@ -177,16 +173,6 @@ _MATCHING_OPTIONS = {
     "--eps-m": "lateral_tolerance_m",
 }
 
-POINT_STATUS_LABELS: Mapping[PointStatus, str] = {
-    PointStatus.FOUND: "trouvé",
-    PointStatus.ANCHORED: "ancré",
-    PointStatus.AMBIGUOUS: "ambigu",
-    PointStatus.ABSENT: "absent",
-    PointStatus.OUT_OF_TOLERANCE: "hors ε",
-    PointStatus.UNDEFINED_TANGENT: "tangente indéfinie",
-}
-"""Libellés d'affichage des statuts de point, ceux de ``0010`` D4.11."""
-
 SEGMENT_EXCLUSION_LABELS: Mapping[SegmentExclusion, str] = {
     SegmentExclusion.UNOBSERVED_BOUND: "borne non observée",
     SegmentExclusion.GAP: "trou",
@@ -226,17 +212,6 @@ PASSAGE_UNAVAILABILITY_LABELS: Mapping[Unavailability, str] = {
     Unavailability.INSUFFICIENT_SUPPORT: "support insuffisant",
 }
 """Libellés d'affichage des motifs d'une occurrence indisponible (``0010`` D0)."""
-
-METRIC_UNAVAILABILITY_LABELS: Mapping[Unavailability, str] = {
-    Unavailability.INSUFFICIENT_SUPPORT: "support insuffisant",
-    Unavailability.ZERO_TIME: "temps nul",
-    Unavailability.MODEL_ERROR: "erreur du modèle",
-    Unavailability.ABSENT: "absent",
-    Unavailability.AMBIGUOUS: "ambigu",
-    Unavailability.UNDEFINED_TANGENT: "tangente indéfinie",
-}
-"""Libellés d'affichage d'une valeur indisponible des scores (``0010`` D0 ; § 6.7 du
-brief M4b-2)."""
 
 REGIME_CLASS_LABELS: Mapping[RegimeClass, str] = {
     RegimeClass.ASCENT: "montée",
@@ -578,14 +553,6 @@ def _row(label: str, cells: Sequence[str]) -> str:
     return (_INDENT + f"{label:<16}" + "".join(f"{c:<20}" for c in cells)).rstrip()
 
 
-def _clock_label(clock: Clock) -> str:
-    """``écoulé``, ``M θ<n>``, ``(M+U) θ<n>`` (§ 6.7)."""
-    if clock.convention_index is None:
-        return "écoulé"
-    kind = "M" if clock.kind is ClockKind.MOVING else "(M+U)"
-    return f"{kind} θ{clock.convention_index + 1}"
-
-
 def _envelope(envelope: LogRatioEnvelope | None) -> str:
     """``[lower ; upper], min |L| x``, suivi du motif quand elle en a un ; le motif
     seul sans valeur ; ``non évalué`` sans enveloppe (§ 6.7)."""
@@ -675,7 +642,7 @@ def _print_scenario(
             f"{_INDENT}{'':<16}{REGIME_CLASS_LABELS[regime]} {_envelope(envelope)}",
             file=out,
         )
-    print(_row("", [_clock_label(clock) for clock in clocks]), file=out)
+    print(_row("", [clock_label(clock) for clock in clocks]), file=out)
     for row_label, cells in _support_rows([s.support for s in shown]):
         print(_row(row_label, cells), file=out)
     diagnostics = [s.diagnostic for s in shown]
@@ -708,13 +675,6 @@ def _print_scenario(
         print(_row(row_label, cells), file=out)
 
 
-def _point_name(point: ObservedPoint, passages: PassageMatchResult) -> str:
-    """``point k`` ou le nom du lieu."""
-    if point.passage_index is not None:
-        return passages.passages[point.passage_index].point.point.name
-    return f"point {point.score_index}"
-
-
 def _print_passage_errors(
     scenario: ScenarioScores,
     observation: OutingObservation,
@@ -732,7 +692,7 @@ def _print_passage_errors(
         f"{_count(len(points) - scored, 'lieu', 'lieux')}), origine exclue ; secondes",
         file=out,
     )
-    print(_row("", [_clock_label(clock) for clock in clocks]), file=out)
+    print(_row("", [clock_label(clock) for clock in clocks]), file=out)
     errors = [s.passage_errors for s in _shown(scenario, clocks)]
     present = [e for e in errors if e is not None]
     print(
@@ -748,7 +708,7 @@ def _print_passage_errors(
     assert elapsed is not None  # contrat de ScenarioScores, en usage
     for point, error in zip(points, elapsed.errors_s, strict=True):
         print(
-            f"{_INDENT}  {_point_name(point, passages):<24}{point.distance_m:>11.2f} m"
+            f"{_INDENT}  {point_name(point, passages):<24}{point.distance_m:>11.2f} m"
             f"   {_cell(error, _seconds)}",
             file=out,
         )
@@ -776,7 +736,7 @@ def _print_targets(
         f"{available} sur {elapsed.target_count}",
         file=out,
     )
-    print(_row("", [_clock_label(clock) for clock in clocks]), file=out)
+    print(_row("", [clock_label(clock) for clock in clocks]), file=out)
     shown = [s.usage_target for s in _shown(scenario, clocks)]
     present = [t for t in shown if t is not None]
     print(_row("q_usage", [_cell(t.q_usage, _plain) for t in present]), file=out)
@@ -828,7 +788,7 @@ def _print_v0_report(
         f"sha256 {source.content_hash[:8]}…",
         file=out,
     )
-    shown = ", ".join(_clock_label(clock) for clock in clocks)
+    shown = ", ".join(clock_label(clock) for clock in clocks)
     if len(clocks) == 1:
         shown += " (aucun segment admis)"
     print(
@@ -1419,7 +1379,7 @@ def _configuration_title(configuration: SensitivityConfiguration) -> str:
     """``Δ 100 m, ε 15 m, écoulé``."""
     return (
         f"Δ {configuration.score_step_m:g} m, ε "
-        f"{configuration.lateral_tolerance_m:g} m, {_clock_label(configuration.clock)}"
+        f"{configuration.lateral_tolerance_m:g} m, {clock_label(configuration.clock)}"
     )
 
 
@@ -1496,7 +1456,7 @@ def _sensitivity_drift_lines(evaluation: BacktestEvaluation, clock: Clock) -> li
     scorée avec usage (précision de D15, M4d-3 ; ``0010`` D12) : ``b``, ``rho_u``,
     rang, ``ddl``, retraits, signe, étendue, mentions — ou le motif."""
     lines = [
-        f"{'dérive':<13}0010 D12, usage ; v0 brut sous {_clock_label(clock)} ; pente "
+        f"{'dérive':<13}0010 D12, usage ; v0 brut sous {clock_label(clock)} ; pente "
         "descriptive du log-rapport, une ligne par sortie scorée avec usage",
         _drift_row(
             "sortie",
@@ -1533,7 +1493,7 @@ def _sensitivity_configuration_lines(
         title += " — comparateur"
     lines = [
         f"{'sensibilité':<13}configuration {title}",
-        f"{'agrégats':<13}usage, {_clock_label(spec.clock)} ; moyenne à poids égal "
+        f"{'agrégats':<13}usage, {clock_label(spec.clock)} ; moyenne à poids égal "
         "par performance (effectif) ; |L| commun : performances où les cinq modèles "
         "ont une valeur",
     ]
@@ -1661,7 +1621,7 @@ def _fold_causes(reference: RepeatabilityReference) -> list[str]:
                 for (r, k), days in sorted(zeros.items())
             )
             text += f" ; cellules nulles : {cells}"
-        texts.append((_clock_label(clock.clock), text))
+        texts.append((clock_label(clock.clock), text))
     lines: list[str] = []
     while texts:
         labels = [texts[0][0]]
@@ -1732,14 +1692,14 @@ def _reference_lines(route_id: str, reference: RepeatabilityReference) -> list[s
     levels = [
         ["|L|", *(f"{REGIME_CLASS_LABELS[r]} |E_R|" for r in RegimeClass)],
         *(
-            [_clock_label(c.clock), cell(c.level), *(cell(v) for v in c.log_ratios)]
+            [clock_label(c.clock), cell(c.level), *(cell(v) for v in c.log_ratios)]
             for c in reference.clocks
         ),
     ]
     dispersions = [
         [f"{REGIME_CLASS_LABELS[r]} D_R" for r in RegimeClass],
         *(
-            [_clock_label(c.clock), *(cell(v) for v in c.dispersions)]
+            [clock_label(c.clock), *(cell(v) for v in c.dispersions)]
             for c in reference.clocks
         ),
     ]
@@ -1827,7 +1787,7 @@ def _descent_lines(
                 counts[DescentSubclass.UNDECIDED], DescentSubclass.UNDECIDED, False
             )
         )
-        lines.append(_row("", [_clock_label(clock) for clock in clocks]))
+        lines.append(_row("", [clock_label(clock) for clock in clocks]))
         for index, subclass in enumerate(
             (DescentSubclass.ROLLING, DescentSubclass.STEEP)
         ):
@@ -1991,7 +1951,7 @@ def _calibrated_scenario_lines(
     shown = [scores.clocks[CLOCKS.index(clock)] for clock in clocks]
     lines = [f"{label:<13}{scores.forecast.source.identifier}"]
     lines += [
-        f"{_INDENT}{_clock_label(clock)} : {_calibration_text(entry.calibration)}"
+        f"{_INDENT}{clock_label(clock)} : {_calibration_text(entry.calibration)}"
         for clock, entry in zip(clocks, shown, strict=True)
     ]
     status = [
@@ -2008,7 +1968,7 @@ def _calibrated_scenario_lines(
         ]
 
     supports = [None if e.scores is None else e.scores.support for e in shown]
-    lines.append(_row("", [_clock_label(clock) for clock in clocks]))
+    lines.append(_row("", [clock_label(clock) for clock in clocks]))
     lines += [_row(name, cells(row)) for name, row in _support_rows(supports)]
     if scores.scenario is not Scenario.USAGE:
         return lines
@@ -2291,7 +2251,7 @@ def _drift_lines(run: BacktestRun | BacktestEvaluation, outing: OutingRun) -> li
     ]
     for diagnostic in drift.diagnostics:
         cells = [MODEL_LABELS[diagnostic.model], *_drift_fit_cells(diagnostic)]
-        lines.append(_drift_row(_clock_label(diagnostic.clock), cells))
+        lines.append(_drift_row(clock_label(diagnostic.clock), cells))
     if head.intervals:
         lines += _drift_detail_lines(head)
     return lines
@@ -2599,34 +2559,26 @@ def _run_project(args: argparse.Namespace) -> None:
 
 
 def _run_match(args: argparse.Namespace) -> None:
-    parameters = ParameterSet(MATCHING_PARAMETER_SPECS, _given(args, _MATCHING_OPTIONS))
     # La courbe est lue avant toute sortie : une erreur de lecture laisse stdout vide.
-    curve_read = None
-    if args.curve is not None:
-        curve_read = read_curve(args.curve, ParameterSet(PROJECTION_PARAMETER_SPECS))
-    read = read_gpx(args.reference)
-    profile = build_profile(read.route, ParameterSet(PROFILE_PARAMETER_SPECS))
-    geometry = reference_geometry(read.route)
-    trace = read_trace([args.trace])
-    series = build_series(trace)
-    partition = clock_partition(trace, series)
-    result = match_trace(geometry, profile, trace, series, partition, parameters)
-    passages = observe_passages(result, geometry, profile, trace, series, partition)
-    _print_match_report(profile, geometry, trace, series, parameters, result.points)
-    _print_segment_report(result, stop_episodes(partition, CENTRAL_CONVENTION_INDEX))
-    _print_passage_report(passages)
-    if curve_read is None:
-        return
-    outing = v0_scores(
-        None if args.no_reference else profile,
-        trace,
-        result,
-        passages,
-        partition,
-        curve_read.curve,
-        curve_ref=curve_read.curve_ref,
+    match = match_outing(
+        args.reference, args.trace, args.curve, _given(args, _MATCHING_OPTIONS)
     )
-    _print_v0_report(curve_read, outing, passages, report_clocks(result))
+    _print_match_report(
+        match.profile,
+        match.geometry,
+        match.trace,
+        match.series,
+        match.parameters,
+        match.result.points,
+    )
+    _print_segment_report(
+        match.result, stop_episodes(match.partition, CENTRAL_CONVENTION_INDEX)
+    )
+    _print_passage_report(match.passages)
+    if match.curve is None:
+        return
+    check = check_outing(match, with_reference=not args.no_reference)
+    _print_v0_report(match.curve, check.scores, match.passages, check.clocks)
 
 
 def _run_backtest(args: argparse.Namespace) -> int:

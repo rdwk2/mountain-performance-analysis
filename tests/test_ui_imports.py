@@ -22,6 +22,15 @@ UI = SOURCE / "ui"
 TESTS = Path(__file__).parent
 ROOT = TESTS.parent
 STDLIB = set(sys.stdlib_module_names) | {"__future__"}
+RUNS_BACKTEST_MODULES = (
+    "mountain_perf.backtest.calendar",
+    "mountain_perf.backtest.geometry",
+    "mountain_perf.backtest.matching",
+    "mountain_perf.backtest.passages",
+    "mountain_perf.backtest.scoring",
+    "mountain_perf.backtest.segments",
+)
+"""Les modules purs de ``backtest/`` que ``runs.py`` peut importer (M5-2)."""
 
 
 def _imports(path: Path, package: str) -> set[str]:
@@ -123,8 +132,11 @@ def test_new_library_modules_import_neither_ui_backtest_nor_analyse() -> None:
         "reports.py",
         "model/export.py",
         "model/views.py",
+        "outing_views.py",
     ):
         for module in _source_imports(SOURCE / name):
+            if name == "runs.py" and module in RUNS_BACKTEST_MODULES:
+                continue
             assert not module.startswith(
                 (
                     "mountain_perf.ui",
