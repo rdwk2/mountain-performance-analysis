@@ -33,7 +33,12 @@ from mountain_perf.model.views import (
 )
 from mountain_perf.reports import projection_summary_lines
 from mountain_perf.runs import project_route
-from mountain_perf.ui.components import data_folder, file_adder, parameter_inputs
+from mountain_perf.ui.components import (
+    DISTANCE_AXIS,
+    data_folder,
+    file_adder,
+    parameter_inputs,
+)
 from mountain_perf.units import (
     UNDEFINED,
     format_count,
@@ -43,14 +48,6 @@ from mountain_perf.units import (
     ms_to_kmh,
 )
 from mountain_perf.validation import ContractError
-
-DISTANCE_AXIS = {
-    "field": "distance (m)",
-    "type": "quantitative",
-    "axis": {"format": "d"},
-}
-"""L'abscisse commune des deux figures : des mètres entiers, sans séparateur de milliers
-à l'anglaise (``1,550`` se lirait 1,55)."""
 
 
 def _name(path: Path) -> str:
