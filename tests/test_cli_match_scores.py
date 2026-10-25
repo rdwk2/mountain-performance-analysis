@@ -24,12 +24,12 @@ from fixtures.scoring import observation, scores
 from fixtures.segments import named_gpx_texts, named_route
 from mountain_perf.backtest import log_ratio_envelope, score_scenario
 from mountain_perf.cli import (
-    METRIC_UNAVAILABILITY_LABELS,
     NO_REFERENCE_ERROR,
     _envelope,
     _print_scenario,
     main,
 )
+from mountain_perf.outing_views import METRIC_UNAVAILABILITY_LABELS
 from mountain_perf.schemas import (
     CLOCKS,
     AdmittedSegment,

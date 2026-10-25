@@ -9,9 +9,11 @@ déclarée par une ligne de ``PAGES``.
 import streamlit as st
 
 from mountain_perf.ui.projection import projection_page
+from mountain_perf.ui.sortie import outing_page
 
 PAGES = [
     st.Page(projection_page, title="Projection", url_path="projection"),
+    st.Page(outing_page, title="Sortie", url_path="sortie"),
 ]
 
 st.set_page_config(page_title="mountain-performance-analysis", layout="wide")

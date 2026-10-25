@@ -10,6 +10,7 @@ from pathlib import Path
 
 import mountain_perf
 from test_backtest_metrics_reuse import _imported_modules, _package
+from test_ui_imports import RUNS_BACKTEST_MODULES
 
 SOURCE = Path(mountain_perf.__file__).parent
 UI = SOURCE / "ui"
@@ -20,6 +21,7 @@ NEW_MODULES = (
     "reports.py",
     "model/export.py",
     "model/views.py",
+    "outing_views.py",
 )
 
 
@@ -35,6 +37,15 @@ def _targets(path: Path) -> set[str]:
     return targets
 
 
+def _allowed_for_runs(target: str) -> bool:
+    """Une cible permise à ``runs.py`` : un module de ``RUNS_BACKTEST_MODULES``, ou un
+    nom importé de lui (la forme ``paquet.nom``)."""
+    return any(
+        target == module or target.startswith(module + ".")
+        for module in RUNS_BACKTEST_MODULES
+    )
+
+
 def test_the_interface_imports_neither_backtest_nor_analyse_in_any_form() -> None:
     modules = sorted(UI.rglob("*.py"))
     assert modules
@@ -48,6 +59,8 @@ def test_the_interface_imports_neither_backtest_nor_analyse_in_any_form() -> Non
 def test_new_modules_import_neither_ui_backtest_nor_analyse_in_any_form() -> None:
     for name in NEW_MODULES:
         for target in _targets(SOURCE / name):
+            if name == "runs.py" and _allowed_for_runs(target):
+                continue
             assert not target.startswith(
                 ("mountain_perf.ui", "mountain_perf.backtest", "mountain_perf.analyse")
             ), (name, target)

@@ -22,6 +22,15 @@ UI = SOURCE / "ui"
 TESTS = Path(__file__).parent
 ROOT = TESTS.parent
 STDLIB = set(sys.stdlib_module_names) | {"__future__"}
+RUNS_BACKTEST_MODULES = (
+    "mountain_perf.backtest.calendar",
+    "mountain_perf.backtest.geometry",
+    "mountain_perf.backtest.matching",
+    "mountain_perf.backtest.passages",
+    "mountain_perf.backtest.scoring",
+    "mountain_perf.backtest.segments",
+)
+"""Les modules purs de ``backtest/`` que ``runs.py`` peut importer (M5-2)."""
 
 
 def _imports(path: Path, package: str) -> set[str]:
@@ -78,23 +87,72 @@ def test_interface_tests_import_only_what_they_are_allowed() -> None:
         assert outside <= allowed, (path.name, outside - allowed)
 
 
+def _module_name(path: Path) -> str:
+    """Le nom du module d'un fichier de ``src/`` : ``mountain_perf.backtest`` pour
+    ``backtest/__init__.py``, ``mountain_perf.cli`` pour ``cli.py``."""
+    parts = path.relative_to(SOURCE).with_suffix("").parts
+    if parts[-1] == "__init__":
+        parts = parts[:-1]
+    return ".".join(("mountain_perf", *parts))
+
+
+def _extra_files() -> set[Path]:
+    """Les fichiers de la bibliothèque que ``per-file-ignores`` exempte de ``TID251`` :
+    ceux qui importent un extra (``ingest/fit.py``, ``analyse/parquet.py``,
+    ``analyse/plot.py``, tout ``ui/``)."""
+    with (ROOT / "pyproject.toml").open("rb") as stream:
+        ignores = tomllib.load(stream)["tool"]["ruff"]["lint"]["per-file-ignores"]
+    source = SOURCE.resolve()
+    return {
+        path.resolve()
+        for pattern, rules in ignores.items()
+        if "TID251" in rules
+        for path in ROOT.glob(pattern)
+        if path.resolve().is_relative_to(source)
+    }
+
+
+def _loaded_imports(path: Path) -> set[str]:
+    """Les modules qu'un fichier importe à son chargement — ses imports de premier
+    niveau (``tree.body``), pas ceux d'une fonction —, plus ``paquet.nom`` pour chaque
+    ``from paquet import nom``."""
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    top = ast.Module(
+        body=[n for n in tree.body if isinstance(n, ast.Import | ast.ImportFrom)],
+        type_ignores=[],
+    )
+    found = _imported_modules(top, _package(path))
+    return set(found) | {f"{m}.{name}" for m, names in found.items() for name in names}
+
+
+def _modules_without_extras() -> list[str]:
+    """Tous les modules de la bibliothèque, sauf ceux qui chargent un extra : les
+    fichiers de ``_extra_files``, puis, de proche en proche jusqu'à ce que l'ensemble
+    ne bouge plus, chaque module qui en importe un à son chargement (piège 15 du brief
+    M5-2 : ``ingest/export.py`` importe ``ingest/fit.py``)."""
+    paths = sorted(SOURCE.rglob("*.py"))
+    names = {path: _module_name(path) for path in paths}
+    extra = _extra_files()
+    excluded = {names[path] for path in paths if path.resolve() in extra}
+    changed = True
+    while changed:
+        changed = False
+        for path in paths:
+            if names[path] not in excluded and _loaded_imports(path) & excluded:
+                excluded.add(names[path])
+                changed = True
+    return [names[path] for path in paths if names[path] not in excluded]
+
+
 def test_the_library_loads_without_streamlit_pandas_or_numpy() -> None:
     """Dans un processus neuf : la bibliothèque, la CLI comprise, ne charge ni
-    Streamlit ni ce qu'il installe."""
-    modules = [
-        "mountain_perf",
-        "mountain_perf.schemas",
-        "mountain_perf.controls",
-        "mountain_perf.data_files",
-        "mountain_perf.runs",
-        "mountain_perf.reports",
-        "mountain_perf.model",
-        "mountain_perf.model.export",
-        "mountain_perf.model.views",
-        "mountain_perf.gpx.profile",
-        "mountain_perf.backtest",
-        "mountain_perf.cli",
-    ]
+    Streamlit ni ce qu'il installe. La liste est dérivée du paquet (M5-2) : tous ses
+    modules, sauf ceux qui chargent un extra."""
+    modules = _modules_without_extras()
+    assert "mountain_perf.outing_views" in modules
+    assert "mountain_perf.cli" in modules
+    assert "mountain_perf.ui.app" not in modules
+    assert "mountain_perf.ingest.export" not in modules
     code = (
         "import importlib, sys\n"
         f"for name in {modules!r}: importlib.import_module(name)\n"
@@ -123,8 +181,11 @@ def test_new_library_modules_import_neither_ui_backtest_nor_analyse() -> None:
         "reports.py",
         "model/export.py",
         "model/views.py",
+        "outing_views.py",
     ):
         for module in _source_imports(SOURCE / name):
+            if name == "runs.py" and module in RUNS_BACKTEST_MODULES:
+                continue
             assert not module.startswith(
                 (
                     "mountain_perf.ui",

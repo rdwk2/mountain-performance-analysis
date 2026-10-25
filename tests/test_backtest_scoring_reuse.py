@@ -120,7 +120,9 @@ def test_no_module_imports_backtest_scoring_but_the_package_and_the_command() ->
     v0 brut et le candidat d'une expérience — et, depuis M4d-2, par
     ``backtest/bands.py``, qui score la prévision médiane (``clock_scores``) — et,
     depuis M4d-3, par ``backtest/sensitivity_run.py``, qui observe chaque paire
-    (``observe_outing``)."""
+    (``observe_outing``) — et, depuis M5-2, par ``runs.py``, qui enchaîne ``mperf match
+    --curve`` pour la commande et la page « sortie » (``v0_scores``,
+    ``report_clocks``)."""
     scoring = SOURCE / "backtest" / "scoring.py"
     defined = _defined_names(ast.parse(scoring.read_text(encoding="utf-8")))
     importers = []
@@ -144,6 +146,7 @@ def test_no_module_imports_backtest_scoring_but_the_package_and_the_command() ->
         "backtest/report.py",
         "backtest/sensitivity_run.py",
         "cli.py",
+        "runs.py",
     }
     assert "backtest/__init__.py" in importers
 
