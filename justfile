@@ -41,7 +41,7 @@ figure:
 backtest curve *options:
     uv run mperf backtest "{{env_var('MPA_DATA_DIR')}}/reference/manifeste.json" --curve "{{env_var('MPA_DATA_DIR')}}/reference/{{curve}}" {{options}}
 
-# Ingestion de l'export (AN1-1, docs/decisions/0013) : MPA_DATA_DIR/raw → MPA_DATA_DIR/interim/activities,
+# Ingestion des exports Garmin (AN1-1, AN2-0, docs/decisions/0013) : MPA_DATA_DIR/raw/garmin → MPA_DATA_DIR/interim/activities,
 # avec l'extra ingest (fitdecode).
 ingest:
     uv run --extra ingest mperf ingest

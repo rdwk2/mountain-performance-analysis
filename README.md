@@ -13,7 +13,7 @@ un usage personnel d'abord ; le dépôt ne contient aucune donnée personnelle.
 Une seconde piste partage le dépôt et sa méthode : l'analyse des données
 d'entraînement, de récupération et de sommeil de l'athlète, des tableaux de bord
 jusqu'à l'apprentissage automatique (jalons `AN`, [`docs/analyse/`](docs/analyse/)).
-Elle ingère déjà les activités de l'export Garmin (`mperf ingest`), en tire les
+Elle ingère déjà les activités des exports Garmin (`mperf ingest`), en tire les
 tables des activités et des montées (`mperf tables`) et la figure descriptive de sa
 première question, la vitesse ascensionnelle à terrain comparable (`mperf q1`).
 
@@ -92,7 +92,7 @@ tous les extras, à chaque push et à chaque pull request.
 
 `MPA_DATA_DIR`, le dossier des données personnelles hors du dépôt, sert au backtest
 enregistré (`just backtest` : manifeste, courbe, registre, rapports), à l'ingestion
-(`just ingest` : `raw/` lu, `interim/activities/` écrit), aux tables (`just process` :
+(`just ingest` : `raw/garmin/` lu, `interim/activities/` écrit), aux tables (`just process` :
 l'ingestion, puis `interim/` et `athlete.toml` lus, `processed/` écrit), à la figure
 de Q1 (`just q1` : `processed/` lu, `resultats/Q1/` écrit) et à l'interface
 (`just ui` : `routes/`, `sorties/` et `reference/` lus ; `routes/` et `sorties/` écrits
@@ -388,25 +388,36 @@ just backtest courbe.csv --sensitivity
 | `--descent-threshold F` | seuil des descentes roulantes et raides (diagnostic de `0010` D6), dans [0.60 ; 1] | 0.80 |
 | `--sensitivity` | puis la sensibilité de `0010` D13, enregistrée, et son rapport `sensibilite-<n>.txt` | absente |
 
-### `just ingest` — l'ingestion de l'export Garmin
+### `just ingest` — l'ingestion des exports Garmin
 
-`just ingest` lance `mperf ingest` avec l'extra `ingest` : il lit l'export Garmin
-rangé à la racine de `MPA_DATA_DIR/raw/` et écrit `MPA_DATA_DIR/interim/activities/`
-([`0013`](docs/decisions/0013-ingestion-et-interim.md)). L'export comprend :
+`just ingest` lance `mperf ingest` avec l'extra `ingest` : il lit les exports Garmin
+rangés sous `MPA_DATA_DIR/raw/garmin/` et écrit `MPA_DATA_DIR/interim/activities/`
+([`0013`](docs/decisions/0013-ingestion-et-interim.md)). Chaque export a son
+dossier, `raw/garmin/<export>/` (lettres et chiffres ASCII, `_`, `.` et `-`, sauf
+`activities` et `acquisition.json`, réservés : dans `raw/garmin/`, ils désignent un
+export laissé à plat ; le nom ne sert qu'au rapport), qui comprend :
 
 - `acquisition.json`, l'instant où l'export a été obtenu, écrit à la main
   (`{"retrieved_at": "<instant ISO 8601 avec fuseau>"}`) ;
 - `activities/activities.json`, l'index des activités ;
 - `activity_fit/<identifiant>.zip`, une archive par activité, qui contient son FIT.
 
+Les autres dossiers de `raw/` sont laissés aux autres sources. Aucun export ne se
+retire : Garmin efface avec le temps le détail des jours, et un export ancien en reste
+la seule source. Pour chaque activité, l'export qui fait foi est le plus récent dont
+la période (du premier départ de ses entrées gardées à son instant d'acquisition)
+couvre son départ : une activité qu'il ne porte pas n'est pas ingérée, elle est
+« retirée de la source ».
+
 L'ingestion écrit trois choses :
 
-- l'index de toutes les activités ;
-- un enregistrement par FIT lisible : un canal par grandeur, chacun avec ses instants,
-  sans interpolation ;
-- le rapport de l'ingestion : les fichiers lus et refusés, les entrées de l'index
-  refusées, les activités sans vue `Activity`, les désaccords entre un FIT et son
-  entrée.
+- l'index des activités, avec la provenance de chaque export ;
+- un enregistrement par activité dont un FIT se lit : un canal par grandeur, chacun
+  avec ses instants, sans interpolation ;
+- le rapport de l'ingestion : par export, sa période et ses entrées ; les fichiers lus
+  et refusés, les entrées de l'index refusées, les activités retirées de la source,
+  les activités sans vue `Activity`, les désaccords entre un FIT et son entrée, et ce
+  qui diffère d'un export à l'autre (champs de l'index, FIT).
 
 Rien n'est corrigé : une valeur écartée est comptée, avec son motif. `raw/` n'est jamais
 écrit. Une ingestion qui s'arrête sur une erreur laisse en place l'`interim/activities/`
@@ -417,10 +428,14 @@ lira `interim/` par les vues `Activity` et `TrackPointStream` (M6b).
 just ingest
 ```
 
-La sortie commence par sept lignes, qui comptent les activités de l'index, les
-enregistrements, les fichiers refusés, les entrées refusées, les entrées sans archive,
-les désaccords et les activités sans vue `Activity` ; suit une ligne par couple (motif,
-type de la source) de ces dernières. Pas d'exemple ici : sur l'export réel, ces nombres
+La sortie donne d'abord le nombre d'exports, puis une ligne par export (son instant
+d'acquisition, ses entrées gardées et refusées, ses archives). Elle compte ensuite les
+activités de l'index, les enregistrements, les fichiers refusés, les entrées refusées,
+les entrées sans archive, les désaccords et les activités sans vue `Activity`, avec une
+ligne par couple (motif, type de la source) de ces dernières ; enfin les activités
+retirées de la source, les champs de l'index qui diffèrent d'un export à l'autre (une
+ligne par champ), les activités aux FIT différents et les enregistrements tirés d'un
+autre export que leur entrée. Pas d'exemple ici : sur les exports réels, ces nombres
 restent hors du dépôt ([`docs/analyse/CHARTE.md`](docs/analyse/CHARTE.md), § 10).
 
 ### `just process` — les tables des activités, des montées et des variantes
@@ -578,7 +593,8 @@ puis `http://localhost:8501` dans le navigateur.
   AN1 (activités et montées) livré : son codec commun, l'ingestion des activités
   (`just ingest`), les horloges du moteur rendues communes (le temps de mouvement),
   les tables de `processed/` et la commande qui régénère `interim/` et `processed/`
-  (`just process`), la figure de Q1 (`just q1`).
+  (`just process`), la figure de Q1 (`just q1`). AN2 (données journalières et tableau
+  de bord) commencé : l'ingestion lit plusieurs exports (AN2-0).
 
 Le détail :
 

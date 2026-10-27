@@ -35,7 +35,7 @@ d'analyse, relu, et qui doit respecter la charte.*
 
 | Étage | Contenu | Écrit par | Dépendances |
 |---|---|---|---|
-| `raw/` | l'export Garmin, immuable (fichiers en lecture seule), et les sources extérieures (§ 12) | l'acquisition, et l'athlète | — |
+| `raw/` | les exports Garmin, chacun dans `raw/garmin/<export>/`, immuables (fichiers en lecture seule) et jamais retirés (`docs/decisions/0013`), et les sources extérieures, dans `raw/<source>/` (§ 12) | l'acquisition, et l'athlète | — |
 | `interim/` | les contrats normalisés (activités, séries, nuits, jours), avec leurs `QualityFlag` | l'ingestion, dans `src/mountain_perf/ingest/` | **aucune** pour le lire ; l'écriture depuis les FIT demande l'extra `ingest` ; format décrit dans `docs/decisions/0013`, relu par le moteur avant fusion |
 | `processed/` | les tables d'analyse : `activites`, `montees` et `variantes` (`docs/decisions/0014`, `0015`), puis `jours` (plus tard `descentes`, `plats`) | le code d'analyse (`mperf tables`) | aucune pour le calcul ; l'écriture en Parquet demande l'extra `analyse` (`docs/decisions/0011`, `0014`) |
 | `resultats/` | les sorties de chaque question, datées (§ 10) | les commandes d'analyse | l'extra `analyse` (`docs/decisions/0011`) |

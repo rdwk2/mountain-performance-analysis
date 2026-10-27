@@ -38,14 +38,18 @@ la même sortie ne se comparent qu'après le même rééchantillonnage et le mê
 
 ## Structure de l'export Garmin
 
-**`raw/activities/*.json`** — la *liste* des activités (index). Champs utiles :
+**Un export par dossier** : chaque export Garmin se range dans
+`raw/garmin/<export>/`, et aucun ne se retire (`docs/decisions/0013`, précisions
+d'AN2-0). Les chemins ci-dessous partent de ce dossier.
+
+**`activities/activities.json`** — la *liste* des activités (index). Champs utiles :
 `activityId`, `startTimeLocal`, `activityType.typeKey`, `distance`, `duration`,
 `movingDuration`, `elevationGain`, `averageHR`, `maxHR`. **`duration` est le temps du
 chronomètre** ; le temps écoulé est `elapsedDuration` : ils diffèrent quand la montre a
 été arrêtée en route. `movingDuration` vaut 0 pour une activité sans déplacement
 (escalade, renforcement…), et la distance, le D+ et le D− y manquent.
 
-**`raw/activity_details/*.json`** — les streams point par point, sous-échantillonnés
+**`activity_details/*.json`** — les streams point par point, sous-échantillonnés
 (voir plus bas). La structure est indirecte et c'est le principal piège :
 
 - `metricDescriptors` donne la correspondance `key → metricsIndex`
@@ -70,9 +74,9 @@ lissage du profil. **Les séries d'une activité se lisent dans le FIT**
 (`docs/decisions/0011`, `0013`).
 
 **Les fichiers santé sont un JSON par date**
-(`resting_hr/AAAA-MM-JJ.json`, `hrv/`, `sleep/`, `body_battery/`,
+(`resting_hr/AAAA-MM-JJ.json`, `hrv/`, `sleep/`, `heart_rate/`, `body_battery/`,
 `training_readiness/`, `training_status/`, `stress/`, `respiration/`, `spo2/`,
-`daily_summary/`).
+`daily_summary/`). La date du nom est celle que porte le document.
 Vérifier le **nom exact du champ** dans chaque famille : un champ de FC de repos
 mal nommé a déjà produit silencieusement une colonne entière de `None`.
 
@@ -86,17 +90,62 @@ de vrais instants.
 `heart_rate.restingHeartRate` porte la même valeur.
 
 **`training_readiness` porte plusieurs entrées par jour** (au réveil, après un effort,
-mises à jour en continu), distinguées par `inputContext` : la valeur « du jour » se
-définit, par exemple la première entrée `AFTER_WAKEUP_RESET`.
+mises à jour en continu), distinguées par `inputContext`, **rangées de la plus récente
+à la plus ancienne** : la première du fichier est la dernière de la journée. La valeur
+du réveil ne se lit donc pas à un rang dans le fichier : elle se définit par les
+instants des entrées et de la nuit (données journalières, AN2-1).
+Une entrée « réveil » peut précéder la fin de la nuit ; les copies que Training
+Readiness fait d'autres grandeurs peuvent différer du document final.
 
 **`training_status` range ses valeurs sous l'identifiant de la montre**
 (`…DTOMap.<identifiant>…`) : un changement de montre, ou un autre athlète, change le
-chemin.
+chemin. **Chaque bloc a sa date propre** (statut, charges, équilibre, acclimatation,
+VO2max) : le fichier d'un jour recopie la dernière valeur connue, et la VO2max peut
+y être une valeur reportée. Une valeur vaut pour la date de son bloc, jamais pour
+celle du fichier.
 
-**Les séries fines peuvent manquer sur une partie de la période** (HRV toutes les cinq
-minutes, FC intrajournalière) alors que les résumés quotidiens existent. Cause
-probable : un réglage du script d'export, à vérifier quand il sera repris dans
-`legacy/`.
+**Garmin ne garde le détail des jours que sur une période récente.** Au-delà, il
+efface leurs séries fines (FC et stress de la journée, Body Battery, respiration,
+SpO2, HRV de la nuit, phases et séries du sommeil) et appauvrit le jour : des résumés
+de la nuit disparaissent, d'autres sont recalculés ; les résumés du jour restent. Le
+script d'export n'y est pour rien (il ne coupe aucune date). Un export ancien est
+alors la seule source du détail de ses jours : aucun export ne se retire de `raw/`.
+Un écart entre deux exports d'un même jour n'est donc pas forcément une révision : un
+jour appauvri n'est pas un jour révisé.
+
+**Le jour de Garmin commence à minuit, heure locale**, et sa fenêtre, écrite en GMT,
+n'a qu'un décalage : les jours du changement d'heure y ont la durée d'un jour
+ordinaire, et deux fenêtres voisines se recouvrent d'une heure (au printemps) ou
+laissent un trou d'une heure (à l'automne). Une durée ne se tire jamais d'horodatages
+locaux (`docs/decisions/0006`).
+
+**Une fenêtre tronquée** s'arrête avant minuit, à la même heure dans toutes les
+familles : Garmin n'avait rien reçu au-delà (jour pris en cours de journée, montre
+pas encore synchronisée, ou arrêtée). Un export plus récent complète les deux
+premiers cas. `heart_rate` écrit alors une fin locale à minuit que sa fin GMT
+contredit : seule la fin GMT est juste. Un jour peut aussi être complet sans être
+mesuré : l'indicateur de présence du résumé du jour (`includesWellnessData`) le dit.
+
+**Sentinelles et codes** : des codes négatifs dans le stress et la respiration, un
+code de phase « non mesurable » dans le sommeil, des valeurs nulles dans la FC et le
+Body Battery : ce ne sont pas des valeurs. `body_battery` n'a pas de série : elle est
+dans `stress`. Le Body Battery est **borné à son plafond** : au haut de l'échelle, sa
+recharge est censurée. Une SpO2 absente dit souvent un réglage de la montre, pas un
+manque de la source.
+
+**La FC de repos de Garmin** porte sur la journée calendaire (selon sa définition, la
+plus basse moyenne sur 30 minutes ; à vérifier selon les firmwares) : sans nuit
+portée, elle vient de la journée ; avec une nuit, elle peut venir du début de la nuit
+suivante. La HRV moyenne d'une nuit dépend de sa longueur. Sur des mesures entières
+(FC de repos en bpm), une dispersion robuste (MAD) peut valoir zéro sur une fenêtre
+de jours.
+
+**Garmin réécrit l'archive d'un FIT à chaque téléchargement** : ses octets changent,
+son FIT non. Deux exports se comparent par le membre `.fit`, jamais par l'archive.
+Un fichier `activity_details` peut manquer (erreur du serveur) alors que le FIT est
+là. L'index d'un export récent peut doubler d'anciennes clés d'un préfixe `is`
+(`isElevationCorrected` à côté d'`elevationCorrected`) : seules les anciennes se
+lisent.
 
 **Météo (`activity_weather/`)** : températures en °F (`temp`, `apparentTemp`,
 `dewPoint`), vent probablement en mph. La mesure vient d'une station, parfois très

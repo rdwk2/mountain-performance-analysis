@@ -1,7 +1,8 @@
 # 0013 — Ingestion des activités et format d'`interim/`
 
 - **Date** : 2026-10-09
-- **Statut** : acceptée (AN1-1), avec les précisions de fin de document
+- **Statut** : acceptée (AN1-1), avec les précisions de fin de document (AN1-1 et
+  AN2-0)
 
 ## Contexte
 
@@ -278,6 +279,11 @@ Mesurées sur un export réel, sans chiffre ici (règle 1).*
     viendront avec l'acquisition. Un identifiant répété dans l'index fait refuser
     toutes ses entrées ; plusieurs archives au même nom sans extension sont toutes
     refusées.
+    *AN2-0 : la disposition des précisions 9 et 10 (un seul export, à la racine de
+    `raw/`) est remplacée par les précisions 14 et 15 (plusieurs exports, chacun
+    dans son dossier, venus avant l'acquisition) ; la forme d'`acquisition.json`
+    (précision 9) et les règles de doublons de la précision 10 (entrées, archives)
+    valent pour chaque export.*
 11. **`SourceRef`** : sa docstring dit que chaque producteur met dans `retrieved_at` son
     propre instant d'acquisition (condition (a), accord du moteur).
 12. **L'index et le FIT.** Le rapport compte les enregistrements dont le départ, ou la
@@ -291,3 +297,76 @@ Mesurées sur un export réel, sans chiffre ici (règle 1).*
     automatique, un appareil de fitness) quand le fichier l'écrit. La température du
     capteur de la montre est un canal : chauffée par le corps, ce n'est pas celle de
     l'air (charte, § 12) ; la vue `TrackPointStream` ne la porte pas.
+
+## Précisions d'AN2-0
+
+*Ajoutées par la PR AN2-0 (plusieurs exports pour les activités), avec l'accord du
+moteur (conditions (a) et (c)). Elles remplacent la disposition à un seul export
+des précisions 9 et 10, dont la forme d'`acquisition.json` et les règles de
+doublons d'entrées et d'archives valent pour chaque export ; elles disent comment
+se lisent les points 1 et 5 ; le reste du record ne change pas. Mesurées sur deux
+exports réels, sans chiffre ici (règle 1).*
+
+14. **Plusieurs exports.** L'ingestion lit tous les exports Garmin rangés sous
+    `raw/garmin/`, chacun dans son dossier, `raw/garmin/<export>/` : son
+    `acquisition.json` (sous la forme de la précision 9), son index et ses archives.
+    Le nom du dossier ne sert qu'au rapport (lettres et chiffres ASCII, `_`, `.`,
+    `-`) ; `activities` et `acquisition.json` sont réservés : dans `raw/garmin/`,
+    ces deux noms désignent un export laissé à plat. Les autres dossiers de
+    `raw/` appartiennent aux autres sources (charte,
+    § 12) : l'ingestion des activités les ignore, comme un fichier posé dans
+    `raw/garmin/`. Arrêtent l'ingestion, qui n'écrit rien et nomme l'export : un
+    export laissé à plat, dans `raw/` ou dans `raw/garmin/` ; aucun export ; un nom
+    de dossier hors de ces caractères ; un dossier sans `acquisition.json` ; deux
+    exports au même instant d'acquisition ; une entrée gardée de l'index partie
+    après l'instant d'acquisition de son export (partie à cet instant même, elle
+    est admise ; une entrée refusée ne compte pas). **Aucun export ne se retire de `raw/`** : Garmin ne garde le détail des
+    jours que sur une période récente, et un export ancien reste la seule source de
+    ce qu'il a effacé. L'export unique d'AN1-1, rangé à la racine de `raw/`, se
+    déplace une fois dans son dossier, par l'humain (copie vérifiée par empreinte,
+    retrait de la racine ensuite) ; le déplacement ne change aucun fichier brut.
+15. **Lequel fait foi.** Les exports se rangent par instant d'acquisition. La période
+    d'un export va du premier départ de ses entrées gardées à son instant
+    d'acquisition, bornes comprises. L'existence d'une activité se décide sur
+    l'export le plus récent dont la période couvre son départ : absente de lui,
+    elle n'est pas ingérée, et le rapport la compte « retirée de la source » (une
+    activité supprimée dans Garmin Connect ne revient pas depuis un ancien export ;
+    une entrée refusée dans cet export compte de même). Présente, son entrée vient
+    de cet export. Son enregistrement vient de l'archive de cet export ; si elle
+    manque, n'est pas un seul FIT lisible, ou si son FIT est refusé, des archives
+    des autres exports, du plus récent au plus ancien : la première dont le FIT se
+    lit. Garmin réécrit l'archive d'un FIT à chaque téléchargement, pas le FIT :
+    deux exports se comparent par le membre `.fit`. Les mêmes exports, listés dans
+    un autre ordre, donnent les mêmes octets.
+16. **La provenance par export.** L'index porte la provenance de chaque export (son
+    fichier d'index, son empreinte, son instant d'acquisition), et chaque entrée
+    celle de l'export dont elle vient. La vue `Activity` reprend celle de l'entrée :
+    `activity_view` ne prend plus l'index. Une activité dont l'entrée et l'archive
+    viennent de deux exports garde son `activity_ref`, avec deux `source` dont
+    les instants d'acquisition diffèrent (`Activity.source` et
+    `TrackPointStream.source`). `Activity`,
+    `TrackPointStream` et `SourceRef` ne changent pas. Le point 1 se lit ainsi :
+    l'index porte les activités de tous les exports, sauf les entrées refusées et
+    les activités retirées de la source. Le point 5 aussi : l'instant d'acquisition
+    d'un export fait à la main peut se reconstituer après coup, par l'humain, sur
+    les dates des fichiers de l'export (la fin de son dernier passage) ; jamais par
+    l'ingestion.
+17. **La charge selon Garmin.** `IndexedActivity` porte `training_load`
+    (`activityTrainingLoad`), sans unité, `>= 0`, zéro gardé : clé absente ou
+    `null`, champ absent ; valeur non numérique, non finie ou négative, champ absent
+    et nommé dans `omitted_fields`. Seules les anciennes clés de l'index se lisent :
+    une clé doublée en `is…` (`isElevationCorrected`…) ne change rien, et ne
+    remplace pas l'ancienne qui manque.
+18. **Le rapport** compte en plus, par export, son nom, sa provenance, le début de
+    sa période, ses entrées gardées et refusées, ses archives ; les activités
+    retirées de la source ; par champ de l'index, les activités dont l'entrée d'un
+    autre export diffère ; les activités aux FIT différents ; les enregistrements
+    tirés d'un autre export que leur entrée. Les noms des fichiers lus et refusés
+    partent de `raw/` : `garmin/<export>/…`. Une archive se juge sur l'index de son
+    export.
+19. **Format.** `INTERIM_FORMAT_VERSION` passe à 2 : le lecteur refuse un document
+    du format 1, et `interim/` se régénère (`just ingest`, puis `just process` pour
+    `processed/`). Aucun type de document neuf.
+20. **La mise en place.** Si le nouveau dossier ne prend pas la place
+    d'`interim/activities/` (un fichier tenu ailleurs, sous Windows), l'ancien
+    reprend la sienne, comme les tables de `processed/` (`write_tables`).
