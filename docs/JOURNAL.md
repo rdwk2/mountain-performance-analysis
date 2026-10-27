@@ -16,6 +16,30 @@ Backtest (à partir de M4) : métrique avant → après.
 
 ---
 
+### 2026-10-27 · AN2-0 — Plusieurs exports pour les activités
+L'ingestion des activités lit plusieurs exports Garmin, chacun rangé dans
+`raw/garmin/<export>/` avec son instant d'acquisition ; les autres dossiers de `raw/`
+sont laissés aux autres sources, et aucun export ne se retire. L'existence d'une activité
+se décide sur l'export le plus récent dont la période couvre son départ (une activité
+qu'il ne porte plus est « retirée de la source ») ; son entrée en vient, son FIT aussi,
+sinon celui du plus récent export où il se lit. L'index porte la provenance de chaque
+export, chaque entrée la sienne et la charge de l'activité selon Garmin ; la vue
+`Activity` reprend la provenance de l'entrée (`activity_view` ne prend plus l'index). Le
+rapport compte en plus, par export, sa période et ses entrées, les activités retirées,
+les écarts d'index et les FIT différents d'un export à l'autre ; le résumé de
+l'ingestion en affiche une ligne par export et ces comptes. Format 2 d'`interim/`, à régénérer. `write_activities` remet l'ancien dossier
+en place si le nouveau ne prend pas la sienne. Précisions d'AN2-0 dans `0013` ; le
+README, `CLAUDE.md`, la charte (§ 2), `PIEGES_DATA.md`, la ROADMAP (AN2) et le
+commentaire de la recette d'ingestion suivent ; une ligne du `BACKLOG` faite.
+Conclusion : `just check` vert, 7 403 tests avec tous les extras ; le paquet a été relu
+par le moteur avant la session (`0013`, condition (c)).
+Rangé dans `src/mountain_perf/ingest/` (`export.py`, `index.py`, `views.py`,
+`interim.py`), `src/mountain_perf/schemas/interim.py`, `tests/test_ingest_*.py`,
+`tests/test_schemas_interim.py`, `docs/decisions/0013-ingestion-et-interim.md`, branche
+`an2/exports`.
+
+---
+
 ### 2026-10-22 · M5-2 — Interface v0 : sortie
 La seconde page de l'interface, « sortie » : `mperf match --curve` en interface, le
 contrôle d'une sortie par v0 brut à l'effort 1, sans réglage et sans rien écrire (brief
