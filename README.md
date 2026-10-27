@@ -445,9 +445,10 @@ restent hors du dépôt ([`docs/analyse/CHARTE.md`](docs/analyse/CHARTE.md), § 
 `MPA_DATA_DIR/interim/activities/` et écrit trois tables Parquet dans
 `MPA_DATA_DIR/processed/` ([`0014`](docs/decisions/0014-montees-et-tables.md)) :
 
-- `activites.parquet`, une ligne par activité de l'index : les valeurs de l'index, le
-  temps de mouvement du moteur sous ses cinq conventions, le pas, les trous et les
-  pauses, l'appareil, et les montées comptées par régime ;
+- `activites.parquet`, une ligne par activité de l'index : les valeurs de l'index (hors
+  de la charge selon Garmin, qui reste dans `interim/`), le temps de mouvement du moteur
+  sous ses cinq conventions, le pas, les trous et les pauses, l'appareil, et les montées
+  comptées par régime ;
 - `montees.parquet`, une ligne par montée : ses bornes en temps, son gain, sa vitesse
   ascensionnelle (le gain pris en mouvement divisé par le temps en mouvement, avec sa
   variante et son enveloppe), sa pente, son régime (côte, intermédiaire, montée longue,

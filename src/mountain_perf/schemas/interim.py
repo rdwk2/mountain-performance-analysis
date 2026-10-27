@@ -673,8 +673,8 @@ class ActivityIndex:
 
     Non promis
     ----------
-    - toutes les activités que l'export décisif porte y sont, quel que soit leur
-      type, sauf les entrées refusées et les activités retirées de la source (rapport
+    - l'index porte les activités de tous les exports, quel que soit leur type, sauf
+      les entrées refusées et les activités retirées de la source (rapport
       d'ingestion) ;
     - le ``retrieved_at`` d'un export est son instant d'acquisition, jamais celui de
       l'ingestion ni d'une lecture (``0013``, point 5) ;

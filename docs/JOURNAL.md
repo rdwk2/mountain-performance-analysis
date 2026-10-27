@@ -16,6 +16,28 @@ Backtest (à partir de M4) : métrique avant → après.
 
 ---
 
+### 2026-10-27 · AN2-0 — correctifs de relecture
+La relecture C n'a trouvé aucun écart du code à `0013`, mais des cas qu'aucun test ne
+jouait, une affirmation de test fausse et deux phrases. Les tests de la conception,
+recopiés tels quels : le même instant d'acquisition écrit avec plusieurs décalages (le
+test d'avant écrivait deux fois le même texte) ; la couverture d'une période comparée en
+instants, pas à l'heure murale ; un export sans entrée gardé parmi les exports de
+l'index ; deux activités retirées listées à rebours ; les exports chargés par nom, le
+listage renversé ; chaque champ de l'index comparé entre exports, la charge comprise ; un
+écart compté une fois par activité, et aucun pour une activité retirée ; des FIT
+différents quand l'export décisif n'a pas d'archive ; les entrées sans archive comptées
+sur tous les noms de fichiers ; un fichier nommé `activities` ignoré ; la ligne de chaque
+export dans le résumé ; le second renommage de `write_activities` interrompu. Le README
+dit que la charge selon Garmin reste dans `interim/` ; la docstring d'`ActivityIndex`
+reprend la phrase de la précision 16, et le dictionnaire suit ; une ligne de
+`BACKLOG.md`.
+Conclusion : `just check` vert, 7 422 tests avec tous les extras ; aucune instruction de
+`src/` ne change. Rangé dans `tests/test_ingest_export.py`,
+`tests/test_ingest_interim.py`, `README.md` et `src/mountain_perf/schemas/interim.py`,
+branche `an2/exports`.
+
+---
+
 ### 2026-10-27 · AN2-0 — Plusieurs exports pour les activités
 L'ingestion des activités lit plusieurs exports Garmin, chacun rangé dans
 `raw/garmin/<export>/` avec son instant d'acquisition ; les autres dossiers de `raw/`
