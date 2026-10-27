@@ -755,8 +755,8 @@ D13, D14, D15 = "2024-03-20 08:00:00", "2024-03-25 08:00:00", "2024-06-01 08:00:
 
 
 def two_exports(root: Path) -> Path:
-    """L'ancien porte 10, 11, 12, 13, 14 et 16 ; le récent 12, 13, 14 et 15, sa
-    période partant au départ de 12.
+    """L'ancien porte 10, 16, 11, 12, 13 et 14 (16 listée avant 11 : les retirées se
+    trient) ; le récent 12, 13, 14 et 15, sa période partant au départ de 12.
 
     - 10 part avant la période du récent : gardée, prise à l'ancien ;
     - 11 et 16 (partie au départ même de 12, borne comprise) : couvertes par le récent,
@@ -773,11 +773,11 @@ def two_exports(root: Path) -> Path:
         OLD_AT,
         [
             _entry(10, D10),
+            _entry(16, D12),
             _entry(11, D11),
             _entry(12, D12),
             _entry(13, D13),
             _entry(14, D14),
-            _entry(16, D12),
         ],
         {
             "10.zip": {"10_ACTIVITY.fit": _fit(D10)},
@@ -1012,11 +1012,17 @@ def test_a_second_folder_without_acquisition_stops_the_ingestion(
 
 
 def test_two_equal_instants_stop_the_ingestion(tmp_path: Path) -> None:
-    """Le même instant écrit avec deux décalages."""
+    """Le même instant écrit avec trois décalages : les deux premiers par nom sont
+    nommés. Les instants se comparent, pas leur écriture ; et les exports se rangent
+    par instant, pas par heure murale (celle de ``garmin_c`` vient la première)."""
     make_export(tmp_path, name="garmin_b")
-    make_export(tmp_path, name="garmin_a", acquisition={"retrieved_at": OLD_AT})
     make_export(
-        tmp_path, name="garmin_c", acquisition={"retrieved_at": "2024-04-01T10:34:56Z"}
+        tmp_path, name="garmin_a", acquisition={"retrieved_at": "2024-04-01T10:34:56Z"}
+    )
+    make_export(
+        tmp_path,
+        name="garmin_c",
+        acquisition={"retrieved_at": "2024-04-01T05:34:56-05:00"},
     )
     with pytest.raises(IngestError) as error:
         ingest_export(tmp_path)
@@ -1354,10 +1360,16 @@ def test_every_export_is_loaded_before_the_instants_are_compared(
     assert _message(tmp_path).startswith("raw/garmin/garmin_b/ : une activité")
 
 
-def test_exports_are_loaded_by_name(tmp_path: Path) -> None:
-    """Deux exports fautifs : le premier par nom parle."""
+def test_exports_are_loaded_by_name(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Deux exports fautifs, listés à rebours : le premier par nom parle."""
     make_export(tmp_path, name="garmin_b", acquisition={"retrieved_at": "x"})
     make_export(tmp_path, name="garmin_a", acquisition={"retrieved_at": "y"})
+    listing = Path.iterdir
+    monkeypatch.setattr(
+        Path, "iterdir", lambda self: iter(sorted(listing(self), reverse=True))
+    )
     assert _message(tmp_path).startswith("raw/garmin/garmin_a/acquisition.json : ")
 
 
@@ -1368,11 +1380,17 @@ MID, MID_AT = "c_milieu", "2024-05-15T12:00:00+02:00"
 
 def test_an_export_without_any_entry_covers_nothing(tmp_path: Path) -> None:
     """Un export dont l'index est vide n'a pas de période : il ne couvre aucun départ,
-    ne retire rien, et son rapport n'a pas de début de période."""
+    ne retire rien, et son rapport n'a pas de début de période ; il reste parmi les
+    exports de l'index."""
     _export(tmp_path, OLD, OLD_AT, [_entry(1, D10)], {})
     _export(tmp_path, NEW, NEW_AT, [], {})
     summary = ingest_export(tmp_path)
-    assert [e.activity_ref for e in read_index(tmp_path).entries] == ["1"]
+    index = read_index(tmp_path)
+    assert [e.activity_ref for e in index.entries] == ["1"]
+    assert [s.retrieved_at for s in index.exports] == [
+        datetime.fromisoformat(OLD_AT),
+        datetime.fromisoformat(NEW_AT),
+    ]
     report = read_report(tmp_path)
     assert [(e.name, e.period_start, e.entries) for e in report.exports] == [
         (OLD, _utc(D10), 1),
@@ -1461,15 +1479,15 @@ def test_the_start_is_read_in_the_most_recent_export_that_carries_it(
     assert (summary.retired, read_report(tmp_path).retired) == (0, ())
 
 
-@pytest.mark.parametrize("differs", [OLD, MID])
+@pytest.mark.parametrize("differs", [(OLD,), (MID,), (OLD, MID)])
 def test_an_index_difference_with_any_other_export_counts(
-    tmp_path: Path, differs: str
+    tmp_path: Path, differs: tuple[str, ...]
 ) -> None:
-    """Trois exports portent 1 ; seule l'entrée de l'ancien, ou seule celle du milieu, a
-    une autre distance : l'écart avec l'entrée décisive (celle du récent) compte, quel
-    que soit l'export qui diffère."""
+    """Trois exports portent 1 ; l'entrée de l'ancien, celle du milieu, ou les deux,
+    ont une autre distance : l'écart avec l'entrée décisive (celle du récent) compte,
+    quel que soit l'export qui diffère, et une seule fois pour l'activité."""
     for name, at in ((OLD, OLD_AT), (MID, MID_AT), (NEW, NEW_AT)):
-        changes = {"distance": 1.0} if name == differs else {}
+        changes = {"distance": 1.0} if name in differs else {}
         _export(tmp_path, name, at, [_entry(1, D10, **changes)], {})
     summary = ingest_export(tmp_path)
     assert summary.index_differences == (
@@ -1482,8 +1500,8 @@ def test_an_entry_refused_in_the_older_export_is_counted(
 ) -> None:
     """L'ancien export a une entrée gardée et une refusée (sans type), le récent une
     gardée : chaque export compte ses seules entrées gardées, le résumé compte les refus
-    de tous les exports, et la ligne de l'ancien dans la sortie de la commande dit son
-    refus."""
+    de tous les exports, et, dans la sortie de la commande, la ligne de l'ancien dit son
+    refus, celle du récent aucun."""
     _export(
         tmp_path, OLD, OLD_AT, [_entry(1, D10), _entry(2, D11, activityType=None)], {}
     )
@@ -1501,4 +1519,116 @@ def test_an_entry_refused_in_the_older_export_is_counted(
         f"  {OLD} : acquis le 2024-04-01T10:34:56+00:00, 1 entrées gardées, "
         "1 refusées, 0 archives"
     )
+    assert lines[2] == (
+        f"  {NEW} : acquis le 2024-07-01T10:00:00+00:00, 1 entrées gardées, "
+        "0 refusées, 0 archives"
+    )
     assert "Entrées de l'index refusées : 1" in lines
+
+
+# La relecture C de la PR AN2-0 et celle de son annexe : des règles et des comptes
+# qu'aucun test ne tenait.
+
+
+def test_coverage_compares_instants_not_wall_clock_times(tmp_path: Path) -> None:
+    """La période du récent part de 31, à 06:30 UTC écrit à +02:00 (08:30) ; 30, que
+    seul l'ancien porte, part à 06:45 UTC écrit à +01:00 (07:45) : couverte à
+    l'instant, elle est retirée."""
+    _export(tmp_path, OLD, OLD_AT, [_entry(30, "2024-03-05 06:45:00")], {})
+    _export(
+        tmp_path,
+        NEW,
+        NEW_AT,
+        [_entry(31, "2024-03-05 06:30:00", startTimeLocal="2024-03-05 08:30:00")],
+        {},
+    )
+    ingest_export(tmp_path)
+    assert read_report(tmp_path).retired == (RetiredActivity("30", NEW),)
+    assert [e.activity_ref for e in read_index(tmp_path).entries] == ["31"]
+
+
+_ONE_FIELD_DIFFERS: dict[IndexDifference, dict[str, Any]] = {
+    IndexDifference.SOURCE_ACTIVITY_TYPE: {"activityType": {"typeKey": "running"}},
+    IndexDifference.START_TIME: {"startTimeLocal": "2024-03-01 10:00:00"},
+    IndexDifference.ELAPSED_DURATION: {"elapsedDuration": 1000.0},
+    IndexDifference.MOVING_DURATION: {"movingDuration": 900.0},
+    IndexDifference.DISTANCE: {"distance": 1.0},
+    IndexDifference.ASCENT: {"elevationGain": 1.0},
+    IndexDifference.DESCENT: {"elevationLoss": 1.0},
+    IndexDifference.ELEVATION_CORRECTED: {"elevationCorrected": True},
+    IndexDifference.AVERAGE_HR: {"averageHR": 100.0},
+    IndexDifference.MAX_HR: {"maxHR": 180.0},
+    IndexDifference.TRAINING_LOAD: {"activityTrainingLoad": 12.5},
+}
+
+
+def test_every_compared_field_has_its_case() -> None:
+    assert set(_ONE_FIELD_DIFFERS) == set(IndexDifference)
+
+
+@pytest.mark.parametrize("field", list(_ONE_FIELD_DIFFERS))
+def test_each_index_field_is_compared_between_exports(
+    tmp_path: Path, field: IndexDifference
+) -> None:
+    """Un seul champ diffère entre l'entrée de l'ancien et celle du récent : un écart à
+    son nom, et à aucun autre (la charge comprise)."""
+    _export(tmp_path, OLD, OLD_AT, [_entry(1, D10)], {})
+    _export(tmp_path, NEW, NEW_AT, [_entry(1, D10, **_ONE_FIELD_DIFFERS[field])], {})
+    summary = ingest_export(tmp_path)
+    assert summary.index_differences == (FieldDifferenceCount(field, 1),)
+
+
+def test_a_retired_activity_counts_no_index_difference(tmp_path: Path) -> None:
+    """30 est portée par l'ancien et par le milieu, avec deux distances ; le récent,
+    dont la période couvre son départ, ne la porte pas : elle est retirée, et ses
+    entrées ne comptent aucun écart."""
+    _export(tmp_path, OLD, OLD_AT, [_entry(30, D11)], {})
+    _export(tmp_path, MID, MID_AT, [_entry(30, D11, distance=1.0)], {})
+    _export(tmp_path, NEW, NEW_AT, [_entry(31, D10)], {})
+    summary = ingest_export(tmp_path)
+    assert read_report(tmp_path).retired == (RetiredActivity("30", NEW),)
+    assert summary.index_differences == ()
+
+
+def test_different_fits_count_without_a_decisive_archive(tmp_path: Path) -> None:
+    """Le récent, décisif, porte 12 sans archive ; l'ancien et le milieu en ont deux FIT
+    différents : un FIT différent est compté, et l'enregistrement vient du milieu."""
+    _export(tmp_path, OLD, OLD_AT, [_entry(12, D12)], {"12.zip": {"12.fit": _fit(D12)}})
+    _export(
+        tmp_path,
+        MID,
+        MID_AT,
+        [_entry(12, D12)],
+        {"12.zip": {"12.fit": _fit(D12, heart_rate=102)}},
+    )
+    _export(tmp_path, NEW, NEW_AT, [_entry(12, D12)], {})
+    summary = ingest_export(tmp_path)
+    assert (summary.fit_differences, summary.recordings_from_other_export) == (1, 1)
+    source = read_recording(tmp_path, "12").source
+    assert source.retrieved_at == datetime.fromisoformat(MID_AT)
+
+
+def test_entries_without_archive_count_every_file_name(tmp_path: Path) -> None:
+    """1 n'a, dans le récent, que deux fichiers au même nom sans extension (refusés
+    ``DUPLICATE_ARCHIVE``) ; 2 n'a qu'une archive, dans l'ancien, qui ne la porte pas
+    (``NOT_IN_INDEX``) ; 3 n'a aucun fichier : seule 3 est « sans archive »."""
+    _export(tmp_path, OLD, OLD_AT, [_entry(3, D10)], {"2.zip": {"2.fit": _fit(D11)}})
+    _export(
+        tmp_path,
+        NEW,
+        NEW_AT,
+        [_entry(1, D12), _entry(2, D11)],
+        {"1.zip": {"1.fit": _fit(D12)}, "1.bak": {"1.fit": _fit(D12)}},
+    )
+    summary = ingest_export(tmp_path)
+    assert [e.activity_ref for e in read_index(tmp_path).entries] == ["3", "1", "2"]
+    assert (summary.recordings, summary.entries_without_archive) == (0, 1)
+
+
+def test_a_file_named_activities_is_not_a_flat_export(tmp_path: Path) -> None:
+    """Un fichier, pas un dossier, nommé ``activities``, dans ``raw/`` et dans
+    ``raw/garmin/`` : ignoré, comme tout fichier posé à côté des exports."""
+    make_export(tmp_path)
+    (tmp_path / "raw" / "activities").write_text("", encoding="utf-8")
+    (tmp_path / "raw" / "garmin" / "activities").write_text("", encoding="utf-8")
+    assert ingest_export(tmp_path).activities == 4

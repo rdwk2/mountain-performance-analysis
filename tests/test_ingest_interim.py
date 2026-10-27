@@ -262,3 +262,25 @@ def test_recording_ref_must_name_a_file_of_the_folder(tmp_path: Path, ref: str) 
     write_activities(tmp_path, INDEX, [recording()], REPORT)
     with pytest.raises(ContractError):
         read_recording(tmp_path, ref)
+
+
+def test_an_interrupted_second_rename_puts_the_previous_activities_back(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Le second renommage interrompu par une exception qui n'est pas une ``OSError``
+    (un Ctrl+C) : l'ancien dossier reprend sa place, et l'interruption se propage
+    (AN2-0, relecture C)."""
+    write_activities(tmp_path, INDEX, [recording()], REPORT)
+    other = dataclasses.replace(REPORT, fit_differences=0)
+    real = Path.rename
+
+    def interrupted(self: Path, target: Path) -> Path:
+        if self.name == "activities.nouveau":
+            raise KeyboardInterrupt
+        return real(self, target)
+
+    monkeypatch.setattr(Path, "rename", interrupted)
+    with pytest.raises(KeyboardInterrupt):
+        write_activities(tmp_path, INDEX, [recording()], other)
+    monkeypatch.undo()
+    assert read_report(tmp_path) == REPORT
