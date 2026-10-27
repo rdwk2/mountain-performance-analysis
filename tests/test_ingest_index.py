@@ -1,15 +1,19 @@
-"""Le lecteur de l'index de l'export (``ingest/index.py``), sur des index inventés."""
+"""Le lecteur de l'index d'un export (``ingest/index.py``), sur des index inventés."""
 
 from __future__ import annotations
 
 import json
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
 
 from mountain_perf.ingest.index import IndexReadError, IndexReadResult, read_index
-from mountain_perf.schemas import IndexField, RefusalReason
+from mountain_perf.schemas import IndexField, RefusalReason, SourceRef
+
+SOURCE = SourceRef(
+    "garmin_activities", "activities.json", "c" * 64, datetime(2024, 4, 1, tzinfo=UTC)
+)
 
 
 def item(**changes: Any) -> dict[str, Any]:
@@ -27,6 +31,7 @@ def item(**changes: Any) -> dict[str, Any]:
         "elevationLoss": 798.0,
         "averageHR": 141.0,
         "maxHR": 173.0,
+        "activityTrainingLoad": 87.25,
         "ownerId": 42,
         "deviceId": 7,
     }
@@ -34,7 +39,7 @@ def item(**changes: Any) -> dict[str, Any]:
 
 
 def read(*items: Any) -> IndexReadResult:
-    return read_index(json.dumps(list(items)).encode())
+    return read_index(json.dumps(list(items)).encode(), SOURCE)
 
 
 def test_entry_fields_and_local_offset() -> None:
@@ -77,11 +82,14 @@ def test_absent_and_null_fields_are_absent_not_omitted() -> None:
         ("elevationLoss", float("inf"), IndexField.DESCENT),
         ("averageHR", 19.5, IndexField.AVERAGE_HR),
         ("maxHR", 251, IndexField.MAX_HR),
+        ("activityTrainingLoad", -0.5, IndexField.TRAINING_LOAD),
+        ("activityTrainingLoad", "87", IndexField.TRAINING_LOAD),
+        ("activityTrainingLoad", False, IndexField.TRAINING_LOAD),
     ],
 )
 def test_unusable_value_is_omitted(key: str, value: Any, field: IndexField) -> None:
     (e,) = read_index(
-        json.dumps([item(**{key: value})], allow_nan=True).encode()
+        json.dumps([item(**{key: value})], allow_nan=True).encode(), SOURCE
     ).entries
     assert e.omitted_fields == (field,)
     assert getattr(e, field.value) is None
@@ -175,7 +183,7 @@ def test_duplicate_wins_over_unusable() -> None:
 )
 def test_index_must_be_a_json_list(data: bytes) -> None:
     with pytest.raises(IndexReadError):
-        read_index(data)
+        read_index(data, SOURCE)
 
 
 def test_personal_fields_are_not_read() -> None:
@@ -240,7 +248,7 @@ def test_entries_after_a_refused_one_are_read() -> None:
 )
 def test_index_errors_have_exact_messages(data: bytes, message: str) -> None:
     with pytest.raises(IndexReadError) as error:
-        read_index(data)
+        read_index(data, SOURCE)
     assert str(error.value) == message
 
 
@@ -260,6 +268,15 @@ def test_elevation_corrected_absent_is_absent() -> None:
     assert e.omitted_fields == ()
 
 
+def test_an_is_key_does_not_stand_in_for_a_missing_old_key() -> None:
+    """``isElevationCorrected`` seul, sans ``elevationCorrected`` : le champ reste
+    absent, sans repli sur la clé ``is…``, et rien n'est omis (``0013``, précision
+    17)."""
+    (e,) = read(item(isElevationCorrected=True)).entries
+    assert e.elevation_corrected is None
+    assert e.omitted_fields == ()
+
+
 @pytest.mark.parametrize("value", ["true", 1, 0, 1.0, [True]])
 def test_elevation_corrected_must_be_a_boolean(value: Any) -> None:
     (e,) = read(item(elevationCorrected=value, maxHR=251)).entries
@@ -269,6 +286,39 @@ def test_elevation_corrected_must_be_a_boolean(value: Any) -> None:
 
 def test_a_number_too_large_for_a_float_is_omitted() -> None:
     raw = json.dumps([item(distance=10**400)]).encode()
-    (e,) = read_index(raw).entries
+    (e,) = read_index(raw, SOURCE).entries
     assert e.distance_m is None
     assert e.omitted_fields == (IndexField.DISTANCE,)
+
+
+# --- AN2-0 : la charge selon Garmin, la provenance de l'export ---------------------
+
+
+def test_training_load_is_read() -> None:
+    (e,) = read(item()).entries
+    assert e.training_load == 87.25
+    (zero,) = read(item(activityTrainingLoad=0)).entries
+    assert zero.training_load == 0.0
+    assert zero.omitted_fields == ()
+
+
+@pytest.mark.parametrize("changes", [{"activityTrainingLoad": None}, {}])
+def test_training_load_absent_or_null_is_absent(changes: dict[str, Any]) -> None:
+    raw = item(**changes)
+    if not changes:
+        del raw["activityTrainingLoad"]
+    (e,) = read(raw).entries
+    assert e.training_load is None
+    assert e.omitted_fields == ()
+
+
+def test_every_kept_entry_carries_the_source_of_its_index() -> None:
+    other = SourceRef(
+        "garmin_activities",
+        "activities.json",
+        "d" * 64,
+        datetime(2024, 5, 1, tzinfo=UTC),
+    )
+    data = json.dumps([item(), item(activityId=502)]).encode()
+    assert [e.source for e in read_index(data, SOURCE).entries] == [SOURCE, SOURCE]
+    assert [e.source for e in read_index(data, other).entries] == [other, other]

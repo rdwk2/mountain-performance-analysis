@@ -40,12 +40,14 @@ from mountain_perf.validation import (
     require_same_length,
 )
 
-INTERIM_FORMAT_VERSION = 1
+INTERIM_FORMAT_VERSION = 2
 """Version du format des documents d'``interim/`` (``0013``, point 3).
 
 Chaque document la porte. Elle change à chaque changement de forme d'un contrat de ce
 module : le lecteur refuse un document d'un autre format, et ``interim/`` se régénère
-depuis ``raw/`` (``0013``, Conséquences)."""
+depuis ``raw/`` (``0013``, Conséquences). Format 2 (AN2-0) : plusieurs exports, la
+provenance de chaque entrée, la charge selon Garmin dans l'index, le rapport par
+export."""
 
 _REF = re.compile(r"[0-9A-Za-z_.-]+")
 
@@ -58,6 +60,17 @@ def require_activity_ref(ref: str, name: str = "activity_ref") -> None:
         raise ContractError(
             f"{name} doit être fait de lettres et de chiffres ASCII, de « _ », « . » "
             "ou « - », et n'être ni « . » ni « .. »."
+        )
+
+
+def require_export_name(name: str) -> None:
+    """Le nom d'un export, celui de son dossier sous ``raw/garmin/`` : lettres et
+    chiffres ASCII, ``_``, ``.``, ``-``, ni ``.`` ni ``..`` ; sinon
+    ``ContractError``."""
+    if not _REF.fullmatch(name) or name in (".", ".."):
+        raise ContractError(
+            "le nom d'un export doit être fait de lettres et de chiffres ASCII, de "
+            "« _ », « . » ou « - », et n'être ni « . » ni « .. »."
         )
 
 
@@ -419,6 +432,7 @@ class IndexField(StrEnum):
     ELEVATION_CORRECTED = "elevation_corrected"
     AVERAGE_HR = "average_hr_bpm"
     MAX_HR = "max_hr_bpm"
+    TRAINING_LOAD = "training_load"
 
 
 INDEX_FIELD_DESCRIPTIONS: Mapping[IndexField, str] = MappingProxyType(
@@ -433,6 +447,9 @@ INDEX_FIELD_DESCRIPTIONS: Mapping[IndexField, str] = MappingProxyType(
         ),
         IndexField.AVERAGE_HR: "FC moyenne (averageHR).",
         IndexField.MAX_HR: "FC maximale (maxHR).",
+        IndexField.TRAINING_LOAD: (
+            "Charge de l'activité selon Garmin (activityTrainingLoad)."
+        ),
     }
 )
 
@@ -482,7 +499,7 @@ REFUSAL_REASON_DESCRIPTIONS: Mapping[RefusalReason, str] = MappingProxyType(
         ),
         RefusalReason.DUPLICATE_ARCHIVE: (
             "Fichier de activity_fit/ dont le nom sans extension est celui d'un autre "
-            "fichier : tous sont refusés."
+            "fichier du même export : tous sont refusés."
         ),
         RefusalReason.NO_SESSION: (
             "FIT sans message session, ou dont une session n'est pas datée : "
@@ -491,10 +508,12 @@ REFUSAL_REASON_DESCRIPTIONS: Mapping[RefusalReason, str] = MappingProxyType(
         RefusalReason.NO_SAMPLE: (
             "FIT dont aucun échantillon n'a été gardé : pas d'enregistrement."
         ),
-        RefusalReason.NOT_IN_INDEX: "FIT dont l'activité n'est pas dans l'index.",
+        RefusalReason.NOT_IN_INDEX: (
+            "FIT dont l'activité n'est pas dans l'index de son export."
+        ),
         RefusalReason.DUPLICATE_ENTRY: (
-            "Entrée de l'index dont l'identifiant apparaît plus d'une fois : toutes "
-            "ses entrées sont refusées."
+            "Entrée de l'index d'un export dont l'identifiant apparaît plus d'une fois "
+            "dans ce fichier : toutes ses entrées y sont refusées."
         ),
         RefusalReason.UNUSABLE_ENTRY: (
             "Entrée de l'index sans identifiant, type ou départ utilisables."
@@ -510,7 +529,7 @@ REFUSAL_REASON_DESCRIPTIONS: Mapping[RefusalReason, str] = MappingProxyType(
 
 @dataclass(frozen=True)
 class IndexedActivity:
-    """Une activité de l'index de l'export, telle que la source la décrit.
+    """Une activité de l'index d'un export, telle que la source la décrit.
 
     Champs
     ------
@@ -529,10 +548,14 @@ class IndexedActivity:
       présent.
     - ``average_hr_bpm``, ``max_hr_bpm`` — battements par minute — FC moyenne et
       maximale, ``[20, 250]``, si présentes.
+    - ``training_load`` — sans unité — charge de l'activité selon Garmin
+      (``activityTrainingLoad``), ``>= 0``, si présente (AN2-0).
     - ``has_recording`` — sans unité — vrai si ``interim/`` porte l'enregistrement de
       cette activité.
     - ``omitted_fields`` — sans unité — champs présents dans la source mais omis ici,
       leur valeur étant inutilisable (non numérique, non finie ou hors plage).
+    - ``source`` — sans unité — provenance : le fichier d'index de l'export dont
+      l'entrée vient, son empreinte et l'instant d'acquisition de cet export (AN2-0).
 
     Invariants
     ----------
@@ -564,7 +587,11 @@ class IndexedActivity:
       l'enregistrement, que la correction ne change pas ;
     - ``moving_duration_s`` est le temps en mouvement de Garmin (un algorithme non
       publié, à seuil de vitesse) : la piste calcule le sien ;
-    - les valeurs ne sont pas recalculées depuis l'enregistrement.
+    - ``training_load`` est un algorithme de Garmin, non publié ; son absence n'est
+      pas une charge nulle ;
+    - les valeurs ne sont pas recalculées depuis l'enregistrement ;
+    - deux entrées de l'index peuvent venir de deux exports différents : leurs
+      ``source`` diffèrent.
     """
 
     activity_ref: str
@@ -578,8 +605,10 @@ class IndexedActivity:
     elevation_corrected: bool | None
     average_hr_bpm: float | None
     max_hr_bpm: float | None
+    training_load: float | None
     has_recording: bool
     omitted_fields: tuple[IndexField, ...]
+    source: SourceRef
 
     def __post_init__(self) -> None:
         require_activity_ref(self.activity_ref)
@@ -601,6 +630,7 @@ class IndexedActivity:
             _require_optional_in_range(getattr(self, name), name, 0.0)
         for name in ("average_hr_bpm", "max_hr_bpm"):
             _require_optional_in_range(getattr(self, name), name, *HEART_RATE_RANGE_BPM)
+        _require_optional_in_range(self.training_load, "training_load", 0.0)
         require_immutable_sequence(self.omitted_fields, "omitted_fields")
         _require_strictly_sorted(
             [(field.value,) for field in self.omitted_fields], "omitted_fields"
@@ -614,19 +644,23 @@ class IndexedActivity:
 
 @dataclass(frozen=True)
 class ActivityIndex:
-    """L'index des activités d'un export (document ``interim/activities/index.json``).
+    """L'index des activités des exports (document ``interim/activities/index.json``).
 
     Champs
     ------
     - ``entries`` — sans unité — les activités, triées par départ (instant) puis par
-      identifiant.
-    - ``source`` — sans unité — provenance : le fichier d'index de l'export, son
-      empreinte, et l'instant d'acquisition de l'export.
+      identifiant ; chacune porte la provenance de l'export dont elle vient.
+    - ``exports`` — sans unité — la provenance de chaque export lu : son fichier
+      d'index, son empreinte et son instant d'acquisition, par instant d'acquisition
+      croissant (AN2-0).
 
     Invariants
     ----------
-    - ``entries`` en tuple, identifiants uniques ;
-    - ordre : instant de départ croissant, puis identifiant croissant à instant égal.
+    - ``entries`` et ``exports`` en tuples ; au moins un export ;
+    - identifiants uniques ; ordre : instant de départ croissant, puis identifiant
+      croissant à instant égal ;
+    - ``exports`` : instants d'acquisition strictement croissants ;
+    - la ``source`` de chaque entrée est l'un des ``exports``.
 
     Producteur
     ----------
@@ -634,21 +668,36 @@ class ActivityIndex:
 
     Consommateurs
     -------------
-    Le lecteur d'``interim/`` ; la vue ``Activity`` ; les tables d'analyse (AN1-2).
+    Le lecteur d'``interim/`` ; les tables d'analyse (AN1-2) ; la vue ``Activity``
+    lit chacune de ses entrées.
 
     Non promis
     ----------
-    - toutes les activités de l'export y sont, quel que soit leur type, sauf les
-      entrées refusées (rapport d'ingestion) ;
-    - ``source.retrieved_at`` est l'instant d'acquisition de l'export, jamais celui de
-      l'ingestion ni d'une lecture (``0013``, point 5).
+    - toutes les activités que l'export décisif porte y sont, quel que soit leur
+      type, sauf les entrées refusées et les activités retirées de la source (rapport
+      d'ingestion) ;
+    - le ``retrieved_at`` d'un export est son instant d'acquisition, jamais celui de
+      l'ingestion ni d'une lecture (``0013``, point 5) ;
+    - un export de ``exports`` peut ne fournir aucune entrée.
     """
 
     entries: tuple[IndexedActivity, ...]
-    source: SourceRef
+    exports: tuple[SourceRef, ...]
 
     def __post_init__(self) -> None:
         require_immutable_sequence(self.entries, "entries")
+        require_immutable_sequence(self.exports, "exports")
+        require_min_length(self.exports, 1, "exports")
+        _require_strictly_sorted(
+            [(export.retrieved_at,) for export in self.exports],
+            "exports (instant d'acquisition)",
+        )
+        known = set(self.exports)
+        for entry in self.entries:
+            if entry.source not in known:
+                raise ContractError(
+                    "entries : la source d'une entrée doit être l'un des exports."
+                )
         _require_strictly_sorted(
             [
                 (entry.start_time.timestamp(), entry.activity_ref)
@@ -1140,8 +1189,9 @@ class ActivityRecording:
       absent (``None``).
     - ``device`` — sans unité — provenance de l'appareil.
     - ``discarded`` — sans unité — ce que l'ingestion a écarté, par partie et motif.
-    - ``source`` — sans unité — provenance : l'archive du FIT dans l'export, son
-      empreinte, et l'instant d'acquisition de l'export.
+    - ``source`` — sans unité — provenance : l'archive du FIT retenue, son empreinte,
+      et l'instant d'acquisition de son export, qui peut ne pas être celui de l'entrée
+      (AN2-0).
 
     Invariants
     ----------
@@ -1231,11 +1281,12 @@ class ActivityRecording:
 
 @dataclass(frozen=True)
 class ReadFile:
-    """Un fichier de l'export lu par l'ingestion.
+    """Un fichier d'un export lu par l'ingestion.
 
     Champs
     ------
-    - ``name`` — sans unité — chemin relatif à ``raw/``, séparé par ``/``.
+    - ``name`` — sans unité — chemin relatif à ``raw/``, séparé par ``/``
+      (``garmin/<export>/…``, AN2-0).
     - ``content_hash`` — sans unité — ``sha256`` du contenu, hexadécimal minuscule.
 
     Invariants
@@ -1266,7 +1317,7 @@ class ReadFile:
 
 @dataclass(frozen=True)
 class RefusedFile:
-    """Un fichier de l'export que l'ingestion a refusé, et pourquoi.
+    """Un fichier d'un export que l'ingestion a refusé, et pourquoi.
 
     Champs
     ------
@@ -1303,7 +1354,8 @@ class RefusedEntry:
 
     Champs
     ------
-    - ``position`` — sans unité — rang de l'entrée dans le fichier d'index, depuis 0.
+    - ``position`` — sans unité — rang de l'entrée dans le fichier d'index de son
+      export, depuis 0.
     - ``reason`` — sans unité — le motif.
 
     Invariants
@@ -1316,7 +1368,7 @@ class RefusedEntry:
 
     Consommateurs
     -------------
-    ``IngestionReport``.
+    ``ExportReport``.
 
     Non promis
     ----------
@@ -1480,6 +1532,204 @@ class RecordingMismatch:
             _require_optional_in_range(getattr(self, name), name, 0.0)
 
 
+class IndexDifference(StrEnum):
+    """Un champ de l'index qu'on compare d'un export à l'autre, pour une même activité
+    (AN2-0).
+
+    Champs
+    ------
+    Valeurs décrites dans ``INDEX_DIFFERENCE_DESCRIPTIONS`` : les noms des champs
+    d'``IndexedActivity`` comparés.
+
+    Invariants
+    ----------
+    Énumération fermée.
+
+    Producteur
+    ----------
+    L'ingestion de plusieurs exports.
+
+    Consommateurs
+    -------------
+    ``FieldDifferenceCount`` ; le rapport d'ingestion.
+
+    Non promis
+    ----------
+    Un écart ne dit pas lequel des deux exports a raison : l'entrée gardée est celle de
+    l'export décisif.
+    """
+
+    SOURCE_ACTIVITY_TYPE = "source_activity_type"
+    START_TIME = "start_time"
+    ELAPSED_DURATION = "elapsed_duration_s"
+    MOVING_DURATION = "moving_duration_s"
+    DISTANCE = "distance_m"
+    ASCENT = "ascent_m"
+    DESCENT = "descent_m"
+    ELEVATION_CORRECTED = "elevation_corrected"
+    AVERAGE_HR = "average_hr_bpm"
+    MAX_HR = "max_hr_bpm"
+    TRAINING_LOAD = "training_load"
+
+
+INDEX_DIFFERENCE_DESCRIPTIONS: Mapping[IndexDifference, str] = MappingProxyType(
+    {
+        IndexDifference.SOURCE_ACTIVITY_TYPE: "Type de la source.",
+        IndexDifference.START_TIME: "Départ (instant et décalage).",
+        IndexDifference.ELAPSED_DURATION: "Temps écoulé.",
+        IndexDifference.MOVING_DURATION: "Temps en mouvement.",
+        IndexDifference.DISTANCE: "Distance de la source.",
+        IndexDifference.ASCENT: "D+ de la source.",
+        IndexDifference.DESCENT: "D− de la source.",
+        IndexDifference.ELEVATION_CORRECTED: "Altitude recalée par Garmin Connect.",
+        IndexDifference.AVERAGE_HR: "FC moyenne.",
+        IndexDifference.MAX_HR: "FC maximale.",
+        IndexDifference.TRAINING_LOAD: "Charge selon Garmin.",
+    }
+)
+
+
+@dataclass(frozen=True)
+class ExportReport:
+    """Un export lu par l'ingestion (AN2-0).
+
+    Champs
+    ------
+    - ``name`` — sans unité — le nom de son dossier sous ``raw/garmin/``.
+    - ``index`` — sans unité — la provenance de son fichier d'index : nom, empreinte,
+      instant d'acquisition de l'export.
+    - ``period_start`` — instant — le premier départ de ses entrées gardées, stocké en
+      UTC ; absent s'il n'en garde aucune.
+    - ``entries`` — sans unité — ses entrées gardées, ``>= 0``.
+    - ``refused_entries`` — sans unité — ses entrées refusées, triées par rang.
+    - ``archives`` — sans unité — les fichiers de son ``activity_fit/``, ``>= 0``.
+
+    Invariants
+    ----------
+    - ``name`` : lettres et chiffres ASCII, ``_``, ``.``, ``-`` ;
+    - ``period_start`` *aware*, ramené en UTC, présent si et seulement si
+      ``entries > 0``, et pas après ``index.retrieved_at`` ;
+    - ``refused_entries`` en tuple, trié par rang, sans doublon.
+
+    Producteur
+    ----------
+    L'ingestion.
+
+    Consommateurs
+    -------------
+    ``IngestionReport`` ; ``mperf ingest``, qui en affiche une ligne par export.
+
+    Non promis
+    ----------
+    La période d'un export va de ``period_start`` à son instant d'acquisition : elle
+    sert à décider de l'existence d'une activité (``0013``, précisions d'AN2-0) ; un
+    export peut avoir été pris sur une partie de l'historique seulement.
+    """
+
+    name: str
+    index: SourceRef
+    period_start: datetime | None
+    entries: int
+    refused_entries: tuple[RefusedEntry, ...]
+    archives: int
+
+    def __post_init__(self) -> None:
+        require_export_name(self.name)
+        for name in ("entries", "archives"):
+            if getattr(self, name) < 0:
+                value = getattr(self, name)
+                raise ContractError(f"{name} doit être >= 0, reçu {value}.")
+        if (self.period_start is None) != (self.entries == 0):
+            raise ContractError(
+                "period_start doit être présent si et seulement si entries > 0."
+            )
+        if self.period_start is not None:
+            require_aware(self.period_start, "period_start")
+            object.__setattr__(self, "period_start", self.period_start.astimezone(UTC))
+            if self.period_start > self.index.retrieved_at:
+                raise ContractError(
+                    "period_start ne peut pas suivre l'instant d'acquisition."
+                )
+        require_immutable_sequence(self.refused_entries, "refused_entries")
+        _require_strictly_sorted(
+            [(item.position,) for item in self.refused_entries], "refused_entries"
+        )
+
+
+@dataclass(frozen=True)
+class RetiredActivity:
+    """Une activité qu'un export ancien porte, mais que l'export décisif, le plus récent
+    dont la période couvre son départ, ne porte pas : elle n'est pas ingérée (AN2-0).
+
+    Champs
+    ------
+    - ``activity_ref`` — sans unité — l'activité.
+    - ``export`` — sans unité — le nom de l'export décisif.
+
+    Invariants
+    ----------
+    ``activity_ref`` et ``export`` : lettres et chiffres ASCII, ``_``, ``.``, ``-``.
+
+    Producteur
+    ----------
+    L'ingestion de plusieurs exports.
+
+    Consommateurs
+    -------------
+    ``IngestionReport`` ; ``mperf ingest``, qui en affiche le compte.
+
+    Non promis
+    ----------
+    La cause n'est pas connue : une activité supprimée dans Garmin Connect, ou une
+    entrée que l'export décisif a refusée (ses entrées refusées sont dans son
+    ``ExportReport``).
+    """
+
+    activity_ref: str
+    export: str
+
+    def __post_init__(self) -> None:
+        require_activity_ref(self.activity_ref)
+        require_export_name(self.export)
+
+
+@dataclass(frozen=True)
+class FieldDifferenceCount:
+    """Le nombre d'activités gardées dont un champ de l'index diffère d'un export à
+    l'autre (AN2-0).
+
+    Champs
+    ------
+    - ``field`` — sans unité — le champ.
+    - ``count`` — sans unité — le nombre d'activités, ``> 0``.
+
+    Invariants
+    ----------
+    ``count > 0``.
+
+    Producteur
+    ----------
+    L'ingestion de plusieurs exports, qui compare l'entrée de l'export décisif à celles
+    des autres exports qui portent l'activité.
+
+    Consommateurs
+    -------------
+    ``IngestionReport`` ; ``mperf ingest``.
+
+    Non promis
+    ----------
+    Une activité compte une fois par champ, quel que soit le nombre d'exports qui
+    diffèrent.
+    """
+
+    field: IndexDifference
+    count: int
+
+    def __post_init__(self) -> None:
+        if self.count <= 0:
+            raise ContractError(f"count doit être > 0, reçu {self.count}.")
+
+
 @dataclass(frozen=True)
 class IngestionReport:
     """Le rapport de la dernière ingestion (document
@@ -1487,21 +1737,32 @@ class IngestionReport:
 
     Champs
     ------
-    - ``retrieved_at`` — instant — instant d'acquisition de l'export, stocké en UTC.
-    - ``read`` — sans unité — les fichiers lus, triés par nom.
+    - ``exports`` — sans unité — les exports lus, par instant d'acquisition croissant
+      (AN2-0).
+    - ``read`` — sans unité — les fichiers lus, triés par nom
+      (``garmin/<export>/…``).
     - ``refused_files`` — sans unité — les fichiers refusés, triés par nom.
-    - ``refused_entries`` — sans unité — les entrées de l'index refusées, triées par
-      rang.
+    - ``retired`` — sans unité — les activités retirées de la source, triées par
+      identifiant (AN2-0).
     - ``view_refusals`` — sans unité — les entrées gardées sans vue ``Activity``,
       comptées par (motif, type de la source), triées ainsi (``0013``, point 2).
     - ``mismatches`` — sans unité — les enregistrements en désaccord avec leur
       entrée, triés par identifiant.
+    - ``index_differences`` — sans unité — par champ, les activités gardées dont
+      l'entrée diffère d'un export à l'autre, triées par champ (AN2-0).
+    - ``fit_differences`` — sans unité — les activités gardées dont deux exports
+      portent des FIT différents (le membre ``.fit``, pas l'archive), ``>= 0``.
+    - ``recordings_from_other_export`` — sans unité — les enregistrements tirés d'un
+      autre export que l'entrée de leur activité, ``>= 0``.
 
     Invariants
     ----------
-    - ``retrieved_at`` *aware*, ramené en UTC ;
+    - au moins un export ; noms uniques ; instants d'acquisition strictement
+      croissants ;
+    - l'export d'une activité retirée est l'un des exports ;
     - listes en tuples, triées, sans doublon ;
-    - un fichier refusé a été lu.
+    - un fichier refusé a été lu ;
+    - comptes ``>= 0``.
 
     Producteur
     ----------
@@ -1519,24 +1780,50 @@ class IngestionReport:
     enregistrement, les champs omis dans chaque entrée de l'index.
     """
 
-    retrieved_at: datetime
+    exports: tuple[ExportReport, ...]
     read: tuple[ReadFile, ...]
     refused_files: tuple[RefusedFile, ...]
-    refused_entries: tuple[RefusedEntry, ...]
+    retired: tuple[RetiredActivity, ...]
     view_refusals: tuple[ViewRefusalCount, ...]
     mismatches: tuple[RecordingMismatch, ...]
+    index_differences: tuple[FieldDifferenceCount, ...]
+    fit_differences: int
+    recordings_from_other_export: int
 
     def __post_init__(self) -> None:
-        require_aware(self.retrieved_at, "retrieved_at")
-        object.__setattr__(self, "retrieved_at", self.retrieved_at.astimezone(UTC))
         for name in (
+            "exports",
             "read",
             "refused_files",
-            "refused_entries",
+            "retired",
             "view_refusals",
             "mismatches",
+            "index_differences",
         ):
             require_immutable_sequence(getattr(self, name), name)
+        require_min_length(self.exports, 1, "exports")
+        _require_strictly_sorted(
+            [(item.index.retrieved_at,) for item in self.exports],
+            "exports (instant d'acquisition)",
+        )
+        names = [item.name for item in self.exports]
+        if len(set(names)) != len(names):
+            raise ContractError("exports : nom d'export répété.")
+        if any(item.export not in names for item in self.retired):
+            raise ContractError(
+                "retired : l'export d'une activité retirée doit être l'un des exports."
+            )
+        _require_strictly_sorted(
+            [(item.activity_ref,) for item in self.retired], "retired"
+        )
+        _require_strictly_sorted(
+            [(item.field.value,) for item in self.index_differences],
+            "index_differences",
+        )
+        for name in ("fit_differences", "recordings_from_other_export"):
+            if getattr(self, name) < 0:
+                value = getattr(self, name)
+                raise ContractError(f"{name} doit être >= 0, reçu {value}.")
         _require_strictly_sorted(
             [
                 (item.reason.value, item.source_activity_type)
@@ -1550,10 +1837,6 @@ class IngestionReport:
         _require_strictly_sorted([(item.name,) for item in self.read], "read")
         _require_strictly_sorted(
             [(item.name,) for item in self.refused_files], "refused_files"
-        )
-        _require_strictly_sorted(
-            [(item.position,) for item in self.refused_entries],
-            "refused_entries",
         )
         read = {item.name for item in self.read}
         for item in self.refused_files:

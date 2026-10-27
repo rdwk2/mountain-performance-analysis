@@ -101,7 +101,9 @@ def write_activities(
     ``interim/activities.ancien/`` s'ils restent d'une écriture interrompue ; écrit tout
     dans ``activities.nouveau/`` ; renomme l'ancien ``activities/`` (s'il existe) en
     ``activities.ancien/`` ; met ``activities.nouveau/`` à sa place ; supprime
-    ``activities.ancien/``.
+    ``activities.ancien/``. Si ``activities.nouveau/`` ne prend pas sa place (un fichier
+    tenu ailleurs, sous Windows), ``activities.ancien/`` reprend la sienne, et l'erreur
+    se propage (AN2-0, ``BACKLOG``).
 
     Les enregistrements doivent correspondre exactement aux entrées de l'index dont
     ``has_recording`` est vrai, chacun une fois. Ils se contrôlent dans l'ordre reçu,
@@ -135,7 +137,12 @@ def write_activities(
         raise
     if target.exists():
         target.rename(old)
-    new.rename(target)
+    try:
+        new.rename(target)
+    except BaseException:
+        if old.exists() and not target.exists():
+            old.rename(target)
+        raise
     _remove(old)
 
 

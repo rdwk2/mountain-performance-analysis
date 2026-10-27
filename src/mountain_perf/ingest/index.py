@@ -1,4 +1,5 @@
-"""Le lecteur de l'index de l'export, ``raw/activities/activities.json`` (AN1-1,
+"""Le lecteur de l'index d'un export,
+``raw/garmin/<export>/activities/activities.json`` (AN1-1, AN2-0,
 ``docs/decisions/0013``).
 
 Ne lit que les champs dont les contrats ont besoin : ni nom, ni titre, ni lieu, ni
@@ -20,6 +21,7 @@ from mountain_perf.schemas import (
     IndexField,
     RefusalReason,
     RefusedEntry,
+    SourceRef,
 )
 
 _TIME_FORMAT = "%Y-%m-%d %H:%M:%S"
@@ -34,6 +36,7 @@ _NUMBER_FIELDS: tuple[tuple[IndexField, str, float, float, bool], ...] = (
     (IndexField.DESCENT, "elevationLoss", 0.0, _INF, True),
     (IndexField.AVERAGE_HR, "averageHR", *HEART_RATE_RANGE_BPM, True),
     (IndexField.MAX_HR, "maxHR", *HEART_RATE_RANGE_BPM, True),
+    (IndexField.TRAINING_LOAD, "activityTrainingLoad", 0.0, _INF, True),
 )
 """Champ, clé de la source, plage, borne basse comprise (``elapsedDuration > 0``)."""
 
@@ -118,7 +121,7 @@ def _number(
 
 
 def _entry(
-    item: dict[str, object], ref: str, kind: str, start: datetime
+    item: dict[str, object], ref: str, kind: str, start: datetime, source: SourceRef
 ) -> IndexedActivity:
     values: dict[IndexField, float | None] = {}
     omitted: list[IndexField] = []
@@ -145,13 +148,16 @@ def _entry(
         elevation_corrected=elevation_corrected,
         average_hr_bpm=values[IndexField.AVERAGE_HR],
         max_hr_bpm=values[IndexField.MAX_HR],
+        training_load=values[IndexField.TRAINING_LOAD],
         has_recording=False,
         omitted_fields=tuple(sorted(omitted, key=lambda field: field.value)),
+        source=source,
     )
 
 
-def read_index(data: bytes) -> IndexReadResult:
-    """Les entrées de l'index de l'export, lu depuis ses octets.
+def read_index(data: bytes, source: SourceRef) -> IndexReadResult:
+    """Les entrées de l'index d'un export, lu depuis ses octets ; chaque entrée gardée
+    porte ``source``, la provenance de ce fichier d'index (AN2-0).
 
     Les octets se décodent en UTF-8 strict puis en JSON (une marque d'ordre des octets
     en tête, ou de l'UTF-16, est refusée) : sinon ``IndexReadError``
@@ -171,8 +177,9 @@ def read_index(data: bytes) -> IndexReadResult:
        ``UTC_OFFSET_RANGE_S`` (bornes comprises) ; l'instant est ``startTimeGMT`` en
        UTC, exprimé dans le fuseau à décalage fixe (jamais le fuseau de la machine) ;
     4. les champs facultatifs ``elapsedDuration`` (``> 0``), ``movingDuration``,
-       ``distance``, ``elevationGain``, ``elevationLoss`` (``>= 0``), ``averageHR``,
-       ``maxHR`` (``HEART_RATE_RANGE_BPM``, bornes comprises) : clé absente ou ``null``,
+       ``distance``, ``elevationGain``, ``elevationLoss``, ``activityTrainingLoad``
+       (``>= 0``), ``averageHR``, ``maxHR`` (``HEART_RATE_RANGE_BPM``, bornes
+       comprises) : clé absente ou ``null``,
        champ absent ; valeur non numérique (un booléen n'est pas un nombre), non finie,
        trop grande pour un flottant ou hors plage, champ absent et nommé dans
        ``omitted_fields`` ;
@@ -206,5 +213,5 @@ def read_index(data: bytes) -> IndexReadResult:
         if kind is None or start is None:
             refused.append(RefusedEntry(position, RefusalReason.UNUSABLE_ENTRY))
             continue
-        entries.append(_entry(item, ref, kind, start))
+        entries.append(_entry(item, ref, kind, start, source))
     return IndexReadResult(tuple(entries), tuple(refused))

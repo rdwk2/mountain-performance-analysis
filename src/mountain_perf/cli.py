@@ -2730,8 +2730,9 @@ INGEST_EXTRA_ERROR = (
 
 
 def _run_ingest() -> int:
-    """``mperf ingest`` (§ 5.8 du brief AN1-1) : ingère l'export de
-    ``MPA_DATA_DIR/raw`` dans ``MPA_DATA_DIR/interim``, puis affiche le résumé.
+    """``mperf ingest`` (§ 5.8 du brief AN1-1 ; AN2-0) : ingère les exports Garmin de
+    ``MPA_DATA_DIR/raw/garmin`` dans ``MPA_DATA_DIR/interim``, puis affiche le résumé :
+    une ligne par export, puis les comptes.
 
     L'ingestion s'importe ici, pas en tête du module : ``mperf`` s'importe sans l'extra
     ``ingest``. Sous cette forme exacte, pour que l'absence de fitdecode se voie même
@@ -2751,6 +2752,13 @@ def _run_ingest() -> int:
         print(f"Erreur : {error}", file=sys.stderr)
         return 1
     without_view = sum(count.count for count in summary.view_refusals)
+    print(f"Exports : {len(summary.exports)}")
+    for export in summary.exports:
+        print(
+            f"  {export.name} : acquis le {export.index.retrieved_at.isoformat()}, "
+            f"{export.entries} entrées gardées, "
+            f"{len(export.refused_entries)} refusées, {export.archives} archives"
+        )
     print(f"Activités dans l'index : {summary.activities}")
     print(f"Enregistrements : {summary.recordings}")
     print(f"Fichiers refusés : {summary.refused_files}")
@@ -2760,6 +2768,21 @@ def _run_ingest() -> int:
     print(f"Activités sans vue Activity : {without_view}")
     for count in summary.view_refusals:
         print(f"  {count.reason.value} : {count.source_activity_type} ({count.count})")
+    print(f"Activités retirées de la source : {summary.retired}")
+    print(
+        "Champs de l'index qui diffèrent d'un export à l'autre : "
+        f"{len(summary.index_differences)}"
+    )
+    for difference in summary.index_differences:
+        print(f"  {difference.field.value} : {difference.count} activité(s)")
+    print(
+        "Activités aux FIT différents d'un export à l'autre : "
+        f"{summary.fit_differences}"
+    )
+    print(
+        "Enregistrements tirés d'un autre export que leur entrée : "
+        f"{summary.recordings_from_other_export}"
+    )
     return 0
 
 
@@ -3019,7 +3042,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     commands.add_parser(
         "ingest",
-        help="Ingérer l'export de MPA_DATA_DIR/raw dans MPA_DATA_DIR/interim (AN1-1)",
+        help=(
+            "Ingérer les exports Garmin de MPA_DATA_DIR/raw/garmin dans "
+            "MPA_DATA_DIR/interim (AN1-1, AN2-0)"
+        ),
     )
     commands.add_parser(
         "tables",

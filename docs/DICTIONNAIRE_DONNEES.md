@@ -141,6 +141,7 @@
 - `IndexField`
 - `RefusalReason`
 - `ViewRefusal`
+- `IndexDifference`
 - `IndexedActivity`
 - `ActivityIndex`
 - `PositionChannel`
@@ -159,6 +160,9 @@
 - `RefusedEntry`
 - `ViewRefusalCount`
 - `RecordingMismatch`
+- `ExportReport`
+- `RetiredActivity`
+- `FieldDifferenceCount`
 - `IngestionReport`
 - `ClimbFlag`
 - `ClimbRegime`
@@ -6816,6 +6820,7 @@ Un échantillon gardé n'est pas garanti juste : seulement conforme au contrat.
 | `ELEVATION_CORRECTED` | `elevation_corrected` | Altitude recalée par Garmin Connect (elevationCorrected). |
 | `AVERAGE_HR` | `average_hr_bpm` | FC moyenne (averageHR). |
 | `MAX_HR` | `max_hr_bpm` | FC maximale (maxHR). |
+| `TRAINING_LOAD` | `training_load` | Charge de l'activité selon Garmin (activityTrainingLoad). |
 
 Champ facultatif de l'index qu'une valeur inutilisable a fait omettre.
 
@@ -6849,11 +6854,11 @@ Un champ absent de la source n'est pas « omis » : il est seulement absent.
 |---|---|---|
 | `UNREADABLE_FIT` | `unreadable_fit` | FIT refusé par la lecture stricte : CRC faux, ou erreur de décodage. |
 | `NOT_ONE_FIT` | `not_one_fit` | Archive qui n'est pas un zip, qui n'a pas exactement un membre, dont le membre n'est pas un fichier .fit, ou dont le membre ne se lit pas. |
-| `DUPLICATE_ARCHIVE` | `duplicate_archive` | Fichier de activity_fit/ dont le nom sans extension est celui d'un autre fichier : tous sont refusés. |
+| `DUPLICATE_ARCHIVE` | `duplicate_archive` | Fichier de activity_fit/ dont le nom sans extension est celui d'un autre fichier du même export : tous sont refusés. |
 | `NO_SESSION` | `no_session` | FIT sans message session, ou dont une session n'est pas datée : l'enregistrement n'a pas de départ. |
 | `NO_SAMPLE` | `no_sample` | FIT dont aucun échantillon n'a été gardé : pas d'enregistrement. |
-| `NOT_IN_INDEX` | `not_in_index` | FIT dont l'activité n'est pas dans l'index. |
-| `DUPLICATE_ENTRY` | `duplicate_entry` | Entrée de l'index dont l'identifiant apparaît plus d'une fois : toutes ses entrées sont refusées. |
+| `NOT_IN_INDEX` | `not_in_index` | FIT dont l'activité n'est pas dans l'index de son export. |
+| `DUPLICATE_ENTRY` | `duplicate_entry` | Entrée de l'index d'un export dont l'identifiant apparaît plus d'une fois dans ce fichier : toutes ses entrées y sont refusées. |
 | `UNUSABLE_ENTRY` | `unusable_entry` | Entrée de l'index sans identifiant, type ou départ utilisables. |
 
 Motif pour lequel l'ingestion refuse un fichier ou une entrée de l'index.
@@ -6914,6 +6919,51 @@ Seul le premier motif rencontré est dit, dans l'ordre de la vue.
 
 ---
 
+## `IndexDifference`
+
+*`mountain_perf.schemas.interim` · énumération*
+
+| Membre | Valeur | Description |
+|---|---|---|
+| `SOURCE_ACTIVITY_TYPE` | `source_activity_type` | Type de la source. |
+| `START_TIME` | `start_time` | Départ (instant et décalage). |
+| `ELAPSED_DURATION` | `elapsed_duration_s` | Temps écoulé. |
+| `MOVING_DURATION` | `moving_duration_s` | Temps en mouvement. |
+| `DISTANCE` | `distance_m` | Distance de la source. |
+| `ASCENT` | `ascent_m` | D+ de la source. |
+| `DESCENT` | `descent_m` | D− de la source. |
+| `ELEVATION_CORRECTED` | `elevation_corrected` | Altitude recalée par Garmin Connect. |
+| `AVERAGE_HR` | `average_hr_bpm` | FC moyenne. |
+| `MAX_HR` | `max_hr_bpm` | FC maximale. |
+| `TRAINING_LOAD` | `training_load` | Charge selon Garmin. |
+
+Un champ de l'index qu'on compare d'un export à l'autre, pour une même activité
+(AN2-0).
+
+#### Champs
+
+Valeurs décrites dans `INDEX_DIFFERENCE_DESCRIPTIONS` : les noms des champs
+d'`IndexedActivity` comparés.
+
+#### Invariants
+
+Énumération fermée.
+
+#### Producteur
+
+L'ingestion de plusieurs exports.
+
+#### Consommateurs
+
+`FieldDifferenceCount` ; le rapport d'ingestion.
+
+#### Non promis
+
+Un écart ne dit pas lequel des deux exports a raison : l'entrée gardée est celle de
+l'export décisif.
+
+---
+
 ## `IndexedActivity`
 
 *`mountain_perf.schemas.interim` · dataclass gelée*
@@ -6931,10 +6981,12 @@ Seul le premier motif rencontré est dit, dans l'ordre de la vue.
 | `elevation_corrected` | `bool \| None` | — |
 | `average_hr_bpm` | `float \| None` | — |
 | `max_hr_bpm` | `float \| None` | — |
+| `training_load` | `float \| None` | — |
 | `has_recording` | `bool` | — |
 | `omitted_fields` | `tuple[IndexField, ...]` | — |
+| `source` | `SourceRef` | — |
 
-Une activité de l'index de l'export, telle que la source la décrit.
+Une activité de l'index d'un export, telle que la source la décrit.
 
 #### Champs
 
@@ -6953,10 +7005,14 @@ Une activité de l'index de l'export, telle que la source la décrit.
   présent.
 - `average_hr_bpm`, `max_hr_bpm` — battements par minute — FC moyenne et
   maximale, `[20, 250]`, si présentes.
+- `training_load` — sans unité — charge de l'activité selon Garmin
+  (`activityTrainingLoad`), `>= 0`, si présente (AN2-0).
 - `has_recording` — sans unité — vrai si `interim/` porte l'enregistrement de
   cette activité.
 - `omitted_fields` — sans unité — champs présents dans la source mais omis ici,
   leur valeur étant inutilisable (non numérique, non finie ou hors plage).
+- `source` — sans unité — provenance : le fichier d'index de l'export dont
+  l'entrée vient, son empreinte et l'instant d'acquisition de cet export (AN2-0).
 
 #### Invariants
 
@@ -6988,7 +7044,11 @@ piste (AN1-2).
   l'enregistrement, que la correction ne change pas ;
 - `moving_duration_s` est le temps en mouvement de Garmin (un algorithme non
   publié, à seuil de vitesse) : la piste calcule le sien ;
-- les valeurs ne sont pas recalculées depuis l'enregistrement.
+- `training_load` est un algorithme de Garmin, non publié ; son absence n'est
+  pas une charge nulle ;
+- les valeurs ne sont pas recalculées depuis l'enregistrement ;
+- deux entrées de l'index peuvent venir de deux exports différents : leurs
+  `source` diffèrent.
 
 ---
 
@@ -6999,21 +7059,25 @@ piste (AN1-2).
 | Champ | Type | Défaut |
 |---|---|---|
 | `entries` | `tuple[IndexedActivity, ...]` | — |
-| `source` | `SourceRef` | — |
+| `exports` | `tuple[SourceRef, ...]` | — |
 
-L'index des activités d'un export (document `interim/activities/index.json`).
+L'index des activités des exports (document `interim/activities/index.json`).
 
 #### Champs
 
 - `entries` — sans unité — les activités, triées par départ (instant) puis par
-  identifiant.
-- `source` — sans unité — provenance : le fichier d'index de l'export, son
-  empreinte, et l'instant d'acquisition de l'export.
+  identifiant ; chacune porte la provenance de l'export dont elle vient.
+- `exports` — sans unité — la provenance de chaque export lu : son fichier
+  d'index, son empreinte et son instant d'acquisition, par instant d'acquisition
+  croissant (AN2-0).
 
 #### Invariants
 
-- `entries` en tuple, identifiants uniques ;
-- ordre : instant de départ croissant, puis identifiant croissant à instant égal.
+- `entries` et `exports` en tuples ; au moins un export ;
+- identifiants uniques ; ordre : instant de départ croissant, puis identifiant
+  croissant à instant égal ;
+- `exports` : instants d'acquisition strictement croissants ;
+- la `source` de chaque entrée est l'un des `exports`.
 
 #### Producteur
 
@@ -7021,14 +7085,17 @@ L'ingestion (`mountain_perf.ingest`).
 
 #### Consommateurs
 
-Le lecteur d'`interim/` ; la vue `Activity` ; les tables d'analyse (AN1-2).
+Le lecteur d'`interim/` ; les tables d'analyse (AN1-2) ; la vue `Activity`
+lit chacune de ses entrées.
 
 #### Non promis
 
-- toutes les activités de l'export y sont, quel que soit leur type, sauf les
-  entrées refusées (rapport d'ingestion) ;
-- `source.retrieved_at` est l'instant d'acquisition de l'export, jamais celui de
-  l'ingestion ni d'une lecture (`0013`, point 5).
+- toutes les activités que l'export décisif porte y sont, quel que soit leur
+  type, sauf les entrées refusées et les activités retirées de la source (rapport
+  d'ingestion) ;
+- le `retrieved_at` d'un export est son instant d'acquisition, jamais celui de
+  l'ingestion ni d'une lecture (`0013`, point 5) ;
+- un export de `exports` peut ne fournir aucune entrée.
 
 ---
 
@@ -7477,8 +7544,9 @@ L'enregistrement d'une activité, tiré de son FIT (document
   absent (`None`).
 - `device` — sans unité — provenance de l'appareil.
 - `discarded` — sans unité — ce que l'ingestion a écarté, par partie et motif.
-- `source` — sans unité — provenance : l'archive du FIT dans l'export, son
-  empreinte, et l'instant d'acquisition de l'export.
+- `source` — sans unité — provenance : l'archive du FIT retenue, son empreinte,
+  et l'instant d'acquisition de son export, qui peut ne pas être celui de l'entrée
+  (AN2-0).
 
 #### Invariants
 
@@ -7518,11 +7586,12 @@ d'analyse (AN1-2).
 | `name` | `str` | — |
 | `content_hash` | `str` | — |
 
-Un fichier de l'export lu par l'ingestion.
+Un fichier d'un export lu par l'ingestion.
 
 #### Champs
 
-- `name` — sans unité — chemin relatif à `raw/`, séparé par `/`.
+- `name` — sans unité — chemin relatif à `raw/`, séparé par `/`
+  (`garmin/<export>/…`, AN2-0).
 - `content_hash` — sans unité — `sha256` du contenu, hexadécimal minuscule.
 
 #### Invariants
@@ -7553,7 +7622,7 @@ Un fichier lu peut avoir été refusé ensuite (`RefusedFile`).
 | `name` | `str` | — |
 | `reason` | `RefusalReason` | — |
 
-Un fichier de l'export que l'ingestion a refusé, et pourquoi.
+Un fichier d'un export que l'ingestion a refusé, et pourquoi.
 
 #### Champs
 
@@ -7591,7 +7660,8 @@ Une entrée de l'index que l'ingestion a refusée, et pourquoi.
 
 #### Champs
 
-- `position` — sans unité — rang de l'entrée dans le fichier d'index, depuis 0.
+- `position` — sans unité — rang de l'entrée dans le fichier d'index de son
+  export, depuis 0.
 - `reason` — sans unité — le motif.
 
 #### Invariants
@@ -7604,7 +7674,7 @@ Le lecteur de l'index de l'ingestion.
 
 #### Consommateurs
 
-`IngestionReport`.
+`ExportReport`.
 
 #### Non promis
 
@@ -7693,39 +7763,176 @@ une horloge différente, sans dire laquelle des deux sources a raison.
 
 ---
 
+## `ExportReport`
+
+*`mountain_perf.schemas.interim` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `name` | `str` | — |
+| `index` | `SourceRef` | — |
+| `period_start` | `datetime \| None` | — |
+| `entries` | `int` | — |
+| `refused_entries` | `tuple[RefusedEntry, ...]` | — |
+| `archives` | `int` | — |
+
+Un export lu par l'ingestion (AN2-0).
+
+#### Champs
+
+- `name` — sans unité — le nom de son dossier sous `raw/garmin/`.
+- `index` — sans unité — la provenance de son fichier d'index : nom, empreinte,
+  instant d'acquisition de l'export.
+- `period_start` — instant — le premier départ de ses entrées gardées, stocké en
+  UTC ; absent s'il n'en garde aucune.
+- `entries` — sans unité — ses entrées gardées, `>= 0`.
+- `refused_entries` — sans unité — ses entrées refusées, triées par rang.
+- `archives` — sans unité — les fichiers de son `activity_fit/`, `>= 0`.
+
+#### Invariants
+
+- `name` : lettres et chiffres ASCII, `_`, `.`, `-` ;
+- `period_start` *aware*, ramené en UTC, présent si et seulement si
+  `entries > 0`, et pas après `index.retrieved_at` ;
+- `refused_entries` en tuple, trié par rang, sans doublon.
+
+#### Producteur
+
+L'ingestion.
+
+#### Consommateurs
+
+`IngestionReport` ; `mperf ingest`, qui en affiche une ligne par export.
+
+#### Non promis
+
+La période d'un export va de `period_start` à son instant d'acquisition : elle
+sert à décider de l'existence d'une activité (`0013`, précisions d'AN2-0) ; un
+export peut avoir été pris sur une partie de l'historique seulement.
+
+---
+
+## `RetiredActivity`
+
+*`mountain_perf.schemas.interim` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `activity_ref` | `str` | — |
+| `export` | `str` | — |
+
+Une activité qu'un export ancien porte, mais que l'export décisif, le plus récent
+dont la période couvre son départ, ne porte pas : elle n'est pas ingérée (AN2-0).
+
+#### Champs
+
+- `activity_ref` — sans unité — l'activité.
+- `export` — sans unité — le nom de l'export décisif.
+
+#### Invariants
+
+`activity_ref` et `export` : lettres et chiffres ASCII, `_`, `.`, `-`.
+
+#### Producteur
+
+L'ingestion de plusieurs exports.
+
+#### Consommateurs
+
+`IngestionReport` ; `mperf ingest`, qui en affiche le compte.
+
+#### Non promis
+
+La cause n'est pas connue : une activité supprimée dans Garmin Connect, ou une
+entrée que l'export décisif a refusée (ses entrées refusées sont dans son
+`ExportReport`).
+
+---
+
+## `FieldDifferenceCount`
+
+*`mountain_perf.schemas.interim` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `field` | `IndexDifference` | — |
+| `count` | `int` | — |
+
+Le nombre d'activités gardées dont un champ de l'index diffère d'un export à
+l'autre (AN2-0).
+
+#### Champs
+
+- `field` — sans unité — le champ.
+- `count` — sans unité — le nombre d'activités, `> 0`.
+
+#### Invariants
+
+`count > 0`.
+
+#### Producteur
+
+L'ingestion de plusieurs exports, qui compare l'entrée de l'export décisif à celles
+des autres exports qui portent l'activité.
+
+#### Consommateurs
+
+`IngestionReport` ; `mperf ingest`.
+
+#### Non promis
+
+Une activité compte une fois par champ, quel que soit le nombre d'exports qui
+diffèrent.
+
+---
+
 ## `IngestionReport`
 
 *`mountain_perf.schemas.interim` · dataclass gelée*
 
 | Champ | Type | Défaut |
 |---|---|---|
-| `retrieved_at` | `datetime` | — |
+| `exports` | `tuple[ExportReport, ...]` | — |
 | `read` | `tuple[ReadFile, ...]` | — |
 | `refused_files` | `tuple[RefusedFile, ...]` | — |
-| `refused_entries` | `tuple[RefusedEntry, ...]` | — |
+| `retired` | `tuple[RetiredActivity, ...]` | — |
 | `view_refusals` | `tuple[ViewRefusalCount, ...]` | — |
 | `mismatches` | `tuple[RecordingMismatch, ...]` | — |
+| `index_differences` | `tuple[FieldDifferenceCount, ...]` | — |
+| `fit_differences` | `int` | — |
+| `recordings_from_other_export` | `int` | — |
 
 Le rapport de la dernière ingestion (document
 `interim/activities/report.json`).
 
 #### Champs
 
-- `retrieved_at` — instant — instant d'acquisition de l'export, stocké en UTC.
-- `read` — sans unité — les fichiers lus, triés par nom.
+- `exports` — sans unité — les exports lus, par instant d'acquisition croissant
+  (AN2-0).
+- `read` — sans unité — les fichiers lus, triés par nom
+  (`garmin/<export>/…`).
 - `refused_files` — sans unité — les fichiers refusés, triés par nom.
-- `refused_entries` — sans unité — les entrées de l'index refusées, triées par
-  rang.
+- `retired` — sans unité — les activités retirées de la source, triées par
+  identifiant (AN2-0).
 - `view_refusals` — sans unité — les entrées gardées sans vue `Activity`,
   comptées par (motif, type de la source), triées ainsi (`0013`, point 2).
 - `mismatches` — sans unité — les enregistrements en désaccord avec leur
   entrée, triés par identifiant.
+- `index_differences` — sans unité — par champ, les activités gardées dont
+  l'entrée diffère d'un export à l'autre, triées par champ (AN2-0).
+- `fit_differences` — sans unité — les activités gardées dont deux exports
+  portent des FIT différents (le membre `.fit`, pas l'archive), `>= 0`.
+- `recordings_from_other_export` — sans unité — les enregistrements tirés d'un
+  autre export que l'entrée de leur activité, `>= 0`.
 
 #### Invariants
 
-- `retrieved_at` *aware*, ramené en UTC ;
+- au moins un export ; noms uniques ; instants d'acquisition strictement
+  croissants ;
+- l'export d'une activité retirée est l'un des exports ;
 - listes en tuples, triées, sans doublon ;
-- un fichier refusé a été lu.
+- un fichier refusé a été lu ;
+- comptes `>= 0`.
 
 #### Producteur
 
@@ -7966,7 +8173,7 @@ Une ligne de la table `montees` : une montée retenue d'une activité.
 
 Identité et contexte :
 
-- `activity_ref` — sans unité — l'activité (index de l'export).
+- `activity_ref` — sans unité — l'activité (index d'`interim/`).
 - `start_offset_s`, `end_offset_s` — secondes — bornes en temps `t_a*` et
   `t_b*`, depuis le départ de l'enregistrement ; la clé de la table est
   `(activity_ref, start_offset_s)`.
@@ -8119,7 +8326,7 @@ moins une montée de référence.
 
 #### Champs
 
-- `activity_ref` — sans unité — l'activité (index de l'export).
+- `activity_ref` — sans unité — l'activité (index d'`interim/`).
 - `variant` — sans unité — le nom de la variante, dans `VARIANTS` de
   `mountain_perf.analyse.stability`.
 - `start_offset_s`, `end_offset_s` — secondes — bornes en temps de la montée
@@ -8216,8 +8423,8 @@ La stabilité des points de la figure de Q1 (`mountain_perf.analyse.q1`).
 | `flagged_climb_count` | `int` | — |
 | `unstable_climb_count` | `int` | — |
 
-Une ligne de la table `activites` : une entrée de l'index de l'export, de
-tout type.
+Une ligne de la table `activites` : une entrée de l'index d'`interim/`,
+de tout type.
 
 #### Champs
 
@@ -8293,8 +8500,8 @@ Des montées :
 
 #### Consommateurs
 
-La figure de Q1 (AN1-2c, flux par mois) ; la charge recalculée (AN2) ; les
-questions de la piste.
+La figure de Q1 (AN1-2c, flux par mois) ; les questions de la piste (la charge
+recalculée viendra avec la question qui en a besoin, pas avec AN2).
 
 #### Non promis
 
