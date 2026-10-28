@@ -151,7 +151,8 @@ piste analyse** : elle écrit l'ingestion, le moteur estime la courbe.
 - **À la piste analyse** (AN1, puis à la demande) :
   - acquisition : reprendre le script d'export de l'ancien projet (placé dans
     `legacy/`, ne pas le réécrire depuis zéro) → `raw/`, immuable, reprise après
-    coupure ; elle attend la première mise à jour des données ;
+    coupure ; reportée : en attendant, l'humain fait ses exports avec ce script,
+    hors du dépôt, et l'ingestion les lit tous (AN2-0) ;
   - ingestion : `raw/` → contrats → `interim/`, dans `src/mountain_perf/ingest/`, aux
     conventions du moteur (m/s, distance de `gpx/geo.py`, profil de
     `gpx/profile.py`) ; les séries d'activité viennent des FIT, à pleine résolution
@@ -297,8 +298,12 @@ de Q1 (`docs/decisions/0015`).
 ---
 
 ### AN2 — Données journalières et tableau de bord
+- plusieurs exports pour les activités (AN2-0) : chaque export dans
+  `raw/garmin/<export>/`, aucun retiré, celui qui fait foi décidé activité par
+  activité (`docs/decisions/0013`, précisions d'AN2-0)
 - ingestion des nuits et des jours (sommeil, HRV, FC de repos, indicateurs de Garmin)
-- tableau de bord du suivi de la récupération
+  (AN2-1), puis la table `jours` et les normales (AN2-2)
+- tableau de bord du suivi de la récupération (AN2-3)
 
 ---
 

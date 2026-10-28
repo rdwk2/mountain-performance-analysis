@@ -10,7 +10,6 @@ from itertools import pairwise
 from mountain_perf.ingest.types import SOURCE_TYPE_SPORTS
 from mountain_perf.schemas import (
     Activity,
-    ActivityIndex,
     ActivityRecording,
     IndexedActivity,
     QualityFlag,
@@ -37,8 +36,8 @@ class ActivityView:
     refusal: ViewRefusal | None
 
 
-def activity_view(index: ActivityIndex, entry: IndexedActivity) -> ActivityView:
-    """La vue ``Activity`` de ``entry``, une entrée de ``index``.
+def activity_view(entry: IndexedActivity) -> ActivityView:
+    """La vue ``Activity`` de ``entry``, une entrée de l'index.
 
     Refus, dans cet ordre : type de la source absent de ``SOURCE_TYPE_SPORTS``
     (``NO_SPORT``) ; un des champs ``elapsed_duration_s``, ``moving_duration_s``,
@@ -47,7 +46,8 @@ def activity_view(index: ActivityIndex, entry: IndexedActivity) -> ActivityView:
     ``Activity`` avec l'identifiant, la famille de la table, le type de la source, le
     départ, les durées, distances et fréquences cardiaques recopiés de l'entrée ;
     ``stream_ref`` vaut l'identifiant si l'entrée a un enregistrement, ``None`` sinon ;
-    ``source`` est celle de l'index ; aucun drapeau.
+    ``source`` est celle de l'entrée, la provenance de l'export dont elle vient
+    (AN2-0) ; aucun drapeau.
     """
     sport = SOURCE_TYPE_SPORTS.get(entry.source_activity_type)
     if sport is None:
@@ -79,7 +79,7 @@ def activity_view(index: ActivityIndex, entry: IndexedActivity) -> ActivityView:
             average_hr_bpm=entry.average_hr_bpm,
             max_hr_bpm=entry.max_hr_bpm,
             stream_ref=entry.activity_ref if entry.has_recording else None,
-            source=index.source,
+            source=entry.source,
         )
     except ContractError:
         return ActivityView(None, ViewRefusal.INVARIANT)

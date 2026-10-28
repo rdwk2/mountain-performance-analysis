@@ -9,6 +9,7 @@ from typing import Any
 import pytest
 
 from mountain_perf.schemas import (
+    INTERIM_FORMAT_VERSION,
     TEMPERATURE_RANGE_C,
     ActivityIndex,
     ActivityRecording,
@@ -18,7 +19,10 @@ from mountain_perf.schemas import (
     DistanceChannel,
     ElevationChannel,
     ElevationField,
+    ExportReport,
+    FieldDifferenceCount,
     HeartRateChannel,
+    IndexDifference,
     IndexedActivity,
     IndexField,
     IngestionReport,
@@ -30,6 +34,7 @@ from mountain_perf.schemas import (
     RefusalReason,
     RefusedEntry,
     RefusedFile,
+    RetiredActivity,
     SourceRef,
     SpeedChannel,
     SpeedField,
@@ -39,6 +44,7 @@ from mountain_perf.schemas import (
     TimerTrigger,
     ViewRefusal,
     ViewRefusalCount,
+    require_export_name,
 )
 from mountain_perf.validation import ContractError
 
@@ -60,10 +66,44 @@ def entry(**changes: Any) -> IndexedActivity:
         "elevation_corrected": False,
         "average_hr_bpm": 141.0,
         "max_hr_bpm": 173.0,
+        "training_load": 87.5,
         "has_recording": True,
         "omitted_fields": (),
+        "source": SOURCE,
     }
     return IndexedActivity(**{**base, **changes})
+
+
+LATER = dataclasses.replace(
+    SOURCE, content_hash="e" * 64, retrieved_at=SOURCE.retrieved_at + timedelta(days=30)
+)
+
+
+def export_report(**changes: Any) -> ExportReport:
+    base: dict[str, Any] = {
+        "name": "garmin_a",
+        "index": SOURCE,
+        "period_start": datetime(2024, 3, 9, 9, 30, tzinfo=PLUS2),
+        "entries": 3,
+        "refused_entries": (),
+        "archives": 2,
+    }
+    return ExportReport(**{**base, **changes})
+
+
+def report(**changes: Any) -> IngestionReport:
+    base: dict[str, Any] = {
+        "exports": (export_report(),),
+        "read": (),
+        "refused_files": (),
+        "retired": (),
+        "view_refusals": (),
+        "mismatches": (),
+        "index_differences": (),
+        "fit_differences": 0,
+        "recordings_from_other_export": 0,
+    }
+    return IngestionReport(**{**base, **changes})
 
 
 def recording(**changes: Any) -> ActivityRecording:
@@ -177,26 +217,26 @@ def test_index_sorted_by_instant_then_ref() -> None:
     early = entry(activity_ref="9", start_time=datetime(2024, 3, 9, 6, tzinfo=UTC))
     same_a = entry(activity_ref="10")
     same_b = entry(activity_ref="12")
-    index = ActivityIndex((early, same_a, same_b), SOURCE)
+    index = ActivityIndex((early, same_a, same_b), (SOURCE,))
     assert [e.activity_ref for e in index.entries] == ["9", "10", "12"]
     with pytest.raises(ContractError, match="trié"):
-        ActivityIndex((same_b, same_a), SOURCE)
+        ActivityIndex((same_b, same_a), (SOURCE,))
     with pytest.raises(ContractError, match="trié"):
-        ActivityIndex((same_a, early), SOURCE)
+        ActivityIndex((same_a, early), (SOURCE,))
 
 
 def test_index_sort_uses_the_instant_not_the_wall_clock() -> None:
     """09:00 à +02:00 (07:00 UTC) précède 08:00 à +00:00."""
     a = entry(activity_ref="a", start_time=datetime(2024, 3, 9, 9, tzinfo=PLUS2))
     b = entry(activity_ref="b", start_time=datetime(2024, 3, 9, 8, tzinfo=UTC))
-    assert ActivityIndex((a, b), SOURCE).entries == (a, b)
+    assert ActivityIndex((a, b), (SOURCE,)).entries == (a, b)
 
 
 def test_index_refs_unique() -> None:
     a = entry(activity_ref="5", start_time=datetime(2024, 3, 9, 6, tzinfo=UTC))
     b = entry(activity_ref="5", start_time=datetime(2024, 3, 9, 7, tzinfo=UTC))
     with pytest.raises(ContractError, match="répété"):
-        ActivityIndex((a, b), SOURCE)
+        ActivityIndex((a, b), (SOURCE,))
 
 
 # --- canaux --------------------------------------------------------------------------
@@ -354,14 +394,10 @@ def test_report_names_are_relative(name: str) -> None:
 
 def test_report() -> None:
     read = (
-        ReadFile("activities/activities.json", H),
-        ReadFile("activity_fit/1.zip", H),
+        ReadFile("a/activities/activities.json", H),
+        ReadFile("a/activity_fit/1.zip", H),
     )
-    refused = (RefusedFile("activity_fit/1.zip", RefusalReason.UNREADABLE_FIT),)
-    entries = (
-        RefusedEntry(2, RefusalReason.DUPLICATE_ENTRY),
-        RefusedEntry(10, RefusalReason.UNUSABLE_ENTRY),
-    )
+    refused = (RefusedFile("a/activity_fit/1.zip", RefusalReason.UNREADABLE_FIT),)
     views = (
         ViewRefusalCount(ViewRefusal.INVARIANT, "running", 1),
         ViewRefusalCount(ViewRefusal.NO_SPORT, "golf", 3),
@@ -371,38 +407,56 @@ def test_report() -> None:
         RecordingMismatch("10", 3600.0, 60.0, 60.0),
         RecordingMismatch("9", 0.0, 61.5, 60.0),
     )
-    report = IngestionReport(
-        datetime(2024, 4, 1, 12, tzinfo=PLUS2),
-        read,
-        refused,
-        entries,
-        views,
-        mismatches,
+    retired = (RetiredActivity("10", "b"), RetiredActivity("9", "b"))
+    differences = (
+        FieldDifferenceCount(IndexDifference.DISTANCE, 2),
+        FieldDifferenceCount(IndexDifference.START_TIME, 1),
     )
-    assert report.retrieved_at.tzinfo is UTC
-    with pytest.raises(ContractError, match="read"):
-        IngestionReport(report.retrieved_at, read[::-1], (), (), (), ())
-    with pytest.raises(ContractError, match="refused_entries"):
-        IngestionReport(report.retrieved_at, read, (), entries[::-1], (), ())
-    with pytest.raises(ContractError, match="figurer dans read"):
-        IngestionReport(
-            report.retrieved_at,
-            read[:1],
-            (RefusedFile("activity_fit/1.zip", RefusalReason.NOT_ONE_FIT),),
-            (),
-            (),
-            (),
-        )
-    with pytest.raises(ContractError, match="view_refusals"):
-        IngestionReport(report.retrieved_at, read, (), (), views[::-1], ())
-    with pytest.raises(ContractError, match="view_refusals"):
-        IngestionReport(report.retrieved_at, read, (), (), (views[1], views[1]), ())
-    with pytest.raises(ContractError, match="mismatches"):
-        IngestionReport(report.retrieved_at, read, (), (), (), mismatches[::-1])
-    with pytest.raises(ContractError, match="mismatches"):
-        IngestionReport(report.retrieved_at, read, (), (), (), [mismatches[0]])  # type: ignore[arg-type]
-    with pytest.raises(ContractError, match="view_refusals"):
-        IngestionReport(report.retrieved_at, read, (), (), [views[0]], ())  # type: ignore[arg-type]
+    exports = (export_report(), export_report(name="b", index=LATER))
+    full = report(
+        exports=exports,
+        read=read,
+        refused_files=refused,
+        retired=retired,
+        view_refusals=views,
+        mismatches=mismatches,
+        index_differences=differences,
+        fit_differences=1,
+        recordings_from_other_export=2,
+    )
+    assert [item.name for item in full.exports] == ["garmin_a", "b"]
+    assert (full.fit_differences, full.recordings_from_other_export) == (1, 2)
+    assert report(fit_differences=0, recordings_from_other_export=0).exports
+    for changes, name in (
+        ({"read": read[::-1]}, "read"),
+        (
+            {
+                "read": read[:1],
+                "refused_files": (
+                    RefusedFile("a/activity_fit/1.zip", RefusalReason.NOT_ONE_FIT),
+                ),
+            },
+            "figurer dans read",
+        ),
+        ({"view_refusals": views[::-1]}, "view_refusals"),
+        ({"view_refusals": (views[1], views[1])}, "view_refusals"),
+        ({"view_refusals": [views[0]]}, "view_refusals"),
+        ({"mismatches": mismatches[::-1]}, "mismatches"),
+        ({"mismatches": [mismatches[0]]}, "mismatches"),
+        ({"retired": retired[::-1]}, "retired"),
+        ({"retired": list(retired)}, "retired"),
+        ({"retired": (RetiredActivity("9", "c"),)}, "retired"),
+        ({"index_differences": differences[::-1]}, "index_differences"),
+        ({"index_differences": [differences[0]]}, "index_differences"),
+        ({"exports": exports[::-1]}, "exports"),
+        ({"exports": ()}, "exports"),
+        ({"exports": list(exports)}, "exports"),
+        ({"exports": (export_report(), export_report(index=LATER))}, "répété"),
+        ({"fit_differences": -1}, "fit_differences"),
+        ({"recordings_from_other_export": -1}, "recordings_from_other_export"),
+    ):
+        with pytest.raises(ContractError, match=name):
+            report(**changes)
     with pytest.raises(ContractError, match="content_hash"):
         ReadFile("a", "D" * 64)
     with pytest.raises(ContractError, match="position"):
@@ -420,7 +474,7 @@ def test_entry_elapsed_finite_and_small_positive() -> None:
 
 def test_index_entries_must_be_a_tuple() -> None:
     with pytest.raises(ContractError, match="entries"):
-        ActivityIndex([entry()], SOURCE)  # type: ignore[arg-type]
+        ActivityIndex([entry()], (SOURCE,))  # type: ignore[arg-type]
 
 
 @pytest.mark.parametrize(
@@ -504,18 +558,15 @@ def test_recording_errors_name_their_field(changes: dict[str, Any], name: str) -
 
 
 def test_report_errors_name_their_field() -> None:
-    at = datetime(2024, 4, 1, tzinfo=UTC)
     read = (ReadFile("a", H), ReadFile("b", H))
-    with pytest.raises(ContractError, match="retrieved_at"):
-        IngestionReport(datetime(2024, 4, 1), (), (), (), (), ())
     with pytest.raises(ContractError, match="read"):
-        IngestionReport(at, list(read), (), (), (), ())  # type: ignore[arg-type]
+        report(read=list(read))
     refused = (
         RefusedFile("b", RefusalReason.NOT_ONE_FIT),
         RefusedFile("a", RefusalReason.NOT_ONE_FIT),
     )
     with pytest.raises(ContractError, match="refused_files"):
-        IngestionReport(at, read, refused, (), (), ())
+        report(read=read, refused_files=refused)
     with pytest.raises(ContractError, match="name"):
         RefusedFile("../a", RefusalReason.NOT_ONE_FIT)
 
@@ -590,3 +641,106 @@ def test_timer_event_trigger_and_device_sensors_are_kept() -> None:
     )
     device = DeviceProvenance(None, None, None, None, None, True, False)
     assert (device.barometer, device.external_heart_rate_sensor) == (True, False)
+
+
+# --- format 2 (AN2-0) : plusieurs exports, la charge selon Garmin ---------------------
+
+
+def test_the_interim_format_is_two() -> None:
+    assert INTERIM_FORMAT_VERSION == 2
+
+
+def test_training_load_is_optional_finite_and_not_negative() -> None:
+    assert entry(training_load=None).training_load is None
+    assert entry(training_load=0.0).training_load == 0.0
+    for bad in (-0.25, float("inf"), float("nan")):
+        with pytest.raises(ContractError, match="training_load"):
+            entry(training_load=bad)
+    omitted = entry(training_load=None, omitted_fields=(IndexField.TRAINING_LOAD,))
+    assert omitted.omitted_fields == (IndexField.TRAINING_LOAD,)
+    with pytest.raises(ContractError, match="training_load est omis"):
+        entry(omitted_fields=(IndexField.TRAINING_LOAD,))
+
+
+def test_index_exports_are_sorted_by_instant_and_known_to_each_entry() -> None:
+    a = entry(activity_ref="9", source=LATER)
+    b = entry(activity_ref="10", start_time=datetime(2024, 3, 10, tzinfo=UTC))
+    index = ActivityIndex((a, b), (SOURCE, LATER))
+    assert index.exports == (SOURCE, LATER)
+    assert [e.source for e in index.entries] == [LATER, SOURCE]
+    assert ActivityIndex((), (SOURCE,)).entries == ()
+    other_hash = dataclasses.replace(SOURCE, content_hash="f" * 64)
+    for entries, exports, name in (
+        ((a,), (LATER, SOURCE), "exports"),
+        ((), (), "exports"),
+        ((), [SOURCE], "exports"),
+        ((), (SOURCE, other_hash), "exports"),
+        ((a,), (SOURCE,), "l'un des exports"),
+        ((entry(source=other_hash),), (SOURCE,), "l'un des exports"),
+    ):
+        with pytest.raises(ContractError, match=name):
+            ActivityIndex(entries, exports)  # type: ignore[arg-type]
+
+
+def test_export_report() -> None:
+    made = export_report()
+    assert made.period_start is not None
+    assert made.period_start.tzinfo is UTC
+    assert made.period_start == datetime(2024, 3, 9, 7, 30, tzinfo=UTC)
+    assert export_report(entries=0, period_start=None).period_start is None
+    at_acquisition = export_report(period_start=SOURCE.retrieved_at)
+    assert at_acquisition.period_start == SOURCE.retrieved_at
+    assert export_report(archives=0, entries=1).archives == 0
+    refused = (
+        RefusedEntry(1, RefusalReason.UNUSABLE_ENTRY),
+        RefusedEntry(3, RefusalReason.DUPLICATE_ENTRY),
+    )
+    assert export_report(refused_entries=refused).refused_entries == refused
+    for changes, name in (
+        ({"name": "a/b"}, "nom d'un export"),
+        ({"name": ".."}, "nom d'un export"),
+        ({"name": "é"}, "nom d'un export"),
+        ({"entries": -1, "period_start": None}, "entries doit être"),
+        ({"archives": -1}, "archives doit être"),
+        ({"entries": 0}, "period_start"),
+        ({"period_start": None}, "period_start"),
+        ({"period_start": datetime(2024, 3, 9, 9, 30)}, "period_start"),
+        (
+            {"period_start": SOURCE.retrieved_at + timedelta(microseconds=1)},
+            "ne peut pas suivre",
+        ),
+        ({"refused_entries": refused[::-1]}, "refused_entries"),
+        ({"refused_entries": list(refused)}, "refused_entries"),
+    ):
+        with pytest.raises(ContractError, match=name):
+            export_report(**changes)
+
+
+def test_retired_activity_and_difference_count() -> None:
+    assert RetiredActivity("12", "garmin_b") == RetiredActivity("12", "garmin_b")
+    with pytest.raises(ContractError, match="activity_ref"):
+        RetiredActivity("1 2", "garmin_b")
+    with pytest.raises(ContractError, match="nom d'un export"):
+        RetiredActivity("12", "b/c")
+    assert FieldDifferenceCount(IndexDifference.TRAINING_LOAD, 1).count == 1
+    with pytest.raises(ContractError, match="count"):
+        FieldDifferenceCount(IndexDifference.TRAINING_LOAD, 0)
+
+
+def test_index_difference_names_the_value_fields_of_an_entry() -> None:
+    fields = {field.name for field in dataclasses.fields(IndexedActivity)}
+    compared = {difference.value for difference in IndexDifference}
+    assert compared == fields - {
+        "activity_ref",
+        "has_recording",
+        "omitted_fields",
+        "source",
+    }
+
+
+def test_export_names() -> None:
+    for good in ("garmin_2024-04-01", "a", "A.b-c_1"):
+        require_export_name(good)
+    for bad in ("", ".", "..", "a/b", "a b", "é", "a:b"):
+        with pytest.raises(ContractError, match="nom d'un export"):
+            require_export_name(bad)

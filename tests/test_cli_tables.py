@@ -183,10 +183,10 @@ def test_cli_tables_names_a_document_that_does_not_read_back(
     folder = data_dir()
     write_interim(folder)
     path = folder / "interim" / "activities" / "recordings" / "a2.json"
-    path.write_bytes(path.read_bytes().replace(b'"format":1', b'"format":9', 1))
+    path.write_bytes(path.read_bytes().replace(b'"format":2', b'"format":9', 1))
     assert main(["tables"]) == 1
     assert capsys.readouterr().err == (
-        "Erreur : activité a2 : document au format 9, 1 attendu\n"
+        "Erreur : activité a2 : document au format 9, 2 attendu\n"
     )
     assert not (folder / "processed").exists()
 

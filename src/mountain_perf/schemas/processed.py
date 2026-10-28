@@ -281,7 +281,7 @@ class ClimbRow:
     ------
     Identité et contexte :
 
-    - ``activity_ref`` — sans unité — l'activité (index de l'export).
+    - ``activity_ref`` — sans unité — l'activité (index d'``interim/``).
     - ``start_offset_s``, ``end_offset_s`` — secondes — bornes en temps ``t_a*`` et
       ``t_b*``, depuis le départ de l'enregistrement ; la clé de la table est
       ``(activity_ref, start_offset_s)``.
@@ -534,7 +534,7 @@ class ClimbVariantRow:
 
     Champs
     ------
-    - ``activity_ref`` — sans unité — l'activité (index de l'export).
+    - ``activity_ref`` — sans unité — l'activité (index d'``interim/``).
     - ``variant`` — sans unité — le nom de la variante, dans ``VARIANTS`` de
       ``mountain_perf.analyse.stability``.
     - ``start_offset_s``, ``end_offset_s`` — secondes — bornes en temps de la montée
@@ -595,8 +595,8 @@ class ClimbVariantRow:
 
 @dataclass(frozen=True)
 class ActivityRow:
-    """Une ligne de la table ``activites`` : une entrée de l'index de l'export, de
-    tout type.
+    """Une ligne de la table ``activites`` : une entrée de l'index d'``interim/``,
+    de tout type.
 
     Champs
     ------
@@ -672,8 +672,8 @@ class ActivityRow:
 
     Consommateurs
     -------------
-    La figure de Q1 (AN1-2c, flux par mois) ; la charge recalculée (AN2) ; les
-    questions de la piste.
+    La figure de Q1 (AN1-2c, flux par mois) ; les questions de la piste (la charge
+    recalculée viendra avec la question qui en a besoin, pas avec AN2).
 
     Non promis
     ----------

@@ -103,8 +103,8 @@ _STOPS = frozenset(t for t in TimerEventType if t is not TimerEventType.START)
 
 class TablesError(ValueError):
     """Les lignes d'une activité violent un contrat, ou un document d'``interim/`` ne
-    se relit pas : le message nomme l'activité (son identifiant dans l'index de
-    l'export), ou l'index, et la cause."""
+    se relit pas : le message nomme l'activité (son identifiant dans l'index
+    d'``interim/``), ou l'index, et la cause."""
 
 
 @dataclass(frozen=True)
@@ -673,7 +673,7 @@ def build_tables(
     climb_rows: list[ClimbRow] = []
     variant_rows: list[ClimbVariantRow] = []
     for entry in index.entries:
-        refusal = activity_view(index, entry).refusal
+        refusal = activity_view(entry).refusal
         try:
             recording = (
                 read_recording(data_dir, entry.activity_ref)

@@ -16,7 +16,6 @@ from mountain_perf.ingest.views import (
     stream_view,
 )
 from mountain_perf.schemas import (
-    ActivityIndex,
     ActivityRecording,
     DistanceChannel,
     ElevationChannel,
@@ -39,8 +38,7 @@ INDEX_SOURCE = dataclasses.replace(
 
 
 def _view(**changes: Any) -> ActivityView:
-    e = entry(**changes)
-    return activity_view(ActivityIndex((e,), INDEX_SOURCE), e)
+    return activity_view(entry(**{"source": INDEX_SOURCE, **changes}))
 
 
 # --- Activity ------------------------------------------------------------------------
@@ -300,3 +298,19 @@ def test_a_gap_covered_by_a_timer_pause_still_sets_the_flag() -> None:
     s = stream_view(rec).stream
     assert s is not None
     assert s.quality_flags == frozenset({QualityFlag.GPS_GAP})
+
+
+def test_activity_view_takes_the_source_of_its_entry() -> None:
+    """AN2-0 : deux entrées venues de deux exports gardent chacune la provenance du
+    sien ; ``Activity.source`` n'est plus celle d'un index commun."""
+    later = dataclasses.replace(
+        INDEX_SOURCE,
+        content_hash="e" * 64,
+        retrieved_at=datetime(2024, 9, 1, tzinfo=UTC),
+    )
+    first = _view().activity
+    second = _view(source=later).activity
+    assert first is not None
+    assert second is not None
+    assert (first.source, second.source) == (INDEX_SOURCE, later)
+    assert first.activity_ref == second.activity_ref

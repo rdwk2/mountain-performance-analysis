@@ -20,8 +20,8 @@ from mountain_perf.schemas import (
     TimerEventType,
     TimerTrigger,
 )
-from test_ingest_interim import REPORT
-from test_schemas_interim import SOURCE, entry
+from test_ingest_interim import INDEX_SOURCE, REPORT
+from test_schemas_interim import entry
 
 PLUS2 = timezone(timedelta(hours=2))
 COMMIT = "c0ffee" * 6 + "c0ff"
@@ -71,23 +71,31 @@ def write_interim(data_dir: Path) -> ActivityIndex:
     a3 = dataclasses.replace(recording([FLAT], activity_ref="a3"), elevation=None)
     index = ActivityIndex(
         (
-            entry(activity_ref="a1", start_time=datetime(2024, 3, 9, 9, tzinfo=PLUS2)),
             entry(
+                source=INDEX_SOURCE,
+                activity_ref="a1",
+                start_time=datetime(2024, 3, 9, 9, tzinfo=PLUS2),
+            ),
+            entry(
+                source=INDEX_SOURCE,
                 activity_ref="a2",
                 source_activity_type="backcountry_skiing",
                 start_time=datetime(2024, 3, 10, 9, tzinfo=PLUS2),
             ),
-            entry(activity_ref="a3", start_time=datetime(2024, 3, 11, 9, tzinfo=PLUS2)),
             entry(
+                source=INDEX_SOURCE,
+                activity_ref="a3",
+                start_time=datetime(2024, 3, 11, 9, tzinfo=PLUS2),
+            ),
+            entry(
+                source=INDEX_SOURCE,
                 activity_ref="a4",
                 source_activity_type="golf",
                 has_recording=False,
                 start_time=datetime(2024, 3, 12, 9, tzinfo=PLUS2),
             ),
         ),
-        dataclasses.replace(
-            SOURCE, kind="garmin_activities", identifier="activities.json"
-        ),
+        (INDEX_SOURCE,),
     )
     write_activities(data_dir, index, [a1, a2, a3], REPORT)
     return index
@@ -140,14 +148,13 @@ def write_one(
     index = ActivityIndex(
         (
             entry(
+                source=INDEX_SOURCE,
                 activity_ref=rec.activity_ref,
                 source_activity_type=source_activity_type,
                 start_time=datetime(2024, 3, 9, 9, tzinfo=PLUS2),
             ),
         ),
-        dataclasses.replace(
-            SOURCE, kind="garmin_activities", identifier="activities.json"
-        ),
+        (INDEX_SOURCE,),
     )
     write_activities(data_dir, index, [rec], REPORT)
     return index

@@ -123,7 +123,7 @@ just fmt        # formatage
 just dictionary # régénère docs/DICTIONNAIRE_DONNEES.md depuis les docstrings
 just backtest courbe.csv  # backtest enregistré des cinq modèles, rapport D15 (M4b-5, M4c-2) ; MPA_DATA_DIR/reference/
 just backtest courbe.csv --sensitivity  # puis la sensibilité D13, enregistrée, rapport sensibilite-<n>.txt (M4d-3)
-just ingest     # raw/ → interim/activities/, extra ingest (AN1-1) ; MPA_DATA_DIR
+just ingest     # raw/garmin/ → interim/activities/, extra ingest (AN1-1, AN2-0) ; MPA_DATA_DIR
 just process    # raw/ → interim/ → processed/ : ingest, puis mperf tables, extras ingest et analyse (AN1-2b)
 just q1         # processed/ → resultats/Q1/<date>_<empreinte>/ : la figure de Q1, extra analyse (AN1-2c)
 just ui         # l'interface (M5) : appli Streamlit locale sur MPA_DATA_DIR, extra tableau
@@ -193,7 +193,8 @@ src/mountain_perf/     le code de la bibliothèque
     bands.py           contrats des fourchettes, stockés au registre au format 4 (M4d-2)
     sensitivity.py     contrats de la sensibilité, stockés au registre au format 5 (M4d-3)
     interim.py         IndexedActivity, ActivityIndex, ActivityRecording et ses canaux,
-                       IngestionReport : contrats d'interim/ (AN1-1)
+                       IngestionReport : contrats d'interim/ (AN1-1) ; plusieurs
+                       exports : ExportReport, RetiredActivity, IndexDifference (AN2-0)
     processed.py       ClimbRow, ClimbVariantRow, ActivityRow, ProcessedProvenance,
                        drapeaux, régimes, strates : contrats des tables de processed/
                        (AN1-2b, AN1-2c)
@@ -258,9 +259,10 @@ src/mountain_perf/     le code de la bibliothèque
     types.py           SOURCE_TYPE_SPORTS : types de la source → Sport
     views.py           activity_view, stream_view : vues Activity et TrackPointStream
     interim.py         documents d'interim/ : écriture et relecture par le codec commun
-    index.py           read_index : l'index de l'export
+    index.py           read_index : l'index d'un export
     fit.py             read_fit : le lecteur FIT, lecture stricte
-    export.py          ingest_export : raw/ → interim/activities/
+    export.py          ingest_export : les exports de raw/garmin/ → interim/activities/
+                       (AN1-1, AN2-0)
   analyse/             tables de `processed/`, figures et méthodes statistiques de la
                        piste analyse (AN1) ; Python pur, sauf `parquet.py` (pyarrow) et
                        `plot.py` (plotly), seuls importeurs de l'extra `analyse`
@@ -294,7 +296,7 @@ src/mountain_perf/     le code de la bibliothèque
                        --curve, --no-reference : scores de v0 brut (M4b-2) ;
                        mperf backtest <manifeste.json> --curve : backtest enregistré, rapport D15 (M4b-5) ;
                        cinq modèles (M4c-2) ; --sensitivity : sensibilité D13 (M4d-3) ;
-                       mperf ingest : raw/ → interim/activities/ (AN1-1) ;
+                       mperf ingest : raw/garmin/ → interim/activities/ (AN1-1, AN2-0) ;
                        mperf tables : interim/ → processed/ (AN1-2b) ;
                        mperf q1 : processed/ → resultats/Q1/ (AN1-2c)
 tests/
@@ -316,7 +318,8 @@ Les données réelles vivent **hors du repo**, sous `MPA_DATA_DIR` :
 
 ```
 $MPA_DATA_DIR/
-  raw/          export Garmin brut — IMMUABLE
+  raw/          exports bruts — IMMUABLES : raw/garmin/<export>/, un dossier par export
+                Garmin, jamais retiré (AN2-0) ; raw/<source>/ (CHARTE, § 12)
   interim/      parsé et normalisé — régénérable depuis raw/
   processed/    prêt à l'analyse — régénérable
   routes/       tracés préparés (GPX), ajoutés à la main ou par l'interface (M5)

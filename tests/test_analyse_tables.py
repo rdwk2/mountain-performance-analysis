@@ -548,9 +548,9 @@ def test_timer_stops_are_read_on_the_recording_clock(tmp_path: Path) -> None:
     [
         (
             "recordings/a2.json",
-            b'"format":1',
+            b'"format":2',
             b'"format":9',
-            r"^activité a2 : document au format 9, 1 attendu$",
+            r"^activité a2 : document au format 9, 2 attendu$",
         ),
         (
             "recordings/a2.json",
@@ -560,9 +560,9 @@ def test_timer_stops_are_read_on_the_recording_clock(tmp_path: Path) -> None:
         ),
         (
             "index.json",
-            b'"format":1',
+            b'"format":2',
             b'"format":9',
-            r"^index d'interim/ : document au format 9, 1 attendu$",
+            r"^index d'interim/ : document au format 9, 2 attendu$",
         ),
         (
             "index.json",

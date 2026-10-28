@@ -24,38 +24,61 @@ from mountain_perf.schemas import (
     INTERIM_FORMAT_VERSION,
     ActivityIndex,
     ActivityRecording,
+    FieldDifferenceCount,
+    IndexDifference,
     IngestionReport,
     ReadFile,
     RecordingMismatch,
+    RefusalReason,
+    RefusedEntry,
+    RetiredActivity,
     ViewRefusal,
     ViewRefusalCount,
 )
 from mountain_perf.validation import ContractError
-from test_schemas_interim import SOURCE, entry, recording
+from test_schemas_interim import LATER, SOURCE, entry, export_report, recording
 
+INDEX_SOURCE = dataclasses.replace(
+    SOURCE, kind="garmin_activities", identifier="activities.json"
+)
+LATER_INDEX = dataclasses.replace(
+    LATER, kind="garmin_activities", identifier="activities.json"
+)
 INDEX = ActivityIndex(
     (
-        entry(),
+        entry(source=INDEX_SOURCE),
         entry(
             activity_ref="12",
             has_recording=False,
             start_time=datetime(2024, 3, 10, tzinfo=UTC),
+            training_load=None,
+            source=LATER_INDEX,
         ),
     ),
-    dataclasses.replace(SOURCE, kind="garmin_activities", identifier="activities.json"),
+    (INDEX_SOURCE, LATER_INDEX),
 )
 REPORT = IngestionReport(
-    datetime(2024, 4, 1, tzinfo=UTC),
-    (ReadFile("activity_fit/11.zip", "d" * 64),),
-    (),
-    (),
-    (ViewRefusalCount(ViewRefusal.NO_SPORT, "golf", 2),),
-    (RecordingMismatch("11", 7200.0, 61.0, 3723.5),),
+    exports=(
+        export_report(index=INDEX_SOURCE),
+        export_report(
+            name="garmin_b",
+            index=LATER_INDEX,
+            refused_entries=(RefusedEntry(4, RefusalReason.DUPLICATE_ENTRY),),
+        ),
+    ),
+    read=(ReadFile("garmin/garmin_a/activity_fit/11.zip", "d" * 64),),
+    refused_files=(),
+    retired=(RetiredActivity("13", "garmin_b"),),
+    view_refusals=(ViewRefusalCount(ViewRefusal.NO_SPORT, "golf", 2),),
+    mismatches=(RecordingMismatch("11", 7200.0, 61.0, 3723.5),),
+    index_differences=(FieldDifferenceCount(IndexDifference.TRAINING_LOAD, 1),),
+    fit_differences=1,
+    recordings_from_other_export=1,
 )
 
 
 def test_format_and_types() -> None:
-    assert INTERIM_FORMAT_VERSION == 1
+    assert INTERIM_FORMAT_VERSION == 2
     assert dict(INTERIM_DOCUMENT_FIRST_FORMAT) == {
         ActivityIndex: 1,
         ActivityRecording: 1,
@@ -65,7 +88,7 @@ def test_format_and_types() -> None:
 
 def test_document_envelope_starts_with_type_and_format() -> None:
     assert encode_interim(recording()).startswith(
-        b'{"type":"ActivityRecording","format":1,"data":{'
+        b'{"type":"ActivityRecording","format":2,"data":{'
     )
 
 
@@ -77,8 +100,8 @@ def test_round_trip_is_exact(value: object) -> None:
 
 
 def test_other_format_is_refused() -> None:
-    data = encode_interim(REPORT).replace(b'"format":1', b'"format":2', 1)
-    with pytest.raises(CodecError, match="format 2, 1 attendu"):
+    data = encode_interim(REPORT).replace(b'"format":2', b'"format":1', 1)
+    with pytest.raises(CodecError, match="format 1, 2 attendu"):
         decode_interim(data, IngestionReport)
 
 
@@ -167,8 +190,97 @@ def test_leftovers_of_an_interrupted_write_are_removed(tmp_path: Path) -> None:
     assert sorted(p.name for p in (tmp_path / "interim").iterdir()) == ["activities"]
 
 
+def _refuse_rename(monkeypatch: pytest.MonkeyPatch, name: str) -> None:
+    real = Path.rename
+
+    def refused(self: Path, target: Path) -> Path:
+        if self.name == name:
+            raise PermissionError("fichier ouvert")
+        return real(self, target)
+
+    monkeypatch.setattr(Path, "rename", refused)
+
+
+def test_a_refused_swap_keeps_the_previous_activities(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Si ``activities/`` ne se renomme pas (un fichier ouvert ailleurs, sous
+    Windows), les documents d'avant restent en place ; l'écriture suivante nettoie."""
+    write_activities(tmp_path, INDEX, [recording()], REPORT)
+    other = dataclasses.replace(REPORT, fit_differences=0)
+    _refuse_rename(monkeypatch, "activities")
+    with pytest.raises(PermissionError, match=r"^fichier ouvert$"):
+        write_activities(tmp_path, INDEX, [recording()], other)
+    monkeypatch.undo()
+    assert read_report(tmp_path) == REPORT
+    write_activities(tmp_path, INDEX, [recording()], other)
+    assert read_report(tmp_path) == other
+    assert sorted(p.name for p in (tmp_path / "interim").iterdir()) == ["activities"]
+
+
+def test_a_refused_second_rename_puts_the_previous_activities_back(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Si ``activities.nouveau/`` ne prend pas la place d'``activities/`` (un fichier
+    neuf tenu ailleurs, sous Windows), l'ancien dossier reprend la sienne (AN2-0,
+    ``BACKLOG``) ; l'écriture suivante nettoie."""
+    write_activities(tmp_path, INDEX, [recording()], REPORT)
+    other = dataclasses.replace(REPORT, fit_differences=0)
+    _refuse_rename(monkeypatch, "activities.nouveau")
+    with pytest.raises(PermissionError, match=r"^fichier ouvert$"):
+        write_activities(tmp_path, INDEX, [recording()], other)
+    monkeypatch.undo()
+    assert read_report(tmp_path) == REPORT
+    assert sorted(p.name for p in (tmp_path / "interim").iterdir()) == [
+        "activities",
+        "activities.nouveau",
+    ]
+    write_activities(tmp_path, INDEX, [recording()], other)
+    assert read_report(tmp_path) == other
+    assert sorted(p.name for p in (tmp_path / "interim").iterdir()) == ["activities"]
+
+
+def test_a_refused_first_swap_raises_its_own_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Une première écriture : rien à remettre en place, l'erreur se propage telle
+    quelle ; l'écriture suivante nettoie."""
+    _refuse_rename(monkeypatch, "activities.nouveau")
+    with pytest.raises(PermissionError, match=r"^fichier ouvert$"):
+        write_activities(tmp_path, INDEX, [recording()], REPORT)
+    monkeypatch.undo()
+    assert sorted(p.name for p in (tmp_path / "interim").iterdir()) == [
+        "activities.nouveau"
+    ]
+    write_activities(tmp_path, INDEX, [recording()], REPORT)
+    assert read_report(tmp_path) == REPORT
+    assert sorted(p.name for p in (tmp_path / "interim").iterdir()) == ["activities"]
+
+
 @pytest.mark.parametrize("ref", ["..", "../11", "a/b", ""])
 def test_recording_ref_must_name_a_file_of_the_folder(tmp_path: Path, ref: str) -> None:
     write_activities(tmp_path, INDEX, [recording()], REPORT)
     with pytest.raises(ContractError):
         read_recording(tmp_path, ref)
+
+
+def test_an_interrupted_second_rename_puts_the_previous_activities_back(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Le second renommage interrompu par une exception qui n'est pas une ``OSError``
+    (un Ctrl+C) : l'ancien dossier reprend sa place, et l'interruption se propage
+    (AN2-0, relecture C)."""
+    write_activities(tmp_path, INDEX, [recording()], REPORT)
+    other = dataclasses.replace(REPORT, fit_differences=0)
+    real = Path.rename
+
+    def interrupted(self: Path, target: Path) -> Path:
+        if self.name == "activities.nouveau":
+            raise KeyboardInterrupt
+        return real(self, target)
+
+    monkeypatch.setattr(Path, "rename", interrupted)
+    with pytest.raises(KeyboardInterrupt):
+        write_activities(tmp_path, INDEX, [recording()], other)
+    monkeypatch.undo()
+    assert read_report(tmp_path) == REPORT
