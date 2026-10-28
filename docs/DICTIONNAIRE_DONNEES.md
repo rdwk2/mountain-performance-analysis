@@ -1940,9 +1940,11 @@ Propriétés calculées (jamais stockées) : `end_time` et `elapsed_s` (l'écoul
 
 #### Producteur
 
-`read_trace` (`mountain_perf.gpx.trace_reader`) ; les montées de la piste
-analyse, depuis la vue positions et altitude d'un enregistrement
-(`mountain_perf.analyse.climbs`, AN1-2b).
+`read_trace` (`mountain_perf.gpx.trace_reader`) ; `trace_view`
+(`mountain_perf.ingest.views`), depuis la vue positions et altitude d'un
+enregistrement, appelée par les montées de la piste analyse
+(`mountain_perf.analyse.climbs`) et par l'estimation de la courbe
+(`mountain_perf.estimation`, M6b).
 
 #### Consommateurs
 

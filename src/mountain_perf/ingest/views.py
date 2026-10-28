@@ -1,10 +1,13 @@
 """Les vues du moteur sur ``interim/`` : ``Activity`` et ``TrackPointStream`` (M1b),
-calculées à la lecture, jamais écrites (``docs/decisions/0013``, point 2).
+calculées à la lecture, jamais écrites (``docs/decisions/0013``, point 2), et la trace
+du moteur tirée d'un enregistrement (``trace_view``), commune au moteur et à la piste
+analyse (M6b).
 
 Sans dépendance : le moteur obtient ses contrats sans fitdecode (``0011``).
 """
 
 from dataclasses import dataclass
+from datetime import timedelta
 from itertools import pairwise
 
 from mountain_perf.ingest.types import SOURCE_TYPE_SPORTS
@@ -13,6 +16,7 @@ from mountain_perf.schemas import (
     ActivityRecording,
     IndexedActivity,
     QualityFlag,
+    RecordedTrace,
     TrackPointStream,
     ViewRefusal,
 )
@@ -181,3 +185,52 @@ def stream_view(
         quality_flags=frozenset({QualityFlag.GPS_GAP}) if gap else frozenset(),
     )
     return StreamView(stream, dropped)
+
+
+@dataclass(frozen=True)
+class TraceView:
+    """La trace du moteur tirée d'un enregistrement, et ses instants d'origine.
+
+    - ``trace`` — la vue positions et altitude, comme ``RecordedTrace`` (``0010``
+      D4.4) : ses instants ``time_s`` (secondes) partent du premier instant de la vue,
+      son ``start_time`` est cet instant, sa source celle de l'enregistrement ;
+    - ``offset_s`` — secondes — le premier instant de la vue après
+      ``ActivityRecording.start_time`` ;
+    - ``recording_time_s`` — secondes — les instants de la vue dans le temps de
+      l'enregistrement, pour y lire un canal à l'égalité exacte (``trace.time_s[i]``
+      vaut ``recording_time_s[i] − offset_s``, calculé ainsi).
+
+    Un instant absolu se recompose depuis l'enregistrement —
+    ``ActivityRecording.start_time`` décalé de ``recording_time_s[i]`` —, pas depuis la
+    trace : ``trace.start_time`` est arrondi à la microseconde (``timedelta``), et les
+    deux peuvent différer d'une microseconde.
+    """
+
+    trace: RecordedTrace
+    offset_s: float
+    recording_time_s: tuple[float, ...]
+
+
+def trace_view(recording: ActivityRecording) -> TraceView | None:
+    """La :class:`TraceView` de ``recording`` : sa vue positions et altitude
+    (``stream_view(recording, elevation=True)``) ; ``None`` si cette vue n'existe pas,
+    a moins de deux instants ou n'a pas d'altitude.
+
+    Rien n'est rééchantillonné ni lissé : les séries, les blocs et les horloges se
+    calculent ensuite sur ``trace``. Une vue que ``RecordedTrace`` refuse lève sa
+    ``ContractError``.
+    """
+    stream = stream_view(recording, elevation=True).stream
+    if stream is None or len(stream.time_s) < 2 or stream.elevation_m is None:
+        return None
+    offset = stream.time_s[0]
+    trace = RecordedTrace(
+        recording.start_time + timedelta(seconds=offset),
+        tuple(t - offset for t in stream.time_s),
+        tuple(stream.latitude_deg or ()),
+        tuple(stream.longitude_deg or ()),
+        tuple(stream.elevation_m),
+        (recording.source,),
+        0,
+    )
+    return TraceView(trace, offset, tuple(stream.time_s))
