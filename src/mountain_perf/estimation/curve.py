@@ -26,30 +26,40 @@ Python pur : ni ``analyse/`` ni ``backtest/``.
 
 from __future__ import annotations
 
+import dataclasses
 import math
 import statistics
 from bisect import bisect_right
 from collections import Counter, defaultdict
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import UTC, date, datetime
 from enum import StrEnum
 
 from mountain_perf.estimation.intervals import (
+    HR_INTEGRATION,
+    MAX_HR_STEP_S,
     ActivityIntervals,
     CurveInterval,
     TraceRefusal,
 )
 from mountain_perf.model.curve_io import (
     CURVE_PARAMETER_SPECS,
+    CurveBin,
     CurveError,
+    CurveFileRow,
+    select_support,
 )
+from mountain_perf.model.pace import PaceModel
 from mountain_perf.schemas import (
     HEART_RATE_RANGE_BPM,
     ActivityIndex,
+    CurveProvenance,
     IndexedActivity,
+    PaceCurve,
     ParameterSet,
     ParameterSpec,
+    Sport,
 )
 from mountain_perf.validation import (
     ContractError,
@@ -148,6 +158,19 @@ CURVE_ESTIMATION_PARAMETER_SPECS: tuple[ParameterSpec, ...] = (
 SUPPORT_THRESHOLD_MIN = ParameterSet(CURVE_PARAMETER_SPECS)["curve_min_support_min"]
 """Le seuil de support par défaut de ``read_curve`` (``0009`` D2), en minutes, pour le
 niveau et pour ``check_curve_rows``."""
+
+_FILL_PROVENANCE = CurveProvenance(
+    activity_count=0,
+    hr_center_bpm=None,
+    hr_width_bpm=None,
+    date_from=date(2000, 1, 1),
+    date_to=date(2000, 1, 1),
+    source_activity_types=frozenset(),
+    min_duration_s=None,
+    estimator=METHOD,
+    generated_at=datetime(2000, 1, 1, tzinfo=UTC),
+)
+"""La provenance de remplissage de la courbe que le niveau lit : jamais écrite."""
 
 
 class BinValue(StrEnum):
@@ -383,6 +406,16 @@ def bin_index(grade: float) -> int | None:
     return k
 
 
+def rank_quantile(values: Sequence[float], numerator: int, denominator: int) -> float:
+    """La valeur de rang ``⌈n · numerator / denominator⌉`` (à partir de 1) des valeurs
+    triées, le rang calculé en entiers (``0017``, P4.2 ; la règle de rang de ``0010``
+    D11). Le rang 1/2 est donc la médiane **inférieure** pour ``n`` pair. Précondition :
+    ``values`` non vide."""
+    ordered = sorted(values)
+    n = len(ordered)
+    return ordered[(n * numerator + denominator - 1) // denominator - 1]
+
+
 def select_candidates(
     index: ActivityIndex, selection: CurveSelection
 ) -> tuple[IndexedActivity, ...]:
@@ -436,6 +469,12 @@ def _interval_exclusion(
         or vertical < -parameters["max_descent_speed_ms"]
     ):
         return IntervalExclusion.ABERRANT
+    center = selection.hr_center_bpm
+    if center is not None and interval.grade >= parameters["hr_min_grade"]:
+        if interval.heart_rate_bpm is None:
+            return IntervalExclusion.HR_UNDEFINED
+        if abs(interval.heart_rate_bpm - center) > parameters["hr_width_bpm"] / 2:
+            return IntervalExclusion.HR_OUTSIDE
     return None
 
 
@@ -507,6 +546,36 @@ def _estimated_bin(
         n_eff_moving=moving_total**2 / math.fsum(m * m for m in moving),
         max_moving_share=max(moving) / moving_total,
         mean_grade=math.fsum(c.grade_length_m for c in moving_cells) / length_moving,
+    )
+
+
+def _predicted_s(model: PaceModel, intervals: Sequence[CurveInterval]) -> float:
+    """Le temps que le moteur prévoit sur ``intervals``, la somme de
+    ``length_m × p(grade)`` (s), prolongement compris (``0009`` D4)."""
+    return math.fsum(i.length_m * model.pace_s_per_m(i.grade) for i in intervals)
+
+
+def _pace_model(bins: Sequence[EstimatedBin]) -> PaceModel | None:
+    """Le moteur sur la courbe des tranches estimées, à la règle de support de
+    ``read_curve`` ; ``None`` si le support est impossible (``0017``, P3.7, P4.1)."""
+    curve_bins = [
+        CurveBin(b.center_grade, b.speed_ms, b.moving_s / 60, b.activity_count)
+        for b in bins
+    ]
+    try:
+        kept, _ = select_support(curve_bins, SUPPORT_THRESHOLD_MIN)
+    except CurveError:
+        return None
+    return PaceModel(
+        PaceCurve(
+            sport=Sport.FOOT,
+            grade=tuple(b.grade for b in kept),
+            speed_ms=tuple(b.speed_ms for b in kept),
+            sample_count=tuple(b.sample_count for b in kept),
+            dispersion_ms=None,
+            estimation=_FILL_PROVENANCE,
+            source=None,
+        )
     )
 
 
@@ -599,6 +668,38 @@ def estimate_curve(
         )
 
     level: LevelQuantiles | None = None
+    levels: dict[str, float] = {}
+    model = _pace_model(bins)
+    if model is not None:
+        for ref, kept in retained:
+            moving = [interval for interval in kept if interval.moving_s > 0]
+            if moving:
+                total = math.fsum(interval.moving_s for interval in moving)
+                levels[ref] = math.log(total / _predicted_s(model, moving))
+        values = list(levels.values())
+        level = LevelQuantiles(
+            rank_quantile(values, 1, 10),
+            rank_quantile(values, 1, 2),
+            rank_quantile(values, 9, 10),
+            len(values),
+        )
+        shape_min_moving = parameters["shape_min_moving_s"]
+        for b, estimated in enumerate(bins):
+            shapes = [
+                math.log(_predicted_s(model, cell.moving_intervals) / cell.moving_s)
+                + levels[ref]
+                for ref, cell in members[b]
+                if cell.moving_s > 0 and cell.moving_s >= shape_min_moving
+            ]
+            bins[b] = dataclasses.replace(
+                estimated,
+                shape_iqr=(
+                    rank_quantile(shapes, 3, 4) - rank_quantile(shapes, 1, 4)
+                    if len(shapes) >= parameters["shape_min_activities"]
+                    else None
+                ),
+                shape_activity_count=len(shapes),
+            )
 
     kept_all = [interval for _, kept in retained for interval in kept]
     moving_kept = [interval for interval in kept_all if interval.moving_s > 0]
@@ -607,6 +708,14 @@ def estimate_curve(
     )
     filtered_side: int | None = None
     descents_only: int | None = None
+    if selection.hr_center_bpm is not None:
+        min_grade = parameters["hr_min_grade"]
+        filtered_side = sum(
+            1
+            for _, kept in retained
+            if any(i.moving_s > 0 and i.grade >= min_grade for i in kept)
+        )
+        descents_only = moving_activities - filtered_side
     counts = CurveCounts(
         candidates=len(candidates),
         with_intervals=with_intervals,
@@ -620,7 +729,7 @@ def estimate_curve(
                 c.moving_s > 0 and c.moving_s >= median_min for c in activity.values()
             )
         ),
-        with_level=0,
+        with_level=len(levels),
         filtered_side=filtered_side,
         descents_only=descents_only,
         intervals=intervals,
@@ -655,3 +764,109 @@ def estimate_curve(
         ),
         counts=counts,
     )
+
+
+def _grade_pct(lower: int, upper: int) -> str:
+    """Le centre ``(lower + upper) / 20`` en pourcentage, écrit exactement : ``-13.75``,
+    ``1.25``, ``37.5``, ``-95``."""
+    n = lower + upper
+    whole, rest = divmod(abs(n), 20)
+    text = f"{'-' if n < 0 else ''}{whole}"
+    if rest:
+        text += "." + f"{rest * 5:02d}".rstrip("0")
+    return text
+
+
+def curve_file_rows(estimate: CurveEstimate) -> tuple[CurveFileRow, ...]:
+    """Les lignes du fichier de courbe, une par tranche estimée, dans l'ordre ; la
+    pente est le centre nominal en pourcentage, écrit exactement (``0017``, P3.7)."""
+    return tuple(
+        CurveFileRow(
+            grade_pct=_grade_pct(b.lower_permille, b.upper_permille),
+            speed_ms=b.speed_ms,
+            mean_hr_bpm=b.mean_hr_bpm,
+            time_min=b.moving_s / 60,
+            elapsed_speed_ms=b.elapsed_speed_ms,
+            activities=b.activity_count,
+            shape_iqr=b.shape_iqr,
+        )
+        for b in estimate.bins
+    )
+
+
+def estimation_document(
+    estimate: CurveEstimate,
+    selection: CurveSelection,
+    parameters: ParameterSet,
+    profile_parameters: ParameterSet,
+    *,
+    commit: str,
+    exports_retrieved_at: Sequence[datetime],
+    support_error: str | None,
+) -> dict[str, object]:
+    """Le document que ``write_curve`` range sous la clé ``estimation`` du compagnon,
+    et que ``read_curve`` ignore : la méthode, ses paramètres, le niveau, les écarts,
+    les comptes et les diagnostics des tranches (``0017``, P5.4), en JSON simple.
+
+    ``exports_retrieved_at`` : les instants d'acquisition des exports lus, distincts
+    comme instants, ramenés en UTC et triés comme instants."""
+    counts = estimate.counts
+    return {
+        "method": METHOD,
+        "commit": commit,
+        "value": selection.value.value,
+        "bin_edges_permille": list(CURVE_BIN_EDGES_PERMILLE),
+        "clock_convention": "θc",
+        "heart_rate_integration": HR_INTEGRATION,
+        "heart_rate_max_step_s": MAX_HR_STEP_S,
+        "level_kind": "diagnostic d'ajustement, en échantillon",
+        "profile_parameters": dict(profile_parameters.values),
+        "parameters": dict(parameters.values),
+        "projectable": support_error is None,
+        "support_error": support_error,
+        "level": (
+            None
+            if estimate.level is None
+            else {
+                "p10": estimate.level.p10,
+                "p50": estimate.level.p50,
+                "p90": estimate.level.p90,
+                "count": estimate.level.count,
+            }
+        ),
+        "elapsed_moving_ratio": estimate.elapsed_moving_ratio,
+        "excluded_activities": {
+            reason.value: n for reason, n in estimate.excluded_activities
+        },
+        "excluded_intervals": {
+            reason.value: n for reason, n in estimate.excluded_intervals
+        },
+        "excluded_length_m": {
+            reason.value: metres for reason, metres in counts.excluded_length_m
+        },
+        "counts": {
+            f.name: getattr(counts, f.name)
+            for f in dataclasses.fields(CurveCounts)
+            if f.name != "excluded_length_m"
+        },
+        "bins": [
+            {
+                "lower_permille": b.lower_permille,
+                "upper_permille": b.upper_permille,
+                "moving_total_s": b.moving_total_s,
+                "length_moving_m": b.length_moving_m,
+                "length_all_m": b.length_all_m,
+                "elapsed_total_s": b.elapsed_total_s,
+                "moving_activities": b.moving_activities,
+                "n_eff_moving": b.n_eff_moving,
+                "max_moving_share": b.max_moving_share,
+                "mean_grade": b.mean_grade,
+                "shape_activity_count": b.shape_activity_count,
+            }
+            for b in estimate.bins
+        ],
+        "exports_retrieved_at": [
+            moment.isoformat()
+            for moment in sorted({m.astimezone(UTC) for m in exports_retrieved_at})
+        ],
+    }
