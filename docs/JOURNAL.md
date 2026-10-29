@@ -40,12 +40,28 @@ fichiers qu'elle nomme ; E1 ne fait rien rougir sur les sept fichiers neufs et e
 déclarée équivalente (la dernière borne vaut déjà le dernier instant). Le témoin (les
 fichiers nommés, sans mutation) est vert avant et après la campagne. La courbe réelle
 n'existe pas encore : son estimation et le contrôle réel sont à rdw.
+La relecture de la PR : deux relectures C, l'une complète, l'autre partielle, et le
+balayage de mutations de la conception. Le code calcule juste, mais des garanties écrites
+du brief n'avaient pas de test. Les correctifs, en trois commits : un document
+d'`interim/` qui ne se relit pas (un index d'un autre format, un enregistrement abîmé ou
+qu'un contrat refuse) dit « Erreur : … » et de relancer l'ingestion, au lieu d'une trace
+Python — `ValueError` attrapée autour des deux lectures, `cli.py` n'important pas le codec
+commun (choix de rdw, `tests/test_codec.py` inchangé) ; un type de `--types` à espace est
+refusé, jamais normalisé ; trois phrases du README ; les tests des garanties, 61 dans trois
+fichiers neufs (`tests/test_cli_curve_guarantees.py`, 9 ;
+`tests/test_model_curve_io_guarantees.py`, 12 ; `tests/test_estimation_guarantees.py`,
+40). Conclusion : `just check` vert après chaque commit de code, l'environnement portant
+tous les extras (7 636 tests puis 7 688, 5 sautés), et `mypy` avec tous les extras vert.
+Les contre-épreuves, chacune sur une copie de `src/` : les 10 de la commande rougissent ;
+des 98 des deux autres fichiers, 97 rougissent, la dernière (`bisect_left` dans
+`_interpolate`) est équivalente — l'interpolation linéaire vaut la même chose à un nœud.
 Rangé dans `src/mountain_perf/estimation/`, `src/mountain_perf/model/curve_io.py`,
 `src/mountain_perf/schemas/curve.py`, `src/mountain_perf/ingest/views.py`,
 `src/mountain_perf/cli.py`, `scripts/hooks/proteger_donnees.py`, `justfile`,
-`tests/test_estimation_*.py`, `tests/test_cli_curve.py`, `tests/test_ingest_trace_view.py`,
-`tests/test_model_curve_io_extended.py`, `tests/test_schemas_curve_m6b.py`,
-`docs/decisions/0017-estimation-de-la-courbe.md`, branche `m6b/courbe`.
+`tests/test_estimation_*.py`, `tests/test_cli_curve*.py`, `tests/test_ingest_trace_view.py`,
+`tests/test_model_curve_io_extended.py`, `tests/test_model_curve_io_guarantees.py`,
+`tests/test_schemas_curve_m6b.py`, `docs/decisions/0017-estimation-de-la-courbe.md`,
+`BACKLOG.md`, branche `m6b/courbe`.
 
 ---
 

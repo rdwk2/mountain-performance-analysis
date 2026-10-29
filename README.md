@@ -94,7 +94,8 @@ tous les extras, à chaque push et à chaque pull request.
 enregistré (`just backtest` : manifeste, courbe, registre, rapports), à l'ingestion
 (`just ingest` : `raw/garmin/` lu, `interim/activities/` écrit), aux tables (`just process` :
 l'ingestion, puis `interim/` et `athlete.toml` lus, `processed/` écrit), à la figure
-de Q1 (`just q1` : `processed/` lu, `resultats/Q1/` écrit) et à l'interface
+de Q1 (`just q1` : `processed/` lu, `resultats/Q1/` écrit), à la courbe personnelle
+(`just curve` : `interim/` lu, `reference/` écrit) et à l'interface
 (`just ui` : `routes/`, `sorties/` et `reference/` lus ; `routes/` et `sorties/` écrits
 par l'ajout d'un fichier) ; les autres commandes ne le lisent pas, les tests non plus
 ([`tests/conftest.py`](tests/conftest.py) le pose sur un dossier temporaire neuf
@@ -104,7 +105,7 @@ barres obliques.
 
 ## Utilisation : `mperf`
 
-Sept sous-commandes, installées par `uv sync` ; `ingest`, `tables` et `q1` demandent en
+Huit sous-commandes, installées par `uv sync` ; `ingest`, `tables` et `q1` demandent en
 plus leur extra (`ingest`, `analyse`). Les exemples ci-dessous ont été exécutés depuis la
 racine du dépôt, sur des fixtures synthétiques commitées
 ([`tests/fixtures/`](tests/fixtures/README.md)) ; celui du backtest, sur le monde
@@ -550,9 +551,10 @@ sous la convention centrale θc (`0010` D5) ; une vitesse écoulée s'y ajoute, 
 Les tranches sont variables (2,5 % de −15 à +35 %, 5 % ailleurs jusqu'à ±40 %, 10 %
 au-delà), à centres nominaux ; la valeur d'une tranche est (a), la somme des longueurs
 sur la somme des temps en mouvement, ou, en option, (b), la médiane des vitesses des
-activités. Le compagnon dit le niveau de chaque activité (son temps en mouvement contre
-le temps que le moteur prévoit sur la courbe : un diagnostic d'ajustement, en
-échantillon) et la courbe, par tranche, sa forme (l'écart interquartile, le niveau
+activités. Le compagnon dit les quantiles p10, p50 et p90 du niveau des activités (le
+niveau d'une activité : son temps en mouvement contre le temps que le moteur prévoit sur
+la courbe, un diagnostic d'ajustement, en échantillon ; les niveaux par activité ne sont
+pas gardés) et, par tranche, la forme de la courbe (l'écart interquartile, le niveau
 retiré). Avec `--hr-center`, un filtre de FC ne garde que les intervalles dont la FC,
 décalée de 60 s, est dans une bande de 10 bpm, aux pentes de −5 % ou plus seulement.
 
