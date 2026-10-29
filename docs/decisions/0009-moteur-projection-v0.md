@@ -242,6 +242,10 @@ nombre d'activités contributrices et leur dispersion, tous deux absents du fich
 - **M6b** — réestimer la courbe avec le **même opérateur de pente** que le moteur,
   ce qui supprime le biais de D6 ; et aligner la définition de `sample_count`, où la
   lecture M3 met des secondes de données faute de comptage de points dans le CSV.
+  *Note du 2026-10-29 (M6b-1, `0017`) :* une courbe estimée par `mperf curve` l'est au
+  même opérateur de pente que le moteur : le biais de D6 ne vaut plus pour elle, il
+  vaut encore pour la v0. Dans un fichier à l'en-tête étendu, `sample_count` est le
+  nombre d'activités de la tranche ; dans l'ancien, toujours des secondes.
 - **À chaque nouvelle courbe** — D4 décrit *cette* courbe. Le contrôle a posteriori
   sur les tranches écartées est à refaire.
 

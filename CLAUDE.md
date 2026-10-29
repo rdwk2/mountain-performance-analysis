@@ -31,8 +31,8 @@ Python. Usage personnel d'abord, projet portfolio ensuite. Le repo est public.
    qui sont minuscules, inventées, et commitées. Claude Code ne lit ni n'écrit rien
    sous `MPA_DATA_DIR` : le hook de `.claude/settings.json` le refuse, et les
    commandes sur les données réelles (`just ingest`, `just process`, `just q1`,
-   `just backtest`, `just ui`, et `streamlit run`, que le hook refuse aussi) sont
-   lancées par l'humain.
+   `just backtest`, `just curve`, `just ui`, et `streamlit run`, que le hook refuse
+   aussi) sont lancées par l'humain.
 
 2. **`just check` doit être vert avant tout commit.**
    Si tu n'arrives pas à le rendre vert, tu t'arrêtes et tu le dis. Tu ne
@@ -126,6 +126,7 @@ just backtest courbe.csv --sensitivity  # puis la sensibilité D13, enregistrée
 just ingest     # raw/garmin/ → interim/activities/, extra ingest (AN1-1, AN2-0) ; MPA_DATA_DIR
 just process    # raw/ → interim/ → processed/ : ingest, puis mperf tables, extras ingest et analyse (AN1-2b)
 just q1         # processed/ → resultats/Q1/<date>_<empreinte>/ : la figure de Q1, extra analyse (AN1-2c)
+just curve nom --from AAAA-MM-JJ --to AAAA-MM-JJ --athlete x  # une courbe allure↔pente depuis interim/ (M6b-1) ; MPA_DATA_DIR/reference/<nom>.csv
 just ui         # l'interface (M5) : appli Streamlit locale sur MPA_DATA_DIR, extra tableau
 uv run mperf profile tests/fixtures/mini_11.gpx  # compte-rendu GPX (M2), --csv pour la grille
 uv run mperf project tests/fixtures/mini_11.gpx --curve tests/fixtures/courbe_synthetique.csv  # temps de passage (M3)
@@ -208,9 +209,17 @@ src/mountain_perf/     le code de la bibliothèque
                        la chronologie projetée d'un profil (M4b-2)
     baselines.py       vitesse constante, Naismith, Tobler : allures et chronologies
                        des baselines de 0010 D9.1 (M4c-1)
+    curve_io.py        lecture du fichier de courbe (M3), en-tête étendu et
+                       écriture (M6b)
     export.py          export CSV des passages (M3, M5)
     views.py           ce que l'interface affiche d'une projection : passages, vitesses,
                        heures (M5)
+  estimation/          estimation de la courbe personnelle depuis `interim/` (M6b,
+                       `0017`) ; Python pur, n'importe ni `analyse/` ni `backtest/`
+    intervals.py       les intervalles d'une activité : grille du profil, temps
+                       M/S/U sous θc, plafond, FC décalée
+    curve.py           tranches, valeurs (a) et (b), niveau, forme, comptes ; lignes
+                       du fichier et document du compagnon
   backtest/            évaluation contre des performances réelles (M4)
     calendar.py        jour civil à Paris, origine o_j, disponibilité (M4a)
     manifest.py        load_manifest, ManifestReadResult, ManifestError (M4a)
@@ -257,7 +266,9 @@ src/mountain_perf/     le code de la bibliothèque
   ingest/              ingestion Garmin, `raw/` → `interim/` (piste analyse, AN1-1 ;
                        M6b) ; seul `fit.py` importe l'extra `ingest` (`0011`, `0013`)
     types.py           SOURCE_TYPE_SPORTS : types de la source → Sport
-    views.py           activity_view, stream_view : vues Activity et TrackPointStream
+    views.py           activity_view, stream_view : vues Activity et TrackPointStream ;
+                       `trace_view`, la trace du moteur, commune avec la piste
+                       analyse (M6b)
     interim.py         documents d'interim/ : écriture et relecture par le codec commun
     index.py           read_index : l'index d'un export
     fit.py             read_fit : le lecteur FIT, lecture stricte
@@ -298,7 +309,8 @@ src/mountain_perf/     le code de la bibliothèque
                        cinq modèles (M4c-2) ; --sensitivity : sensibilité D13 (M4d-3) ;
                        mperf ingest : raw/garmin/ → interim/activities/ (AN1-1, AN2-0) ;
                        mperf tables : interim/ → processed/ (AN1-2b) ;
-                       mperf q1 : processed/ → resultats/Q1/ (AN1-2c)
+                       mperf q1 : processed/ → resultats/Q1/ (AN1-2c) ;
+                       mperf curve <nom> : interim/ → reference/<nom>.csv (M6b)
 tests/
   conftest.py          MPA_DATA_DIR sur un dossier temporaire neuf pour chaque test (M4c-1)
   strategies.py        stratégies Hypothesis des contrats, réutilisées par tous les jalons
