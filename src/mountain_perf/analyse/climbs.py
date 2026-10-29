@@ -3,7 +3,7 @@ mesurées en temps, sur les horloges de ``0010`` D5 (AN1-2, ``docs/decisions/001
 
 La chaîne, dans cet ordre :
 
-1. la vue positions et altitude de l'enregistrement (``stream_view``), ses blocs, son
+1. la vue positions et altitude de l'enregistrement (``trace_view``), ses blocs, son
    altitude lissée ``z̃`` et sa partition M/S/U sous les cinq conventions (``0010`` D4.4,
    D5), dans une :class:`MotionTrack` ;
 2. le profil du moteur (``build_profile``, défauts de ``0008``) sur les mêmes positions
@@ -61,7 +61,6 @@ import math
 from bisect import bisect_left, bisect_right
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import timedelta
 from statistics import median
 
 from mountain_perf.clocks import (
@@ -74,7 +73,7 @@ from mountain_perf.gpx.profile import (
     PROFILE_PARAMETER_SPECS,
     build_profile_with_diagnostics,
 )
-from mountain_perf.ingest.views import stream_view
+from mountain_perf.ingest.views import trace_view
 from mountain_perf.schemas import (
     CENTRAL_CONVENTION_INDEX,
     CLOCK_CONVENTIONS,
@@ -82,7 +81,6 @@ from mountain_perf.schemas import (
     IntervalState,
     ParameterSet,
     ParameterSpec,
-    RecordedTrace,
     Route,
     SourceRef,
 )
@@ -241,16 +239,12 @@ def motion_track(
     altitude, ou si elle a moins de deux instants. ``climb`` donne les seuils du temps
     M lent (défauts de :data:`CLIMB_PARAMETER_SPECS`)."""
     climb = climb or ParameterSet(CLIMB_PARAMETER_SPECS)
-    stream = stream_view(recording, elevation=True).stream
-    if stream is None or len(stream.time_s) < 2 or stream.elevation_m is None:
+    view = trace_view(recording)
+    if view is None:
         return None
-    lat = tuple(stream.latitude_deg or ())
-    lon = tuple(stream.longitude_deg or ())
-    z = tuple(stream.elevation_m)
-    offset = stream.time_s[0]
-    time_s = tuple(t - offset for t in stream.time_s)
-    start = recording.start_time + timedelta(seconds=offset)
-    trace = RecordedTrace(start, time_s, lat, lon, z, (recording.source,), 0)
+    trace = view.trace
+    lat, lon, z = trace.latitude_deg, trace.longitude_deg, trace.elevation_m
+    offset, time_s = view.offset_s, trace.time_s
     series = build_series(trace)
     partition = clock_partition(trace, series)
     zs = series.smoothed_elevation_m
@@ -289,7 +283,7 @@ def motion_track(
     return MotionTrack(
         offset_s=offset,
         time_s=time_s,
-        recording_time_s=tuple(stream.time_s),
+        recording_time_s=view.recording_time_s,
         latitude_deg=lat,
         longitude_deg=lon,
         elevation_m=z,

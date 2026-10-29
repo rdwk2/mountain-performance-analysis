@@ -547,6 +547,13 @@ def track_point_streams(draw: st.DrawFn, max_points: int = 50) -> TrackPointStre
 def curve_provenances(draw: st.DrawFn) -> CurveProvenance:
     with_hr = draw(st.booleans())
     day_a, day_b = draw(st.lists(st.dates(), min_size=2, max_size=2))
+    min_duration_s = draw(st.one_of(st.none(), finite_floats(0.0, 1e5)))
+    # Les champs de M6b, absents ou cohérents : une durée maximale au-dessus de la
+    # minimale tirée, un décalage de FC seulement avec un filtre.
+    floor_s = 0.0 if min_duration_s is None else min_duration_s
+    max_duration_s = draw(
+        st.one_of(st.none(), finite_floats(floor_s + 1.0, floor_s + 1e5))
+    )
     return CurveProvenance(
         activity_count=draw(st.integers(min_value=0, max_value=5000)),
         hr_center_bpm=draw(heart_rates_bpm()) if with_hr else None,
@@ -554,9 +561,15 @@ def curve_provenances(draw: st.DrawFn) -> CurveProvenance:
         date_from=min(day_a, day_b),
         date_to=max(day_a, day_b),
         source_activity_types=draw(st.frozensets(st.text(max_size=20), max_size=3)),
-        min_duration_s=draw(st.one_of(st.none(), finite_floats(0.0, 1e5))),
+        min_duration_s=min_duration_s,
         estimator=draw(non_empty_texts()),
         generated_at=draw(aware_datetimes()),
+        athlete_ref=draw(st.one_of(st.none(), non_empty_texts())),
+        max_duration_s=max_duration_s,
+        max_elapsed_s=draw(st.one_of(st.none(), finite_floats(1.0, 1e5))),
+        hr_lag_s=(
+            draw(st.one_of(st.none(), finite_floats(0.0, 600.0))) if with_hr else None
+        ),
     )
 
 

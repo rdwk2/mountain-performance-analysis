@@ -43,6 +43,14 @@ class CurveProvenance:
     - ``min_duration_s`` — secondes — durée minimale d'une activité retenue, ``>= 0``.
     - ``estimator`` — sans unité — nom libre de la méthode d'estimation.
     - ``generated_at`` — instant — moment de l'estimation, *aware*, stocké en UTC.
+    - ``athlete_ref`` — sans unité — pseudonyme de l'athlète dont viennent les
+      activités, si la courbe le dit (M6b).
+    - ``max_duration_s`` — secondes — durée maximale (exclue) d'une activité retenue
+      (M6b).
+    - ``max_elapsed_s`` — secondes — plafond depuis le départ : les intervalles sont
+      coupés au plafond, rien de ce qui le suit n'a servi, hors la FC décalée d'un
+      intervalle coupé (``0017``, P2.4 ; M6b).
+    - ``hr_lag_s`` — secondes — décalage de la FC du filtre (M6b).
 
     Invariants
     ----------
@@ -52,7 +60,12 @@ class CurveProvenance:
     - ``date_from <= date_to`` ;
     - ``min_duration_s`` fini et ``>= 0`` si présent ;
     - ``estimator`` non vide ;
-    - ``generated_at`` *aware*, normalisé en UTC.
+    - ``generated_at`` *aware*, normalisé en UTC ;
+    - ``athlete_ref`` non vide s'il est présent (un texte d'espaces est vide) ;
+    - ``max_duration_s`` puis ``max_elapsed_s`` finis et ``> 0`` s'ils sont présents ;
+    - ``max_duration_s > min_duration_s`` si les deux sont présents ;
+    - ``hr_lag_s`` fini et ``>= 0`` s'il est présent, et seulement avec un filtre de
+      FC (``hr_center_bpm`` présent).
 
     **Pourquoi la provenance est un champ et non un commentaire** : il y aura plusieurs
     courbes pour un même sport — course, randonnée, fin de saison, FC 150. Marcher les
@@ -77,7 +90,11 @@ class CurveProvenance:
     - ``date_from`` et ``date_to`` sont des **dates civiles sans fuseau** ; la borne
       incluse ou exclue n'est pas fixée ici ;
     - ``estimator`` est une chaîne libre en M1 : aucun code ne doit s'y brancher ;
-    - rien n'est vérifié contre les activités elles-mêmes.
+    - rien n'est vérifié contre les activités elles-mêmes ;
+    - les quatre champs de M6b (``athlete_ref``, ``max_duration_s``,
+      ``max_elapsed_s``, ``hr_lag_s``) ont ``None`` par défaut : une courbe d'avant
+      M6b ne les porte pas. ``None`` y veut dire « non dit », pas « aucun filtre » : un
+      filtre de FC sans ``hr_lag_s`` peut avoir un décalage nul ou inconnu.
     """
 
     activity_count: int
@@ -89,6 +106,10 @@ class CurveProvenance:
     min_duration_s: float | None
     estimator: str
     generated_at: datetime
+    athlete_ref: str | None = None
+    max_duration_s: float | None = None
+    max_elapsed_s: float | None = None
+    hr_lag_s: float | None = None
 
     def __post_init__(self) -> None:
         if self.activity_count < 0:
@@ -122,6 +143,33 @@ class CurveProvenance:
         require_non_empty(self.estimator, "estimator")
         require_aware(self.generated_at, "generated_at")
         object.__setattr__(self, "generated_at", self.generated_at.astimezone(UTC))
+        if self.athlete_ref is not None:
+            require_non_empty(self.athlete_ref, "athlete_ref")
+        for name, value in (
+            ("max_duration_s", self.max_duration_s),
+            ("max_elapsed_s", self.max_elapsed_s),
+        ):
+            if value is not None:
+                require_finite(value, name)
+                if value <= 0:
+                    raise ContractError(f"{name} doit être > 0, reçu {value}.")
+        if (
+            self.max_duration_s is not None
+            and self.min_duration_s is not None
+            and self.max_duration_s <= self.min_duration_s
+        ):
+            raise ContractError(
+                f"max_duration_s ({self.max_duration_s}) doit être > min_duration_s "
+                f"({self.min_duration_s})."
+            )
+        if self.hr_lag_s is not None:
+            require_finite(self.hr_lag_s, "hr_lag_s")
+            if self.hr_lag_s < 0:
+                raise ContractError(f"hr_lag_s doit être >= 0, reçu {self.hr_lag_s}.")
+            if self.hr_center_bpm is None:
+                raise ContractError(
+                    "hr_lag_s n'a de sens qu'avec un filtre de FC (hr_center_bpm)."
+                )
 
 
 @dataclass(frozen=True)
@@ -129,7 +177,7 @@ class PaceCurve:
     """Courbe vitesse horizontale = f(pente), par tranches de pente.
 
     Tableaux parallèles : la tranche ``i`` est centrée sur ``grade[i]``, de vitesse
-    ``speed_ms[i]``, estimée sur ``sample_count[i]`` points.
+    ``speed_ms[i]``, estimée sur ``sample_count[i]`` éléments (voir ce champ).
 
     Champs
     ------
@@ -138,7 +186,9 @@ class PaceCurve:
     - ``grade`` — fraction — centres de tranches, ``[-2, 2]``,
       ``Δaltitude / distance horizontale`` ; jamais un pourcentage.
     - ``speed_ms`` — m/s — vitesse horizontale de chaque tranche, ``> 0``.
-    - ``sample_count`` — sans unité — points ayant servi à chaque tranche, ``>= 0``.
+    - ``sample_count`` — sans unité — ce qui a servi à chaque tranche, ``>= 0`` : le
+      nombre d'activités, lu d'un fichier à l'en-tête étendu (M6b) ; des secondes de
+      données assimilées à des échantillons, lues d'un fichier à l'ancien en-tête.
     - ``dispersion_ms`` — m/s — dispersion de la vitesse dans la tranche, ``>= 0``,
       si estimée.
     - ``estimation`` — sans unité — provenance de l'estimation.

@@ -29,8 +29,8 @@ courbe vitesse = f(pente) propre à l'athlète, appliquée pas à pas le long du
 
 - **Livré (moteur v0)** : `v = vitesse(pente) × effort`, avec un effort constant et
   sans dégradation : ni fatigue, ni altitude, ni chaleur. La courbe est lue dans
-  un fichier ; la construire depuis les données Garmin de l'athlète est prévu au
-  M6b, sur les activités qu'ingère la piste analyse.
+  un fichier, que `just curve` estime depuis les activités qu'ingère la piste
+  analyse (M6b).
 - **Prévu (M6a)** : la dégradation au fil de la course, dont la fatigue en
   descente selon la **profondeur** de la descente en cours, pas seulement selon
   l'avancement.
@@ -94,7 +94,8 @@ tous les extras, à chaque push et à chaque pull request.
 enregistré (`just backtest` : manifeste, courbe, registre, rapports), à l'ingestion
 (`just ingest` : `raw/garmin/` lu, `interim/activities/` écrit), aux tables (`just process` :
 l'ingestion, puis `interim/` et `athlete.toml` lus, `processed/` écrit), à la figure
-de Q1 (`just q1` : `processed/` lu, `resultats/Q1/` écrit) et à l'interface
+de Q1 (`just q1` : `processed/` lu, `resultats/Q1/` écrit), à la courbe personnelle
+(`just curve` : `interim/` lu, `reference/` écrit) et à l'interface
 (`just ui` : `routes/`, `sorties/` et `reference/` lus ; `routes/` et `sorties/` écrits
 par l'ajout d'un fichier) ; les autres commandes ne le lisent pas, les tests non plus
 ([`tests/conftest.py`](tests/conftest.py) le pose sur un dossier temporaire neuf
@@ -104,7 +105,7 @@ barres obliques.
 
 ## Utilisation : `mperf`
 
-Sept sous-commandes, installées par `uv sync` ; `ingest`, `tables` et `q1` demandent en
+Huit sous-commandes, installées par `uv sync` ; `ingest`, `tables` et `q1` demandent en
 plus leur extra (`ingest`, `analyse`). Les exemples ci-dessous ont été exécutés depuis la
 racine du dépôt, sur des fixtures synthétiques commitées
 ([`tests/fixtures/`](tests/fixtures/README.md)) ; celui du backtest, sur le monde
@@ -422,7 +423,8 @@ L'ingestion écrit trois choses :
 Rien n'est corrigé : une valeur écartée est comptée, avec son motif. `raw/` n'est jamais
 écrit. Une ingestion qui s'arrête sur une erreur laisse en place l'`interim/activities/`
 précédent, et deux ingestions des mêmes fichiers écrivent les mêmes octets. Le moteur
-lira `interim/` par les vues `Activity` et `TrackPointStream` (M6b).
+lit `interim/` par ses vues : la trace d'un enregistrement (`trace_view`) pour
+`just curve` (M6b).
 
 ```bash
 just ingest
@@ -534,6 +536,53 @@ montre, et le dossier écrit ; si les tables viennent d'un autre commit que le c
 ligne le dit. Pas d'exemple ici : la figure et ses comptes restent hors du dépôt
 ([`docs/analyse/CHARTE.md`](docs/analyse/CHARTE.md), § 10).
 
+### `just curve` — la courbe personnelle
+
+`just curve` (`mperf curve`) estime une courbe allure ↔ pente depuis les activités de
+`MPA_DATA_DIR/interim/` — l'`interim/` régénéré par `just ingest`, lu par les vues du
+moteur, jamais `processed/` — et l'écrit dans `MPA_DATA_DIR/reference/<nom>.csv`, avec
+son compagnon `<nom>.meta.json` ; ni l'un ni l'autre n'est jamais réécrit
+([`0017`](docs/decisions/0017-estimation-de-la-courbe.md)).
+
+La courbe se mesure comme le moteur l'applique : sur les intervalles de la grille du
+profil du moteur, chacun avec la pente de l'altitude lissée du profil, sa longueur
+entière (la distance des positions brutes, trous compris) et son temps en mouvement
+sous la convention centrale θc (`0010` D5) ; une vitesse écoulée s'y ajoute, par tranche.
+Les tranches sont variables (2,5 % de −15 à +35 %, 5 % ailleurs jusqu'à ±40 %, 10 %
+au-delà), à centres nominaux ; la valeur d'une tranche est (a), la somme des longueurs
+sur la somme des temps en mouvement, ou, en option, (b), la médiane des vitesses des
+activités. Le compagnon dit les quantiles p10, p50 et p90 du niveau des activités (le
+niveau d'une activité : son temps en mouvement contre le temps que le moteur prévoit sur
+la courbe, un diagnostic d'ajustement, en échantillon ; les niveaux par activité ne sont
+pas gardés) et, par tranche, la forme de la courbe (l'écart interquartile, le niveau
+retiré). Avec `--hr-center`, un filtre de FC ne garde que les intervalles dont la FC,
+décalée de 60 s, est dans une bande de 10 bpm, aux pentes de −5 % ou plus seulement.
+
+| Option | Défaut | Rôle |
+|---|---|---|
+| `--from`, `--to` | — (obligatoires) | Premier et dernier jour de la fenêtre, compris (`AAAA-MM-JJ`) |
+| `--athlete` | — (obligatoire) | Pseudonyme de l'athlète (celui du manifeste) |
+| `--types` | `trail_running` | Types de la source retenus, séparés par des virgules, sans espace |
+| `--min-duration-min` | — | Durée minimale d'une sortie, en minutes |
+| `--max-duration-min` | — | Durée maximale (exclue) d'une sortie, en minutes |
+| `--max-elapsed-min` | — | Plafond depuis le départ, en minutes |
+| `--hr-center` | — | Centre de la bande de FC (bpm) |
+| `--hr-width` | 10 | Largeur de la bande (bpm) |
+| `--hr-lag` | 60 | Décalage de la FC (s) |
+| `--value` | `a` | Valeur d'une tranche : (a) somme / somme, (b) médiane des activités |
+
+```bash
+just curve <nom> --from AAAA-MM-JJ --to AAAA-MM-JJ --athlete <pseudonyme>
+```
+
+Comme `just backtest`, la commande refuse un clone dont un fichier suivi est modifié :
+la courbe dit le commit qui l'a estimée. Une courbe dont le support ne se lit pas
+(`0009` D2) s'écrit quand même, sans niveau ni forme, et la commande le dit. Elle donne
+les activités retenues et les tranches, les écarts par motif, les intervalles coupés au
+plafond, le nombre d'activités avec un niveau et le rapport écoulé / temps en mouvement.
+Pas d'exemple ici : sur les données réelles, ces nombres restent hors du dépôt. Le
+détail est dans [`0017`](docs/decisions/0017-estimation-de-la-courbe.md).
+
 ## Interface : `just ui`
 
 L'interface ([`0016`](docs/decisions/0016-interface-v0.md)) est une appli Streamlit
@@ -582,7 +631,9 @@ puis `http://localhost:8501` dans le navigateur.
 ## État et plan
 
 - **Moteur de prédiction** : M0 à M4 livrés ; M5 (interface v0) livré, ses deux pages
-  (`just ui`) ; le « Fini quand » de la ROADMAP se constate à l'usage. Livrés en M4 :
+  (`just ui`) ; le « Fini quand » de la ROADMAP se constate à l'usage. M6b commencé :
+  l'estimation de la courbe personnelle (`just curve`, M6b-1) ; son « Fini quand » se
+  constatera quand le backtest aura mesuré la courbe neuve contre la v0. Livrés en M4 :
   l'appariement d'une trace à un tracé, les métriques d'erreur, la référence de
   répétabilité, le registre des expériences, `just backtest` à cinq modèles, son
   diagnostic de longue course et ses fourchettes (`0010` D12 et D11, au rapport complet ;
@@ -625,6 +676,7 @@ sont au statut « acceptée » :
 - [0014 — Les montées et les tables de `processed/`](docs/decisions/0014-montees-et-tables.md)
 - [0015 — La figure de Q1](docs/decisions/0015-figure-de-q1.md)
 - [0016 — Interface v0](docs/decisions/0016-interface-v0.md)
+- [0017 — Estimation de la courbe personnelle](docs/decisions/0017-estimation-de-la-courbe.md)
 
 Autres documents :
 
@@ -649,7 +701,7 @@ Code, ouvert dans un clone du dépôt, n'y touche pas : le hook de
 outils de fichiers sous ce dossier, qu'il connaît par `MPA_DATA_DIR` (l'environnement,
 sinon le `.env` du clone), et ses commandes qui le nomment ou qui écrivent dans les
 données ; les commandes sur les données réelles (`just ingest`, `just process`,
-`just q1`, `just backtest`, `just ui`) sont lancées par l'humain. C'est un garde-fou,
-pas une enceinte : une commande qui atteint le dossier sans le nommer n'est pas vue. Les
+`just q1`, `just backtest`, `just curve`, `just ui`) sont lancées par l'humain. C'est
+un garde-fou, pas une enceinte : une commande qui atteint le dossier sans le nommer n'est pas vue. Les
 tests et les exemples ci-dessus n'utilisent que les fixtures synthétiques de
 [`tests/fixtures/`](tests/fixtures/README.md).

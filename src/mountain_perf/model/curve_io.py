@@ -16,6 +16,7 @@ import csv
 import hashlib
 import json
 import math
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from itertools import pairwise
@@ -64,8 +65,21 @@ CURVE_PARAMETER_DISPLAYS: tuple[ParameterDisplay, ...] = (
 jamais stockées."""
 
 CURVE_HEADER: Final = ("grade_pct", "kmh", "hr", "vam_mh", "time_min")
-"""En-tête exigé du CSV. ``hr`` et ``vam_mh`` sont lues et validées, puis ignorées :
-elles ne rentrent dans aucun contrat."""
+"""En-tête du CSV de l'ancien projet. ``hr`` et ``vam_mh`` sont lues et validées, puis
+ignorées : elles ne rentrent dans aucun contrat."""
+
+EXTENDED_COLUMNS: Final = ("kmh_elapsed", "activities", "shape_iqr")
+"""Les colonnes que l'estimation (M6b) ajoute à :data:`CURVE_HEADER`, dans cet ordre :
+la vitesse écoulée de la tranche (km/h), son nombre d'activités, sa forme (écart
+interquartile d'un logarithme, sans unité ; vide sous le seuil d'activités). Dans un
+fichier à l'en-tête étendu, ``hr`` peut être vide (aucune FC dans la tranche) et
+``sample_count`` reçoit le nombre d'activités."""
+
+EXTENDED_HEADER: Final = CURVE_HEADER + EXTENDED_COLUMNS
+"""En-tête du CSV écrit par l'estimation (M6b)."""
+
+_OPTIONAL_CELLS: Final = ("hr", "shape_iqr")
+"""Les cellules qu'un fichier à l'en-tête étendu, seul, peut laisser vides."""
 
 SPEED_RANGE_KMH: Final = (0.01, 100.0)
 """Garde-fou sur les vitesses lues, en km/h.
@@ -172,27 +186,57 @@ def _number(row: dict[str, str], column: str, line: int) -> float:
     return value
 
 
+def _extended_checks(values: dict[str, float], line: int) -> int:
+    """Les cellules de :data:`EXTENDED_COLUMNS` d'une ligne lue ; rend son nombre
+    d'activités, ``sample_count`` de la tranche."""
+    elapsed_kmh = values["kmh_elapsed"]
+    if not SPEED_RANGE_KMH[0] <= elapsed_kmh <= SPEED_RANGE_KMH[1]:
+        raise CurveError(
+            f"ligne {line} : vitesse écoulée {elapsed_kmh} km/h hors de "
+            f"[{SPEED_RANGE_KMH[0]} ; {SPEED_RANGE_KMH[1]}] km/h."
+        )
+    activities = values["activities"]
+    if not activities.is_integer() or activities < 0:
+        raise CurveError(
+            f"ligne {line} : activities doit être un entier >= 0, reçu {activities}."
+        )
+    shape = values.get("shape_iqr")
+    if shape is not None and shape < 0:
+        raise CurveError(f"ligne {line} : shape_iqr doit être >= 0, reçu {shape}.")
+    return int(activities)
+
+
 def _read_bins(text: str) -> list[CurveBin]:
-    """Lignes du CSV, validées et triées par pente croissante."""
+    """Lignes du CSV, à l'ancien en-tête ou à l'en-tête étendu, validées et triées par
+    pente croissante."""
     rows = [row for row in csv.reader(text.splitlines()) if any(row)]
     expected = ",".join(CURVE_HEADER)
     if not rows:
         raise CurveError(f"Fichier de courbe vide : en-tête « {expected} » attendu.")
     header = tuple(field.strip() for field in rows[0])
-    if header != CURVE_HEADER:
+    if header not in (CURVE_HEADER, EXTENDED_HEADER):
         raise CurveError(
-            f"En-tête inattendu « {','.join(header)} » ; attendu « {expected} »."
+            f"En-tête inattendu « {','.join(header)} » ; attendu « {expected} » ou "
+            f"« {','.join(EXTENDED_HEADER)} »."
         )
+    extended = header == EXTENDED_HEADER
     bins: list[CurveBin] = []
     for line, row in enumerate(rows[1:], start=2):
-        if len(row) != len(CURVE_HEADER):
+        if len(row) != len(header):
             raise CurveError(
-                f"ligne {line} : {len(row)} colonnes, {len(CURVE_HEADER)} attendues."
+                f"ligne {line} : {len(row)} colonnes, {len(header)} attendues."
             )
-        cells = dict(zip(CURVE_HEADER, row, strict=True))
+        cells = dict(zip(header, row, strict=True))
         # hr et vam_mh sont validées puis jetées : une cellule illisible signale un
-        # fichier abîmé même dans une colonne dont le modèle ne se sert pas.
-        values = {column: _number(cells, column, line) for column in CURVE_HEADER}
+        # fichier abîmé même dans une colonne dont le modèle ne se sert pas. Seul
+        # l'en-tête étendu permet une cellule hr ou shape_iqr vide.
+        values = {
+            column: _number(cells, column, line)
+            for column in header
+            if not (
+                extended and column in _OPTIONAL_CELLS and not cells[column].strip()
+            )
+        }
         grade = values["grade_pct"] / 100
         speed_kmh = values["kmh"]
         time_min = values["time_min"]
@@ -211,15 +255,18 @@ def _read_bins(text: str) -> list[CurveBin]:
             raise CurveError(
                 f"ligne {line} : time_min doit être >= 0, reçu {time_min}."
             )
-        try:
-            # round(inf) lève OverflowError : une entrée finie mais démesurée ne
-            # doit pas sortir en trace, comme toute autre erreur d'entrée.
-            sample_count = round(time_min * 60)
-        except OverflowError as error:
-            raise CurveError(
-                f"ligne {line}, colonne time_min : {time_min} minutes déborde le "
-                "comptage d'échantillons."
-            ) from error
+        if extended:
+            sample_count = _extended_checks(values, line)
+        else:
+            try:
+                # round(inf) lève OverflowError : une entrée finie mais démesurée ne
+                # doit pas sortir en trace, comme toute autre erreur d'entrée.
+                sample_count = round(time_min * 60)
+            except OverflowError as error:
+                raise CurveError(
+                    f"ligne {line}, colonne time_min : {time_min} minutes déborde le "
+                    "comptage d'échantillons."
+                ) from error
         bins.append(CurveBin(grade, kmh_to_ms(speed_kmh), time_min, sample_count))
     bins.sort(key=lambda curve_bin: curve_bin.grade)
     for previous, current in pairwise(bins):
@@ -301,6 +348,15 @@ def _select_support(
     return bins[first : last + 1], discarded
 
 
+def select_support(
+    bins: list[CurveBin], threshold_min: float
+) -> tuple[list[CurveBin], tuple[DiscardedBin, ...]]:
+    """La sélection du support de :func:`read_curve` (``0009`` D2), pour un appelant qui
+    a ses tranches en mémoire (l'estimation, M6b) : la même règle, appelée, jamais
+    copiée. ``bins`` triées par pente croissante, sans pente en double."""
+    return _select_support(bins, threshold_min)
+
+
 def _field(meta: dict[str, Any], name: str, file_name: str) -> Any:
     if name not in meta:
         raise CurveError(f"{file_name} : champ « {name} » manquant.")
@@ -343,6 +399,20 @@ def _optional_number(meta: dict[str, Any], name: str, file_name: str) -> float |
         raise CurveError(
             f"{file_name} : champ « {name} » déborde le domaine des flottants."
         ) from error
+
+
+def _optional_text(meta: dict[str, Any], name: str, file_name: str) -> str | None:
+    """Un champ de M6b : absent ou ``null`` donne ``None``, sinon un texte non vide."""
+    if meta.get(name) is None:
+        return None
+    return _text(meta, name, file_name)
+
+
+def _absent_or_number(meta: dict[str, Any], name: str, file_name: str) -> float | None:
+    """Un champ de M6b : absent donne ``None``, sinon un nombre ou ``null``."""
+    if name not in meta:
+        return None
+    return _optional_number(meta, name, file_name)
 
 
 def _texts(meta: dict[str, Any], name: str, file_name: str) -> frozenset[str]:
@@ -431,6 +501,10 @@ def _read_provenance(path: Path) -> tuple[Sport, CurveProvenance]:
         min_duration_s=_optional_number(meta, "min_duration_s", name),
         estimator=_text(meta, "estimator", name),
         generated_at=_instant(meta, "generated_at", name),
+        athlete_ref=_optional_text(meta, "athlete_ref", name),
+        max_duration_s=_absent_or_number(meta, "max_duration_s", name),
+        max_elapsed_s=_absent_or_number(meta, "max_elapsed_s", name),
+        hr_lag_s=_absent_or_number(meta, "hr_lag_s", name),
     )
     return _sport(meta, name), provenance
 
@@ -438,11 +512,12 @@ def _read_provenance(path: Path) -> tuple[Sport, CurveProvenance]:
 def read_curve(path: Path, parameters: ParameterSet) -> CurveReadResult:
     """Lit un CSV de courbe et son compagnon, et n'en retient que le support.
 
-    ``sample_count`` reçoit ``round(time_min × 60)``, c'est-à-dire **des secondes de
-    données assimilées à des échantillons** : le CSV ne porte aucun comptage de
-    points. La définition sera alignée en M6b, quand l'estimateur écrira lui-même le
-    fichier (ligne de ``BACKLOG.md``). ``dispersion_ms`` reste ``None``, le fichier
-    n'en porte pas.
+    ``sample_count`` reçoit, d'un fichier à l'en-tête étendu, le **nombre
+    d'activités** de la tranche ; d'un fichier à l'ancien en-tête,
+    ``round(time_min × 60)`` (des secondes de données assimilées à des échantillons,
+    ce fichier ne portant aucun comptage). ``dispersion_ms`` reste ``None`` : la forme
+    est l'écart interquartile d'un logarithme, sans unité, jamais une dispersion en
+    m/s (``0017``) ; la vitesse écoulée et la forme sont validées, puis ignorées.
 
     Les violations d'invariant du contrat — fenêtre de FC à moitié renseignée,
     fréquence hors plage physiologique — restent des ``ContractError`` : elles sont
@@ -476,3 +551,151 @@ def read_curve(path: Path, parameters: ParameterSet) -> CurveReadResult:
         bin_count_read=len(bins),
         discarded=discarded,
     )
+
+
+@dataclass(frozen=True)
+class CurveFileRow:
+    """Une ligne du CSV de courbe à écrire (M6b), aux unités internes.
+
+    - ``grade_pct`` — pourcentage — le texte exact de la pente, écrit tel quel ;
+    - ``speed_ms`` — m/s — la valeur de la tranche ;
+    - ``mean_hr_bpm`` — battements par minute — FC moyenne, ``None`` sans FC ;
+    - ``time_min`` — minutes — le temps M qui porte la valeur ;
+    - ``elapsed_speed_ms`` — m/s — la vitesse écoulée ;
+    - ``activities`` — sans unité — le nombre d'activités (``sample_count``) ;
+    - ``shape_iqr`` — sans unité — la forme, ``None`` sous le seuil.
+    """
+
+    grade_pct: str
+    speed_ms: float
+    mean_hr_bpm: float | None
+    time_min: float
+    elapsed_speed_ms: float
+    activities: int
+    shape_iqr: float | None
+
+
+def _csv_text(rows: Sequence[CurveFileRow]) -> str:
+    """Le texte du CSV : :data:`EXTENDED_HEADER`, puis une ligne par élément de
+    ``rows``, dans leur ordre ; ``"\\n"`` entre les lignes et à la fin. La forme n'est
+    jamais convertie ; un ``grade_pct`` illisible lève ``ValueError``."""
+    lines = [",".join(EXTENDED_HEADER)]
+    for row in rows:
+        grade = float(row.grade_pct) / 100
+        cells = (
+            row.grade_pct,
+            repr(row.speed_ms * 3.6),
+            "" if row.mean_hr_bpm is None else repr(row.mean_hr_bpm),
+            repr(row.speed_ms * grade * 3600),
+            repr(row.time_min),
+            repr(row.elapsed_speed_ms * 3.6),
+            str(row.activities),
+            "" if row.shape_iqr is None else repr(row.shape_iqr),
+        )
+        lines.append(",".join(cells))
+    return "\n".join(lines) + "\n"
+
+
+def _first_unreadable(rows: Sequence[CurveFileRow]) -> CurveFileRow | None:
+    """La première ligne de ``rows`` qui, seule sous l'en-tête étendu, ne se lit
+    pas."""
+    for row in rows:
+        try:
+            _read_bins(_csv_text([row]))
+        except CurveError:
+            return row
+    return None
+
+
+def check_curve_rows(rows: Sequence[CurveFileRow], threshold_min: float) -> str | None:
+    """Ce que :func:`read_curve` ferait de ces lignes (``0017``, P3.7).
+
+    Une ligne qu'il refuse rendrait le fichier illisible : ``CurveError`` « La tranche
+    <grade_pct> % serait illisible par read_curve, la courbe n'est pas écrite :
+    <message de la lecture> », qui dit la tranche en cause — la première ligne qui,
+    seule, ne se lit pas —, levée depuis l'erreur de lecture ; une erreur qu'aucune
+    ligne seule ne cause (une pente en double) remonte telle quelle. Elle n'est jamais
+    rendue comme un message de support. Si le support est impossible au seuil
+    ``threshold_min`` (minutes), rend son message : la courbe s'écrit, non
+    projetable. Sinon ``None``.
+    """
+    try:
+        bins = _read_bins(_csv_text(rows))
+    except CurveError as error:
+        culprit = _first_unreadable(rows)
+        if culprit is None:
+            raise
+        raise CurveError(
+            f"La tranche {culprit.grade_pct} % serait illisible par read_curve, la "
+            f"courbe n'est pas écrite : {error}"
+        ) from error
+    try:
+        _select_support(bins, threshold_min)
+    except CurveError as error:
+        return str(error)
+    return None
+
+
+def _meta_text(
+    sport: Sport, provenance: CurveProvenance, estimation: Mapping[str, object]
+) -> str:
+    """Le texte JSON du compagnon, clés dans l'ordre ; une valeur non finie est
+    refusée (``ValueError``)."""
+    document = {
+        "sport": sport.value,
+        "activity_count": provenance.activity_count,
+        "hr_center_bpm": provenance.hr_center_bpm,
+        "hr_width_bpm": provenance.hr_width_bpm,
+        "hr_lag_s": provenance.hr_lag_s,
+        "date_from": provenance.date_from.isoformat(),
+        "date_to": provenance.date_to.isoformat(),
+        "source_activity_types": sorted(provenance.source_activity_types),
+        "min_duration_s": provenance.min_duration_s,
+        "max_duration_s": provenance.max_duration_s,
+        "max_elapsed_s": provenance.max_elapsed_s,
+        "athlete_ref": provenance.athlete_ref,
+        "estimator": provenance.estimator,
+        "generated_at": provenance.generated_at.isoformat(),
+        "estimation": dict(estimation),
+    }
+    return json.dumps(document, ensure_ascii=False, indent=2, allow_nan=False) + "\n"
+
+
+def write_curve(
+    path: Path,
+    rows: Sequence[CurveFileRow],
+    sport: Sport,
+    provenance: CurveProvenance,
+    estimation: Mapping[str, object],
+) -> None:
+    """Écrit une courbe estimée (M6b) : le CSV ``path`` à l'en-tête étendu et son
+    compagnon ``<stem>.meta.json``.
+
+    Le compagnon porte le sport et la provenance, que :func:`read_curve` relit, et sous
+    la clé ``estimation`` ce que :func:`read_curve` ignore (paramètres, niveau,
+    comptes). Les deux fichiers sont des octets UTF-8, à fins de ligne ``"\\n"`` sous
+    toute plateforme.
+
+    Une courbe n'est jamais réécrite : si le CSV ou le compagnon existe, ``CurveError``
+    avant tout écrit. Les deux textes sont calculés avant tout écrit (un ``grade_pct``
+    illisible, une valeur non finie du compagnon sortent sans rien écrire). Le
+    compagnon s'écrit d'abord, puis le CSV ; si l'écriture du CSV échoue, le compagnon
+    est retiré et l'exception remonte : un compagnon orphelin ferait refuser la
+    tentative suivante.
+    """
+    meta_path = path.with_name(f"{path.stem}{META_SUFFIX}")
+    for target in (path, meta_path):
+        if target.exists():
+            raise CurveError(
+                f"{target.name} existe déjà : une courbe n'est jamais réécrite."
+            )
+    meta_bytes = _meta_text(sport, provenance, estimation).encode("utf-8")
+    csv_bytes = _csv_text(rows).encode("utf-8")
+    with meta_path.open("xb") as stream:
+        stream.write(meta_bytes)
+    try:
+        with path.open("xb") as stream:
+            stream.write(csv_bytes)
+    except BaseException:
+        meta_path.unlink(missing_ok=True)
+        raise

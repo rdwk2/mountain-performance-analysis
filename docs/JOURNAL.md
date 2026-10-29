@@ -16,6 +16,55 @@ Backtest (à partir de M4) : métrique avant → après.
 
 ---
 
+### 2026-10-29 · M6b-1 — Courbe personnelle : estimation
+L'estimation de la courbe allure ↔ pente au moteur, mesurée comme le moteur l'applique
+(brief M6b-1, révision 1 bis, et cinq précisions de la relecture du plan). La trace
+commune : `trace_view` (`ingest/views.py`), que `motion_track` appelle désormais, sans
+qu'aucun de ses résultats ne change. Le fichier de courbe étendu : trois colonnes
+facultatives que `read_curve` lit comme l'ancien en-tête (`sample_count` y est le nombre
+d'activités), quatre champs de provenance (l'athlète, la durée maximale, le plafond, le
+décalage de la FC), l'écriture d'une courbe et de son compagnon, jamais réécrite, et
+`check_curve_rows`, qui dit la tranche d'une ligne illisible. Les intervalles d'une
+activité (`estimation/intervals.py`) : la grille du profil sur les positions brutes, les
+temps M/S/U sous θc, les bornes (le dernier instant à abscisse égale, la première au
+premier instant), le plafond qui coupe, la FC décalée par intégrale exacte. L'estimateur
+(`estimation/curve.py`) : tranches variables, écarts au premier motif, valeurs (a) et
+(b), vitesse écoulée, comptes par étage, filtre de FC, niveau et forme lus contre le
+moteur. La commande `mperf curve`, sa recette `just`, et le hook qui les refuse à la
+session. Le record `0017`, une note de `0009`, le README, `CLAUDE.md` et le `BACKLOG`.
+Conclusion : `just check` vert sans extra (7 307 tests, 38 sautés) ; avec tous les
+extras, `pytest` (7 627 tests, 5 sautés) et `mypy` verts ; 196 tests dans les sept
+fichiers neufs. Les 90 contre-épreuves du § 8.3, jouées une à une dans l'arbre de
+travail, sans cache de bytecode, chacune restaurée : 89 rougissent, chacune sur tous les
+fichiers qu'elle nomme ; E1 ne fait rien rougir sur les sept fichiers neufs et est
+déclarée équivalente (la dernière borne vaut déjà le dernier instant). Le témoin (les
+fichiers nommés, sans mutation) est vert avant et après la campagne. La courbe réelle
+n'existe pas encore : son estimation et le contrôle réel sont à rdw.
+La relecture de la PR : deux relectures C, l'une complète, l'autre partielle, et le
+balayage de mutations de la conception. Le code calcule juste, mais des garanties écrites
+du brief n'avaient pas de test. Les correctifs, en trois commits : un document
+d'`interim/` qui ne se relit pas (un index d'un autre format, un enregistrement abîmé ou
+qu'un contrat refuse) dit « Erreur : … » et de relancer l'ingestion, au lieu d'une trace
+Python — `ValueError` attrapée autour des deux lectures, `cli.py` n'important pas le codec
+commun (choix de rdw, `tests/test_codec.py` inchangé) ; un type de `--types` à espace est
+refusé, jamais normalisé ; trois phrases du README ; les tests des garanties, 61 dans trois
+fichiers neufs (`tests/test_cli_curve_guarantees.py`, 9 ;
+`tests/test_model_curve_io_guarantees.py`, 12 ; `tests/test_estimation_guarantees.py`,
+40). Conclusion : `just check` vert après chaque commit de code, l'environnement portant
+tous les extras (7 636 tests puis 7 688, 5 sautés), et `mypy` avec tous les extras vert.
+Les contre-épreuves, chacune sur une copie de `src/` : les 10 de la commande rougissent ;
+des 98 des deux autres fichiers, 97 rougissent, la dernière (`bisect_left` dans
+`_interpolate`) est équivalente — l'interpolation linéaire vaut la même chose à un nœud.
+Rangé dans `src/mountain_perf/estimation/`, `src/mountain_perf/model/curve_io.py`,
+`src/mountain_perf/schemas/curve.py`, `src/mountain_perf/ingest/views.py`,
+`src/mountain_perf/cli.py`, `scripts/hooks/proteger_donnees.py`, `justfile`,
+`tests/test_estimation_*.py`, `tests/test_cli_curve*.py`, `tests/test_ingest_trace_view.py`,
+`tests/test_model_curve_io_extended.py`, `tests/test_model_curve_io_guarantees.py`,
+`tests/test_schemas_curve_m6b.py`, `docs/decisions/0017-estimation-de-la-courbe.md`,
+`BACKLOG.md`, branche `m6b/courbe`.
+
+---
+
 ### 2026-10-27 · AN2-0 — correctifs de relecture
 La relecture C n'a trouvé aucun écart du code à `0013`, mais des cas qu'aucun test ne
 jouait, une affirmation de test fausse et deux phrases. Les tests de la conception,

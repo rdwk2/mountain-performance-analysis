@@ -11,10 +11,11 @@ import csv
 import io
 import math
 import os
+import re
 import sys
 from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
-from datetime import date
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import TextIO
 
@@ -2956,6 +2957,222 @@ def _run_q1() -> int:
     return 0
 
 
+CURVE_NAME_PATTERN = r"[A-Za-z0-9][A-Za-z0-9_.-]*"
+"""Le nom d'une courbe (M6b), base de ``reference/<nom>.csv`` : un nom de fichier, sans
+dossier ni extension."""
+
+CURVE_MODIFIED_TREE_ERROR = (
+    "Erreur : le code exécuté a des fichiers suivis modifiés ; une courbe dit le "
+    "commit qui l'a estimée (committer ou annuler les modifications)."
+)
+"""Le message de ``mperf curve`` sur un clone modifié (M6b)."""
+
+
+def _minutes_to_seconds(minutes: float | None) -> float | None:
+    """Une durée de la ligne de commande, en minutes, en secondes ; ``None`` reste
+    ``None``."""
+    return None if minutes is None else minutes * 60
+
+
+def _run_curve(args: argparse.Namespace) -> int:
+    """``mperf curve <nom>`` (M6b, ``docs/decisions/0017``) : estime une courbe depuis
+    ``MPA_DATA_DIR/interim`` et l'écrit dans ``MPA_DATA_DIR/reference/<nom>.csv`` et son
+    compagnon, jamais réécrits. Dans cet ordre :
+
+    1. le nom, refusé s'il ne correspond pas en entier à :data:`CURVE_NAME_PATTERN` ou
+       s'il finit par ``.csv`` (sans casse) ; ``--hr-width`` ou ``--hr-lag`` sans
+       ``--hr-center``, refusés ;
+    2. ``MPA_DATA_DIR`` ; l'état git du paquet exécuté, un clone modifié refusé
+       (:data:`CURVE_MODIFIED_TREE_ERROR`) ;
+    3. les paramètres (les seules options données ; le profil aux défauts) et la
+       sélection, les durées converties de minutes en secondes ; un type de ``--types``
+       à espace en tête ou en fin, refusé (``CurveError``), jamais normalisé ;
+    4. la courbe ou son compagnon déjà là, refusés **avant** toute lecture
+       d'``interim/`` et toute estimation ;
+    5. l'index, les candidates (aucune : refusé), puis, pour chacune dans l'ordre, son
+       enregistrement et ses intervalles, coupés au plafond déclaré ; l'estimation. Un
+       document d'``interim/`` qui ne se relit pas (d'un autre format, abîmé, ou qu'un
+       contrat refuse à la relecture : une ``ValueError``) devient une ``CurveError``
+       qui nomme l'index ou l'activité et dit de relancer ``mperf ingest`` ;
+    6. les lignes du fichier, contrôlées comme ``read_curve`` les lirait : une ligne
+       illisible lève, rien n'est écrit ; un support impossible s'écrit et se dit ;
+    7. la provenance — sans filtre de FC, ni largeur ni décalage — et le document de
+       l'estimation, avec les instants d'acquisition des exports lus, ceux des entrées
+       et ceux des enregistrements des activités retenues ;
+    8. ``reference/`` créé au besoin, les deux fichiers écrits ; puis le résumé.
+
+    ``ConfigError``, ``GitStateError``, ``InterimError``, ``CurveError``,
+    ``ContractError``, ``OSError`` : « Erreur : <message> », code 1.
+    """
+    unmatched = re.fullmatch(CURVE_NAME_PATTERN, args.name) is None
+    if unmatched or args.name.lower().endswith(".csv"):
+        print(f"Erreur : nom de courbe invalide {args.name!r}.", file=sys.stderr)
+        return 1
+    band_option = args.hr_width is not None or args.hr_lag is not None
+    if band_option and args.hr_center is None:
+        print("Erreur : --hr-width et --hr-lag demandent --hr-center.", file=sys.stderr)
+        return 1
+    from mountain_perf import gitstate
+    from mountain_perf.estimation.curve import (
+        CURVE_ESTIMATION_PARAMETER_SPECS,
+        SUPPORT_THRESHOLD_MIN,
+        BinValue,
+        CurveSelection,
+        curve_file_rows,
+        estimate_curve,
+        estimation_document,
+        select_candidates,
+    )
+    from mountain_perf.estimation.intervals import activity_intervals
+    from mountain_perf.ingest.interim import InterimError, read_index, read_recording
+    from mountain_perf.model.curve_io import META_SUFFIX, check_curve_rows, write_curve
+    from mountain_perf.schemas import CurveProvenance, Sport
+
+    try:
+        folder = data_dir()
+        state = gitstate.git_state(_package_directory())
+        if state.modified:
+            print(CURVE_MODIFIED_TREE_ERROR, file=sys.stderr)
+            return 1
+        values: dict[str, float] = {}
+        if args.hr_width is not None:
+            values["hr_width_bpm"] = args.hr_width
+        if args.hr_lag is not None:
+            values["hr_lag_s"] = args.hr_lag
+        parameters = ParameterSet(CURVE_ESTIMATION_PARAMETER_SPECS, values)
+        profile = ParameterSet(PROFILE_PARAMETER_SPECS)
+        types = args.types.split(",")
+        for value in types:
+            if value != value.strip():
+                raise CurveError(
+                    f"type de la source {value!r} : une espace en tête ou en fin."
+                )
+        selection = CurveSelection(
+            frozenset(types),
+            args.date_from,
+            args.date_to,
+            _minutes_to_seconds(args.min_duration_min),
+            _minutes_to_seconds(args.max_duration_min),
+            _minutes_to_seconds(args.max_elapsed_min),
+            args.hr_center,
+            BinValue.MEDIAN if args.value == "b" else BinValue.POOLED,
+        )
+        target = folder / "reference" / f"{args.name}.csv"
+        for path in (target, target.with_name(f"{target.stem}{META_SUFFIX}")):
+            if path.exists():
+                raise CurveError(
+                    f"{path.name} existe déjà : une courbe n'est jamais réécrite."
+                )
+        # ValueError : CodecError et ContractError en sont, et seuls les modules de
+        # documents importent le codec commun (tests/test_codec.py).
+        try:
+            index = read_index(folder)
+        except ValueError as error:
+            raise CurveError(
+                f"index d'interim/ : {error} ; relancer `mperf ingest`."
+            ) from error
+        entries = select_candidates(index, selection)
+        if not entries:
+            raise CurveError(
+                "aucune activité candidate : aucun enregistrement des types demandés "
+                "dans la fenêtre."
+            )
+        candidates = []
+        recorded_at = []
+        for entry in entries:
+            try:
+                recording = read_recording(folder, entry.activity_ref)
+            except ValueError as error:
+                raise CurveError(
+                    f"activité {entry.activity_ref} : {error} ; relancer `mperf "
+                    "ingest`."
+                ) from error
+            recorded_at.append(recording.source.retrieved_at)
+            candidates.append(
+                activity_intervals(
+                    recording,
+                    profile,
+                    hr_lag_s=parameters["hr_lag_s"],
+                    hr_min_coverage=parameters["hr_min_coverage"],
+                    max_elapsed_s=selection.max_elapsed_s,
+                )
+            )
+        estimate = estimate_curve(
+            candidates, [entry.activity_ref for entry in entries], selection, parameters
+        )
+        rows = curve_file_rows(estimate)
+        support_error = check_curve_rows(rows, SUPPORT_THRESHOLD_MIN)
+        filtered = selection.hr_center_bpm is not None
+        provenance = CurveProvenance(
+            activity_count=len(estimate.activity_refs),
+            hr_center_bpm=selection.hr_center_bpm,
+            hr_width_bpm=parameters["hr_width_bpm"] if filtered else None,
+            date_from=selection.date_from,
+            date_to=selection.date_to,
+            source_activity_types=selection.source_activity_types,
+            min_duration_s=selection.min_duration_s,
+            estimator=(
+                "mperf curve (M6b) : intervalles de la grille du profil, temps M θc, "
+                f"tranches variables, valeur {selection.value.value}"
+            ),
+            generated_at=datetime.now(UTC),
+            athlete_ref=args.athlete,
+            max_duration_s=selection.max_duration_s,
+            max_elapsed_s=selection.max_elapsed_s,
+            hr_lag_s=parameters["hr_lag_s"] if filtered else None,
+        )
+        retained = set(estimate.activity_refs)
+        # L'entrée et l'enregistrement d'une activité peuvent venir de deux exports
+        # (0013, précision 16) : la courbe est choisie sur l'une, mesurée sur l'autre.
+        exports = [
+            instant
+            for entry, recorded in zip(entries, recorded_at, strict=True)
+            if entry.activity_ref in retained
+            for instant in (entry.source.retrieved_at, recorded)
+        ]
+        document = estimation_document(
+            estimate,
+            selection,
+            parameters,
+            profile,
+            commit=state.commit,
+            exports_retrieved_at=exports,
+            support_error=support_error,
+        )
+        target.parent.mkdir(parents=True, exist_ok=True)
+        write_curve(target, rows, Sport.FOOT, provenance, document)
+    except (
+        ConfigError,
+        gitstate.GitStateError,
+        InterimError,
+        CurveError,
+        ContractError,
+        OSError,
+    ) as error:
+        print(f"Erreur : {error}", file=sys.stderr)
+        return 1
+    counts = estimate.counts
+    long_bins = sum(1 for b in estimate.bins if b.moving_s >= 600)
+    print(
+        f"activités retenues : {counts.retained} sur {counts.candidates} candidates ; "
+        f"tranches : {len(estimate.bins)}, dont {long_bins} d'au moins 10 min"
+    )
+    for activity_reason, count in estimate.excluded_activities:
+        print(f"  activités écartées, {activity_reason.value} : {count}")
+    for interval_reason, count in estimate.excluded_intervals:
+        print(f"  intervalles écartés, {interval_reason.value} : {count}")
+    if counts.truncated:
+        print(f"  intervalles coupés au plafond : {counts.truncated}")
+    print(
+        f"  activités avec un niveau : {counts.with_level} ; écoulé / M : "
+        f"{estimate.elapsed_moving_ratio:.4f}"
+    )
+    if support_error is not None:
+        print(f"Courbe non projetable par read_curve : {support_error}")
+    print(f"-> reference/{target.name} et reference/{target.stem}{META_SUFFIX}")
+    return 0
+
+
 def _write_utf8() -> None:
     """Sorties standard en UTF-8, quel que soit l'encodage de la console.
 
@@ -3055,6 +3272,90 @@ def main(argv: Sequence[str] | None = None) -> int:
         "q1",
         help="Écrire la figure de Q1 sous MPA_DATA_DIR/resultats/Q1 (AN1-2c)",
     )
+    curve_parser = commands.add_parser(
+        "curve",
+        help=(
+            "Estimer une courbe allure↔pente depuis MPA_DATA_DIR/interim dans "
+            "MPA_DATA_DIR/reference/<nom>.csv (M6b)"
+        ),
+    )
+    curve_parser.add_argument("name", metavar="nom")
+    curve_parser.add_argument(
+        "--from",
+        dest="date_from",
+        type=date.fromisoformat,
+        required=True,
+        metavar="AAAA-MM-JJ",
+        help="Premier jour de la fenêtre, compris",
+    )
+    curve_parser.add_argument(
+        "--to",
+        dest="date_to",
+        type=date.fromisoformat,
+        required=True,
+        metavar="AAAA-MM-JJ",
+        help="Dernier jour de la fenêtre, compris",
+    )
+    curve_parser.add_argument(
+        "--athlete",
+        required=True,
+        metavar="PSEUDONYME",
+        help="Pseudonyme de l'athlète (celui du manifeste)",
+    )
+    curve_parser.add_argument(
+        "--types",
+        default="trail_running",
+        metavar="TYPES",
+        help="Types de la source retenus, séparés par des virgules",
+    )
+    curve_parser.add_argument(
+        "--min-duration-min",
+        dest="min_duration_min",
+        type=float,
+        metavar="MIN",
+        help="Durée minimale d'une sortie",
+    )
+    curve_parser.add_argument(
+        "--max-duration-min",
+        dest="max_duration_min",
+        type=float,
+        metavar="MIN",
+        help="Durée maximale (exclue) d'une sortie",
+    )
+    curve_parser.add_argument(
+        "--max-elapsed-min",
+        dest="max_elapsed_min",
+        type=float,
+        metavar="MIN",
+        help="Plafond depuis le départ",
+    )
+    curve_parser.add_argument(
+        "--hr-center",
+        dest="hr_center",
+        type=float,
+        metavar="BPM",
+        help="Centre de la bande de FC",
+    )
+    curve_parser.add_argument(
+        "--hr-width",
+        dest="hr_width",
+        type=float,
+        metavar="BPM",
+        help="Largeur de la bande (défaut 10)",
+    )
+    curve_parser.add_argument(
+        "--hr-lag",
+        dest="hr_lag",
+        type=float,
+        metavar="S",
+        help="Décalage de la FC (défaut 60)",
+    )
+    curve_parser.add_argument(
+        "--value",
+        choices=("a", "b"),
+        default="a",
+        help="Valeur d'une tranche : (a) somme / somme, (b) médiane des activités",
+    )
     args = parser.parse_args(argv)
     if args.command == "project" and args.curve is None:
         print(project_parser.format_usage(), file=sys.stderr, end="")
@@ -3075,6 +3376,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _run_tables()
         if args.command == "q1":
             return _run_q1()
+        if args.command == "curve":
+            return _run_curve(args)
         if args.command == "backtest":
             return _run_backtest(args)
         if args.command == "project":

@@ -57,6 +57,13 @@ process:
 q1:
     uv run --extra analyse mperf q1
 
+# Une courbe allure↔pente personnelle (M6b) : MPA_DATA_DIR/interim →
+# MPA_DATA_DIR/reference/<name>.csv et son compagnon, jamais réécrits. Exemple :
+# just curve saison --from 2000-01-01 --to 2000-12-31 --athlete x ; les options suivent
+# le nom (mperf curve --help).
+curve name *options:
+    uv run mperf curve "{{name}}" {{options}}
+
 # L'interface (M5, docs/decisions/0016) : une appli Streamlit locale, sur MPA_DATA_DIR
 # (routes/, sorties/, reference/), avec l'extra tableau ; à ouvrir sur
 # http://localhost:8501. Serveur local seulement, sans télémétrie :
