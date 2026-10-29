@@ -2985,11 +2985,15 @@ def _run_curve(args: argparse.Namespace) -> int:
     2. ``MPA_DATA_DIR`` ; l'état git du paquet exécuté, un clone modifié refusé
        (:data:`CURVE_MODIFIED_TREE_ERROR`) ;
     3. les paramètres (les seules options données ; le profil aux défauts) et la
-       sélection, les durées converties de minutes en secondes ;
+       sélection, les durées converties de minutes en secondes ; un type de ``--types``
+       à espace en tête ou en fin, refusé (``CurveError``), jamais normalisé ;
     4. la courbe ou son compagnon déjà là, refusés **avant** toute lecture
        d'``interim/`` et toute estimation ;
     5. l'index, les candidates (aucune : refusé), puis, pour chacune dans l'ordre, son
-       enregistrement et ses intervalles, coupés au plafond déclaré ; l'estimation ;
+       enregistrement et ses intervalles, coupés au plafond déclaré ; l'estimation. Un
+       document d'``interim/`` qui ne se relit pas (d'un autre format, abîmé, ou qu'un
+       contrat refuse à la relecture : une ``ValueError``) devient une ``CurveError``
+       qui nomme l'index ou l'activité et dit de relancer ``mperf ingest`` ;
     6. les lignes du fichier, contrôlées comme ``read_curve`` les lirait : une ligne
        illisible lève, rien n'est écrit ; un support impossible s'écrit et se dit ;
     7. la provenance — sans filtre de FC, ni largeur ni décalage — et le document de
@@ -3037,8 +3041,14 @@ def _run_curve(args: argparse.Namespace) -> int:
             values["hr_lag_s"] = args.hr_lag
         parameters = ParameterSet(CURVE_ESTIMATION_PARAMETER_SPECS, values)
         profile = ParameterSet(PROFILE_PARAMETER_SPECS)
+        types = args.types.split(",")
+        for value in types:
+            if value != value.strip():
+                raise CurveError(
+                    f"type de la source {value!r} : une espace en tête ou en fin."
+                )
         selection = CurveSelection(
-            frozenset(args.types.split(",")),
+            frozenset(types),
             args.date_from,
             args.date_to,
             _minutes_to_seconds(args.min_duration_min),
@@ -3053,7 +3063,15 @@ def _run_curve(args: argparse.Namespace) -> int:
                 raise CurveError(
                     f"{path.name} existe déjà : une courbe n'est jamais réécrite."
                 )
-        entries = select_candidates(read_index(folder), selection)
+        # ValueError : CodecError et ContractError en sont, et seuls les modules de
+        # documents importent le codec commun (tests/test_codec.py).
+        try:
+            index = read_index(folder)
+        except ValueError as error:
+            raise CurveError(
+                f"index d'interim/ : {error} ; relancer `mperf ingest`."
+            ) from error
+        entries = select_candidates(index, selection)
         if not entries:
             raise CurveError(
                 "aucune activité candidate : aucun enregistrement des types demandés "
@@ -3062,7 +3080,13 @@ def _run_curve(args: argparse.Namespace) -> int:
         candidates = []
         recorded_at = []
         for entry in entries:
-            recording = read_recording(folder, entry.activity_ref)
+            try:
+                recording = read_recording(folder, entry.activity_ref)
+            except ValueError as error:
+                raise CurveError(
+                    f"activité {entry.activity_ref} : {error} ; relancer `mperf "
+                    "ingest`."
+                ) from error
             recorded_at.append(recording.source.retrieved_at)
             candidates.append(
                 activity_intervals(

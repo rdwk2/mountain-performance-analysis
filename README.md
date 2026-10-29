@@ -560,7 +560,7 @@ décalée de 60 s, est dans une bande de 10 bpm, aux pentes de −5 % ou plus se
 |---|---|---|
 | `--from`, `--to` | — (obligatoires) | Premier et dernier jour de la fenêtre, compris (`AAAA-MM-JJ`) |
 | `--athlete` | — (obligatoire) | Pseudonyme de l'athlète (celui du manifeste) |
-| `--types` | `trail_running` | Types de la source retenus, séparés par des virgules |
+| `--types` | `trail_running` | Types de la source retenus, séparés par des virgules, sans espace |
 | `--min-duration-min` | — | Durée minimale d'une sortie, en minutes |
 | `--max-duration-min` | — | Durée maximale (exclue) d'une sortie, en minutes |
 | `--max-elapsed-min` | — | Plafond depuis le départ, en minutes |
