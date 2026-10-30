@@ -174,6 +174,17 @@ données brutes, et le backtest mesure l'effet du changement de courbe.
 **Test de non-régression offert** : la nouvelle implémentation doit retrouver
 approximativement les courbes de l'ancien projet sur les mêmes entrées.
 
+**Fini** avec M6b-1 (PR #37) et M6b-2 : `mperf curve` estime une courbe depuis `interim/`
+(avec ou sans filtre de FC), à la grille, à la pente et à l'horloge du moteur
+(`docs/decisions/0017`), et deux exécutions du backtest, l'une avec la courbe v0, l'autre
+avec la neuve, estimée sans filtre, en ont mesuré l'effet (`docs/JOURNAL.md`, entrée
+M6b-2 du 2026-10-29) ; la courbe neuve remplace la v0 comme base des expériences de M6a.
+La non-régression ne retrouve pas les courbes de l'ancien projet : l'écart se sépare en
+trois causes mesurées hors du dépôt (la source des points, l'opérateur de pente, la
+définition du mouvement), et aucune n'est un défaut. Restent à la piste analyse
+l'acquisition, reportée (ci-dessus), et les détecteurs de qualité (une ligne « (M6b) » du
+`BACKLOG.md`) ; et, au `BACKLOG.md`, les autres lignes « (M6b) » encore ouvertes.
+
 ---
 
 ### M7 — Effets physiologiques et environnementaux

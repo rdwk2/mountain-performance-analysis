@@ -631,9 +631,9 @@ puis `http://localhost:8501` dans le navigateur.
 ## État et plan
 
 - **Moteur de prédiction** : M0 à M4 livrés ; M5 (interface v0) livré, ses deux pages
-  (`just ui`) ; le « Fini quand » de la ROADMAP se constate à l'usage. M6b commencé :
-  l'estimation de la courbe personnelle (`just curve`, M6b-1) ; son « Fini quand » se
-  constatera quand le backtest aura mesuré la courbe neuve contre la v0. Livrés en M4 :
+  (`just ui`) ; le « Fini quand » de la ROADMAP se constate à l'usage. M6b livré :
+  l'estimation de la courbe personnelle (`just curve`), et sa mesure par le backtest
+  contre la v0 (`docs/JOURNAL.md`). Livrés en M4 :
   l'appariement d'une trace à un tracé, les métriques d'erreur, la référence de
   répétabilité, le registre des expériences, `just backtest` à cinq modèles, son
   diagnostic de longue course et ses fourchettes (`0010` D12 et D11, au rapport complet ;
