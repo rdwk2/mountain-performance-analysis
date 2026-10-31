@@ -38,6 +38,85 @@ branche `an2/jours`.
 
 ---
 
+### 2026-10-29 · M6b-2 — la courbe neuve contre la v0
+La courbe réelle, puis la mesure que demande le « Fini quand » de M6b (ROADMAP).
+`just curve` sur l'`interim/` réel (rdw, sous Windows, sur la tête des correctifs de la
+PR #37, arbre propre), sur la fenêtre de la courbe v0, options par défaut (valeur (a),
+sans filtre de FC) : le CSV est celui, à l'octet, de l'essai fait sur la tête relue, et
+son compagnon n'en diffère que par le commit et l'heure. Puis deux `just backtest` sur le
+manifeste réel (rdw, sur `main` = `abab4d28`, arbre propre), qui ne diffèrent que par la
+courbe : la v0, DÉCLARATION 11 et RÉSULTAT 12, rapport `rapports/backtest-0012.txt` ; la
+neuve, DÉCLARATION 13 et RÉSULTAT 14, rapport `rapports/backtest-0014.txt` ; sceau
+(empreinte de la dernière ligne)
+`7c24bfbb616dd3198121937e14d1e4ee18b12db9f985dfa5856c0d72b768d964`. Relecture de la
+conception, en lecture seule : les dix lignes anciennes identiques à l'octet, la chaîne
+intacte, les 1 510 documents anciens inchangés, 241 documents neufs (117 pour la v0, 124
+pour la neuve), chacun à son empreinte. La v0 redonne au caractère près les agrégats de
+l'entrée « M4c-2 — contrôle réel » du 2026-10-12. Les trois baselines (vitesse constante,
+Naismith, Tobler ; `0010` D9.1) ne lisent pas la courbe : mêmes facteurs de calage, mêmes
+`L`, `|L|` et `max |C_k|` d'une exécution à l'autre ; seul leur `q_usage` change, son
+dénominateur étant la projection de v0 brut (`0010` D7.4). Les `F` de la référence de
+répétabilité (`0010` D8), calculés sans courbe, ne changent pas non plus.
+Agrégats d'usage sous l'écoulé, par jeu (moyenne à poids égal par performance, effectif ;
+`|L|` commun : performances où les cinq modèles ont une valeur ; en développement, il égale
+`|L|`), v0 → neuve — la synthèse par sortie reste dans les rapports, hors du dépôt (règle 1
+de `CLAUDE.md`) :
+```text
+                          v0 brut                          v0 + effort recalé
+répétabilité  L           −0.062994 (8) → +0.022572 (8)    +0.084572 (4) → +0.079191 (4)
+              |L|         0.090563 (8) → 0.070397 (8)      0.110488 (4) → 0.103853 (4)
+              max |C_k|   430.6 (8) → 386.2 (8)            664.9 (4) → 660.9 (4)
+              q_usage     0.048133 (2) → 0.112041 (2)      0.126769 (2) → 0.122204 (2)
+              |L| commun  0.066520 (4) → 0.092832 (4)      0.110488 (4) → 0.103853 (4)
+développement L           −0.127489 (3) → −0.041268 (3)    −0.064495 (3) → −0.063840 (3)
+              |L|         0.127489 (3) → 0.077257 (3)      0.086416 (3) → 0.081799 (3)
+              max |C_k|   193.8 (3) → 276.5 (3)            191.5 (3) → 220.8 (3)
+              q_usage     0.044795 (1) → 0.049004 (1)      0.020672 (1) → 0.026685 (1)
+confirmation  aucune performance (0)
+```
+Lecture, sans valeur de validation. Le biais « trop rapide » de la v0 (`L < 0` : une
+prévision plus courte que le temps observé) est nettement réduit, légèrement inversé en
+répétabilité, ramené au tiers en développement : la neuve est mesurée comme le moteur
+l'applique, et l'effort de v0 + effort recalé s'approche de 1. Les autres métriques ne
+suivent pas toutes. Sur les quatre dernières performances de la répétabilité, les seules
+qui ont un calage (`|L|` commun ; `q_usage` n'existe que sur deux d'entre elles), la neuve
+fait moins bien que la v0 en v0 brut : son gain d'ensemble vient des quatre premières, où
+la v0 était la plus en avance (`L` le plus négatif), et le niveau moyen de la fenêtre
+qu'elle porte est trop lent pour les dernières. En développement, `max |C_k|` et `q_usage`
+(une performance) se dégradent. Une fois le niveau recalé (v0 + effort recalé), le gain
+est petit, et pas sur toutes les métriques. Rien de concluant : les deux courbes sont
+estimées sur une fenêtre qui contient la répétabilité (scores « apprentissage », `0010`
+D2.3), le développement n'a que trois performances, et `q_usage` deux performances en
+répétabilité, une en développement ; une mesure hors échantillon sur chaque performance
+(une courbe estimée avant son origine) demande l'origine glissante (ligne « (M6b) Origine
+glissante » de `BACKLOG.md`).
+Deux constats du contrôle réel. Une courbe n'est reproductible à l'octet que sur un même
+système : la même estimation refaite sous Linux diffère de celle de Windows dans les
+derniers chiffres d'une partie des flottants (environ un tiers des cellules du CSV, d'au
+plus 3,8e−13 en valeur relative : arrondis des fonctions mathématiques, qui diffèrent d'une
+plateforme à l'autre), et deux estimations sous Windows donnent le même CSV à l'octet. Une
+courbe filtrée par la FC (`--hr-center`) garde, dans les tranches plus raides que −5 % en
+descente, les vitesses de la courbe sans filtre (`0017`, P5.2) : ses descentes ne disent
+pas une allure à cette FC.
+La non-régression de la ROADMAP, faite hors du dépôt contre les courbes de l'ancien
+projet : la courbe neuve ne les retrouve pas, et l'écart se sépare, une cause à la fois,
+en trois causes : la source des points (les positions du FIT au lieu des points espacés de
+l'export de Garmin), l'opérateur de pente (la grille et la pente du moteur au lieu du
+point à point) et la définition du mouvement (θc au lieu de l'ancienne règle, qui comptait
+les paires de points d'au moins 0,3 m), la plus forte en montée raide ; pour les variantes
+de FC s'y ajoutent la portée du filtre et le retard. Aucune n'est un défaut : les trois
+premières viennent de ce que `0017` mesure la courbe comme le moteur l'applique, la portée
+du filtre et le retard de ses règles P5.1 et P5.2.
+Le rapport du backtest écrit encore de toute courbe « mouvement historique non
+harmonisé ; biais d'opérateur de pente » : vrai pour la v0, faux pour une courbe de
+`mperf curve` ; une ligne de `BACKLOG.md`.
+Conclusion : M6b est fini (« Fini quand » de la ROADMAP) : `mperf curve` estime une
+courbe depuis `interim/`, et le backtest en a mesuré l'effet. La courbe neuve remplace la
+v0 comme base des expériences de M6a (choix de rdw) ; la courbe, les rapports et le
+registre restent sous `MPA_DATA_DIR`.
+
+---
+
 ### 2026-10-29 · M6b-1 — Courbe personnelle : estimation
 L'estimation de la courbe allure ↔ pente au moteur, mesurée comme le moteur l'applique
 (brief M6b-1, révision 1 bis, et cinq précisions de la relecture du plan). La trace
