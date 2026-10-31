@@ -51,8 +51,11 @@ def test_no_extra_library_is_loaded_without_ingesting() -> None:
         "mountain_perf.ingest",
         "mountain_perf.ingest.interim",
         "mountain_perf.ingest.views",
+        "mountain_perf.ingest.day_views",
         "mountain_perf.ingest.index",
         "mountain_perf.ingest.types",
+        "mountain_perf.ingest.families",
+        "mountain_perf.ingest.days",
         "mountain_perf.cli",
     ]
     code = (
@@ -77,6 +80,8 @@ def test_ingest_imports_the_common_codec_never_backtest() -> None:
         "mountain_perf.ingest.index",
         "mountain_perf.ingest.interim",
         "mountain_perf.ingest.types",
+        "mountain_perf.ingest.families",
+        "mountain_perf.ingest.days",
     }
     for path in sorted(INGEST.glob("*.py")):
         project = {m for m in _imports(path) if m.startswith("mountain")}
@@ -92,9 +97,46 @@ def test_ingest_imports_the_common_codec_never_backtest() -> None:
 
 def test_ingest_package_does_not_import_the_fit_reader() -> None:
     assert _imports(INGEST / "__init__.py") == {}
-    for name in ("interim.py", "views.py", "index.py", "types.py"):
+    for name in (
+        "interim.py",
+        "views.py",
+        "day_views.py",
+        "index.py",
+        "types.py",
+        "families.py",
+        "days.py",
+    ):
         assert "mountain_perf.ingest.fit" not in _imports(INGEST / name), name
         assert "mountain_perf.ingest.export" not in _imports(INGEST / name), name
+
+
+def test_days_import_the_contracts_and_the_families_only() -> None:
+    """L'ingestion des jours (AN2-1) : la bibliothèque standard, ``schemas``,
+    ``validation`` et la lecture des familles ; ni ``fit``, ni ``export``, ni les vues
+    (``views``, ``day_views``), ni l'écriture (``interim``) ; ``export.py``
+    l'importe."""
+    imports = _imports(INGEST / "days.py")
+    project = {m for m in imports if m.startswith("mountain")}
+    assert project <= {
+        "mountain_perf.schemas",
+        "mountain_perf.validation",
+        "mountain_perf.ingest.families",
+    }
+    outside = {m.split(".")[0] for m in imports if not m.startswith("mountain")}
+    assert outside <= STDLIB | {"__future__"}
+    assert "mountain_perf.ingest.days" in _imports(INGEST / "export.py")
+
+
+def test_day_views_import_only_the_contracts() -> None:
+    """Les vues des jours (AN2-1) : la bibliothèque standard, ``schemas`` et
+    ``validation`` ; ni ``fit``, ni ``export``, ni la lecture des familles
+    (``families``), ni l'ingestion des jours (``days``), ni l'écriture (``interim``), ni
+    les vues des activités (``views``)."""
+    imports = _imports(INGEST / "day_views.py")
+    project = {m for m in imports if m.startswith("mountain")}
+    assert project <= {"mountain_perf.schemas", "mountain_perf.validation"}
+    outside = {m.split(".")[0] for m in imports if not m.startswith("mountain")}
+    assert outside <= STDLIB | {"__future__"}
 
 
 def test_engine_does_not_import_the_ingestion() -> None:

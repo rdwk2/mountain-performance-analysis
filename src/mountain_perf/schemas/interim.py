@@ -1,6 +1,8 @@
-"""Contrats d'``interim/`` (AN1-1, ``docs/decisions/0013``) : l'index des activités, et
-l'enregistrement d'une activité, fidèles à la source, canal par canal ; le rapport de
-la dernière ingestion.
+"""Contrats d'``interim/activities/`` (AN1-1, ``docs/decisions/0013``) : l'index des
+activités, et l'enregistrement d'une activité, fidèles à la source, canal par canal ; le
+rapport des activités de la dernière ingestion. Ceux d'``interim/days/`` sont dans
+``mountain_perf.schemas.days`` (AN2-1, ``docs/decisions/0018``) ; le numéro de format,
+``INTERIM_FORMAT_VERSION``, est commun.
 
 ``Activity`` et ``TrackPointStream`` (M1b) n'y sont pas écrits : ce sont des **vues**,
 calculées à la lecture par ``mountain_perf.ingest.views``. Les documents s'écrivent et
@@ -41,13 +43,20 @@ from mountain_perf.validation import (
 )
 
 INTERIM_FORMAT_VERSION = 2
-"""Version du format des documents d'``interim/`` (``0013``, point 3).
+"""Version du format des documents d'``interim/`` (``0013``, point 3) : de tous, ceux
+des activités (``interim/activities/``) comme ceux des jours (``interim/days/``,
+AN2-1).
 
-Chaque document la porte. Elle change à chaque changement de forme d'un contrat de ce
-module : le lecteur refuse un document d'un autre format, et ``interim/`` se régénère
-depuis ``raw/`` (``0013``, Conséquences). Format 2 (AN2-0) : plusieurs exports, la
-provenance de chaque entrée, la charge selon Garmin dans l'index, le rapport par
-export."""
+Chaque document la porte ; le lecteur refuse un document d'un autre format, et
+``interim/`` se régénère depuis ``raw/`` (``0013``, Conséquences). Elle change au
+changement de **forme ou de sens** d'un contrat existant : un champ ajouté, retiré ou
+retypé, et aussi un champ dont l'unité ou la définition change sans changer de type
+(sans numéro neuf, un ancien document se relirait avec le sens neuf, en silence). Elle
+ne change pas à l'ajout d'un type de document : un type neuf se déclare avec son premier
+format (``INTERIM_DOCUMENT_FIRST_FORMAT``, ``mountain_perf.ingest.interim``), et les
+documents existants restent lisibles sans réingestion. Format 2 (AN2-0) : plusieurs
+exports, la provenance de chaque entrée, la charge selon Garmin dans l'index, le rapport
+par export ; les types des jours (AN2-1) y entrent, à leur premier format, 2."""
 
 _REF = re.compile(r"[0-9A-Za-z_.-]+")
 
@@ -1732,8 +1741,9 @@ class FieldDifferenceCount:
 
 @dataclass(frozen=True)
 class IngestionReport:
-    """Le rapport de la dernière ingestion (document
-    ``interim/activities/report.json``).
+    """Le rapport des activités de la dernière ingestion (document
+    ``interim/activities/report.json``) ; le rapport des jours est à côté
+    (``DaysReport``, ``interim/days/report.json``, AN2-1).
 
     Champs
     ------

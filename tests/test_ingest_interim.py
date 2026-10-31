@@ -24,6 +24,8 @@ from mountain_perf.schemas import (
     INTERIM_FORMAT_VERSION,
     ActivityIndex,
     ActivityRecording,
+    DayRecord,
+    DaysReport,
     FieldDifferenceCount,
     IndexDifference,
     IngestionReport,
@@ -32,6 +34,7 @@ from mountain_perf.schemas import (
     RefusalReason,
     RefusedEntry,
     RetiredActivity,
+    TrainingStatusHistory,
     ViewRefusal,
     ViewRefusalCount,
 )
@@ -83,6 +86,9 @@ def test_format_and_types() -> None:
         ActivityIndex: 1,
         ActivityRecording: 1,
         IngestionReport: 1,
+        DayRecord: 2,
+        TrainingStatusHistory: 2,
+        DaysReport: 2,
     }
 
 
