@@ -48,6 +48,26 @@ from test_ingest_index import item
 AT = "2024-04-01T12:34:56+02:00"
 EXPORT = "garmin_a"
 
+NO_DAY_LINES = [
+    "Jours : 0",
+    "  empty : 0 jour(s)",
+    "  no_measurement : 0 jour(s)",
+    "  truncated : 0 jour(s)",
+    "  complete : 0 jour(s)",
+    "Morceaux empruntés : 0",
+    "Emprunts refusés : 0",
+    "Révisions (champs × jours) : 0",
+    "Dégradations (champs × jours) : 0",
+    "Écarts à part (champs × jours) : 0",
+    "Fichiers journaliers refusés : 0",
+    "Points écartés : 0",
+    "Codes inconnus : 0",
+    "Blocs de Training Status : 0",
+    "Blocs sans instant propre : 0",
+]
+"""Les lignes des jours (AN2-1) de ``mperf ingest`` pour des exports sans famille
+journalière, après celles des activités, inchangées."""
+
 
 def _zip(path: Path, members: dict[str, bytes]) -> None:
     with zipfile.ZipFile(path, "w") as zf:
@@ -227,6 +247,7 @@ def test_cli_ingest(
         "Champs de l'index qui diffèrent d'un export à l'autre : 0",
         "Activités aux FIT différents d'un export à l'autre : 0",
         "Enregistrements tirés d'un autre export que leur entrée : 0",
+        *NO_DAY_LINES,
     ]
 
 
@@ -295,8 +316,10 @@ def test_export_without_fit_folder(tmp_path: Path) -> None:
         index_differences=(),
         fit_differences=0,
         recordings_from_other_export=0,
+        days=summary.days,
     )
     assert summary.exports[0].archives == 0
+    assert summary.days.days == 0
 
 
 @pytest.mark.parametrize(
@@ -1261,6 +1284,7 @@ def test_cli_ingest_with_two_exports(
         "  distance_m : 1 activité(s)",
         "Activités aux FIT différents d'un export à l'autre : 1",
         "Enregistrements tirés d'un autre export que leur entrée : 1",
+        *NO_DAY_LINES,
     ]
 
 
