@@ -9,6 +9,7 @@ demande aucun extra : ``interim/`` se relit sans fitdecode (``0011``).
 
 import shutil
 from collections.abc import Iterable, Mapping
+from datetime import date
 from pathlib import Path
 from types import MappingProxyType
 
@@ -17,15 +18,26 @@ from mountain_perf.schemas import (
     INTERIM_FORMAT_VERSION,
     ActivityIndex,
     ActivityRecording,
+    DayRecord,
+    DaysReport,
     IngestionReport,
+    TrainingStatusHistory,
     require_activity_ref,
 )
 
 INTERIM_DOCUMENT_FIRST_FORMAT: Mapping[type, int] = MappingProxyType(
-    {ActivityIndex: 1, ActivityRecording: 1, IngestionReport: 1}
+    {
+        ActivityIndex: 1,
+        ActivityRecording: 1,
+        IngestionReport: 1,
+        DayRecord: 2,
+        TrainingStatusHistory: 2,
+        DaysReport: 2,
+    }
 )
 """Les types admis en documents d'``interim/``, et le premier format qui connaît
-chacun."""
+chacun : les types des jours (AN2-1) entrent au format 2, sans changer
+``INTERIM_FORMAT_VERSION``."""
 
 ACTIVITIES_DIR = Path("interim") / "activities"
 """Le dossier des documents des activités, relatif à ``MPA_DATA_DIR``."""
@@ -34,13 +46,27 @@ INDEX_FILE = "index.json"
 """Le document de l'index (``ActivityIndex``)."""
 
 REPORT_FILE = "report.json"
-"""Le document du rapport de la dernière ingestion (``IngestionReport``)."""
+"""Le document du rapport des activités de la dernière ingestion
+(``IngestionReport``)."""
 
 RECORDINGS_DIR = "recordings"
 """Le dossier des enregistrements, un document par activité (``ActivityRecording``)."""
 
 DOCUMENT_SUFFIX = ".json"
-"""Le suffixe d'un document : ``recordings/<activity_ref>.json``."""
+"""Le suffixe d'un document : ``recordings/<activity_ref>.json``,
+``days/<AAAA-MM-JJ>.json``."""
+
+DAYS_DIR = Path("interim") / "days"
+"""Le dossier des documents des jours, relatif à ``MPA_DATA_DIR`` (AN2-1) : un document
+par jour (``DayRecord``, ``<AAAA-MM-JJ>.json``), Training Status et le rapport des
+jours."""
+
+TRAINING_STATUS_FILE = "training_status.json"
+"""Le document de Training Status (``TrainingStatusHistory``), dans ``DAYS_DIR``."""
+
+DAYS_REPORT_FILE = "report.json"
+"""Le document du rapport des jours de la dernière ingestion (``DaysReport``), dans
+``DAYS_DIR``."""
 
 _NEW_SUFFIX = ".nouveau"
 _OLD_SUFFIX = ".ancien"
@@ -52,6 +78,8 @@ _EXTRA_RECORDING = (
 _MISSING_RECORDING = (
     "Chaque entrée de l'index qui porte un enregistrement doit en recevoir un."
 )
+_UNSORTED_DAYS = "Les jours doivent venir triés par date, chacun une seule fois."
+_RUN_INGEST = "lancer `mperf ingest`."
 
 
 class InterimError(Exception):
@@ -163,8 +191,8 @@ def read_index(data_dir: Path) -> ActivityIndex:
 
 
 def read_report(data_dir: Path) -> IngestionReport:
-    """Le rapport de la dernière ingestion ; fichier absent : ``InterimError``
-    (« report.json manque dans interim/ : lancer `mperf ingest`. »)."""
+    """Le rapport des activités de la dernière ingestion ; fichier absent :
+    ``InterimError`` (« report.json manque dans interim/ : lancer `mperf ingest`. »)."""
     data = _read_document(data_dir / ACTIVITIES_DIR / REPORT_FILE)
     return decode_interim(data, IngestionReport)
 
@@ -187,3 +215,125 @@ def read_recording(data_dir: Path, activity_ref: str) -> ActivityRecording:
             "son nom de fichier. Lancer `mperf ingest`."
         )
     return recording
+
+
+def write_days(
+    data_dir: Path,
+    records: Iterable[DayRecord],
+    history: TrainingStatusHistory,
+    report: DaysReport,
+) -> None:
+    """Écrit ``interim/days/`` sous ``data_dir`` : un document par jour, Training
+    Status, le rapport des jours ; une écriture interrompue laisse l'ancien dossier
+    intact.
+
+    Sur le modèle exact de ``write_activities``, qui ne change pas : supprime
+    ``interim/days.nouveau/`` et ``interim/days.ancien/`` s'ils restent d'une écriture
+    interrompue ; écrit tout dans ``days.nouveau/`` ; renomme l'ancien ``days/`` (s'il
+    existe) en ``days.ancien/`` ; met ``days.nouveau/`` à sa place ; supprime
+    ``days.ancien/``. Si ``days.nouveau/`` ne prend pas sa place, ``days.ancien/``
+    reprend la sienne, et l'erreur se propage. ``interim/activities/`` n'est pas
+    touché : deux échanges, pas un.
+
+    Les jours s'écrivent un à un, dans l'ordre reçu (``records`` peut être un
+    générateur) : un jour qui ne suit pas strictement le précédent (en double, ou non
+    trié) lève ``ValueError`` (« Les jours doivent venir triés par date, chacun une
+    seule fois. ») ; ``days.nouveau/`` est alors supprimé et rien n'est mis en place.
+    """
+    target = data_dir / DAYS_DIR
+    new = target.with_name(target.name + _NEW_SUFFIX)
+    old = target.with_name(target.name + _OLD_SUFFIX)
+    _remove(new)
+    _remove(old)
+    try:
+        new.mkdir(parents=True)
+        previous: date | None = None
+        for record in records:
+            if previous is not None and not record.day > previous:
+                raise ValueError(_UNSORTED_DAYS)
+            previous = record.day
+            name = record.day.isoformat() + DOCUMENT_SUFFIX
+            (new / name).write_bytes(encode_interim(record))
+        (new / TRAINING_STATUS_FILE).write_bytes(encode_interim(history))
+        (new / DAYS_REPORT_FILE).write_bytes(encode_interim(report))
+    except BaseException:
+        _remove(new)
+        raise
+    if target.exists():
+        target.rename(old)
+    try:
+        new.rename(target)
+    except BaseException:
+        if old.exists() and not target.exists():
+            old.rename(target)
+        raise
+    _remove(old)
+
+
+def _days_folder(data_dir: Path) -> Path:
+    folder = data_dir / DAYS_DIR
+    if not folder.is_dir():
+        raise InterimError(f"{DAYS_DIR.name}/ manque dans interim/ : {_RUN_INGEST}")
+    return folder
+
+
+def _read_days_document(data_dir: Path, name: str) -> bytes:
+    path = _days_folder(data_dir) / name
+    try:
+        return path.read_bytes()
+    except FileNotFoundError:
+        raise InterimError(
+            f"{DAYS_DIR.name}/{name} manque dans interim/ : {_RUN_INGEST}"
+        ) from None
+
+
+def read_days(data_dir: Path) -> tuple[DayRecord, ...]:
+    """Les documents des jours d'``interim/days/`` sous ``data_dir``, triés par jour.
+
+    Dossier absent : ``InterimError`` (« days/ manque dans interim/ : lancer
+    `mperf ingest`. »). Tout ce que le dossier porte, hors de ``training_status.json``
+    et ``report.json``, est un document ``DayRecord`` nommé par sa date : un élément qui
+    n'est pas un fichier, ou un document dont le jour n'est pas celui de son nom, lève
+    ``InterimError`` (« interim/ incohérent : … ») ; un fichier qui n'est pas un
+    document ``DayRecord`` lève ``CodecError``.
+    """
+    folder = _days_folder(data_dir)
+    paths = sorted(
+        (
+            path
+            for path in folder.iterdir()
+            if path.name not in (TRAINING_STATUS_FILE, DAYS_REPORT_FILE)
+        ),
+        key=lambda path: path.name,
+    )
+    if any(not path.is_file() for path in paths):
+        raise InterimError(
+            "interim/ incohérent : interim/days/ porte autre chose que des documents. "
+            "Lancer `mperf ingest`."
+        )
+    records: list[DayRecord] = []
+    for path in paths:
+        record = decode_interim(path.read_bytes(), DayRecord)
+        if path.name != record.day.isoformat() + DOCUMENT_SUFFIX:
+            raise InterimError(
+                "interim/ incohérent : un jour porte une autre date que son nom de "
+                "fichier. Lancer `mperf ingest`."
+            )
+        records.append(record)
+    return tuple(sorted(records, key=lambda record: record.day))
+
+
+def read_training_status(data_dir: Path) -> TrainingStatusHistory:
+    """Le document de Training Status ; dossier ou fichier absent : ``InterimError``
+    (« days/ manque… », « days/training_status.json manque dans interim/ : lancer
+    `mperf ingest`. »)."""
+    data = _read_days_document(data_dir, TRAINING_STATUS_FILE)
+    return decode_interim(data, TrainingStatusHistory)
+
+
+def read_days_report(data_dir: Path) -> DaysReport:
+    """Le rapport des jours de la dernière ingestion ; dossier ou fichier absent :
+    ``InterimError`` (« days/ manque… », « days/report.json manque dans interim/ :
+    lancer `mperf ingest`. »)."""
+    data = _read_days_document(data_dir, DAYS_REPORT_FILE)
+    return decode_interim(data, DaysReport)
