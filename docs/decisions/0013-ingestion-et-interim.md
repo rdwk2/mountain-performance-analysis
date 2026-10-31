@@ -1,8 +1,8 @@
 # 0013 — Ingestion des activités et format d'`interim/`
 
 - **Date** : 2026-10-09
-- **Statut** : acceptée (AN1-1), avec les précisions de fin de document (AN1-1 et
-  AN2-0)
+- **Statut** : acceptée (AN1-1), avec les précisions de fin de document (AN1-1,
+  AN2-0 et AN2-1)
 
 ## Contexte
 
@@ -370,3 +370,27 @@ exports réels, sans chiffre ici (règle 1).*
 20. **La mise en place.** Si le nouveau dossier ne prend pas la place
     d'`interim/activities/` (un fichier tenu ailleurs, sous Windows), l'ancien
     reprend la sienne, comme les tables de `processed/` (`write_tables`).
+
+## Précisions d'AN2-1
+
+*Ajoutées par la PR AN2-1 (les données journalières), avec l'accord du moteur
+(condition (c)). Le contrat des activités ne change pas : `interim/activities/`
+s'écrit à l'octet comme en AN2-0 pour les mêmes exports.*
+
+21. **Périmètre.** Les données journalières annoncées au point 6 sont dans
+    `interim/days/`, décrites par `0018` ; ce record reste celui des activités. Le
+    point « À revisiter : les données journalières, à AN2 » est fait.
+22. **Le numéro de format.** « Un changement de contrat change le numéro de format »
+    (point 3 et Conséquences) se lit ainsi : `INTERIM_FORMAT_VERSION` change au
+    changement de **forme ou de sens** d'un contrat existant (un champ ajouté, retiré
+    ou retypé, et aussi un champ dont l'unité ou la définition change sans changer de
+    type : sans numéro neuf, un ancien document se relirait avec le sens neuf, en
+    silence). Il ne change pas à l'ajout d'un type de document : un type neuf se
+    déclare avec son premier format (`INTERIM_DOCUMENT_FIRST_FORMAT`,
+    `ingest/interim.py`), et les documents existants restent lisibles sans
+    réingestion. Les trois types des jours entrent au format 2.
+23. **Deux mises en place.** `mperf ingest` calcule les activités et les jours avant
+    la moindre écriture, puis met en place `interim/activities/` (précision 20), puis
+    `interim/days/`, de la même façon. Une erreur avant l'écriture n'écrit rien. Si les
+    jours ne prennent pas leur place après les activités, le message le dit, et
+    relancer la commande remet tout en ordre (`0018`).
