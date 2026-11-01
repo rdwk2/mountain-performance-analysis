@@ -31,7 +31,13 @@ l'instant propre est au plus tard cet instant (ou strictement avant). `mperf ing
 écrit les activités, à l'octet comme avant, puis les jours ; `INTERIM_FORMAT_VERSION` reste à 2 (`0013`, précisions
 d'AN2-1). README, `CLAUDE.md`, ROADMAP, charte § 2, `PIEGES_DATA.md`, `BACKLOG.md`.
 Le brief relu, avant la session, par l'A du moteur (`0013`, condition (c)) et par la B
-de la piste. Conclusion : `just check` vert, 8 986 tests avec tous les extras. Rangé dans
+de la piste. La PR relue par deux relectures profondes et un balayage par mutation,
+puis corrigée : cinq lectures tranchées (une nuit aux deux bornes nulles, un point de
+Body Battery sans version, le sommeil mesuré d'un appareil qui ne dit pas s'il détecte
+le paradoxal, une série d'une famille empruntée entière, la durée de
+`body_battery_at`), deux refus de fichier de plus (une clé d'appareil trop longue, un
+texte qui ne s'encode pas en UTF-8), deux docstrings de `schemas/days.py`, et les tests
+qui manquaient. Conclusion : `just check` vert, 9 275 tests avec tous les extras. Rangé dans
 `src/mountain_perf/schemas/days.py`, `src/mountain_perf/ingest/{families,days,day_views,interim,export}.py`,
 `src/mountain_perf/cli.py`, `tests/`, `docs/decisions/0018-donnees-journalieres.md`,
 branche `an2/jours`.
