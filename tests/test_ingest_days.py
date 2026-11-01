@@ -14,7 +14,14 @@ from typing import Any
 
 import pytest
 
-from fixtures.day_exports import build, load, record, write_day, write_document
+from fixtures.day_exports import (
+    build,
+    export_dir,
+    load,
+    record,
+    write_day,
+    write_document,
+)
 from fixtures.days import (
     DAY,
     EXPORT_A,
@@ -22,6 +29,7 @@ from fixtures.days import (
     EXPORT_C,
     PLUS2,
     RETRIEVED,
+    SPRING_DAY,
     at,
     midnight,
     ms,
@@ -36,9 +44,13 @@ from fixtures.families import (
     gmt_text,
     local_text,
     readiness_entry,
+    status_entry,
+    training_status_document,
 )
-from mountain_perf.ingest.days import build_days
+from mountain_perf.ingest.days import build_days, load_export_days
 from mountain_perf.schemas import (
+    AlgorithmVersions,
+    BlockCount,
     BorrowingCount,
     BorrowingRefusal,
     BorrowingRefusalCount,
@@ -51,11 +63,15 @@ from mountain_perf.schemas import (
     DayFileRefused,
     DayRecord,
     DayState,
+    ExportDayCount,
     FamilyDayCount,
     PointDiscard,
     PointDiscardCount,
     ReadinessCopyCount,
+    SleepSegment,
+    SleepStage,
     SourceRef,
+    TrainingStatusKind,
     WindowEdgeCount,
 )
 
@@ -1673,3 +1689,774 @@ def test_a_series_missing_from_a_whole_borrowed_family_needs_its_window(
             1,
         )
     assert ingestion.report.borrowing_refusals == (refusal,)
+
+
+# --- les règles que la suite ne tenait pas ------------------------------------------
+
+
+def test_a_missing_night_drops_only_the_series_it_carries(tmp_path: Path) -> None:
+    """La nuit absente (ses deux bornes GMT nulles), ses segments et ses moments agités
+    vides : seules les séries portées se jettent, une série absente ne compte rien."""
+    sleep = _sleep(sleepStartTimestampGMT=None, sleepEndTimestampGMT=None)
+    sleep["sleepRestlessMoments"] = []
+    sleep["sleepLevels"] = []
+    write_day(
+        tmp_path, families=(DayFamily.DAILY_SUMMARY, DayFamily.SLEEP), sleep=sleep
+    )
+    dropped = {
+        count.series_path: count.count
+        for count in build(tmp_path).report.point_discards
+        if count.reason is PointDiscard.NO_NIGHT
+    }
+    assert dropped == {
+        "sleepHeartRate": 2,
+        "sleepStress": 2,
+        "sleepBodyBattery": 2,
+        "hrvData": 2,
+        "wellnessEpochRespirationDataDTOList": 2,
+        "wellnessEpochSPO2DataDTOList": 2,
+    }
+
+
+def test_the_detail_of_an_empty_day_makes_a_degradation(tmp_path: Path) -> None:
+    """A, l'ancien, porte le jour sans fenêtre (``empty``, le seul ``sleep``) mais avec
+    son détail ; B, le récent, le porte complet sans son détail, un autre score de
+    sommeil : B est la référence, et l'écart du score est une dégradation."""
+    write_day(tmp_path, export=EXPORT_A, families=(DayFamily.SLEEP,))
+    sleep = _stripped_sleep()
+    sleep["dailySleepDTO"]["sleepScores"]["overall"]["value"] = 90
+    write_day(
+        tmp_path,
+        export=EXPORT_B,
+        families=(DayFamily.DAILY_SUMMARY, DayFamily.SLEEP),
+        sleep=sleep,
+    )
+    ingestion = build(tmp_path, EXPORT_A, EXPORT_B)
+    assert record(ingestion).reference_export == EXPORT_B
+    assert _kinds(ingestion, DayFamily.SLEEP)[SCORE] is ComparisonClass.DEGRADATION
+
+
+def _piece(day: DayRecord, piece: str) -> Any:
+    """Un morceau du document, par son chemin (celui de ``BorrowingCount.piece``)."""
+    if piece.startswith("series."):
+        return getattr(day.series, piece.removeprefix("series."))
+    return getattr(day, piece)
+
+
+_WHOLE_PIECES = [
+    (DayFamily.SLEEP, ("naps", "night")),
+    (DayFamily.HRV, ("hrv",)),
+    (DayFamily.RESTING_HR, ("resting_hr",)),
+    (DayFamily.HEART_RATE, ("series.heart_rate",)),
+    (DayFamily.STRESS, ("series.body_battery", "series.stress")),
+    (DayFamily.RESPIRATION, ("respiration", "series.respiration")),
+    (DayFamily.SPO2, ("series.spo2", "spo2")),
+    (
+        DayFamily.DAILY_SUMMARY,
+        ("activity_totals", "body_battery", "stress", "wellness_data"),
+    ),
+    (DayFamily.TRAINING_READINESS, ("readiness",)),
+]
+
+
+@pytest.mark.parametrize(("family", "pieces"), _WHOLE_PIECES)
+def test_a_whole_family_borrows_each_of_its_pieces(
+    tmp_path: Path, family: DayFamily, pieces: tuple[str, ...]
+) -> None:
+    """Chaque famille qui s'emprunte, absente de la référence B et portée entière par A
+    (fenêtres en accord) : chacun de ses morceaux s'emprunte, une fois, et le document
+    le porte, de la provenance de A."""
+    write_day(tmp_path, export=EXPORT_A)
+    write_day(tmp_path, export=EXPORT_B, families=_without(family))
+    ingestion = build(tmp_path, EXPORT_A, EXPORT_B)
+    day = record(ingestion)
+    assert day.reference_export == EXPORT_B
+    assert ingestion.report.borrowings == tuple(
+        BorrowingCount(family, piece, 1) for piece in pieces
+    )
+    assert ingestion.report.borrowing_refusals == ()
+    for piece in pieces:
+        value = _piece(day, piece)
+        assert value is not None, piece
+        assert value != (), piece
+        items = value if isinstance(value, tuple) else (value,)
+        for item in items:
+            if hasattr(item, "source"):
+                assert item.source.retrieved_at == RETRIEVED[EXPORT_A], piece
+
+
+def test_a_family_that_copies_one_bound_of_the_night_is_borrowed(
+    tmp_path: Path,
+) -> None:
+    """``hrv`` de A ne recopie que le début de la nuit (sa fin nulle) : rien à comparer
+    sur la nuit, la famille s'emprunte."""
+    lender = _doc(DayFamily.HRV)
+    lender["sleepEndTimestampGMT"] = None
+    write_day(tmp_path, export=EXPORT_A, hrv=lender)
+    write_day(tmp_path, export=EXPORT_B, families=_without(DayFamily.HRV))
+    ingestion = build(tmp_path, EXPORT_A, EXPORT_B)
+    assert ingestion.report.borrowings == (BorrowingCount(DayFamily.HRV, "hrv", 1),)
+    assert ingestion.report.borrowing_refusals == ()
+
+
+def test_borrowed_segments_add_up_the_durations_of_a_phase(tmp_path: Path) -> None:
+    """Deux segments légers (2 h 15 chacun) redonnent ensemble le léger du résumé
+    (4 h 30) : l'emprunt passe."""
+    plan = [(0, 3600), (1, 8100), (1, 8100), (2, 5400), (3, 1800), (-1, 1800)]
+    _check_segments(_segments_case(tmp_path, plan, {}), plan, borrowed=True)
+
+
+def _shifted_night_copy(family: DayFamily) -> dict[str, Any]:
+    """Le document de ``family`` dont la copie du début de la nuit est dix minutes plus
+    tard que la nuit de ``sleep``."""
+    document: dict[str, Any] = _doc(family)
+    document["sleepStartTimestampGMT"] = gmt_text(NIGHT_START + timedelta(minutes=10))
+    return document
+
+
+def test_the_night_of_the_document_is_the_one_of_sleep_before_its_copies(
+    tmp_path: Path,
+) -> None:
+    """La référence B porte la nuit de ``sleep`` et, dans ``hrv``, une copie de ses
+    bornes décalée de dix minutes ; ``respiration``, que B n'a pas, vient de A, sa copie
+    égale à la nuit de ``sleep`` : l'emprunt se juge contre ``sleep``, il passe."""
+    write_day(
+        tmp_path,
+        export=EXPORT_A,
+        families=(DayFamily.DAILY_SUMMARY, DayFamily.RESPIRATION),
+    )
+    write_day(
+        tmp_path,
+        export=EXPORT_B,
+        families=_without(DayFamily.RESPIRATION),
+        hrv=_shifted_night_copy(DayFamily.HRV),
+    )
+    ingestion = build(tmp_path, EXPORT_A, EXPORT_B)
+    assert record(ingestion).reference_export == EXPORT_B
+    assert ingestion.report.borrowings == (
+        BorrowingCount(DayFamily.RESPIRATION, "respiration", 1),
+        BorrowingCount(DayFamily.RESPIRATION, "series.respiration", 1),
+    )
+    assert ingestion.report.borrowing_refusals == ()
+
+
+def test_without_sleep_the_night_of_the_document_is_a_copy(tmp_path: Path) -> None:
+    """Ni A ni B ne portent ``sleep`` : la nuit du document est la copie de ses bornes
+    dans ``hrv`` de B ; ``respiration`` de A, dont la copie en diffère de dix minutes,
+    est refusée (``night_window``)."""
+    write_day(
+        tmp_path,
+        export=EXPORT_A,
+        families=(DayFamily.DAILY_SUMMARY, DayFamily.RESPIRATION),
+    )
+    write_day(
+        tmp_path,
+        export=EXPORT_B,
+        families=(DayFamily.DAILY_SUMMARY, DayFamily.HRV),
+        hrv=_shifted_night_copy(DayFamily.HRV),
+    )
+    ingestion = build(tmp_path, EXPORT_A, EXPORT_B)
+    day = record(ingestion)
+    assert day.reference_export == EXPORT_B
+    assert day.night is None
+    assert day.respiration is None
+    assert ingestion.report.borrowings == ()
+    assert ingestion.report.borrowing_refusals == tuple(
+        BorrowingRefusalCount(
+            DayFamily.RESPIRATION, piece, BorrowingRefusal.NIGHT_WINDOW, 1
+        )
+        for piece in ("respiration", "series.respiration")
+    )
+
+
+def test_a_day_series_of_a_file_without_window_agrees_by_its_export(
+    tmp_path: Path,
+) -> None:
+    """La série de FC de A vient d'un fichier sans fenêtre propre (ses champs nuls) ; la
+    fenêtre du jour de A (``daily_summary``) commence comme celle de la référence B : la
+    série s'emprunte, de la provenance de A."""
+    write_day(
+        tmp_path,
+        export=EXPORT_A,
+        families=(DayFamily.DAILY_SUMMARY, DayFamily.HEART_RATE),
+        heart_rate=_null_window(_doc(DayFamily.HEART_RATE)),
+    )
+    own = _doc(DayFamily.HEART_RATE)
+    own["heartRateValues"] = []
+    write_day(tmp_path, export=EXPORT_B, heart_rate=own)
+    ingestion = build(tmp_path, EXPORT_A, EXPORT_B)
+    day = record(ingestion)
+    assert day.reference_export == EXPORT_B
+    series = day.series.heart_rate
+    assert series is not None
+    assert series.time_s == (0.0, 43200.0)
+    assert series.source.retrieved_at == RETRIEVED[EXPORT_A]
+    assert ingestion.report.borrowings == (
+        BorrowingCount(DayFamily.HEART_RATE, "series.heart_rate", 1),
+    )
+
+
+def test_two_refused_families_and_a_borrowed_one(tmp_path: Path) -> None:
+    """B n'a ni ``hrv``, ni ``resting_hr``, ni ``spo2`` ; A les porte, ``hrv`` et
+    ``spo2`` d'une autre nuit : les deux refus se comptent, et ``resting_hr``, entre
+    elles dans l'ordre des familles, s'emprunte."""
+    write_day(
+        tmp_path,
+        export=EXPORT_A,
+        hrv=_shifted_night_copy(DayFamily.HRV),
+        spo2=_shifted_night_copy(DayFamily.SPO2),
+    )
+    lacking = (DayFamily.HRV, DayFamily.RESTING_HR, DayFamily.SPO2)
+    write_day(
+        tmp_path,
+        export=EXPORT_B,
+        families=[family for family in DayFamily if family not in lacking],
+    )
+    ingestion = build(tmp_path, EXPORT_A, EXPORT_B)
+    assert ingestion.report.borrowings == (
+        BorrowingCount(DayFamily.RESTING_HR, "resting_hr", 1),
+    )
+    night_window = BorrowingRefusal.NIGHT_WINDOW
+    assert ingestion.report.borrowing_refusals == (
+        BorrowingRefusalCount(DayFamily.HRV, "hrv", night_window, 1),
+        BorrowingRefusalCount(DayFamily.SPO2, "series.spo2", night_window, 1),
+        BorrowingRefusalCount(DayFamily.SPO2, "spo2", night_window, 1),
+    )
+
+
+def _lacking_series() -> tuple[dict[str, Any], dict[str, Any]]:
+    """``stress`` sans ses deux séries ; ``sleep`` sans FC, sans moments agités, sans
+    segments."""
+    stress: dict[str, Any] = _doc(DayFamily.STRESS)
+    stress["stressValuesArray"] = []
+    stress["bodyBatteryValuesArray"] = []
+    sleep: dict[str, Any] = _doc(DayFamily.SLEEP)
+    for key in ("sleepHeartRate", "sleepRestlessMoments", "sleepLevels"):
+        sleep[key] = []
+    return stress, sleep
+
+
+def test_every_missing_series_skips_a_lender_that_lacks_it(tmp_path: Path) -> None:
+    """C, la référence, n'a ni les deux séries de ``stress``, ni deux séries et les
+    segments de sa nuit ; B, le plus récent des autres, ne les a pas non plus ; A les
+    porte : chacune vient de A, chacune comptée, et ses feuilles sont des emprunts."""
+    full = _doc(DayFamily.SLEEP)
+    full["sleepLevels"] = _levels(_FULL_PLAN)
+    write_day(tmp_path, export=EXPORT_A, sleep=full)
+    for export in (EXPORT_B, EXPORT_C):
+        stress, sleep = _lacking_series()
+        write_day(tmp_path, export=export, stress=stress, sleep=sleep)
+    ingestion = build(tmp_path, EXPORT_A, EXPORT_B, EXPORT_C)
+    day = record(ingestion)
+    assert day.reference_export == EXPORT_C
+    assert ingestion.report.borrowings == (
+        BorrowingCount(DayFamily.SLEEP, "night.segments", 1),
+        BorrowingCount(DayFamily.SLEEP, "night.series.heart_rate", 1),
+        BorrowingCount(DayFamily.SLEEP, "night.series.restless_moments", 1),
+        BorrowingCount(DayFamily.STRESS, "series.body_battery", 1),
+        BorrowingCount(DayFamily.STRESS, "series.stress", 1),
+    )
+    assert ingestion.report.borrowing_refusals == ()
+    night = day.night
+    assert night is not None
+    assert night.source.retrieved_at == RETRIEVED[EXPORT_C]
+    assert night.segments == (
+        SleepSegment(0.0, 3600.0, SleepStage.DEEP),
+        SleepSegment(3600.0, 19800.0, SleepStage.LIGHT),
+        SleepSegment(19800.0, 25200.0, SleepStage.REM),
+        SleepSegment(25200.0, 27000.0, SleepStage.AWAKE),
+        SleepSegment(27000.0, 28800.0, SleepStage.UNMEASURABLE),
+    )
+    for series in (
+        night.series.heart_rate,
+        night.series.restless_moments,
+        day.series.stress,
+        day.series.body_battery,
+    ):
+        assert series is not None
+        assert series.source.retrieved_at == RETRIEVED[EXPORT_A]
+    sleep_kinds = _kinds(ingestion, DayFamily.SLEEP)
+    for path in ("sleepLevels[*]", "sleepHeartRate[*]", "sleepRestlessMoments[*]"):
+        assert sleep_kinds[path] is ComparisonClass.BORROWING, path
+    stress_kinds = _kinds(ingestion, DayFamily.STRESS)
+    for path in ("stressValuesArray[*]", "bodyBatteryValuesArray[*]"):
+        assert stress_kinds[path] is ComparisonClass.BORROWING, path
+
+
+def test_segments_of_another_night_are_refused_by_their_window(tmp_path: Path) -> None:
+    """Des segments qui redonnent les durées du résumé, d'une nuit une seconde plus
+    tard : refus ``night_window`` (la fenêtre passe avant les durées)."""
+    lender = _doc(DayFamily.SLEEP)
+    lender["sleepLevels"] = _levels(_FULL_PLAN)
+    dto = lender["dailySleepDTO"]
+    dto["sleepStartTimestampGMT"] += 1000
+    dto["sleepStartTimestampLocal"] += 1000
+    write_day(tmp_path, export=EXPORT_A, sleep=lender)
+    reference = _doc(DayFamily.SLEEP)
+    reference["sleepLevels"] = []
+    write_day(tmp_path, export=EXPORT_B, sleep=reference)
+    ingestion = build(tmp_path, EXPORT_A, EXPORT_B)
+    night = record(ingestion).night
+    assert night is not None
+    assert night.segments == ()
+    assert ingestion.report.borrowing_refusals == (
+        BorrowingRefusalCount(
+            DayFamily.SLEEP, "night.segments", BorrowingRefusal.NIGHT_WINDOW, 1
+        ),
+    )
+
+
+def test_the_segments_of_a_night_in_seconds_from_its_start(tmp_path: Path) -> None:
+    """Les segments du document, en secondes depuis le début de la nuit, début et fin
+    exacts."""
+    write_day(tmp_path)
+    night = record(build(tmp_path)).night
+    assert night is not None
+    assert night.segments == (
+        SleepSegment(0.0, 3600.0, SleepStage.LIGHT),
+        SleepSegment(3600.0, 7200.0, SleepStage.DEEP),
+    )
+
+
+def test_the_document_carries_the_versions_and_summaries_of_its_families(
+    tmp_path: Path,
+) -> None:
+    respiration = _doc(DayFamily.RESPIRATION)
+    respiration["respirationVersion"] = 201
+    write_day(
+        tmp_path,
+        respiration=respiration,
+        daily_summary=_summary(respirationAlgorithmVersion=202),
+    )
+    day = record(build(tmp_path))
+    assert day.versions == AlgorithmVersions(
+        sleep_version=2,
+        sleep_respiration_version=200,
+        respiration_version=201,
+        summary_respiration_version=202,
+        summary_body_battery_version=3,
+        body_battery_series_versions=(3,),
+    )
+    assert day.wellness_data is True
+    assert day.respiration is not None
+    assert day.respiration.avg_sleep_breaths_per_min == 13.0
+    assert day.body_battery is not None
+    assert day.body_battery.charged == 60
+    assert day.activity_totals is not None
+    assert day.activity_totals.steps == 10000
+
+
+def test_a_stress_copy_against_an_average_written_as_a_code(tmp_path: Path) -> None:
+    """Le stress moyen du document est un code (−1, de ``daily_summary``) ; la copie de
+    ``stress`` porte un niveau (25) : elle diffère, comptée."""
+    write_day(tmp_path, daily_summary=_summary(averageStressLevel=-1))
+    assert build(tmp_path).report.copy_disagreements == (
+        CopyDisagreementCount("stress.average_level", DayFamily.STRESS, 1),
+    )
+
+
+def _counted_lender(root: Path, day: date) -> None:
+    """A, au jour ``day`` : toutes ses familles, ``hrv`` d'une autre nuit."""
+    hrv = _doc(DayFamily.HRV, day)
+    hrv["sleepStartTimestampGMT"] = gmt_text(at(day - timedelta(days=1), 23, 10))
+    write_day(root, day, export=EXPORT_A, hrv=hrv)
+
+
+def _counted_reference(root: Path, day: date) -> None:
+    """B, au jour ``day`` : ni ``hrv`` ni ``daily_summary`` ; une FC de repos copiée qui
+    diffère, une fenêtre de ``stress`` une heure plus tard et un code de stress inconnu,
+    un type de confirmation inconnu, deux champs de la nuit révisés, un bloc « statut »
+    sans sa date."""
+    heart_rate = _doc(DayFamily.HEART_RATE, day)
+    heart_rate["restingHeartRate"] = 51
+    stress = _doc(DayFamily.STRESS, day)
+    stress["startTimestampGMT"] = gmt_text(at(day, 1))
+    stress["startTimestampLocal"] = local_text(at(day, 1))
+    stress["stressValuesArray"] = [[ms(midnight(day)), 20], [ms(at(day, 2)), -3]]
+    sleep = _doc(DayFamily.SLEEP, day)
+    dto = sleep["dailySleepDTO"]
+    dto["sleepWindowConfirmationType"] = "invented_type"
+    dto["sleepScores"]["overall"]["value"] = 90
+    dto["avgSleepStress"] = 20
+    status = training_status_document(
+        day, statuses={"7": status_entry(day, calendarDate=None)}
+    )
+    lacking = (DayFamily.HRV, DayFamily.DAILY_SUMMARY)
+    write_day(
+        root,
+        day,
+        export=EXPORT_B,
+        families=[family for family in DayFamily if family not in lacking],
+        heart_rate=heart_rate,
+        stress=stress,
+        sleep=sleep,
+        training_status=status,
+    )
+
+
+def test_every_count_of_the_report_adds_up_over_two_days(tmp_path: Path) -> None:
+    """Les mêmes cas deux jours de suite : chaque compte du rapport vaut 2, un par
+    jour ; le résumé somme les jours de toutes les révisions."""
+    for day in (DAY, D1):
+        _counted_lender(tmp_path, day)
+        _counted_reference(tmp_path, day)
+    ingestion = build(tmp_path, EXPORT_A, EXPORT_B)
+    report = ingestion.report
+    assert report.reference_days == (ExportDayCount(EXPORT_B, 2),)
+    assert report.window_families == (FamilyDayCount(DayFamily.HEART_RATE, 2),)
+    assert report.window_mismatches == (FamilyDayCount(DayFamily.STRESS, 2),)
+    assert report.borrowings == tuple(
+        BorrowingCount(DayFamily.DAILY_SUMMARY, piece, 2)
+        for piece in ("activity_totals", "body_battery", "stress", "wellness_data")
+    )
+    assert report.borrowing_refusals == (
+        BorrowingRefusalCount(DayFamily.HRV, "hrv", BorrowingRefusal.NIGHT_WINDOW, 2),
+    )
+    assert report.unknown_codes == (
+        CodeCount(DayFamily.STRESS, "stressValuesArray[*][1]", "-3", 2),
+    )
+    assert report.unknown_confirmations == (
+        CodeCount(
+            DayFamily.SLEEP,
+            "dailySleepDTO.sleepWindowConfirmationType",
+            "invented_type",
+            2,
+        ),
+    )
+    assert report.refused_blocks == (BlockCount(TrainingStatusKind.STATUS, 2),)
+    assert report.copy_disagreements == (
+        CopyDisagreementCount("resting_hr.resting_hr_bpm", DayFamily.HEART_RATE, 2),
+    )
+    found = {
+        (count.family, count.field_path): (count.comparison, count.days)
+        for count in report.comparisons
+    }
+    assert found[(DayFamily.SLEEP, SCORE)] == (ComparisonClass.REVISION, 2)
+    assert found[(DayFamily.SLEEP, "dailySleepDTO.avgSleepStress")] == (
+        ComparisonClass.REVISION,
+        2,
+    )
+    revisions = [
+        count
+        for count in report.comparisons
+        if count.comparison is ComparisonClass.REVISION
+    ]
+    assert all(count.days == 2 for count in revisions)
+    assert ingestion.summary.revisions == 2 * len(revisions) > 2
+
+
+def test_the_night_equality_without_rem_at_its_tolerance(tmp_path: Path) -> None:
+    """Sans paradoxal détecté, il compte zéro : un total de 210 s au-dessus de la durée
+    (la tolérance) n'est pas une infraction, 211 s l'est."""
+    for light_s, violations in ((21810, 0), (21811, 1)):
+        sleep = _sleep(
+            deviceRemCapable=False, remSleepSeconds=None, lightSleepSeconds=light_s
+        )
+        write_day(tmp_path, sleep=sleep)
+        assert build(tmp_path).report.night_equality_violations == violations
+
+
+def _sleep_with_naps(day: date, *naps: tuple[datetime, datetime]) -> dict[str, Any]:
+    """Le document de ``sleep`` de ``day``, ses siestes remplacées par ``naps``."""
+    sleep: dict[str, Any] = _doc(DayFamily.SLEEP, day)
+    dto = sleep["dailySleepDTO"]
+    template = dto["dailyNapDTOS"][0]
+    dto["dailyNapDTOS"] = [
+        {
+            **template,
+            "napStartTimestampGMT": gmt_text(start, ""),
+            "napEndTimestampGMT": gmt_text(end, ""),
+        }
+        for start, end in naps
+    ]
+    return sleep
+
+
+def test_naps_that_touch_the_night_do_not_overlap_it(tmp_path: Path) -> None:
+    """Une sieste finie à l'instant où la nuit commence, une autre commencée à
+    l'instant où elle finit : aucune ne la recoupe."""
+    half_hour = timedelta(minutes=30)
+    sleep = _sleep_with_naps(
+        DAY,
+        (NIGHT_START - half_hour, NIGHT_START),
+        (NIGHT_END, NIGHT_END + half_hour),
+    )
+    write_day(tmp_path, sleep=sleep)
+    ingestion = build(tmp_path)
+    assert len(record(ingestion).naps) == 2
+    assert ingestion.report.naps_overlapping_night == 0
+
+
+def test_a_night_with_a_missing_duration_still_counts_its_naps(tmp_path: Path) -> None:
+    """Le profond manque : pas de contrôle de l'égalité, mais la sieste qui recoupe la
+    nuit se compte."""
+    sleep = _sleep_with_naps(DAY, (at(DAY, 6, 30), at(DAY, 7, 30)))
+    sleep["dailySleepDTO"]["deepSleepSeconds"] = None
+    write_day(tmp_path, sleep=sleep)
+    report = build(tmp_path).report
+    assert report.night_equality_violations == 0
+    assert report.naps_overlapping_night == 1
+
+
+def test_the_night_checks_add_up_over_two_days(tmp_path: Path) -> None:
+    """Deux jours, chacun une nuit hors de l'égalité et une sieste qui la recoupe :
+    deux de chaque."""
+    for day in (DAY, D1):
+        sleep = _sleep_with_naps(day, (at(day, 6, 30), at(day, 7, 30)))
+        sleep["dailySleepDTO"]["awakeSleepSeconds"] = 1800 + 211
+        write_day(tmp_path, day, sleep=sleep)
+    report = build(tmp_path).report
+    assert report.night_equality_violations == 2
+    assert report.naps_overlapping_night == 2
+
+
+def test_a_night_across_the_change_of_time_is_measured_in_real_time(
+    tmp_path: Path,
+) -> None:
+    """La nuit du 25 mars 2001, de 23:00+01:00 à 07:00+02:00 : 7 h réelles, 8 h
+    d'heures murales. Ses phases (8 h) ne redonnent pas sa durée, une infraction ; un
+    point de FC 7 h 30 après son début est après sa fin, compté."""
+    start = at(SPRING_DAY - timedelta(days=1), 23)
+    end = at(SPRING_DAY, 7, offset=PLUS2)
+    sleep: dict[str, Any] = _doc(DayFamily.SLEEP, SPRING_DAY)
+    dto = sleep["dailySleepDTO"]
+    dto["sleepEndTimestampGMT"] = ms(end)
+    dto["sleepEndTimestampLocal"] = wall_ms(end)
+    sleep["sleepHeartRate"] = [
+        {"startGMT": ms(start), "value": 52},
+        {"startGMT": ms(start + timedelta(hours=7, minutes=30)), "value": 48},
+    ]
+    write_day(
+        tmp_path,
+        SPRING_DAY,
+        families=(DayFamily.DAILY_SUMMARY, DayFamily.SLEEP),
+        sleep=sleep,
+    )
+    ingestion = build(tmp_path)
+    night = record(ingestion, SPRING_DAY).night
+    assert night is not None
+    assert night.end - night.start == timedelta(hours=7)
+    assert ingestion.report.night_equality_violations == 1
+    assert (
+        WindowEdgeCount(DayFamily.SLEEP, "sleepHeartRate", 1, 0)
+        in ingestion.report.window_edges
+    )
+
+
+def test_readiness_copies_that_differ_add_up(tmp_path: Path) -> None:
+    """Deux entrées qui recopient un score de sommeil (70 contre 80) et une HRV
+    hebdomadaire (40 contre 48) qui diffèrent : deux copies, deux qui diffèrent."""
+    evening = at(DAY, 18)
+    readiness = [
+        readiness_entry(DAY, sleepScore=70, hrvWeeklyAverage=40),
+        readiness_entry(
+            DAY,
+            sleepScore=70,
+            hrvWeeklyAverage=40,
+            timestamp=gmt_text(evening),
+            timestampLocal=local_text(evening),
+        ),
+    ]
+    write_day(tmp_path, training_readiness=readiness)
+    prior = build(tmp_path).report.readiness_prior_copies
+    assert ReadinessCopyCount("hrv.weekly_avg_ms", 2, 2) in prior
+    assert ReadinessCopyCount("night.sleep_score", 2, 2) in prior
+
+
+def test_an_absent_day_series_does_not_stop_the_edges(tmp_path: Path) -> None:
+    """Pas de série de FC (la première des séries du jour) ; un point de stress une
+    minute avant la fenêtre : compté."""
+    heart_rate = _doc(DayFamily.HEART_RATE)
+    heart_rate["heartRateValues"] = []
+    stress = _doc(DayFamily.STRESS)
+    stress["stressValuesArray"] = [[ms(START - timedelta(minutes=1)), 20]]
+    write_day(
+        tmp_path,
+        families=(DayFamily.DAILY_SUMMARY, DayFamily.HEART_RATE, DayFamily.STRESS),
+        heart_rate=heart_rate,
+        stress=stress,
+    )
+    assert build(tmp_path).report.window_edges == (
+        WindowEdgeCount(DayFamily.STRESS, "stressValuesArray", 1, 0),
+    )
+
+
+def test_a_point_half_a_second_after_the_day_is_outside(tmp_path: Path) -> None:
+    heart_rate = _doc(DayFamily.HEART_RATE)
+    heart_rate["heartRateValues"] = [[ms(START), 55], [ms(START) + 86400500, 60]]
+    write_day(
+        tmp_path,
+        families=(DayFamily.DAILY_SUMMARY, DayFamily.HEART_RATE),
+        heart_rate=heart_rate,
+    )
+    assert build(tmp_path).report.window_edges == (
+        WindowEdgeCount(DayFamily.HEART_RATE, "heartRateValues", 1, 0),
+    )
+
+
+def test_the_edges_of_a_truncated_day_are_its_24_hours(tmp_path: Path) -> None:
+    """Un jour tronqué à midi : un point de FC à 18 h est dans les 24 h de la fenêtre,
+    pas compté (la borne n'est pas la fin des données)."""
+    heart_rate = _doc(DayFamily.HEART_RATE)
+    heart_rate["heartRateValues"] = [[ms(START), 55], [ms(at(DAY, 18)), 60]]
+    write_day(
+        tmp_path,
+        families=(DayFamily.DAILY_SUMMARY, DayFamily.HEART_RATE),
+        daily_summary=_summary(wellnessEndTimeGmt=gmt_text(NOON)),
+        heart_rate=heart_rate,
+    )
+    ingestion = build(tmp_path)
+    assert record(ingestion).state is DayState.TRUNCATED
+    assert ingestion.report.window_edges == ()
+
+
+def _night_battery(day: date, points: list[datetime]) -> dict[str, Any]:
+    """Le document de ``sleep`` de ``day`` sans FC de la nuit, sa série de Body Battery
+    aux instants ``points``."""
+    sleep: dict[str, Any] = _doc(DayFamily.SLEEP, day)
+    sleep["sleepHeartRate"] = []
+    sleep["sleepBodyBattery"] = [
+        {"startGMT": ms(point), "value": 50} for point in points
+    ]
+    return sleep
+
+
+def test_the_edges_of_the_night_over_three_days(tmp_path: Path) -> None:
+    """La FC de la nuit absente (la première série) ; la série de Body Battery : le
+    10, des points une minute avant la nuit, à son début, à sa fin, une minute après,
+    et à 23 h 30 (dans la nuit du 11) ; le 11, ce point partagé et un à 23 h 30 (dans
+    la nuit du 12) ; le 12, ce dernier. Hors de leur nuit : 3 + 1 ; partagés avec la
+    nuit de la veille : 1 + 1."""
+    minute = timedelta(minutes=1)
+    late = at(DAY, 23, 30)
+    later = at(D1, 23, 30)
+    days = {
+        DAY: [NIGHT_START - minute, NIGHT_START, NIGHT_END, NIGHT_END + minute, late],
+        D1: [late, later],
+        D2: [later],
+    }
+    for day, points in days.items():
+        write_day(
+            tmp_path,
+            day,
+            families=(DayFamily.DAILY_SUMMARY, DayFamily.SLEEP),
+            sleep=_night_battery(day, points),
+        )
+    assert build(tmp_path).report.window_edges == (
+        WindowEdgeCount(DayFamily.SLEEP, "sleepBodyBattery", 4, 2),
+    )
+
+
+def test_refused_files_are_listed_by_name(tmp_path: Path) -> None:
+    """``sleep`` se lit avant ``hrv`` (l'ordre des familles) ; le rapport les range par
+    nom."""
+    write_document(tmp_path, DayFamily.SLEEP, b"pas du json")
+    write_document(tmp_path, DayFamily.HRV, b"pas du json")
+    refused = build(tmp_path).report.refused
+    assert [item.name for item in refused] == [
+        f"garmin/{EXPORT_A}/hrv/{DAY.isoformat()}.json",
+        f"garmin/{EXPORT_A}/sleep/{DAY.isoformat()}.json",
+    ]
+
+
+def test_body_battery_is_never_borrowed(tmp_path: Path) -> None:
+    """La référence B n'a pas ``body_battery`` ; A le porte (chargé : 61) : il ne
+    s'emprunte pas ; sa feuille est à part, et ses copies ne se contrôlent pas."""
+    lender = _doc(DayFamily.BODY_BATTERY)
+    lender[0]["charged"] = 61
+    write_day(tmp_path, export=EXPORT_A, body_battery=lender)
+    write_day(tmp_path, export=EXPORT_B, families=_without(DayFamily.BODY_BATTERY))
+    ingestion = build(tmp_path, EXPORT_A, EXPORT_B)
+    assert record(ingestion).reference_export == EXPORT_B
+    assert _kinds(ingestion, DayFamily.BODY_BATTERY) == {
+        "[*]": ComparisonClass.SET_APART
+    }
+    assert ingestion.report.borrowings == ()
+    assert ingestion.report.copy_disagreements == ()
+
+
+def test_a_borrowed_family_is_a_borrowing_even_on_a_degraded_day(
+    tmp_path: Path,
+) -> None:
+    """A, ancien, complet avec son détail, sans ``training_readiness`` ; B, récent,
+    complet sans son détail, la porte : A est la référence, la famille vient de B, et
+    sa feuille est un emprunt, pas une dégradation."""
+    write_day(
+        tmp_path, export=EXPORT_A, families=_without(DayFamily.TRAINING_READINESS)
+    )
+    write_day(
+        tmp_path,
+        export=EXPORT_B,
+        families=(DayFamily.DAILY_SUMMARY, DayFamily.TRAINING_READINESS),
+    )
+    ingestion = build(tmp_path, EXPORT_A, EXPORT_B)
+    assert record(ingestion).reference_export == EXPORT_A
+    assert ingestion.report.borrowings == (
+        BorrowingCount(DayFamily.TRAINING_READINESS, "readiness", 1),
+    )
+    assert _kinds(ingestion, DayFamily.TRAINING_READINESS) == {
+        "[*]": ComparisonClass.BORROWING
+    }
+
+
+def test_the_lender_of_a_series_alone_counts_no_discard(tmp_path: Path) -> None:
+    """La série de FC manque à la référence B et vient seule de A, dont la lecture
+    écarte un point nul : l'écart n'est pas compté (A n'est pas retenu)."""
+    write_day(tmp_path, export=EXPORT_A)
+    own = _doc(DayFamily.HEART_RATE)
+    own["heartRateValues"] = []
+    write_day(tmp_path, export=EXPORT_B, heart_rate=own)
+    ingestion = build(tmp_path, EXPORT_A, EXPORT_B)
+    assert record(ingestion).series.heart_rate is not None
+    assert ingestion.report.borrowings == (
+        BorrowingCount(DayFamily.HEART_RATE, "series.heart_rate", 1),
+    )
+    assert ingestion.report.point_discards == ()
+
+
+def test_the_reference_days_are_listed_by_name(tmp_path: Path) -> None:
+    """``garmin_z``, acquis avant ``garmin_y``, est la référence d'un jour, et
+    ``garmin_y`` d'un autre : les comptes vont par nom, pas par instant."""
+    write_day(tmp_path, DAY, export="garmin_z")
+    write_day(tmp_path, D1, export="garmin_y")
+    ingestion = build_days(
+        [
+            load_export_days(export_dir(tmp_path, name), name, RETRIEVED[instant])
+            for name, instant in (("garmin_z", EXPORT_A), ("garmin_y", EXPORT_B))
+        ]
+    )
+    expected = (ExportDayCount("garmin_y", 1), ExportDayCount("garmin_z", 1))
+    assert ingestion.report.reference_days == expected
+    assert ingestion.summary.reference_days == expected
+
+
+def test_device_ranks_follow_the_families_even_borrowed(tmp_path: Path) -> None:
+    """Le 10, ``sleep`` (l'appareil 8) vient entier de A, ``training_readiness``
+    (l'appareil 7) de la référence B : rangs dans l'ordre des familles, 8 puis 7 ; le
+    11, l'appareil 7 seul garde son rang, 2."""
+    write_day(
+        tmp_path,
+        export=EXPORT_A,
+        families=(DayFamily.SLEEP,),
+        sleep=_sleep_devices(DAY, 8, 8),
+    )
+    write_day(
+        tmp_path,
+        export=EXPORT_B,
+        families=(
+            DayFamily.DAILY_SUMMARY,
+            DayFamily.HEART_RATE,
+            DayFamily.TRAINING_READINESS,
+        ),
+    )
+    write_day(
+        tmp_path,
+        D1,
+        export=EXPORT_B,
+        families=(DayFamily.DAILY_SUMMARY, DayFamily.TRAINING_READINESS),
+    )
+    ingestion = build(tmp_path, EXPORT_A, EXPORT_B)
+    assert record(ingestion).reference_export == EXPORT_B
+    assert record(ingestion).night is not None
+    assert record(ingestion, DAY).device_ranks == (1, 2)
+    assert record(ingestion, D1).device_ranks == (2,)

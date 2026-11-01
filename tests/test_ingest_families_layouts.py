@@ -329,3 +329,24 @@ def test_the_fixture_documents_are_not_changed() -> None:
         first[next(iter(first))] = "changé"
         assert "mutated" not in make()
         assert make() == make()
+
+
+def test_an_empty_list_of_descriptors_does_not_end_the_checks() -> None:
+    """Les descripteurs du stress vides, ceux du Body Battery qui contredisent la
+    disposition lue : le second tableau se contrôle encore, le fichier est refusé."""
+    document = stress_document()
+    document["stressValueDescriptorsDTOList"] = []
+    descriptors = document["bodyBatteryValueDescriptorsDTOList"]
+    descriptors[1]["bodyBatteryValueDescriptorIndex"] = 2
+    descriptors[2]["bodyBatteryValueDescriptorIndex"] = 1
+    assert read(DayFamily.STRESS, document).refusal is DayFileRefusal.UNEXPECTED_SHAPE
+
+
+def test_a_descriptor_of_a_key_not_read_before_the_others_is_ignored() -> None:
+    """Un descripteur d'une clé que la lecture ne prend pas, en tête de liste : ignoré,
+    les suivants se lisent, le fichier aussi."""
+    document = heart_rate_document()
+    document["heartRateValueDescriptors"].insert(0, {"key": "inventedKey", "index": 7})
+    result = read(DayFamily.HEART_RATE, document)
+    assert result.refusal is None
+    assert result.day_series.heart_rate is not None

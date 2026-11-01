@@ -10,6 +10,7 @@ la propriété « les données d'après ``t`` ne changent pas la vue à ``t`` »
 
 from __future__ import annotations
 
+import dataclasses
 import math
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
@@ -65,14 +66,19 @@ from mountain_perf.schemas import (
     DayState,
     HeartRateSeries,
     HrvSeries,
+    Nap,
+    Night,
     NightFlag,
     NightSeries,
     NightState,
+    RespirationSeries,
     RestingHrStatus,
     RestlessMomentsSeries,
     SeriesKind,
     SleepSegment,
     SleepStage,
+    SpO2Series,
+    StressSeries,
     TrainingStatusHistory,
     TrainingStatusKind,
     ViewAbsence,
@@ -1596,3 +1602,710 @@ def test_default_segments_are_the_fixture_ones() -> None:
     assert durations[SleepStage.LIGHT] == default.light_s
     assert durations[SleepStage.DEEP] == default.deep_s
     assert math.isclose(durations[SleepStage.REM], default.rem_s or 0.0)
+
+
+# --- les règles que les tests ne tenaient pas (relecture) ----------------------------
+
+D2 = DAY + timedelta(days=2)
+
+
+def _series_at(name: str, times: tuple[float, ...]) -> Any:
+    """Une série de la nuit de sorte ``name``, aux instants ``times``."""
+    count = len(times)
+    values = tuple(range(1, count + 1))
+    floats = tuple(float(value) + 40.0 for value in values)
+    nones: tuple[None, ...] = (None,) * count
+    match name:
+        case "heart_rate":
+            return HeartRateSeries(times, floats, SRC)
+        case "stress":
+            return StressSeries(times, values, nones, SRC)
+        case "body_battery":
+            return BodyBatterySeries(times, values, nones, SRC)
+        case "hrv":
+            return HrvSeries(times, floats, SRC)
+        case "respiration":
+            return RespirationSeries(times, floats, nones, SRC)
+        case "spo2":
+            return SpO2Series(times, tuple(v + 50.0 for v in floats), SRC)
+    return RestlessMomentsSeries(times, values, SRC)
+
+
+_NIGHT_SERIES_NAMES = [
+    "heart_rate",
+    "stress",
+    "body_battery",
+    "hrv",
+    "respiration",
+    "spo2",
+    "restless_moments",
+]
+
+
+@pytest.mark.parametrize("name", _NIGHT_SERIES_NAMES)
+def test_strict_cuts_a_night_point_at_the_instant_in_each_series(name: str) -> None:
+    """Une nuit finie à 7 h dont chaque série a un point à 7 h 30 (hors de sa fenêtre) :
+    prise à 7 h 30 avec ``strict``, ce point est coupé, dans ``night_before`` comme dans
+    ``sleep_within`` ; sans ``strict``, il reste."""
+    series = dataclasses.replace(
+        EMPTY_NIGHT_SERIES, **{name: _series_at(name, (0.0, 30600.0))}
+    )
+    days = (day_record(naps=(), night=night(series=series)),)
+    t = at(DAY, 7, 30)
+    for strict, expected in ((True, (0.0,)), (False, (0.0, 30600.0))):
+        before = night_before(days, t, strict=strict).night
+        assert before is not None
+        assert getattr(before.series, name).time_s == expected
+        within = sleep_within(days, at(DAY, 0), t, strict=strict).episodes
+        assert isinstance(within[0].episode, Night)
+        assert getattr(within[0].episode.series, name).time_s == expected
+
+
+def test_sleep_within_a_segment_under_a_microsecond_does_not_stop_the_union() -> None:
+    """Un segment de moins d'une microseconde (de durée nulle en instants) en tête de
+    l'union d'un groupe : sauté, la suite compte. Union : 23 h 01 → 7 h 30, 30 540 s,
+    sous la somme (28 740 + 3 600)."""
+    the_night = _full_night(
+        light_s=28740.0,
+        segments=(
+            SleepSegment(0.0, 1e-7, SleepStage.LIGHT),
+            SleepSegment(60.0, 28800.0, SleepStage.LIGHT),
+        ),
+    )
+    the_nap = nap(start=at(DAY, 6, 30), end=at(DAY, 7, 30), sleep_s=3600.0)
+    record = day_record(night=the_night, naps=(the_nap,))
+    assert sleep_within((record,), at(DAY, 0), at(DAY, 8)).sleep_s == 30540.0
+
+
+def test_sleep_within_a_third_overlapping_episode_joins_the_group() -> None:
+    """Trois épisodes : la nuit, une sieste qui la recoupe, une sieste qui recoupe la
+    première. Un seul groupe : l'union, 23 h → 8 h, 32 400 s (la somme, 33 300 s)."""
+    naps = (
+        nap(start=at(DAY, 6, 30), end=at(DAY, 7, 30), sleep_s=1800.0),
+        nap(start=at(DAY, 7, 15), end=at(DAY, 8), sleep_s=2700.0),
+    )
+    record = day_record(night=_full_night(), naps=naps)
+    result = sleep_within((record,), at(DAY, 0), at(DAY, 9))
+    assert len(result.episodes) == 3
+    assert result.sleep_s == 32400.0
+    assert result.coverage_fraction == 1.0
+
+
+def test_sleep_within_a_nap_starting_with_the_night_comes_after_it() -> None:
+    """À début égal, la nuit passe avant la sieste dans les épisodes rendus."""
+    the_nap = nap(start=at(PREVIOUS, 23), end=at(PREVIOUS, 23, 30), sleep_s=900.0)
+    record = day_record(night=_full_night(), naps=(the_nap,))
+    result = sleep_within((record,), at(PREVIOUS, 22), at(DAY, 8))
+    assert [type(item.episode) for item in result.episodes] == [Night, Nap]
+    assert result.episodes[1].episode == the_nap
+
+
+def test_sleep_within_renders_its_bounds() -> None:
+    start, end = at(DAY, 0), at(DAY, 8)
+    for days in ((), (day_record(naps=()),)):
+        result = sleep_within(days, start, end)
+        assert (result.start, result.end) == (start, end)
+
+
+def test_sleep_within_coverage_adds_the_window_and_unmeasured_of_each_night() -> None:
+    """Deux nuits seules, de 8 h chacune et 30 min de non mesurable : couverture
+    (57 600 − 3 600) / 57 600."""
+    days = (day_record(naps=()), day_record(NEXT, naps=()))
+    result = sleep_within(days, at(DAY, 0), at(NEXT, 8))
+    assert result.sleep_s == 50400.0
+    assert result.coverage_fraction == (57600.0 - 3600.0) / 57600.0
+
+
+def test_sleep_within_coverage_adds_the_unmeasured_of_each_group() -> None:
+    """Deux groupes (une nuit et une sieste de 6 h 45 à 7 h 15), chacun 29 700 s de
+    fenêtres dont 1 800 s de segments non mesurables : (59 400 − 3 600) / 59 400."""
+    days = tuple(
+        day_record(day, naps=(nap(day, start=at(day, 6, 45), end=at(day, 7, 15)),))
+        for day in (DAY, NEXT)
+    )
+    result = sleep_within(days, at(DAY, 0), at(NEXT, 8))
+    assert result.coverage_fraction == (59400.0 - 3600.0) / 59400.0
+
+
+def test_sleep_within_a_one_second_nap_is_covered() -> None:
+    the_nap = nap(start=at(DAY, 14), end=at(DAY, 14, 0, 1), sleep_s=1.0)
+    result = sleep_within((_quiet(naps=(the_nap,)),), at(DAY, 0), at(DAY, 20))
+    assert (result.sleep_s, result.coverage_fraction) == (1.0, 1.0)
+
+
+def test_c2_the_union_of_a_group_counts_the_rem_segments() -> None:
+    """Une nuit de 23 h à 7 h, léger jusqu'à 6 h puis paradoxal, et une sieste de 6 h 30
+    à 8 h : l'union, 23 h → 8 h, 32 400 s (sans le paradoxal : 30 600 s)."""
+    the_night = _full_night(
+        light_s=25200.0,
+        rem_s=3600.0,
+        segments=(
+            SleepSegment(0.0, 25200.0, SleepStage.LIGHT),
+            SleepSegment(25200.0, 28800.0, SleepStage.REM),
+        ),
+    )
+    the_nap = nap(start=at(DAY, 6, 30), end=at(DAY, 8), sleep_s=5400.0)
+    record = day_record(night=the_night, naps=(the_nap,))
+    assert sleep_within((record,), at(DAY, 0), at(DAY, 9)).sleep_s == 32400.0
+
+
+def test_c3_sleep_within_sorts_its_episodes_by_instant() -> None:
+    """Deux siestes : 14 h 30 à +02:00 (12 h 30 UTC) puis 14 h à +01:00 (13 h UTC) ;
+    rendues dans l'ordre des instants, pas des heures murales."""
+    first = nap(start=at(DAY, 14, 30, offset=PLUS2), end=at(DAY, 14, 45, offset=PLUS2))
+    second = nap(start=at(DAY, 14), end=at(DAY, 14, 15))
+    record = _quiet(naps=(first, second))
+    result = sleep_within((record,), at(DAY, 0), at(DAY, 20))
+    assert [item.episode for item in result.episodes] == [first, second]
+
+
+def test_c7_sleep_within_sorts_the_episodes_of_all_days_by_start() -> None:
+    """Une sieste du 10 de 23 h à 23 h 30 ; la nuit du 11, commencée le 10 à 22 h 30 :
+    nuit, nuit, sieste."""
+    late_nap = nap(start=at(DAY, 23), end=at(DAY, 23, 30))
+    days = (
+        day_record(naps=(late_nap,)),
+        day_record(NEXT, naps=(), night=night(NEXT, start=at(DAY, 22, 30))),
+    )
+    result = sleep_within(days, at(DAY, 0), at(NEXT, 8))
+    assert [(item.day, type(item.episode)) for item in result.episodes] == [
+        (DAY, Night),
+        (NEXT, Night),
+        (DAY, Nap),
+    ]
+
+
+# --- body_battery_at, la série fusionnée par bissection
+
+
+def test_body_battery_at_an_earlier_point_of_an_older_day_does_not_win() -> None:
+    """Le point de la nuit du 11 (6 h le 11), puis le point du jour du 10 (22 h le 10,
+    hors de toute nuit) : le dernier est celui de la nuit."""
+    days = (
+        _quiet(series=_bb_day(DAY, (79200.0,), (60,))),
+        _quiet(NEXT, night=_full_night(NEXT, series=_bb_night((25200.0,), (70,)))),
+    )
+    reading = body_battery_at(days, at(NEXT, 8))
+    assert (reading.point_instant, reading.level, reading.from_night, reading.day) == (
+        at(NEXT, 6),
+        70,
+        True,
+        NEXT,
+    )
+
+
+def test_body_battery_at_reads_past_a_night_without_series() -> None:
+    days = (
+        _quiet(night=_full_night()),
+        _quiet(NEXT, night=_full_night(NEXT, series=_bb_night((3600.0,), (55,)))),
+    )
+    reading = body_battery_at(days, at(NEXT, 8))
+    assert (reading.point_instant, reading.level, reading.day, reading.source) == (
+        midnight(NEXT),
+        55,
+        NEXT,
+        SRC,
+    )
+    assert reading.age_s == 8 * H
+
+
+def test_body_battery_at_reads_past_a_day_without_series_or_window() -> None:
+    for first in (_quiet(), empty_day()):
+        days = (first, _quiet(NEXT, series=_bb_day(NEXT, (3600.0,), (52,))))
+        reading = body_battery_at(days, at(NEXT, 8))
+        assert (reading.point_instant, reading.level, reading.day) == (
+            at(NEXT, 1),
+            52,
+            NEXT,
+        )
+
+
+def test_body_battery_at_two_nights_at_the_same_instant_keep_the_oldest() -> None:
+    """Deux nuits qui se recouvrent, chacune un point de Body Battery à 6 h 30 le 10 :
+    le point de la nuit du jour le plus ancien."""
+    first = _quiet(night=_full_night(series=_bb_night((27000.0,), (30,))))
+    second = _quiet(
+        NEXT,
+        night=_full_night(
+            NEXT,
+            start=at(DAY, 6),
+            end=at(NEXT, 7),
+            segments=(),
+            series=_bb_night((1800.0,), (31,)),
+        ),
+    )
+    reading = body_battery_at((first, second), at(NEXT, 8))
+    assert (reading.point_instant, reading.level, reading.day) == (
+        at(DAY, 6, 30),
+        30,
+        DAY,
+    )
+
+
+def test_body_battery_at_steps_back_over_a_night_to_the_day_point_before_it() -> None:
+    """Une nuit de 13 h à 15 h, sans série ; les points du jour à 12 h et à 14 h : à
+    16 h, celui de 14 h tombe dans la nuit, celui de 12 h est rendu."""
+    record = _quiet(
+        night=_full_night(start=at(DAY, 13), end=at(DAY, 15), segments=()),
+        series=_bb_day(DAY, (43200.0, 50400.0), (50, 51)),
+    )
+    reading = body_battery_at((record,), at(DAY, 16))
+    assert (reading.point_instant, reading.level, reading.from_night) == (
+        at(DAY, 12),
+        50,
+        False,
+    )
+    assert reading.age_s == 4 * H
+
+
+def test_body_battery_at_a_day_point_inside_a_night_inside_another() -> None:
+    """Une nuit de 23 h à 10 h, une autre de 2 h à 4 h dans la première : un point du
+    jour à 5 h est dans la fenêtre fusionnée, écarté ; aucun point."""
+    outer = _quiet(
+        night=_full_night(end=at(DAY, 10), segments=()),
+        series=_bb_day(DAY, (18000.0,), (50,)),
+    )
+    inner = _quiet(
+        NEXT, night=_full_night(NEXT, start=at(DAY, 2), end=at(DAY, 4), segments=())
+    )
+    reading = body_battery_at((outer, inner), at(DAY, 11))
+    assert reading.absence is ViewAbsence.NO_POINT
+
+
+@pytest.mark.parametrize("strict", [False, True])
+def test_body_battery_at_a_single_night_point_at_the_start_of_its_night(
+    strict: bool,
+) -> None:
+    record = _quiet(night=_full_night(series=_bb_night((0.0,), (33,))))
+    reading = body_battery_at((record,), at(DAY, 8), strict=strict)
+    assert (reading.point_instant, reading.level, reading.from_night) == (
+        at(PREVIOUS, 23),
+        33,
+        True,
+    )
+
+
+def test_body_battery_at_a_single_day_point() -> None:
+    record = _quiet(series=_bb_day(DAY, (3600.0,), (44,)))
+    reading = body_battery_at((record,), at(DAY, 2))
+    assert (reading.point_instant, reading.level) == (at(DAY, 1), 44)
+
+
+def test_body_battery_at_two_points_within_a_microsecond_keep_the_first() -> None:
+    """Deux points d'une série à moins d'une microseconde : le même instant ; le premier
+    de la série est rendu, de la nuit comme du jour."""
+    night_record = _quiet(
+        night=_full_night(series=_bb_night((3600.0, 3600.0000001), (30, 31)))
+    )
+    reading = body_battery_at((night_record,), at(DAY, 8))
+    assert (reading.point_instant, reading.level) == (midnight(DAY), 30)
+    day_rec = _quiet(series=_bb_day(DAY, (43200.0, 43200.0000001), (50, 51)))
+    reading = body_battery_at((day_rec,), at(DAY, 13))
+    assert (reading.point_instant, reading.level) == (at(DAY, 12), 50)
+
+
+@pytest.mark.parametrize(
+    ("instant", "strict", "level"),
+    [
+        (at(DAY, 1), False, 52),
+        (at(DAY, 1), True, 51),
+        (at(DAY, 1) + timedelta(microseconds=1), True, 52),
+        (at(DAY, 0, 30), False, 51),
+        (at(DAY, 0, 30), True, 50),
+    ],
+)
+def test_body_battery_at_a_day_point_at_the_instant(
+    instant: datetime, strict: bool, level: int
+) -> None:
+    """Des points du jour à 0 h, 0 h 30 et 1 h : un point à l'instant même est rendu
+    sans ``strict``, celui d'avant avec."""
+    record = _quiet(series=_bb_day(DAY, (0.0, 1800.0, 3600.0), (50, 51, 52)))
+    assert body_battery_at((record,), instant, strict=strict).level == level
+
+
+def test_body_battery_at_strict_on_a_night_ending_at_the_instant() -> None:
+    """Une nuit finie à 7 h, un point du jour à 6 h dans sa fenêtre : à 7 h, la nuit
+    compte (le point du jour cède) ; avec ``strict``, elle est en cours, le point du
+    jour revient."""
+    record = _quiet(
+        night=_full_night(series=_bb_night((27000.0,), (30,))),
+        series=_bb_day(DAY, (21600.0,), (60,)),
+    )
+    assert body_battery_at((record,), at(DAY, 7)).level == 30
+    assert body_battery_at((record,), at(DAY, 7), strict=True).level == 60
+
+
+# --- night_before, nights_after, training_status_at, readiness_at
+
+
+def test_night_before_reads_past_a_day_without_night() -> None:
+    result = night_before((_quiet(), day_record(NEXT)), at(NEXT, 8))
+    assert (result.day, result.gap_s) == (NEXT, H)
+
+
+def _two_offset_nights() -> tuple[DayRecord, DayRecord]:
+    """La nuit du 10 finie à 7 h 30 à +02:00 (5 h 30 UTC), puis celle du 11 finie le 10
+    à 7 h à +01:00 (6 h UTC) : la seconde est la dernière en instants, la première en
+    heures murales."""
+    return (
+        day_record(night=night(end=at(DAY, 7, 30, offset=PLUS2))),
+        day_record(NEXT, night=night(NEXT, start=at(DAY, 1), end=at(DAY, 7))),
+    )
+
+
+def test_c3_night_before_compares_instants_not_wall_clocks() -> None:
+    """La dernière nuit est celle de la plus grande fin en instants ; l'écart se compte
+    en instants (12 h à +02:00 − 6 h UTC : 4 h)."""
+    result = night_before(_two_offset_nights(), at(DAY, 12, offset=PLUS2))
+    assert (result.day, result.gap_s) == (NEXT, 4 * H)
+
+
+def test_c3_nights_after_sorts_by_instant() -> None:
+    result = nights_after(_two_offset_nights(), at(DAY, 2), 2)
+    assert [item.day for item in result] == [DAY, NEXT]
+
+
+def test_c7_nights_after_equal_ends_keep_the_order_of_the_days() -> None:
+    days = (
+        day_record(night=night(end=at(DAY, 9))),
+        day_record(NEXT, night=night(NEXT, start=at(DAY, 1), end=at(DAY, 9))),
+    )
+    assert [item.day for item in nights_after(days, at(DAY, 2), 2)] == [DAY, NEXT]
+
+
+def test_training_status_at_reads_past_a_block_without_proper_instant() -> None:
+    blocks = TrainingStatusHistory(
+        (status_block(DAY, timestamp=None, proper_instant=None), status_block(NEXT)),
+        (),
+        (),
+        (),
+        (),
+    )
+    result = training_status_at(blocks, TrainingStatusKind.STATUS, at(NEXT, 20))
+    assert result.block == status_block(NEXT)
+
+
+def test_c3_training_status_at_compares_instants_not_wall_clocks() -> None:
+    """Deux blocs : 7 h 30 à +02:00 (5 h 30 UTC), puis, daté du lendemain, 7 h à
+    +01:00 (6 h UTC) ; le dernier en instants est rendu, son âge en instants (12 h à
+    +02:00 : 4 h)."""
+    first = at(DAY, 7, 30, offset=PLUS2)
+    blocks = TrainingStatusHistory(
+        (
+            status_block(DAY, timestamp=first, proper_instant=first),
+            status_block(NEXT, timestamp=at(DAY, 7), proper_instant=at(DAY, 7)),
+        ),
+        (),
+        (),
+        (),
+        (),
+    )
+    result = training_status_at(
+        blocks, TrainingStatusKind.STATUS, at(DAY, 12, offset=PLUS2)
+    )
+    assert result.block is not None
+    assert result.block.proper_instant == at(DAY, 7)
+    assert result.age_s == 4 * H
+
+
+def test_c3_readiness_at_compares_instants_not_wall_clocks() -> None:
+    early = readiness(instant=at(DAY, 7, 30, offset=PLUS2))
+    late = readiness(instant=at(DAY, 7))
+    result = readiness_at((_quiet(readiness=(early, late)),), at(DAY, 12, offset=PLUS2))
+    assert result.entry == late
+    assert result.age_s == 4 * H
+
+
+# --- night_assessment
+
+
+def test_night_assessment_renders_its_day() -> None:
+    for days in ((), (day_record(),)):
+        assert _assess(days).day == DAY
+
+
+def test_usual_midpoint_at_six_in_the_morning() -> None:
+    """Des milieux à 6 h : le cosinus de la résultante est nul, son sinus non ; le
+    milieu habituel existe."""
+    result = _assess(_nights([(2, 10), (2, 10)]))
+    assert result.usual_midpoint_s == pytest.approx(6 * H, abs=1e-6)
+
+
+def test_usual_midpoint_the_guard_is_relative_to_the_number_of_nights() -> None:
+    """100 nuits aux milieux équilibrés (0 h, 6 h, 12 h, 18 h), l'une finie 2 µs plus
+    tard (son milieu 1 µs plus tard) : une résultante d'environ 7,3e-11, rapportée aux
+    100 nuits, sous la garde (``dispersed_midpoints``) ; multipliée, elle la
+    passerait."""
+    hours = [(20, 4), (2, 10), (8, 16), (14, 22)] * 25
+    days = list(_nights(hours))
+    shifted = days[0].night
+    assert shifted is not None
+    days[0] = dataclasses.replace(
+        days[0],
+        night=dataclasses.replace(shifted, end=shifted.end + timedelta(microseconds=2)),
+    )
+    result = _assess(tuple(days), usual_window_days=100)
+    assert result.usual_nights == 100
+    assert result.usual_midpoint_s is None
+    assert result.shifted_absence is ViewAbsence.DISPERSED_MIDPOINTS
+
+
+def test_c1_shifted_reads_the_circular_distance_across_midnight() -> None:
+    """Le milieu habituel à 23 h (nuits de 19 h à 3 h), celui de la nuit du jour à 1 h
+    (22 h → 4 h) : l'écart circulaire, 2 h, pas 22 h ; ``shift_s`` = 2 h 30 : pas
+    décalée."""
+    days = (
+        *_nights([(19, 3), (19, 3)])[:-1],
+        day_record(naps=(), night=night(start=at(PREVIOUS, 22), end=at(DAY, 4))),
+    )
+    result = _assess(days, shift_s=2.5 * H)
+    assert result.midpoint_s == H
+    assert result.usual_midpoint_s == pytest.approx(23 * H, abs=1e-6)
+    assert result.midpoint_distance_s == pytest.approx(2 * H, abs=1e-6)
+    assert (result.shifted, result.shifted_absence) == (False, None)
+
+
+def test_c7_a_night_at_the_short_sleep_threshold_enters_the_usual_midpoint() -> None:
+    """La veille, une nuit de 4 h de sommeil mesuré, ``short_sleep_s`` = 4 h :
+    admise."""
+    result = _assess(_nights([(23, 3)]), short_sleep_s=4 * H)
+    assert result.usual_nights == 1
+
+
+def test_c3_the_unmeasured_fraction_reads_the_real_duration_of_the_night() -> None:
+    """Une nuit de 23 h (+01:00) à 7 h (+02:00) : 7 h, pas 8 ; 2 700 s de non
+    mesurable, 0,1071 > 0,1 : ``partial``."""
+    the_night = night(end=at(DAY, 7, offset=PLUS2), unmeasurable_s=2700.0)
+    result = _assess((day_record(night=the_night),))
+    assert result.unmeasured_fraction == 2700.0 / 25200.0
+    assert result.state is NightState.PARTIAL
+
+
+# --- resting_hr_at
+
+
+def test_resting_hr_at_reads_past_a_day_without_window_or_value() -> None:
+    for first in (empty_day(), day_record(resting_hr=None)):
+        result = resting_hr_at((first, day_record(NEXT)), midnight(D2), min_sleep_s=0.0)
+        assert (result.day, result.resting_hr_bpm, result.status) == (
+            NEXT,
+            48.0,
+            RestingHrStatus.VALID,
+        )
+
+
+def test_resting_hr_at_strict_on_a_night_ending_at_the_instant() -> None:
+    """Une nuit finie le 11 à 1 h, après la fin de la fenêtre du 10 : prise à 1 h, la
+    nuit compte ; avec ``strict``, non (``no_night``)."""
+    record = day_record(night=night(start=at(DAY, 22), end=at(NEXT, 1)))
+    plain = resting_hr_at((record,), at(NEXT, 1), min_sleep_s=0.0)
+    strict = resting_hr_at((record,), at(NEXT, 1), min_sleep_s=0.0, strict=True)
+    assert plain.status is RestingHrStatus.VALID
+    assert strict.status is RestingHrStatus.NO_NIGHT
+    assert strict.resting_hr_bpm == 48.0
+
+
+def test_resting_hr_at_a_later_day_with_an_earlier_end_does_not_win() -> None:
+    """Le 10, ses données jusqu'au 12 à 6 h ; le 11, jusqu'au 12 à 0 h : le 10."""
+    days = (day_record(data_end=at(D2, 6)), day_record(NEXT))
+    result = resting_hr_at(days, at(D2, 12), min_sleep_s=0.0)
+    assert (result.day, result.proper_instant) == (DAY, at(D2, 6))
+
+
+def test_c7_resting_hr_at_equal_ends_take_the_last_day() -> None:
+    days = (day_record(data_end=midnight(D2)), day_record(NEXT))
+    result = resting_hr_at(days, at(D2, 12), min_sleep_s=0.0)
+    assert result.day == NEXT
+
+
+def test_c3_resting_hr_at_compares_instants_not_wall_clocks() -> None:
+    """Le 10, sa fenêtre à +02:00, ses données jusqu'au 12 à 0 h 30 (22 h 30 UTC le
+    11) ; le 11, à +01:00, jusqu'au 12 à 0 h (23 h UTC) : le 11 ; âge à 2 h à +02:00 :
+    1 h."""
+    first = day_record(
+        window_start=midnight(DAY, PLUS2), data_end=at(D2, 0, 30, offset=PLUS2)
+    )
+    days = (first, day_record(NEXT))
+    result = resting_hr_at(days, at(D2, 2, offset=PLUS2), min_sleep_s=0.0)
+    assert (result.day, result.age_s) == (NEXT, H)
+
+
+# --- readiness_on_waking
+
+
+def test_readiness_on_waking_renders_its_day_and_the_end_of_the_night() -> None:
+    entry = readiness()
+    assert readiness_on_waking((), DAY, tolerance_s=0.0).day == DAY
+    found = readiness_on_waking(
+        (day_record(naps=(), readiness=(entry,)),), DAY, tolerance_s=0.0
+    )
+    assert (found.day, found.entry, found.night_end, found.absence) == (
+        DAY,
+        entry,
+        at(DAY, 7),
+        None,
+    )
+    late = readiness(instant=at(DAY, 6), input_context="AFTER_POST_EXERCISE_RESET")
+    missing = readiness_on_waking(
+        (day_record(naps=(), readiness=(late,)),), DAY, tolerance_s=0.0
+    )
+    assert (missing.day, missing.entry, missing.night_end, missing.absence) == (
+        DAY,
+        None,
+        at(DAY, 7),
+        ViewAbsence.NO_ENTRY_AFTER_NIGHT,
+    )
+
+
+def test_c7_a_nap_starting_at_the_end_of_the_night_bounds_the_entry() -> None:
+    """La nuit finie à 7 h, une sieste de 7 h à 7 h 30, l'entrée « réveil » à 7 h 05 :
+    la sieste est la suivante, l'entrée n'est pas avant elle."""
+    record = day_record(
+        naps=(nap(start=at(DAY, 7), end=at(DAY, 7, 30)),), readiness=(readiness(),)
+    )
+    result = readiness_on_waking((record,), DAY, tolerance_s=600.0)
+    assert (result.entry, result.absence) == (None, ViewAbsence.NO_ENTRY_AFTER_NIGHT)
+
+
+def test_readiness_on_waking_reads_past_an_entry_too_early() -> None:
+    early = readiness(instant=at(DAY, 5))
+    entry = readiness()
+    record = day_record(naps=(), readiness=(early, entry))
+    assert readiness_on_waking((record,), DAY, tolerance_s=600.0).entry == entry
+
+
+def test_c3_readiness_on_waking_compares_instants_not_wall_clocks() -> None:
+    """La nuit finie à 7 h à +02:00 (5 h UTC), l'entrée à 6 h 55 à +01:00 (5 h 55
+    UTC), après la fin : retenue sans tolérance (en heures murales, 5 min avant)."""
+    entry = readiness(instant=at(DAY, 6, 55))
+    record = day_record(
+        night=night(end=at(DAY, 7, offset=PLUS2)), naps=(), readiness=(entry,)
+    )
+    assert readiness_on_waking((record,), DAY, tolerance_s=0.0).entry == entry
+
+
+# --- series_between
+
+
+def test_series_between_reads_past_a_day_without_its_night_window_or_series() -> None:
+    hr = _hr_day(NEXT, midnight(NEXT), (0.0,), (50.0,))
+    for first in (_quiet(), empty_day()):
+        window = _between(
+            (first, hr), SeriesKind.DAY_HEART_RATE, midnight(NEXT), at(NEXT, 1)
+        )
+        assert [(p.instant, p.value) for p in window.points] == [(midnight(NEXT), 50.0)]
+    window = _between(
+        (_quiet(), day_record(NEXT)),
+        SeriesKind.NIGHT_HEART_RATE,
+        at(DAY, 20),
+        at(NEXT, 8),
+    )
+    assert [p.instant for p in window.points] == [at(DAY, 23), at(DAY, 23, 2)]
+
+
+def test_series_between_reads_past_a_point_before_start() -> None:
+    record = _hr_day(DAY, midnight(DAY), (0.0, 60.0, 120.0), (50.0, 51.0, 52.0))
+    window = _between(
+        (record,), SeriesKind.DAY_HEART_RATE, at(DAY, 0, 1), at(DAY, 0, 2)
+    )
+    assert [p.value for p in window.points] == [51.0, 52.0]
+
+
+def test_series_between_counts_every_duplicate() -> None:
+    """Le 10 porte deux points le 11 à 0 h et 0 h 01, que le 11 porte aussi : deux
+    doublons, les points du 10 gardés."""
+    first = _hr_day(DAY, midnight(DAY), (86400.0, 86460.0), (50.0, 51.0))
+    second = _hr_day(NEXT, midnight(NEXT), (0.0, 60.0), (60.0, 61.0))
+    window = _between(
+        (first, second), SeriesKind.DAY_HEART_RATE, midnight(NEXT), at(NEXT, 0, 2)
+    )
+    assert window.duplicates == 2
+    assert [(p.value, p.day) for p in window.points] == [(50.0, DAY), (51.0, DAY)]
+
+
+def test_series_between_renders_its_kind_bounds_and_duplicates() -> None:
+    """Chaque issue rend la sorte, les deux bornes et les doublons : aucun point ; sous
+    la couverture ; les points."""
+    first = _hr_day(DAY, midnight(DAY), (86400.0,), (50.0,))
+    second = _hr_day(NEXT, midnight(NEXT), (0.0,), (60.0,))
+    start, end = midnight(NEXT), at(NEXT, 1)
+    kind = SeriesKind.DAY_HEART_RATE
+    for minimum, absence in ((0.5, ViewAbsence.BELOW_COVERAGE), (0.0, None)):
+        window = _between(
+            (first, second), kind, start, end, min_coverage_fraction=minimum
+        )
+        assert (window.kind, window.start, window.end, window.duplicates) == (
+            kind,
+            start,
+            end,
+            1,
+        )
+        assert window.absence is absence
+    empty = _between((first, second), kind, at(NEXT, 2), at(NEXT, 3))
+    assert (empty.kind, empty.start, empty.end, empty.duplicates, empty.absence) == (
+        kind,
+        at(NEXT, 2),
+        at(NEXT, 3),
+        0,
+        ViewAbsence.NO_POINT,
+    )
+
+
+def test_c5_a_point_before_start_does_not_count_in_the_coverage() -> None:
+    """Un point la veille à 23 h 59 min 30 s, un à 0 h 01 ; [0 h, 0 h 02], pas de 60 s :
+    couverture 0,5 (le point d'avant ``start`` n'y entre pas) ; minimum 0,6 :
+    ``below_coverage``."""
+    days = (
+        _hr_day(PREVIOUS, midnight(PREVIOUS), (86370.0,), (50.0,)),
+        _hr_day(DAY, midnight(DAY), (60.0,), (51.0,)),
+    )
+    kind = SeriesKind.DAY_HEART_RATE
+    window = _between(days, kind, midnight(DAY), at(DAY, 0, 2))
+    assert window.coverage_fraction == 0.5
+    assert [p.value for p in window.points] == [51.0]
+    low = _between(days, kind, midnight(DAY), at(DAY, 0, 2), min_coverage_fraction=0.6)
+    assert (low.points, low.coverage_fraction, low.absence) == (
+        (),
+        0.5,
+        ViewAbsence.BELOW_COVERAGE,
+    )
+
+
+# --- la 25ᵉ heure d'un dimanche d'automne
+
+
+def _autumn_record(series: DaySeries) -> DayRecord:
+    """Le dimanche du passage à l'heure d'hiver, complet sur ses 25 h."""
+    start = midnight(AUTUMN_DAY, PLUS2)
+    return _quiet(
+        AUTUMN_DAY,
+        window_start=start,
+        data_end=start + timedelta(hours=25),
+        series=series,
+    )
+
+
+def test_c3_series_between_keeps_a_point_of_the_25th_hour() -> None:
+    """Un point à début + 24 h 30 (0 h 30 à +02:00 le lundi, dans la fenêtre de 25 h du
+    dimanche) est rendu."""
+    series = DaySeries(
+        HeartRateSeries((0.0, 88200.0), (50.0, 51.0), SRC), None, None, None, None
+    )
+    record = _autumn_record(series)
+    start = midnight(AUTUMN_DAY, PLUS2)
+    window = _between(
+        (record,),
+        SeriesKind.DAY_HEART_RATE,
+        start + timedelta(hours=24),
+        start + timedelta(hours=25),
+    )
+    assert [(p.instant, p.value) for p in window.points] == [
+        (start + timedelta(hours=24, minutes=30), 51.0)
+    ]
+
+
+def test_c3_body_battery_at_keeps_a_point_of_the_25th_hour() -> None:
+    record = _autumn_record(_bb_day(AUTUMN_DAY, (0.0, 88200.0), (40, 41)))
+    start = midnight(AUTUMN_DAY, PLUS2)
+    reading = body_battery_at((record,), start + timedelta(hours=25))
+    assert (reading.level, reading.age_s) == (41, 1800.0)

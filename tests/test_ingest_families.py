@@ -1428,6 +1428,275 @@ def test_fixture_documents_are_dated_in_utc_and_plus_one() -> None:
     assert timezone(timedelta(hours=1)) == PLUS1
 
 
+# --- le balayage par mutation : feuilles, appareils, blocs, contenu ------------------
+
+
+def test_a_list_leaf_is_canonical_json() -> None:
+    """Une liste est une feuille de tout son contenu, en JSON canonique : clés triées,
+    sans espace."""
+    fields = read(DayFamily.HEART_RATE, heart_rate_document()).fields
+    assert fields["heartRateValueDescriptors[*]"] == (
+        '[{"index":0,"key":"timestamp"},{"index":1,"key":"heartrate"}]'
+    )
+
+
+def test_a_leaf_keeps_its_text_as_written() -> None:
+    """Un texte non ASCII s'écrit tel quel, dans une liste comme seul."""
+    document = hrv_document()
+    document["inventedNotes"] = ["é", {"b": 1, "a": "é"}]
+    document["inventedLabel"] = "é"
+    fields = read(DayFamily.HRV, document).fields
+    assert fields["inventedNotes[*]"] == '["é",{"a":"é","b":1}]'
+    assert fields["inventedLabel"] == '"é"'
+
+
+def test_a_key_that_ends_with_phrase_is_no_leaf() -> None:
+    """Une clé qui finit par ``Phrase`` ne s'ingère pas, même sans ``feedback`` : ni
+    feuille d'un objet, ni dans une liste."""
+    entries = [readiness_entry(recoveryTimeChangePhrase="INVENTED")]
+    leaf = read(DayFamily.TRAINING_READINESS, entries).fields["[*]"]
+    assert '"level":"MODERATE"' in leaf
+    assert "recoveryTimeChangePhrase" not in leaf
+    document = hrv_document()
+    document["statusPhrase"] = "INVENTED"
+    fields = read(DayFamily.HRV, document).fields
+    assert "statusPhrase" not in fields
+    assert fields["hrvSummary.status"] == '"BALANCED"'
+
+
+def test_an_identifier_is_dropped_at_any_depth_of_a_list() -> None:
+    document = body_battery_document()
+    document[0]["extra"] = {"deviceId": 8, "kept": 1}
+    leaf = read(DayFamily.BODY_BATTERY, document).fields["[*]"]
+    assert '"extra":{"kept":1}' in leaf
+    assert "deviceId" not in leaf
+
+
+def test_an_empty_object_gives_no_leaf() -> None:
+    document = daily_summary_document()
+    document["rule"] = {}
+    fields = read(DayFamily.DAILY_SUMMARY, document).fields
+    assert [path for path in fields if path.startswith("rule")] == []
+
+
+def test_a_repeated_key_takes_its_last_value() -> None:
+    """Deux ``calendarDate`` : la dernière, celle du jour, l'emporte."""
+    data = encode(heart_rate_document())
+    repeated = b'{"calendarDate": "2001-03-11", ' + data[1:]
+    result = read(DayFamily.HEART_RATE, repeated)
+    assert result.refusal is None
+    assert result.window is not None
+
+
+def test_a_raw_control_character_in_a_text_is_unreadable() -> None:
+    data = encode(_set(hrv_document(), ("hrvSummary", "status"), "BAL\tANCED"))
+    raw = data.replace(b"\\t", b"\t")
+    assert b"\t" in raw
+    assert read(DayFamily.HRV, raw).refusal is DayFileRefusal.UNREADABLE_JSON
+
+
+def test_every_device_of_sleep_is_read_in_order() -> None:
+    """Les appareils de ``sleep``, chacun à un identifiant distinct : le besoin de
+    sommeil, le suivant, l'alignement, le résumé SpO2, la sieste, chaque époque SpO2,
+    dans cet ordre."""
+    document = sleep_document()
+    dto = document["dailySleepDTO"]
+    dto["sleepNeed"]["deviceId"] = 1
+    dto["nextSleepNeed"]["deviceId"] = 2
+    dto["sleepAlignment"]["deviceId"] = 3
+    document["wellnessSpO2SleepSummaryDTO"]["deviceId"] = 4
+    dto["dailyNapDTOS"][0]["deviceId"] = 5
+    document["wellnessEpochSPO2DataDTOList"][0]["deviceId"] = 6
+    document["wellnessEpochSPO2DataDTOList"][1]["deviceId"] = 9
+    assert read(DayFamily.SLEEP, document).device_ids == (1, 2, 3, 4, 5, 6, 9)
+
+
+@pytest.mark.parametrize("device", [True, False, "7", 7.0, [7]])
+def test_a_device_id_of_another_type_refuses_the_file(device: Any) -> None:
+    """Un ``deviceId`` qui n'est pas un entier (un booléen n'en est pas un) : le champ
+    est d'un autre type, le fichier est refusé."""
+    document = _set(
+        sleep_document(), ("dailySleepDTO", "sleepNeed", "deviceId"), device
+    )
+    assert read(DayFamily.SLEEP, document).refusal is DayFileRefusal.UNEXPECTED_SHAPE
+
+
+def test_the_key_of_the_chosen_block_is_read_before_its_device_id() -> None:
+    """La clé du bloc choisi (``9``), puis son ``deviceId`` (``8``), puis la table de
+    l'équilibre (``7``)."""
+    document = training_status_document(statuses={"9": status_entry(deviceId=8)})
+    assert read(DayFamily.TRAINING_STATUS, document).device_ids == (9, 8, DEVICE)
+
+
+def test_the_device_of_a_discarded_readiness_entry_is_not_read() -> None:
+    entries = [readiness_entry(timestamp=None, deviceId=8), readiness_entry()]
+    assert read(DayFamily.TRAINING_READINESS, entries).device_ids == (DEVICE,)
+
+
+_RESTING_ENTRY = ("allMetrics", "metricsMap", "WELLNESS_RESTING_HEART_RATE", 0)
+
+
+def test_the_resting_hr_dates_are_checked_before_the_values() -> None:
+    """Une entrée datée du lendemain dont la valeur est un texte : la date passe avant
+    la forme de la valeur."""
+    document = resting_hr_document(value="48")
+    _set(document, (*_RESTING_ENTRY, "calendarDate"), "2001-03-11")
+    assert read(DayFamily.RESTING_HR, document).refusal is DayFileRefusal.DATE_MISMATCH
+
+
+_PRESENCE: list[tuple[TrainingStatusKind, str, Any]] = [
+    (TrainingStatusKind.STATUS, "calendarDate", DAY.isoformat()),
+    (TrainingStatusKind.STATUS, "timestamp", ms(at(DAY, 12))),
+    (TrainingStatusKind.STATUS, "trainingStatus", 4),
+    (TrainingStatusKind.STATUS, "acuteTrainingLoadDTO", {"acwrPercent": 50}),
+    (TrainingStatusKind.LOAD_BALANCE, "calendarDate", DAY.isoformat()),
+    (TrainingStatusKind.LOAD_BALANCE, "monthlyLoadAerobicLow", 400.5),
+    (TrainingStatusKind.VO2_MAX, "calendarDate", DAY.isoformat()),
+    (TrainingStatusKind.VO2_MAX, "vo2MaxPreciseValue", 55.5),
+    (TrainingStatusKind.VO2_MAX, "vo2MaxValue", 56),
+    (TrainingStatusKind.HEAT_ACCLIMATION, "heatAcclimationDate", DAY.isoformat()),
+    (TrainingStatusKind.HEAT_ACCLIMATION, "heatAcclimationPercentage", 20),
+    (TrainingStatusKind.HEAT_ACCLIMATION, "heatTrend", "ACCLIMATIZING"),
+    (
+        TrainingStatusKind.ALTITUDE_ACCLIMATION,
+        "altitudeAcclimationDate",
+        DAY.isoformat(),
+    ),
+    (TrainingStatusKind.ALTITUDE_ACCLIMATION, "altitudeAcclimation", 1500),
+    (TrainingStatusKind.ALTITUDE_ACCLIMATION, "currentAltitude", 1600),
+    (TrainingStatusKind.ALTITUDE_ACCLIMATION, "altitudeTrend", "ACCLIMATIZING"),
+]
+"""Chaque clé qui dit la présence d'un bloc de Training Status, et une valeur."""
+
+_DATE_KEYS = {"calendarDate", "heatAcclimationDate", "altitudeAcclimationDate"}
+_KIND_ATTRIBUTES = {
+    TrainingStatusKind.STATUS: "status_block",
+    TrainingStatusKind.LOAD_BALANCE: "load_balance_block",
+    TrainingStatusKind.VO2_MAX: "vo2_max_block",
+    TrainingStatusKind.HEAT_ACCLIMATION: "heat_block",
+    TrainingStatusKind.ALTITUDE_ACCLIMATION: "altitude_block",
+}
+
+
+_STATUS_TABLE = ("mostRecentTrainingStatus", "latestTrainingStatusData")
+_BALANCE_TABLE = ("mostRecentTrainingLoadBalance", "metricsTrainingLoadBalanceDTOMap")
+
+
+def _single_key_document(kind: TrainingStatusKind, key: str, value: Any) -> Any:
+    """Le document de Training Status dont le bloc de ``kind`` ne porte que ``key``, et
+    dont aucun autre bloc n'est présent."""
+    document = training_status_document(
+        statuses={str(DEVICE): {"primaryTrainingDevice": True}},
+        balances={str(DEVICE): {"primaryTrainingDevice": True}},
+    )
+    document["mostRecentVO2Max"]["generic"] = {}
+    document["mostRecentVO2Max"]["heatAltitudeAcclimation"] = {}
+    if kind is TrainingStatusKind.STATUS:
+        path: tuple[str, ...] = (*_STATUS_TABLE, str(DEVICE))
+    elif kind is TrainingStatusKind.LOAD_BALANCE:
+        path = (*_BALANCE_TABLE, str(DEVICE))
+    elif kind is TrainingStatusKind.VO2_MAX:
+        path = ("mostRecentVO2Max", "generic")
+    else:
+        path = ("mostRecentVO2Max", "heatAltitudeAcclimation")
+    return _set(document, (*path, key), value)
+
+
+@pytest.mark.parametrize(
+    ("kind", "key", "value"), _PRESENCE, ids=[key for _, key, _ in _PRESENCE]
+)
+def test_one_key_makes_a_training_status_block_present(
+    kind: TrainingStatusKind, key: str, value: Any
+) -> None:
+    """Un bloc qui ne porte qu'une de ses clés de présence est présent : avec sa date
+    propre, lu ; sans elle, refusé et compté (``refused_blocks``)."""
+    result = read(DayFamily.TRAINING_STATUS, _single_key_document(kind, key, value))
+    assert result.refusal is None
+    found = {
+        other: getattr(result, attribute)
+        for other, attribute in _KIND_ATTRIBUTES.items()
+        if getattr(result, attribute) is not None
+    }
+    if key in _DATE_KEYS:
+        assert set(found) == {kind}
+        assert found[kind].day == DAY
+        assert result.refused_blocks == ()
+    else:
+        assert found == {}
+        assert result.refused_blocks == (kind,)
+
+
+def test_a_block_without_any_presence_key_is_absent() -> None:
+    """Des tables rangées par appareil dont le bloc ne porte aucune clé de présence :
+    ni bloc, ni refus."""
+    document = training_status_document(
+        statuses={str(DEVICE): {"primaryTrainingDevice": True, "sport": "RUNNING"}},
+        balances={str(DEVICE): {"primaryTrainingDevice": True}},
+    )
+    result = read(DayFamily.TRAINING_STATUS, document)
+    assert result.status_block is None
+    assert result.load_balance_block is None
+    assert result.refused_blocks == ()
+
+
+def test_heat_and_altitude_blocks_carry_every_field() -> None:
+    result = read(DayFamily.TRAINING_STATUS, training_status_document())
+    heat, altitude = result.heat_block, result.altitude_block
+    assert heat is not None
+    assert altitude is not None
+    assert (heat.day, heat.heat_acclimation_percent, heat.heat_trend) == (
+        DAY - timedelta(days=2),
+        20.0,
+        "ACCLIMATIZING",
+    )
+    assert (
+        altitude.day,
+        altitude.acclimation_altitude_m,
+        altitude.current_altitude_m,
+        altitude.altitude_trend,
+    ) == (DAY - timedelta(days=3), 1500.0, 1600.0, "ACCLIMATIZING")
+
+
+def test_an_empty_device_table_gives_no_leaf() -> None:
+    document = training_status_document(statuses={})
+    fields = read(DayFamily.TRAINING_STATUS, document).fields
+    assert [path for path in fields if "latestTrainingStatusData" in path] == []
+
+
+def test_a_sleep_file_of_naps_alone_is_content() -> None:
+    nap = sleep_document()["dailySleepDTO"]["dailyNapDTOS"][0]
+    document = {
+        "dailySleepDTO": {"calendarDate": DAY.isoformat(), "dailyNapDTOS": [nap]}
+    }
+    result = read(DayFamily.SLEEP, document)
+    assert len(result.naps) == 1
+    assert result.empty is False
+
+
+def test_a_file_of_one_day_series_alone_is_content() -> None:
+    document = {"calendarDate": DAY.isoformat(), "heartRateValues": [[ms(START), 55]]}
+    result = read(DayFamily.HEART_RATE, document)
+    assert result.day_series.heart_rate is not None
+    assert result.empty is False
+
+
+def test_a_file_of_one_night_series_alone_is_content() -> None:
+    document = {
+        "dailySleepDTO": {"calendarDate": DAY.isoformat()},
+        "sleepHeartRate": [{"startGMT": ms(NIGHT_START), "value": 52}],
+    }
+    result = read(DayFamily.SLEEP, document)
+    assert result.night_series.heart_rate is not None
+    assert result.empty is False
+
+
+def test_a_read_carries_its_family_day_and_source() -> None:
+    result = read(DayFamily.HRV, hrv_document())
+    assert result.family is DayFamily.HRV
+    assert result.day == DAY
+    assert result.source == source(DayFamily.HRV, DAY)
+
+
 # --- les correctifs de la relecture -------------------------------------------------
 
 

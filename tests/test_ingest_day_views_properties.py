@@ -34,12 +34,18 @@ des données, si début + 24 h l'est ; sinon la seule fin des données, encore a
 
 Mondes inventés, de quelques jours de mars 2001 (la fenêtre d'un jour à +02:00 ou à
 +01:00 : deux jours qui se suivent font aussi les recouvrements et les trous du
-changement d'heure ; un jour complet a parfois 25 h de données). ``t`` : aux abords de
-la fin du dernier jour (une demi-heure ou une microseconde après, ou sa fin), libre,
-l'instant propre d'une donnée du monde (l'égalité exacte), ou une microseconde après.
-Le lendemain ajouté est le plus souvent à +01:00 (à +02:00 la veille, sa fenêtre
-commence une heure après début + 24 h : le trou de l'automne) et, une fois sur deux,
-sans nuit, sieste ni entrée de Training Readiness. Hypothesis tirant plus souvent la
+changement d'heure ; un jour complet a parfois 25 h de données), qui portent toutes
+les séries que ``series_between`` peut lire. ``t`` : un instant décisif — la fin d'une
+nuit, une microseconde après ou avant ; un point d'une série, jusqu'aux points d'une
+nuit tombés après sa fin ; la dernière heure d'un jour de 25 h, l'intervalle entre la
+fin des données et début + 24 h d'un jour tronqué —, l'instant propre d'une donnée du
+monde (l'égalité exacte) ou une microseconde après, les abords de la fin du dernier
+jour (une demi-heure ou une microseconde après, ou sa fin), ou libre ; la branche où
+se décide la vue vient en tête, et la sorte de série de ``series_between`` est, une
+fois sur deux, une sorte qui a un point à ``t``. Le lendemain ajouté est le plus
+souvent à +01:00 (à +02:00 la veille, sa fenêtre commence une heure après début +
+24 h : le trou de l'automne) et, une fois sur deux, sans nuit, sieste ni entrée de
+Training Readiness. Hypothesis tirant plus souvent la
 première branche d'un ``one_of`` et le premier élément d'un ``sampled_from``, l'ordre
 des choix les met en tête : sans cela, le cas d'un lendemain qui ferait fuir une vue
 serait trop rare pour que la propriété le voie.
@@ -94,9 +100,11 @@ from mountain_perf.schemas import (
     Night,
     NightSeries,
     RespirationSeries,
+    RestlessMomentsSeries,
     SeriesKind,
     SleepSegment,
     SleepStage,
+    SpO2Series,
     StressSeries,
     TrainingStatusBlock,
     TrainingStatusHistory,
@@ -147,9 +155,17 @@ def _night(draw: st.DrawFn, day: date, window_start: datetime) -> Night:
     hr = _times(draw, -1800, duration + 3600, 5)
     hrv = _times(draw, -600, duration + 3600, 4)
     battery = _times(draw, -600, duration + 3600, 4)
+    stress = _times(draw, -600, duration + 3600, 3)
+    breath = _times(draw, -600, duration + 3600, 3)
+    oxygen = _times(draw, -600, duration + 3600, 3)
+    moments = _times(draw, -600, duration + 3600, 2)
     series = NightSeries(
         heart_rate=HeartRateSeries(hr, (55.0,) * len(hr), SRC) if hr else None,
-        stress=None,
+        stress=(
+            StressSeries(stress, (10,) * len(stress), (None,) * len(stress), SRC)
+            if stress
+            else None
+        ),
         body_battery=(
             BodyBatterySeries(
                 battery, (40,) * len(battery), (None,) * len(battery), SRC
@@ -158,9 +174,17 @@ def _night(draw: st.DrawFn, day: date, window_start: datetime) -> Night:
             else None
         ),
         hrv=HrvSeries(hrv, (45.0,) * len(hrv), SRC) if hrv else None,
-        respiration=None,
-        spo2=None,
-        restless_moments=None,
+        respiration=(
+            RespirationSeries(breath, (14.0,) * len(breath), (None,) * len(breath), SRC)
+            if breath
+            else None
+        ),
+        spo2=SpO2Series(oxygen, (95.0,) * len(oxygen), SRC) if oxygen else None,
+        restless_moments=(
+            RestlessMomentsSeries(moments, (1,) * len(moments), SRC)
+            if moments
+            else None
+        ),
     )
     return night(day, start=start, end=end, segments=segments, series=series)
 
@@ -194,6 +218,7 @@ def _record(draw: st.DrawFn, day: date, bare: bool = False) -> DayRecord:
     stress = _times(draw, 0, 90000, 3)
     battery = _times(draw, 0, 90000, 4)
     breath = _times(draw, 0, 90000, 3)
+    oxygen = _times(draw, 0, 90000, 2)
     series = DaySeries(
         heart_rate=HeartRateSeries(heart, (60.0,) * len(heart), SRC) if heart else None,
         stress=(
@@ -216,7 +241,7 @@ def _record(draw: st.DrawFn, day: date, bare: bool = False) -> DayRecord:
             if breath
             else None
         ),
-        spo2=None,
+        spo2=SpO2Series(oxygen, (96.0,) * len(oxygen), SRC) if oxygen else None,
     )
     return day_record(
         day,
@@ -249,16 +274,79 @@ def worlds(draw: st.DrawFn) -> World:
     return World(records, history)
 
 
+def _all_series(series: DaySeries | NightSeries) -> list[Any]:
+    """Les séries présentes d'un jour ou d'une nuit."""
+    found = (getattr(series, item.name) for item in dataclasses.fields(series))
+    return [item for item in found if item is not None]
+
+
+def _night_instants(world: World) -> list[datetime]:
+    """Les instants où se décident les nuits : une microseconde après la fin de chaque
+    nuit (en tête : Hypothesis tire plus souvent le premier élément), sa fin, une
+    microseconde avant (une nuit finie juste avant ou juste après ``t``). Les points
+    d'une nuit tombés après sa fin sont dans la branche des points."""
+    instants: list[datetime] = []
+    for record in world.days:
+        if record.night is not None:
+            end = record.night.end
+            instants += [end + _MICRO, end, end - _MICRO]
+    return instants
+
+
+def _tail_instants(world: World) -> list[datetime]:
+    """Les instants où se décide la fin de la fenêtre d'un jour : la dernière heure
+    d'un jour de 25 h ; l'intervalle entre ``data_end`` et début + 24 h d'un jour
+    tronqué."""
+    instants: list[datetime] = []
+    for record in world.days:
+        assert record.window_start is not None
+        assert record.data_end is not None
+        start, data_end = record.window_start, record.data_end
+        if data_end > start + _DAY:
+            instants += [start + _DAY, start + _DAY + _HOUR / 2, data_end - _MICRO]
+        elif data_end < start + _DAY:
+            instants += [data_end, data_end + (start + _DAY - data_end) / 2]
+    return instants
+
+
+def _series_points(world: World, kind: SeriesKind) -> list[datetime]:
+    """Les instants des points de la série ``kind``, dans tous les jours."""
+    name = kind.value.split("_", 1)[1]
+    instants: list[datetime] = []
+    for record in world.days:
+        if kind.value.startswith("night_"):
+            if record.night is None:
+                continue
+            origin, series = record.night.start, getattr(record.night.series, name)
+        else:
+            assert record.window_start is not None
+            origin, series = record.window_start, getattr(record.series, name)
+        if series is not None:
+            instants += [origin + timedelta(seconds=t) for t in series.time_s]
+    return instants
+
+
+def _series_kind(world: World, t: datetime) -> st.SearchStrategy[SeriesKind]:
+    """La sorte de série de ``series_between`` : une fois sur deux, une sorte qui a
+    un point à ``t`` ou à ``t`` − 1 µs (s'il y en a), là où ``strict`` décide."""
+    at_t = [
+        kind
+        for kind in SeriesKind
+        if {t, t - _MICRO} & set(_series_points(world, kind))
+    ]
+    every = st.sampled_from(list(SeriesKind))
+    return st.one_of(st.sampled_from(at_t), every) if at_t else every
+
+
 def _proper_instants(world: World) -> list[datetime]:
     instants: list[datetime] = []
     for record in world.days:
         instants.append(_day_end(record))
         assert record.window_start is not None
-        for series in (record.series.heart_rate, record.series.body_battery):
-            if series is not None:
-                instants += [
-                    record.window_start + timedelta(seconds=t) for t in series.time_s
-                ]
+        for series in _all_series(record.series):
+            instants += [
+                record.window_start + timedelta(seconds=t) for t in series.time_s
+            ]
         instants += [item.end for item in record.naps]
         instants += [entry.instant for entry in record.readiness]
         if record.night is not None:
@@ -267,9 +355,8 @@ def _proper_instants(world: World) -> list[datetime]:
             instants += [
                 start + timedelta(seconds=s.end_s) for s in record.night.segments
             ]
-            for series_ in (record.night.series.heart_rate, record.night.series.hrv):
-                if series_ is not None:
-                    instants += [start + timedelta(seconds=t) for t in series_.time_s]
+            for series_ in _all_series(record.night.series):
+                instants += [start + timedelta(seconds=t) for t in series_.time_s]
     for proper in (
         *(block.proper_instant for block in world.history.statuses),
         *(block.proper_instant for block in world.history.load_balances),
@@ -279,21 +366,53 @@ def _proper_instants(world: World) -> list[datetime]:
     return instants
 
 
+_BRANCHES = ("night", "point", "tail", "proper", "end", "free")
+
+_FIRST_BRANCH = {
+    "body_battery_at": "night",
+    "night_before": "night",
+    "sleep_within": "night",
+    "series_between": "point",
+    "resting_hr_at": "tail",
+    "readiness_at": "proper",
+    "training_status_at": "proper",
+}
+"""La branche de ``t`` où se décide chaque vue, mise en tête : Hypothesis tire bien
+plus souvent le premier élément d'un ``sampled_from``."""
+
+
 @st.composite
-def _instant(draw: st.DrawFn, world: World) -> datetime:
+def _instant(draw: st.DrawFn, world: World, name: str) -> datetime:
+    """``t`` : à un instant décisif d'une nuit, de la fin d'un jour, d'un point d'une
+    série (ou une microseconde après) ; l'instant propre d'une donnée du monde (ou une
+    microseconde après) ; aux abords de la fin du dernier jour ; libre. Chaque sorte
+    d'instant décisif a sa branche, et celle où se décide la vue ``name`` vient en
+    tête."""
     end = _day_end(world.days[-1])
-    choice = draw(st.sampled_from(["end", "proper", "free"]))
-    if choice == "end":
+    points = [point for kind in SeriesKind for point in _series_points(world, kind)]
+    branches = {
+        "night": _night_instants(world),
+        "tail": _tail_instants(world),
+        "point": points,
+        "proper": _proper_instants(world),
+    }
+    first = _FIRST_BRANCH[name]
+    choice = draw(
+        st.sampled_from([first, *(item for item in _BRANCHES if item != first)])
+    )
+    if branches.get(choice):
+        instant = draw(st.sampled_from(branches[choice]))
+        if choice == "night":
+            return instant
+        return instant + draw(st.sampled_from([timedelta(0), _MICRO]))
+    if choice != "free":
         return end + draw(
             st.sampled_from([timedelta(minutes=30), _MICRO, timedelta(0)])
         )
-    if choice == "proper":
-        instant = draw(st.sampled_from(_proper_instants(world)))
-        return instant + draw(st.sampled_from([timedelta(0), _MICRO]))
-    first = world.days[0].window_start
-    assert first is not None
+    origin = world.days[0].window_start
+    assert origin is not None
     return (
-        first - _HOUR + timedelta(microseconds=draw(st.integers(0, 4 * 86400 * 10**6)))
+        origin - _HOUR + timedelta(microseconds=draw(st.integers(0, 4 * 86400 * 10**6)))
     )
 
 
@@ -508,7 +627,8 @@ _SETTINGS = settings(
 def _check_after_t(
     name: str, world: World, params: dict[str, Any], data: st.DataObject
 ) -> None:
-    t = data.draw(_instant(world))
+    t = data.draw(_instant(world, name))
+    params = {**params, "series_kind": data.draw(_series_kind(world, t))}
     strict = data.draw(st.booleans())
     offset = data.draw(st.sampled_from([PLUS1, PLUS2]))
     bare = data.draw(st.booleans())
@@ -587,7 +707,8 @@ def test_strict_at_t_is_plain_at_t_minus_a_microsecond(
     même début (``anchor``), sans minimum de couverture. Attendu : les mêmes objets
     (nuits, segments, points, entrées, jours, blocs, motifs) ; les âges et l'écart, plus
     longs d'une microseconde avec ``strict``."""
-    t = data.draw(_instant(world))
+    t = data.draw(_instant(world, name))
+    params = {**params, "series_kind": data.draw(_series_kind(world, t))}
     anchor = t - params["span"]
     view = VIEWS[name]
     strict = view(world, t, True, params, anchor)
@@ -599,13 +720,28 @@ def test_strict_at_t_is_plain_at_t_minus_a_microsecond(
             assert abs(late - early - 1e-6) < 1e-9
 
 
+_DECISIVE_PARAMS: dict[str, Any] = {
+    "min_sleep_s": 0.0,
+    "step_s": 60.0,
+    "span": timedelta(hours=12),
+    "series_kind": SeriesKind.DAY_HEART_RATE,
+    "status_kind": TrainingStatusKind.STATUS,
+}
+
+
 def _decisive_world(name: str) -> tuple[World, datetime]:
-    """Un monde où la propriété se décide à coup sûr : pour ``night_before``, une nuit
-    finie à ``t`` dont un point de FC tombe une demi-heure après sa fin ; pour
-    ``body_battery_at``, une nuit en cours à ``t`` dont des points de Body Battery
-    précèdent ``t``, l'un au même instant qu'un point du jour."""
+    """Un monde où la propriété se décide à coup sûr : pour ``night_before`` et
+    ``sleep_within``, une nuit finie à ``t`` dont un point de FC tombe une demi-heure
+    après sa fin ; pour ``body_battery_at``, une nuit en cours à ``t`` dont des points
+    de Body Battery précèdent ``t``, l'un au même instant qu'un point du jour ; pour
+    ``resting_hr_at``, un jour complet de 25 h, ``t`` dans sa dernière heure (la fin de
+    sa fenêtre, une heure après début + 24 h, est cachée)."""
     empty = NightSeries(None, None, None, None, None, None, None)
-    if name == "night_before":
+    if name == "resting_hr_at":
+        start = midnight(BASE)
+        record = day_record(BASE, data_end=start + _DAY + _HOUR)
+        return World((record,), _NO_HISTORY), start + _DAY + _HOUR / 2
+    if name in ("night_before", "sleep_within"):
         series = dataclasses.replace(
             empty, heart_rate=HeartRateSeries((0.0, 30600.0), (55.0, 56.0), SRC)
         )
@@ -619,19 +755,55 @@ def _decisive_world(name: str) -> tuple[World, datetime]:
 _NO_HISTORY = TrainingStatusHistory((), (), (), (), ())
 
 
-@pytest.mark.parametrize("name", ["night_before", "body_battery_at"])
+@pytest.mark.parametrize(
+    "name", ["night_before", "sleep_within", "body_battery_at", "resting_hr_at"]
+)
 def test_data_after_t_do_not_change_the_view_at_t_in_decisive_worlds(
     name: str,
 ) -> None:
-    """La première propriété, sur deux mondes qui la décident : une nuit rendue est
-    coupée à ``t`` (``night_before``) ; une nuit en cours à ``t`` n'a ni fenêtre ni
-    points (``body_battery_at``)."""
+    """La première propriété, sur des mondes qui la décident : une nuit rendue est
+    coupée à ``t`` (``night_before`` ; ``sleep_within``, l'intervalle partant de
+    ``t``) ; une nuit en cours à ``t`` n'a ni fenêtre ni points (``body_battery_at``) ;
+    la fin de la fenêtre d'un jour de 25 h est la fin de ses données
+    (``resting_hr_at``)."""
     world, t = _decisive_world(name)
     view = VIEWS[name]
     for strict in (False, True):
         rewritten = _rewrite(world, t, strict, None)
         assert rewritten != world
-        assert view(world, t, strict, {}, t) == view(rewritten, t, strict, {}, t)
+        assert view(world, t, strict, _DECISIVE_PARAMS, t) == view(
+            rewritten, t, strict, _DECISIVE_PARAMS, t
+        )
+
+
+def _decisive_strict_world(name: str) -> tuple[World, datetime]:
+    """Un monde où la seconde propriété se décide à coup sûr : pour ``night_before``,
+    une nuit finie une microseconde avant ``t`` ; pour ``series_between``, un point de
+    FC du jour à ``t`` même."""
+    if name == "night_before":
+        record = day_record(BASE)
+        assert record.night is not None
+        return World((record,), _NO_HISTORY), record.night.end + _MICRO
+    series = DaySeries(
+        HeartRateSeries((3600.0, 7200.0), (60.0, 61.0), SRC), None, None, None, None
+    )
+    record = day_record(BASE, series=series)
+    return World((record,), _NO_HISTORY), midnight(BASE) + 2 * _HOUR
+
+
+@pytest.mark.parametrize("name", ["night_before", "series_between"])
+def test_strict_at_t_is_plain_at_t_minus_a_microsecond_in_decisive_worlds(
+    name: str,
+) -> None:
+    """La seconde propriété, sur deux mondes qui la décident : une nuit finie à ``t`` −
+    1 µs est rendue avec ``strict`` à ``t`` comme sans ``strict`` à ``t`` − 1 µs ; un
+    point à ``t`` n'est rendu ni par l'une ni par l'autre."""
+    world, t = _decisive_strict_world(name)
+    anchor = t - _DECISIVE_PARAMS["span"]
+    view = VIEWS[name]
+    strict = view(world, t, True, _DECISIVE_PARAMS, anchor)
+    plain = view(world, t - _MICRO, False, _DECISIVE_PARAMS, anchor)
+    assert _comparable(strict) == _comparable(plain)
 
 
 def test_the_rewriting_changes_something_after_t() -> None:

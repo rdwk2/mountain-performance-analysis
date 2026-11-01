@@ -44,6 +44,8 @@ from mountain_perf.schemas import (
 
 BEFORE = DAY - timedelta(days=1)
 D1 = DAY + timedelta(days=1)
+D2 = DAY + timedelta(days=2)
+D3 = DAY + timedelta(days=3)
 PRECISE = "vo2MaxPreciseValue"
 """Le chemin de la VO2max précise dans son bloc."""
 
@@ -501,3 +503,40 @@ def test_every_ingested_field_of_a_block_is_compared() -> None:
             ("altitude_trend", "altitudeTrend"),
         ),
     }
+
+
+def test_the_counts_of_the_blocks_add_up_over_two_dates(tmp_path: Path) -> None:
+    """Deux dates de VO2max, chacune dans deux fichiers de A aux valeurs différentes et
+    dans un fichier de B à une troisième valeur, sans aucune fenêtre du jour : chaque
+    compte vaut 2, un par date."""
+    for file_day, block_day, value in (
+        (DAY, BEFORE, 55.5),
+        (D1, BEFORE, 56.5),
+        (D2, D1, 55.5),
+        (D3, D1, 56.5),
+    ):
+        _vo2(tmp_path, file_day, block_day, value)
+    for file_day, block_day in ((DAY, BEFORE), (D2, D1)):
+        _vo2(tmp_path, file_day, block_day, 60.0, EXPORT_B)
+    report = build(tmp_path, EXPORT_A, EXPORT_B).report
+    counted = (BlockFieldCount(TrainingStatusKind.VO2_MAX, PRECISE, 2),)
+    assert report.block_differences_in_export == counted
+    assert report.block_differences_between_exports == counted
+    assert report.blocks_without_proper_instant == (
+        BlockCount(TrainingStatusKind.VO2_MAX, 2),
+    )
+
+
+def test_a_refused_block_of_an_export_not_retained_is_not_counted(
+    tmp_path: Path,
+) -> None:
+    """L'ancien A porte un bloc « statut » sans sa date ; la référence B, non : rien ne
+    se compte (seules les lectures retenues comptent leurs blocs refusés)."""
+    document = training_status_document(
+        DAY, statuses={"7": status_entry(DAY, calendarDate=None)}
+    )
+    write_day(tmp_path, export=EXPORT_A, training_status=document)
+    write_day(tmp_path, export=EXPORT_B)
+    ingestion = build(tmp_path, EXPORT_A, EXPORT_B)
+    assert ingestion.records[0].reference_export == EXPORT_B
+    assert ingestion.report.refused_blocks == ()

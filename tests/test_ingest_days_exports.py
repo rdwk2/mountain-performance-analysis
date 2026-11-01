@@ -4,6 +4,7 @@ Sans extra : ni fitdecode, ni ``ingest_export``."""
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import MappingProxyType
@@ -11,7 +12,7 @@ from types import MappingProxyType
 import pytest
 
 from fixtures.day_exports import export_dir, load, write_day, write_document
-from fixtures.days import DAY, EXPORT_A, PLUS1, PLUS2, midnight
+from fixtures.days import DAY, EXPORT_A, PLUS1, PLUS2, at, midnight
 from fixtures.families import DOCUMENTS, START
 from mountain_perf.ingest.days import (
     ACQUISITION_TOLERANCE_S,
@@ -209,3 +210,45 @@ def test_the_name_given_is_the_one_of_the_message(tmp_path: Path) -> None:
             export_dir(tmp_path), "autre.nom", datetime(2001, 3, 10, 12, tzinfo=PLUS1)
         )
     assert str(error.value).startswith("raw/garmin/autre.nom/ : ")
+
+
+def test_an_ignored_entry_listed_first_stops_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Le dossier d'une famille listé avec d'abord ce qu'il faut ignorer (un nom qui
+    n'est pas une date, un sous-dossier, une date invalide) : les fichiers qui suivent
+    sont listés."""
+    write_document(tmp_path, DayFamily.HRV, b"{}")
+    write_document(tmp_path, DayFamily.HRV, b"{}", D1)
+    hrv = export_dir(tmp_path) / "hrv"
+    (hrv / "notes.txt").write_bytes(b"{}")
+    (hrv / "2001-03-08.json").mkdir()
+    (hrv / "2001-02-30.json").write_bytes(b"{}")
+    ignored = ("notes.txt", "2001-03-08.json", "2001-02-30.json")
+    real = Path.iterdir
+
+    def ignored_first(self: Path) -> Iterator[Path]:
+        def rank(path: Path) -> tuple[int, str]:
+            name = path.name
+            return (ignored.index(name), name) if name in ignored else (9, name)
+
+        return iter(sorted(real(self), key=rank))
+
+    monkeypatch.setattr(Path, "iterdir", ignored_first)
+    export = load(tmp_path)
+    monkeypatch.undo()
+    assert [(file.day, file.family) for file in export.files] == [
+        (DAY, DayFamily.HRV),
+        (D1, DayFamily.HRV),
+    ]
+
+
+def test_the_last_of_two_days_with_a_window_is_checked(tmp_path: Path) -> None:
+    """Deux jours qui portent une fenêtre : seul le dernier se contrôle ; ses données
+    finissent douze heures après l'acquisition, l'export est refusé (le premier,
+    fini avant, n'y change rien)."""
+    write_day(tmp_path, families=(DayFamily.DAILY_SUMMARY,))
+    write_day(tmp_path, D1, families=(DayFamily.DAILY_SUMMARY,))
+    with pytest.raises(ExportDaysError) as error:
+        load(tmp_path, retrieved_at=at(D1, 12))
+    assert str(error.value) == END_MESSAGE

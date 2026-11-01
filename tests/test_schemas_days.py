@@ -1529,3 +1529,111 @@ def test_fixture_sources_name_the_family_file() -> None:
     assert record.readiness[0].source.kind == "garmin_training_readiness"
     assert record.series.heart_rate is not None
     assert record.series.heart_rate.source.kind == "garmin_heart_rate"
+
+
+# --- les règles que les tests ne tenaient pas (relecture) ----------------------------
+
+_HALF_SECOND = timezone(timedelta(hours=1, microseconds=500000))
+"""Un décalage qui n'est pas un nombre entier de secondes."""
+
+_NAIVE = datetime(2001, 3, 10, 7)
+
+
+def test_supports_are_those_of_the_table() -> None:
+    """Les 44 supports de ``QUANTITY_SUPPORTS``, chacun écrit en dur."""
+    day, night_, waking, instant = (
+        Support.DAY,
+        Support.NIGHT,
+        Support.WAKING,
+        Support.INSTANT,
+    )
+    assert dict(QUANTITY_SUPPORTS) == {
+        "night": night_,
+        "night.series": instant,
+        "naps": instant,
+        "resting_hr.resting_hr_bpm": day,
+        "hrv.last_night_avg_ms": night_,
+        "hrv.last_night_5min_high_ms": night_,
+        "hrv.weekly_avg_ms": waking,
+        "hrv.status": waking,
+        "hrv.baseline_balanced_low_ms": waking,
+        "hrv.baseline_balanced_upper_ms": waking,
+        "hrv.baseline_low_upper_ms": waking,
+        "hrv.baseline_marker_value": waking,
+        "respiration.avg_sleep_breaths_per_min": night_,
+        "respiration.avg_waking_breaths_per_min": day,
+        "respiration.highest_breaths_per_min": day,
+        "respiration.lowest_breaths_per_min": day,
+        "spo2.avg_sleep_spo2_percent": night_,
+        "spo2.average_spo2_percent": day,
+        "spo2.lowest_spo2_percent": day,
+        "stress.average_level": day,
+        "stress.average_level_code": day,
+        "stress.max_level": day,
+        "stress.rest_duration_s": day,
+        "stress.low_duration_s": day,
+        "stress.medium_duration_s": day,
+        "stress.high_duration_s": day,
+        "stress.activity_duration_s": day,
+        "stress.uncategorized_duration_s": day,
+        "stress.total_duration_s": day,
+        "stress.stress_duration_s": day,
+        "body_battery.charged": day,
+        "body_battery.drained": day,
+        "body_battery.highest": day,
+        "body_battery.lowest": day,
+        "body_battery.at_wake": waking,
+        "body_battery.during_sleep": night_,
+        "activity_totals.steps": day,
+        "activity_totals.moderate_intensity_s": day,
+        "activity_totals.vigorous_intensity_s": day,
+        "activity_totals.floors_ascended_m": day,
+        "activity_totals.floors_descended_m": day,
+        "activity_totals.average_altitude_m": day,
+        "series": instant,
+        "readiness": instant,
+    }
+
+
+@pytest.mark.parametrize("make", [night, nap])
+def test_an_episode_checks_its_start_entirely_before_its_end(
+    make: Callable[..., Any],
+) -> None:
+    """Deux défauts à la fois. Le décalage de ``start`` n'est pas un nombre entier de
+    secondes et ``end`` est naïf : le message est celui de ``start`` (``start`` se
+    contrôle en entier, fuseau, plage et décalage, avant ``end``). ``start`` naïf et le
+    décalage de ``end`` fractionnaire : le message est celui de ``start``."""
+    with _refused("le décalage de start doit être un nombre entier de secondes."):
+        make(start=datetime(2001, 3, 9, 23, tzinfo=_HALF_SECOND), end=_NAIVE)
+    with _refused("start doit porter un fuseau horaire"):
+        make(
+            start=datetime(2001, 3, 9, 23),
+            end=datetime(2001, 3, 10, 7, tzinfo=_HALF_SECOND),
+        )
+
+
+def test_a_readiness_entry_checks_its_text_codes_before_its_score() -> None:
+    with _refused("input_context ne doit pas être vide."):
+        readiness(input_context="  ", score=101)
+    with _refused("level ne doit pas être vide."):
+        readiness(level="", score=101)
+
+
+def test_a_status_block_checks_its_proper_instant_before_its_timestamp() -> None:
+    with _refused("proper_instant doit porter un fuseau horaire"):
+        status_block(timestamp=_NAIVE, proper_instant=_NAIVE)
+
+
+def test_an_export_report_checks_its_name_and_instant_before_its_files() -> None:
+    with pytest.raises(ContractError) as name_first:
+        export_report(name="", files=-1)
+    assert "files" not in str(name_first.value)
+    with _refused("retrieved_at doit porter un fuseau horaire"):
+        export_report(retrieved_at=_NAIVE, files=-1)
+
+
+def test_a_days_report_checks_its_lists_and_counts_before_its_exports() -> None:
+    with _refused("read doit être une séquence immuable"):
+        days_report(exports=(), read=[])
+    with _refused("night_equality_violations doit être >= 0, reçu -1."):
+        days_report(exports=(), night_equality_violations=-1)

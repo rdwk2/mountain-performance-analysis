@@ -6,15 +6,19 @@ jour, les valeurs d'un résumé hors de leur plage."""
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime, timedelta
+from collections.abc import Callable
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 import pytest
 
 from fixtures.days import DAY, at, ms, wall_ms
 from fixtures.families import (
+    DOCUMENTS,
     NIGHT_START,
     START,
+    _set,
+    body_battery_document,
     daily_summary_document,
     gmt_text,
     heart_rate_document,
@@ -47,6 +51,7 @@ from mountain_perf.schemas import (
     WAKING_CONTEXT,
     BodyBatteryStatus,
     DayFamily,
+    DayFileRefusal,
     PointDiscard,
     SleepStage,
 )
@@ -991,3 +996,620 @@ def test_respiration_series_wall_clock_bounds_are_not_offsets() -> None:
     dto = sleep_document()["dailySleepDTO"]
     assert dto["sleepStartTimestampLocal"] - dto["sleepStartTimestampGMT"] == 3600000
     assert dto["sleepStartTimestampGMT"] == ms(NIGHT_START)
+
+
+# --- le balayage par mutation : chaque champ, son chemin, sa plage -------------------
+
+_STATUS_BLOCK = ("mostRecentTrainingStatus", "latestTrainingStatusData", "7")
+_BALANCE_BLOCK = (
+    "mostRecentTrainingLoadBalance",
+    "metricsTrainingLoadBalanceDTOMap",
+    "7",
+)
+_VO2 = ("mostRecentVO2Max", "generic")
+_ACCLIMATION = ("mostRecentVO2Max", "heatAltitudeAcclimation")
+_RESTING = ("allMetrics", "metricsMap", "WELLNESS_RESTING_HEART_RATE", 0)
+_TS = "mostRecentTrainingStatus.latestTrainingStatusData.<n>"
+_TB = "mostRecentTrainingLoadBalance.metricsTrainingLoadBalanceDTOMap.<n>"
+_OUT = PointDiscard.OUT_OF_RANGE
+_NULL = PointDiscard.NULL_VALUE
+_MIN_MS = ms(datetime(1, 1, 2, tzinfo=UTC))
+_MAX_MS = ms(datetime(9999, 12, 30, tzinfo=UTC))
+_FIRST_INSTANT = "0001-01-01T00:00:00"
+_LAST_INSTANT = "9999-12-31T00:00:00"
+
+_FIELDS: list[tuple[DayFamily, tuple[str | int, ...], Any, str, PointDiscard]] = [
+    (DayFamily.RESPIRATION, ("avgWakingRespirationValue",), 0, "", _OUT),
+    (DayFamily.RESPIRATION, ("highestRespirationValue",), 0, "", _OUT),
+    (DayFamily.RESPIRATION, ("respirationVersion",), -1, "", _OUT),
+    (DayFamily.RESPIRATION, ("respirationVersion",), 200.5, "", _OUT),
+    (DayFamily.RESPIRATION, ("sleepStartTimestampGMT",), _FIRST_INSTANT, "", _OUT),
+    (DayFamily.SPO2, ("avgSleepSpO2",), 49, "", _OUT),
+    (DayFamily.SPO2, ("lowestSpO2",), 49, "", _OUT),
+    (DayFamily.SPO2, ("sleepEndTimestampGMT",), _LAST_INSTANT, "", _OUT),
+    (DayFamily.HRV, ("sleepStartTimestampGMT",), _FIRST_INSTANT, "", _OUT),
+    (DayFamily.DAILY_SUMMARY, ("bodyBatteryChargedValue",), -1, "", _OUT),
+    (DayFamily.DAILY_SUMMARY, ("bodyBatteryChargedValue",), 60.5, "", _OUT),
+    (DayFamily.DAILY_SUMMARY, ("bodyBatteryDrainedValue",), -1, "", _OUT),
+    (DayFamily.DAILY_SUMMARY, ("bodyBatteryDrainedValue",), 55.5, "", _OUT),
+    (DayFamily.DAILY_SUMMARY, ("bodyBatteryAtWakeTime",), 101, "", _OUT),
+    (DayFamily.DAILY_SUMMARY, ("totalSteps",), 10000.5, "", _OUT),
+    (DayFamily.DAILY_SUMMARY, ("vigorousIntensityMinutes",), -1, "", _OUT),
+    (DayFamily.DAILY_SUMMARY, ("floorsAscendedInMeters",), -1, "", _OUT),
+    (DayFamily.DAILY_SUMMARY, ("floorsDescendedInMeters",), -1, "", _OUT),
+    (DayFamily.DAILY_SUMMARY, ("restStressDuration",), -1, "", _OUT),
+    (DayFamily.DAILY_SUMMARY, ("restingHeartRate",), 0, "", _OUT),
+    (DayFamily.DAILY_SUMMARY, ("avgWakingRespirationValue",), 0, "", _OUT),
+    (DayFamily.DAILY_SUMMARY, ("highestRespirationValue",), 0, "", _OUT),
+    (DayFamily.DAILY_SUMMARY, ("lowestRespirationValue",), 0, "", _OUT),
+    (DayFamily.DAILY_SUMMARY, ("averageSpo2",), 49, "", _OUT),
+    (DayFamily.DAILY_SUMMARY, ("lowestSpo2",), 49, "", _OUT),
+    (DayFamily.DAILY_SUMMARY, ("respirationAlgorithmVersion",), -1, "", _OUT),
+    (DayFamily.DAILY_SUMMARY, ("bodyBatteryVersion",), -1, "", _OUT),
+    (DayFamily.BODY_BATTERY, (0, "charged"), -1, "[*].charged", _OUT),
+    (DayFamily.BODY_BATTERY, (0, "charged"), 60.5, "[*].charged", _OUT),
+    (DayFamily.BODY_BATTERY, (0, "drained"), -1, "[*].drained", _OUT),
+    (DayFamily.BODY_BATTERY, (0, "drained"), 55.5, "[*].drained", _OUT),
+    (
+        DayFamily.RESTING_HR,
+        (*_RESTING, "value"),
+        0,
+        "allMetrics.metricsMap.WELLNESS_RESTING_HEART_RATE[*].value",
+        _OUT,
+    ),
+    (DayFamily.HRV, ("hrvSummary", "lastNightAvg"), 0, "", _OUT),
+    (DayFamily.HRV, ("hrvSummary", "lastNight5MinHigh"), 0, "", _OUT),
+    (DayFamily.HRV, ("hrvSummary", "status"), "  ", "", _NULL),
+    (DayFamily.HRV, ("hrvSummary", "baseline", "balancedLow"), 0, "", _OUT),
+    (DayFamily.HRV, ("hrvSummary", "baseline", "balancedUpper"), 0, "", _OUT),
+    (DayFamily.HRV, ("hrvSummary", "baseline", "lowUpper"), 0, "", _OUT),
+    (DayFamily.HRV, ("hrvReadings", 0, "hrvValue"), 0, "hrvReadings", _OUT),
+    (DayFamily.SLEEP, ("restingHeartRate",), 0, "", _OUT),
+    (DayFamily.SLEEP, ("avgOvernightHrv",), 0, "", _OUT),
+    (DayFamily.SLEEP, ("hrvStatus",), " ", "", _NULL),
+    (DayFamily.SLEEP, ("dailySleepDTO", "averageRespirationValue"), 0, "", _OUT),
+    (DayFamily.SLEEP, ("dailySleepDTO", "averageSpO2Value"), 49, "", _OUT),
+    (DayFamily.SLEEP, ("wellnessSpO2SleepSummaryDTO", "averageSPO2"), 49, "", _OUT),
+    (DayFamily.SLEEP, ("dailySleepDTO", "sleepVersion"), -1, "", _OUT),
+    (DayFamily.SLEEP, ("respirationVersion",), -1, "", _OUT),
+    (DayFamily.SLEEP, ("bodyBatteryChange",), -101, "", _OUT),
+    (DayFamily.SLEEP, ("restlessMomentsCount",), 20.5, "", _OUT),
+    (DayFamily.SLEEP, ("restlessMomentsCount",), -1, "", _OUT),
+    (DayFamily.SLEEP, ("dailySleepDTO", "deepSleepSeconds"), -1, "", _OUT),
+    (DayFamily.SLEEP, ("sleepStress", 0, "value"), 10.5, "sleepStress", _OUT),
+    (DayFamily.SLEEP, ("sleepBodyBattery", 0, "value"), 30.5, "sleepBodyBattery", _OUT),
+    (
+        DayFamily.SLEEP,
+        ("sleepRestlessMoments", 0, "value"),
+        1.5,
+        "sleepRestlessMoments",
+        _OUT,
+    ),
+    (
+        DayFamily.TRAINING_STATUS,
+        (*_STATUS_BLOCK, "timestamp"),
+        _MAX_MS + 1,
+        f"{_TS}.timestamp",
+        _OUT,
+    ),
+    (
+        DayFamily.TRAINING_STATUS,
+        (*_STATUS_BLOCK, "trainingStatus"),
+        4.5,
+        f"{_TS}.trainingStatus",
+        _OUT,
+    ),
+    (
+        DayFamily.TRAINING_STATUS,
+        (*_STATUS_BLOCK, "trainingStatus"),
+        -1,
+        f"{_TS}.trainingStatus",
+        _OUT,
+    ),
+    (
+        DayFamily.TRAINING_STATUS,
+        (*_STATUS_BLOCK, "acuteTrainingLoadDTO", "dailyTrainingLoadAcute"),
+        -1,
+        f"{_TS}.acuteTrainingLoadDTO.dailyTrainingLoadAcute",
+        _OUT,
+    ),
+    (
+        DayFamily.TRAINING_STATUS,
+        (*_STATUS_BLOCK, "acuteTrainingLoadDTO", "acwrStatus"),
+        " ",
+        f"{_TS}.acuteTrainingLoadDTO.acwrStatus",
+        _NULL,
+    ),
+    (
+        DayFamily.TRAINING_STATUS,
+        (*_BALANCE_BLOCK, "monthlyLoadAerobicLow"),
+        -1,
+        f"{_TB}.monthlyLoadAerobicLow",
+        _OUT,
+    ),
+    (
+        DayFamily.TRAINING_STATUS,
+        (*_VO2, "vo2MaxPreciseValue"),
+        -1,
+        "mostRecentVO2Max.generic.vo2MaxPreciseValue",
+        _OUT,
+    ),
+    (
+        DayFamily.TRAINING_STATUS,
+        (*_VO2, "vo2MaxValue"),
+        -1,
+        "mostRecentVO2Max.generic.vo2MaxValue",
+        _OUT,
+    ),
+    (
+        DayFamily.TRAINING_STATUS,
+        (*_ACCLIMATION, "heatAcclimationPercentage"),
+        -1,
+        "mostRecentVO2Max.heatAltitudeAcclimation.heatAcclimationPercentage",
+        _OUT,
+    ),
+    (
+        DayFamily.TRAINING_STATUS,
+        (*_ACCLIMATION, "heatTrend"),
+        " ",
+        "mostRecentVO2Max.heatAltitudeAcclimation.heatTrend",
+        _NULL,
+    ),
+    (
+        DayFamily.TRAINING_STATUS,
+        (*_ACCLIMATION, "altitudeAcclimation"),
+        9001,
+        "mostRecentVO2Max.heatAltitudeAcclimation.altitudeAcclimation",
+        _OUT,
+    ),
+    (
+        DayFamily.TRAINING_STATUS,
+        (*_ACCLIMATION, "currentAltitude"),
+        9001,
+        "mostRecentVO2Max.heatAltitudeAcclimation.currentAltitude",
+        _OUT,
+    ),
+    (
+        DayFamily.TRAINING_STATUS,
+        (*_ACCLIMATION, "altitudeTrend"),
+        " ",
+        "mostRecentVO2Max.heatAltitudeAcclimation.altitudeTrend",
+        _NULL,
+    ),
+]
+"""Un champ, une valeur qui ne tient pas, le chemin sous lequel l'écart se compte
+(vide : le chemin du champ, ses clés jointes par des points)."""
+
+
+def _counted_path(path: tuple[str | int, ...], counted: str) -> str:
+    return counted or ".".join(str(key) for key in path)
+
+
+@pytest.mark.parametrize(
+    ("family", "path", "value", "counted", "reason"),
+    _FIELDS,
+    ids=[
+        f"{family.value}-{'.'.join(str(key) for key in path)}-{value!r}"
+        for family, path, value, _, _ in _FIELDS
+    ],
+)
+def test_a_value_that_does_not_hold_is_counted_under_its_path(
+    family: DayFamily,
+    path: tuple[str | int, ...],
+    value: Any,
+    counted: str,
+    reason: PointDiscard,
+) -> None:
+    """Chaque champ lu : une valeur hors de sa plage (non finie, hors bornes, non
+    entière pour un compte, un niveau ou une version ; un instant hors de ce que
+    ``datetime`` représente) ou un code texte blanc s'écarte et se compte une fois,
+    sous le chemin de son champ, avec son motif ; rien d'autre ne change."""
+    base = _discards(read(family, DOCUMENTS[family]()))
+    result = read(family, _set(DOCUMENTS[family](), path, value))
+    assert result.refusal is None
+    expected = dict(base)
+    key = (_counted_path(path, counted), reason)
+    expected[key] = expected.get(key, 0) + 1
+    assert _discards(result) == expected
+
+
+_KEPT: list[tuple[DayFamily, tuple[str | int, ...], Any, Callable[[Any], Any], Any]] = [
+    (
+        DayFamily.DAILY_SUMMARY,
+        ("restStressDuration",),
+        0,
+        lambda r: r.stress.rest_duration_s,
+        0.0,
+    ),
+    (
+        DayFamily.DAILY_SUMMARY,
+        ("bodyBatteryChargedValue",),
+        0,
+        lambda r: r.body_battery.charged,
+        0,
+    ),
+    (
+        DayFamily.DAILY_SUMMARY,
+        ("bodyBatteryDrainedValue",),
+        0,
+        lambda r: r.body_battery.drained,
+        0,
+    ),
+    (
+        DayFamily.DAILY_SUMMARY,
+        ("floorsAscendedInMeters",),
+        0,
+        lambda r: r.activity_totals.floors_ascended_m,
+        0.0,
+    ),
+    (
+        DayFamily.DAILY_SUMMARY,
+        ("floorsDescendedInMeters",),
+        0,
+        lambda r: r.activity_totals.floors_descended_m,
+        0.0,
+    ),
+    (
+        DayFamily.DAILY_SUMMARY,
+        ("totalSteps",),
+        10000.0,
+        lambda r: r.activity_totals.steps,
+        10000,
+    ),
+    (
+        DayFamily.BODY_BATTERY,
+        (0, "charged"),
+        0,
+        lambda r: [copy.value for copy in r.copies],
+        [0, 55],
+    ),
+    (
+        DayFamily.BODY_BATTERY,
+        (0, "drained"),
+        0,
+        lambda r: [copy.value for copy in r.copies],
+        [60, 0],
+    ),
+    (
+        DayFamily.SLEEP,
+        ("dailySleepDTO", "deepSleepSeconds"),
+        0,
+        lambda r: r.night.deep_s,
+        0.0,
+    ),
+    (
+        DayFamily.SLEEP,
+        ("restlessMomentsCount",),
+        0,
+        lambda r: r.night.restless_moments,
+        0,
+    ),
+    (
+        DayFamily.SLEEP,
+        ("bodyBatteryChange",),
+        -100,
+        lambda r: r.night.body_battery_change,
+        -100,
+    ),
+    (
+        DayFamily.SLEEP,
+        ("dailySleepDTO", "dailyNapDTOS", 0, "napTimeSec"),
+        0,
+        lambda r: r.naps[0].sleep_s,
+        0.0,
+    ),
+    (
+        DayFamily.SLEEP,
+        ("dailySleepDTO", "dailyNapDTOS", 0, "napTimeSec"),
+        1500.5,
+        lambda r: r.naps[0].sleep_s,
+        1500.5,
+    ),
+    (
+        DayFamily.SLEEP,
+        ("sleepRestlessMoments", 0, "value"),
+        0,
+        lambda r: r.night_series.restless_moments.count,
+        (0,),
+    ),
+    (
+        DayFamily.RESPIRATION,
+        ("respirationVersion",),
+        0,
+        lambda r: r.versions.respiration_version,
+        0,
+    ),
+    (
+        DayFamily.SLEEP,
+        ("dailySleepDTO", "sleepVersion"),
+        0,
+        lambda r: r.versions.sleep_version,
+        0,
+    ),
+    (
+        DayFamily.TRAINING_STATUS,
+        (*_STATUS_BLOCK, "trainingStatus"),
+        0,
+        lambda r: r.status_block.status_code,
+        0,
+    ),
+    (
+        DayFamily.TRAINING_STATUS,
+        (*_VO2, "vo2MaxPreciseValue"),
+        0,
+        lambda r: r.vo2_max_block.vo2_max_precise_ml_kg_min,
+        0.0,
+    ),
+    (
+        DayFamily.TRAINING_STATUS,
+        (*_VO2, "vo2MaxValue"),
+        0,
+        lambda r: r.vo2_max_block.vo2_max_ml_kg_min,
+        0.0,
+    ),
+    (
+        DayFamily.TRAINING_STATUS,
+        (*_ACCLIMATION, "heatAcclimationPercentage"),
+        0,
+        lambda r: r.heat_block.heat_acclimation_percent,
+        0.0,
+    ),
+]
+"""Un champ, une valeur à sa borne basse (zéro, −100) ou non entière là où rien ne
+l'exige, ce que la lecture en rend."""
+
+
+@pytest.mark.parametrize(
+    ("family", "path", "value", "get", "expected"),
+    _KEPT,
+    ids=[
+        f"{family.value}-{'.'.join(str(key) for key in path)}-{value!r}"
+        for family, path, value, _, _ in _KEPT
+    ],
+)
+def test_a_value_at_its_lower_bound_is_kept(
+    family: DayFamily,
+    path: tuple[str | int, ...],
+    value: Any,
+    get: Callable[[Any], Any],
+    expected: Any,
+) -> None:
+    """Zéro, ou −100 pour le changement de Body Battery de la nuit, est une valeur
+    gardée, sans écart ; une durée de sieste non entière aussi (seuls les comptes, les
+    niveaux et les versions sont entiers)."""
+    base = _discards(read(family, DOCUMENTS[family]()))
+    result = read(family, _set(DOCUMENTS[family](), path, value))
+    assert get(result) == expected
+    assert _discards(result) == base
+
+
+def test_the_instant_range_bounds_are_kept_their_neighbours_discarded() -> None:
+    """La plage d'un instant lu : 0001-01-02 et 9999-12-30 UTC (minuit), bornes
+    comprises ; une milliseconde au-delà, ``out_of_range``, et la lecture de la série
+    continue."""
+    document = heart_rate_document()
+    document["heartRateValues"] = [
+        [_MIN_MS - 1, 55],
+        [_MIN_MS, 56],
+        [_MAX_MS, 57],
+        [_MAX_MS + 1, 58],
+    ]
+    result = read(DayFamily.HEART_RATE, document)
+    series = result.day_series.heart_rate
+    assert series is not None
+    assert series.epoch_s == (_MIN_MS / 1000, _MAX_MS / 1000)
+    assert series.heart_rate_bpm == (56.0, 57.0)
+    assert _discards(result) == {("heartRateValues", _OUT): 2}
+
+
+def test_a_nap_of_the_first_day_of_year_one_is_out_of_range() -> None:
+    """Une sieste le 0001-01-01 à 00:30 GMT, décalage −720 min : hors de la plage des
+    instants, écartée et comptée ; l'heure locale n'est jamais calculée."""
+    result = _nap(
+        napStartTimestampGMT="0001-01-01T00:30:00",
+        napEndTimestampGMT="0001-01-01T01:00:00",
+        napStartTimeOffset=-720,
+        napEndTimeOffset=-720,
+    )
+    assert result.naps == ()
+    assert _discards(result) == {("naps", _OUT): 1}
+
+
+def test_a_nap_whose_end_alone_is_out_of_range_is_discarded() -> None:
+    result = _nap(napEndTimestampGMT=_LAST_INSTANT)
+    assert result.naps == ()
+    assert _discards(result) == {("naps", _OUT): 1}
+
+
+def test_the_nap_source_of_a_discarded_nap_is_still_checked() -> None:
+    """Une sieste écartée (son début nul) dont ``napSource`` est un texte : le champ est
+    d'un autre type, le fichier est refusé."""
+    result = _nap(napStartTimestampGMT=None, napSource="1")
+    assert result.refusal is DayFileRefusal.UNEXPECTED_SHAPE
+
+
+def test_a_night_whose_end_offset_is_not_whole_seconds_is_out_of_range() -> None:
+    document = sleep_document()
+    document["dailySleepDTO"]["sleepEndTimestampLocal"] += 500
+    result = read(DayFamily.SLEEP, document)
+    assert result.night is None
+    assert _discards(result) == {("night", _OUT): 1}
+
+
+def test_a_night_whose_gmt_end_alone_is_out_of_range_is_discarded() -> None:
+    """La fin GMT de la nuit au-delà du 9999-12-30, son heure locale (−12 h) en deçà :
+    hors plage, la nuit est écartée."""
+    day = date(9999, 12, 30)
+    document = sleep_document()
+    dto = document["dailySleepDTO"]
+    dto["calendarDate"] = day.isoformat()
+    start = datetime(9999, 12, 29, 22, tzinfo=UTC)
+    end = datetime(9999, 12, 30, 6, tzinfo=UTC)
+    dto["sleepStartTimestampGMT"] = ms(start)
+    dto["sleepEndTimestampGMT"] = ms(end)
+    dto["sleepStartTimestampLocal"] = ms(start - timedelta(hours=12))
+    dto["sleepEndTimestampLocal"] = ms(end - timedelta(hours=12))
+    result = read(DayFamily.SLEEP, document, day)
+    assert result.refusal is None
+    assert result.night is None
+    assert _discards(result) == {("night", _OUT): 1}
+
+
+def test_a_segment_whose_end_alone_is_out_of_range_is_discarded() -> None:
+    result = _levels(
+        {
+            "startGMT": gmt_text(NIGHT_START),
+            "endGMT": _LAST_INSTANT,
+            "activityLevel": 1,
+        },
+        _segment(0, 60, 0),
+    )
+    segments = result.night_segments
+    assert segments is not None
+    assert segments.stage == (SleepStage.DEEP,)
+    assert _discards(result) == {("sleepLevels", _OUT): 1}
+
+
+def test_a_window_missing_its_start_alone_is_a_null_value() -> None:
+    document = heart_rate_document()
+    document["startTimestampGMT"] = None
+    result = read(DayFamily.HEART_RATE, document)
+    assert result.window is None
+    assert _discards(result)[("window", _NULL)] == 1
+
+
+def test_a_window_whose_end_is_out_of_range_is_discarded() -> None:
+    document = heart_rate_document()
+    document["endTimestampGMT"] = _LAST_INSTANT
+    result = read(DayFamily.HEART_RATE, document)
+    assert result.window is None
+    assert _discards(result) == {("heartRateValues", _NULL): 1, ("window", _OUT): 1}
+
+
+def test_a_repeated_unknown_code_is_counted_each_time() -> None:
+    result = _stress([ms(START), -3], [ms(START) + 60000, -3])
+    assert _codes(result) == [("stressValuesArray[*][1]", "-3", 2)]
+    assert _discards(result) == {("stressValuesArray", PointDiscard.UNKNOWN_CODE): 2}
+
+
+def test_an_unknown_night_stress_code_is_counted_under_its_value_path() -> None:
+    document = sleep_document()
+    document["sleepStress"][1]["value"] = -3
+    result = read(DayFamily.SLEEP, document)
+    assert _codes(result) == [("sleepStress[*].value", "-3", 1)]
+
+
+def test_every_body_battery_discard_is_followed_by_a_kept_point() -> None:
+    """La série de Body Battery du jour : chaque défaut (instant nul, instant hors
+    plage, statut nul, statut inconnu, niveau nul, non entier, hors plage, instant
+    répété), compté sous ``bodyBatteryValuesArray``, est suivi d'un point gardé ; la
+    version d'un point écarté ne se lit pas ; la version 0 est une version."""
+    base = ms(START)
+
+    def at_minute(minute: int) -> int:
+        return base + minute * 60000
+
+    points: list[list[Any]] = [
+        [None, "MEASURED", 40, 1],
+        [at_minute(1), "MEASURED", 41, 3],
+        [_MAX_MS + 1, "MEASURED", 40, 1],
+        [at_minute(2), "MEASURED", 42, 3],
+        [at_minute(3), None, 40, 1],
+        [at_minute(4), "MEASURED", 43, 3],
+        [at_minute(5), "BOGUS", 40, 1],
+        [at_minute(6), "MEASURED", 44, 3],
+        [at_minute(7), "MEASURED", None, 1],
+        [at_minute(8), "MEASURED", 45, 3],
+        [at_minute(9), "MEASURED", 40.5, 1],
+        [at_minute(10), "MEASURED", 46, 3],
+        [at_minute(11), "MEASURED", 101, 1],
+        [at_minute(12), "MEASURED", 47, 0],
+        [at_minute(12), "MEASURED", 48, 9],
+        [at_minute(13), "MEASURED", 49, 3],
+    ]
+    result = _battery(*points)
+    battery = result.day_series.body_battery
+    assert battery is not None
+    assert battery.level == (41, 42, 43, 44, 45, 46, 47, 49)
+    assert battery.epoch_s == tuple(
+        at_minute(minute) / 1000 for minute in (1, 2, 4, 6, 8, 10, 12, 13)
+    )
+    assert result.versions.body_battery_series_versions == (0, 3)
+    path = "bodyBatteryValuesArray"
+    assert _discards(result) == {
+        (path, _NULL): 3,
+        (path, _OUT): 3,
+        (path, PointDiscard.UNKNOWN_CODE): 1,
+        (path, PointDiscard.DUPLICATE_INSTANT): 1,
+    }
+    assert _codes(result) == [("bodyBatteryValuesArray[*][1]", "BOGUS", 1)]
+
+
+def test_a_body_battery_version_out_of_range_is_counted_apart() -> None:
+    result = _battery(
+        [ms(START), "MEASURED", 40, -1], [ms(START) + 60000, "RESET", 0, 2]
+    )
+    assert result.versions.body_battery_series_versions == (2,)
+    assert _discards(result) == {("bodyBatteryValuesArray[*][3]", _OUT): 1}
+
+
+def test_every_body_battery_element_after_the_first_is_read_and_counted() -> None:
+    """Trois éléments : les deux derniers, des doublons comptés, sont lus (leurs
+    valeurs hors plage se comptent aussi)."""
+    first = body_battery_document()[0]
+    second = {**first, "charged": 61}
+    third = {**first, "charged": -1}
+    result = read(DayFamily.BODY_BATTERY, [first, second, third])
+    assert [copy.value for copy in result.copies] == [60, 55]
+    assert _discards(result) == {
+        ("[*]", PointDiscard.DUPLICATE_INSTANT): 2,
+        ("[*].charged", _OUT): 1,
+    }
+
+
+def test_non_primary_readiness_entries_are_all_counted() -> None:
+    entries = [
+        readiness_entry(primaryActivityTracker=False),
+        readiness_entry(primaryActivityTracker=None),
+        readiness_entry(),
+    ]
+    result = read(DayFamily.TRAINING_READINESS, entries)
+    assert result.readiness_non_primary == 2
+    assert len(result.readiness) == 1
+
+
+def test_a_repeated_unknown_readiness_context_is_counted_each_time() -> None:
+    entries = [
+        readiness_entry(inputContext="INVENTED_CONTEXT"),
+        readiness_entry(
+            timestamp=gmt_text(at(DAY, 9)),
+            timestampLocal=local_text(at(DAY, 9)),
+            inputContext="INVENTED_CONTEXT",
+        ),
+    ]
+    result = read(DayFamily.TRAINING_READINESS, entries)
+    assert [(c.field_path, c.code, c.count) for c in result.unknown_contexts] == [
+        ("[*].inputContext", "INVENTED_CONTEXT", 2)
+    ]
+
+
+def test_a_readiness_entry_whose_local_instant_alone_is_out_of_range() -> None:
+    """L'heure GMT dans la plage (9999-12-29 à 20 h), l'heure locale au-delà
+    (9999-12-30 à 10 h, +14:00) : l'entrée est écartée."""
+    day = date(9999, 12, 29)
+    entry = readiness_entry(
+        calendarDate=day.isoformat(),
+        timestamp="9999-12-29T20:00:00.0",
+        timestampLocal="9999-12-30T10:00:00.0",
+    )
+    result = read(DayFamily.TRAINING_READINESS, [entry], day)
+    assert result.readiness == ()
+    assert _discards(result) == {("readiness", _OUT): 1}
+
+
+def test_a_restless_moment_of_zero_is_kept_as_zero() -> None:
+    document = sleep_document()
+    document["sleepRestlessMoments"] = [{"startGMT": ms(NIGHT_START), "value": 0}]
+    moments = read(DayFamily.SLEEP, document).night_series.restless_moments
+    assert moments is not None
+    assert moments.count == (0,)

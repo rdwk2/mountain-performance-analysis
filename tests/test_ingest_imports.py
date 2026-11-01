@@ -139,6 +139,17 @@ def test_day_views_import_only_the_contracts() -> None:
     assert outside <= STDLIB | {"__future__"}
 
 
+def test_families_import_only_the_contracts_and_validation() -> None:
+    """La lecture d'un fichier d'une famille (AN2-1) : la bibliothèque standard,
+    ``schemas`` et ``validation`` seulement ; ni l'écriture (``interim``), ni le codec,
+    ni ``fit``, ni ``export``, ni l'ingestion des jours (``days``), ni les vues."""
+    imports = _imports(INGEST / "families.py")
+    project = {m for m in imports if m.startswith("mountain")}
+    assert project <= {"mountain_perf.schemas", "mountain_perf.validation"}
+    outside = {m.split(".")[0] for m in imports if not m.startswith("mountain")}
+    assert outside <= STDLIB | {"__future__"}
+
+
 def test_engine_does_not_import_the_ingestion() -> None:
     for folder in ("schemas", "gpx", "model", "backtest"):
         for path in sorted((SOURCE / folder).rglob("*.py")):

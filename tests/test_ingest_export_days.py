@@ -387,3 +387,55 @@ def test_the_days_are_computed_before_any_writing(
     with pytest.raises(RuntimeError, match=r"^calcul des jours$"):
         ingest_export(tmp_path)
     assert not (tmp_path / "interim").exists()
+
+
+def test_a_value_error_of_the_days_goes_through_as_is(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Une ``ValueError`` de ``build_days`` (celle qu'il lève) sort telle quelle, sans
+    devenir une ``IngestError`` ; rien n'est écrit."""
+    _two_days(tmp_path)
+
+    def failing(*args: object) -> None:
+        raise ValueError("calcul des jours")
+
+    monkeypatch.setattr(export_module, "build_days", failing)
+    with pytest.raises(ValueError, match=r"^calcul des jours$") as error:
+        ingest_export(tmp_path)
+    assert type(error.value) is ValueError
+    assert not (tmp_path / "interim").exists()
+
+
+def test_cli_ingest_lists_the_reference_exports_by_name(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """``garmin_z``, acquis avant ``garmin_y``, est la référence du 10, ``garmin_y`` du
+    11 : leurs lignes vont par nom, ``garmin_y`` d'abord."""
+    write_activities_export(tmp_path, "garmin_z")
+    _later_export(tmp_path, "garmin_y")
+    write_day(tmp_path, DAY, export="garmin_z")
+    write_day(tmp_path, D1, export="garmin_y")
+    monkeypatch.setenv("MPA_DATA_DIR", str(tmp_path))
+    assert main(["ingest"]) == 0
+    lines = capsys.readouterr().out.splitlines()
+    first = lines.index("Jours : 2")
+    assert lines[first + 1 : first + 3] == [
+        "  garmin_y : export de référence de 1 jour(s)",
+        "  garmin_z : export de référence de 1 jour(s)",
+    ]
+
+
+def test_the_first_refused_export_is_the_first_by_instant(tmp_path: Path) -> None:
+    """Deux exports refusés, ``garmin_z`` acquis avant ``garmin_y`` : les jours se
+    vérifient dans l'ordre des instants, le message nomme ``garmin_z``."""
+    write_activities_export(tmp_path, "garmin_z")
+    _later_export(tmp_path, "garmin_y")
+    late = DAY + timedelta(days=10)
+    for name in ("garmin_z", "garmin_y"):
+        write_document(tmp_path, DayFamily.HRV, b"{}", late, name)
+    with pytest.raises(IngestError) as error:
+        ingest_export(tmp_path)
+    assert str(error.value) == (
+        "raw/garmin/garmin_z/ : un fichier journalier est daté après le jour de "
+        "l'acquisition de l'export ; acquisition.json est faux."
+    )
