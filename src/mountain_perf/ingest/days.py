@@ -747,9 +747,10 @@ class _DayAssembly:
 
     def borrow_series(self) -> None:
         """Les séries du jour et de la nuit, et les segments, qui manquent à une famille
-        de la référence."""
+        retenue, de la référence ou empruntée entière : du plus récent des autres
+        exports qui la porte."""
         for name, family, path in _DAY_SERIES:
-            own = self.reference.reads.get(family)
+            own = self.retained.get(family)
             if own is None or getattr(own.day_series, name) is not None:
                 continue
             for lender in self._lenders(family):
@@ -765,7 +766,7 @@ class _DayAssembly:
                 else:
                     self.refused.append((family, piece, BorrowingRefusal.DAY_WINDOW))
                 break
-        sleep = self.reference.reads.get(DayFamily.SLEEP)
+        sleep = self.retained.get(DayFamily.SLEEP)
         if sleep is None or sleep.night is None:
             return
         ours = _night_window(sleep)

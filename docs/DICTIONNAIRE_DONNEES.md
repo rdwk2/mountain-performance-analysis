@@ -10524,8 +10524,8 @@ La lecture des familles.
 
 #### Non promis
 
-Un code est une étiquette de la source, jamais un identifiant ni un texte libre :
-ni nom d'activité, ni phrase de conseil.
+Le texte d'un code inconnu est celui de la source, recopié tel quel s'il n'est pas
+blanc : rien ne garantit qu'il ne soit pas un texte libre.
 
 ---
 
@@ -10710,8 +10710,11 @@ l'ingestion ; le contrôle réel d'AN2-1, en comptes.
 #### Non promis
 
 Aucun instant d'exécution : deux ingestions des mêmes fichiers écrivent le même
-rapport. Aucune valeur ni date tirée des données, hors des noms de fichiers et des
-jours extrêmes de chaque export. Le rapport des activités est à côté
+rapport. Ne pas en recopier un élément dans le dépôt : outre ses comptes, il porte
+des éléments tirés des données — les noms et les empreintes des fichiers lus, les
+jours extrêmes et l'instant d'acquisition de chaque export, le texte des codes
+inconnus tel que la source l'écrit, le plus grand écart entre deux jours de chaque
+série (`max_gap_s`). Aucune mesure n'y figure. Le rapport des activités est à côté
 (`interim/activities/report.json`).
 
 ---

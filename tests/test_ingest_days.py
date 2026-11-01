@@ -1556,3 +1556,120 @@ def test_the_summary_follows_the_report(tmp_path: Path) -> None:
     assert summary.blocks_without_proper_instant == sum(
         item.count for item in report.blocks_without_proper_instant
     )
+
+
+# --- les correctifs de la relecture -------------------------------------------------
+
+
+def test_a_night_without_its_two_gmt_bounds_counts_no_discard(tmp_path: Path) -> None:
+    """Les deux bornes GMT de la nuit nulles : pas de nuit, ses segments et séries
+    jetés et comptés (``no_night``), et aucun écart ``night`` au rapport."""
+    write_day(
+        tmp_path,
+        families=(DayFamily.DAILY_SUMMARY, DayFamily.SLEEP),
+        sleep=_sleep(sleepStartTimestampGMT=None, sleepEndTimestampGMT=None),
+    )
+    ingestion = build(tmp_path)
+    day = record(ingestion)
+    assert day.night is None
+    assert len(day.naps) == 1
+    assert [
+        count
+        for count in ingestion.report.point_discards
+        if count.series_path == "night"
+    ] == []
+    assert (
+        PointDiscardCount(DayFamily.SLEEP, "sleepLevels", PointDiscard.NO_NIGHT, 2)
+        in ingestion.report.point_discards
+    )
+
+
+def _third_export_case(root: Path, family: DayFamily, agree: bool) -> Any:
+    """C, la référence, n'a pas ``family`` ; B, le plus récent des deux autres, la
+    prête entière sans une de ses séries ; A porte cette série, à une fenêtre qui
+    s'accorde (``agree``) ou non."""
+    if family is DayFamily.STRESS:
+        lender = _doc(DayFamily.STRESS)
+        lender["bodyBatteryValuesArray"] = []
+        third = (
+            _doc(DayFamily.STRESS)
+            if agree
+            else DOCUMENTS[DayFamily.STRESS](DAY, at(DAY, 1))
+        )
+    else:
+        lender = _doc(DayFamily.SLEEP)
+        lender["sleepRestlessMoments"] = []
+        third = _doc(DayFamily.SLEEP)
+        if not agree:
+            third["dailySleepDTO"]["sleepStartTimestampGMT"] += 1000
+            third["dailySleepDTO"]["sleepStartTimestampLocal"] += 1000
+    write_day(root, export=EXPORT_A, **{family.value: third})
+    write_day(root, export=EXPORT_B, **{family.value: lender})
+    write_day(root, export=EXPORT_C, families=_without(family))
+    return build(root, EXPORT_A, EXPORT_B, EXPORT_C)
+
+
+@pytest.mark.parametrize("family", [DayFamily.STRESS, DayFamily.SLEEP])
+def test_a_series_missing_from_a_whole_borrowed_family_is_borrowed(
+    tmp_path: Path, family: DayFamily
+) -> None:
+    """La famille vient entière de B ; la série qui lui manque, de A, aux fenêtres qui
+    s'accordent (même début de la fenêtre du jour ; même nuit à la seconde) : deux
+    provenances, deux emprunts comptés."""
+    ingestion = _third_export_case(tmp_path, family, agree=True)
+    day = record(ingestion)
+    assert day.reference_export == EXPORT_C
+    expected: tuple[BorrowingCount, ...]
+    if family is DayFamily.STRESS:
+        assert day.series.stress is not None
+        assert day.series.stress.source.retrieved_at == RETRIEVED[EXPORT_B]
+        battery = day.series.body_battery
+        assert battery is not None
+        assert battery.time_s == (0.0, 180.0)
+        assert battery.source.retrieved_at == RETRIEVED[EXPORT_A]
+        assert day.versions.body_battery_series_versions == (3,)
+        expected = (
+            BorrowingCount(DayFamily.STRESS, "series.body_battery", 1),
+            BorrowingCount(DayFamily.STRESS, "series.stress", 1),
+        )
+    else:
+        assert day.night is not None
+        assert day.night.source.retrieved_at == RETRIEVED[EXPORT_B]
+        moments = day.night.series.restless_moments
+        assert moments is not None
+        assert moments.time_s == (1800.0,)
+        assert moments.source.retrieved_at == RETRIEVED[EXPORT_A]
+        expected = (
+            BorrowingCount(DayFamily.SLEEP, "naps", 1),
+            BorrowingCount(DayFamily.SLEEP, "night", 1),
+            BorrowingCount(DayFamily.SLEEP, "night.series.restless_moments", 1),
+        )
+    assert ingestion.report.borrowings == expected
+    assert ingestion.report.borrowing_refusals == ()
+
+
+@pytest.mark.parametrize("family", [DayFamily.STRESS, DayFamily.SLEEP])
+def test_a_series_missing_from_a_whole_borrowed_family_needs_its_window(
+    tmp_path: Path, family: DayFamily
+) -> None:
+    """Le même, la fenêtre de A en désaccord (la fenêtre du jour commence une heure
+    plus tard ; la nuit une seconde plus tard) : la série reste absente, le refus se
+    compte."""
+    ingestion = _third_export_case(tmp_path, family, agree=False)
+    day = record(ingestion)
+    if family is DayFamily.STRESS:
+        assert day.series.body_battery is None
+        assert day.versions.body_battery_series_versions == ()
+        refusal = BorrowingRefusalCount(
+            DayFamily.STRESS, "series.body_battery", BorrowingRefusal.DAY_WINDOW, 1
+        )
+    else:
+        assert day.night is not None
+        assert day.night.series.restless_moments is None
+        refusal = BorrowingRefusalCount(
+            DayFamily.SLEEP,
+            "night.series.restless_moments",
+            BorrowingRefusal.NIGHT_WINDOW,
+            1,
+        )
+    assert ingestion.report.borrowing_refusals == (refusal,)

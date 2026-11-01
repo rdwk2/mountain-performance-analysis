@@ -135,6 +135,22 @@ def test_sleep_within_without_episode_is_absent() -> None:
         )
 
 
+@pytest.mark.parametrize(
+    ("rem_capable", "expected"), [(None, 19800.0), (False, 19800.0), (True, None)]
+)
+def test_sleep_within_a_night_without_rem_duration(
+    rem_capable: bool | None, expected: float | None
+) -> None:
+    """La durée du paradoxal manque : un appareil qui ne dit pas s'il le détecte, ou
+    qui ne le détecte pas, compte profond + léger (5 h 30) ; un appareil qui le détecte
+    rend le sommeil absent."""
+    record = day_record(naps=(), night=night(rem_capable=rem_capable, rem_s=None))
+    result = sleep_within((record,), at(DAY, 0), at(DAY, 8))
+    assert result.sleep_s == expected
+    if expected is None:
+        assert result.sleep_absence is ViewAbsence.NO_MEASURED_SLEEP
+
+
 def test_sleep_within_one_night_counts_its_measured_sleep() -> None:
     result = sleep_within((day_record(naps=()),), at(DAY, 0), at(DAY, 8))
     assert len(result.episodes) == 1

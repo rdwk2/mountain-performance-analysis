@@ -526,7 +526,7 @@ def test_a_night_and_its_measured_sleep() -> None:
     assert night().measured_sleep_s == 25200.0
     assert night(rem_capable=False, rem_s=None).measured_sleep_s == 19800.0
     assert night(rem_capable=True, rem_s=None).measured_sleep_s is None
-    assert night(rem_capable=None, rem_s=None).measured_sleep_s is None
+    assert night(rem_capable=None, rem_s=None).measured_sleep_s == 19800.0
     assert night(rem_capable=None).measured_sleep_s == 25200.0
     assert night(deep_s=None).measured_sleep_s is None
     assert night(light_s=None).measured_sleep_s is None

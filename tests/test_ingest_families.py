@@ -1426,3 +1426,112 @@ def test_fixture_documents_are_dated_in_utc_and_plus_one() -> None:
     assert local_text(START) == "2001-03-10T00:00:00.0"
     assert UTC.utcoffset(None) == timedelta(0)
     assert timezone(timedelta(hours=1)) == PLUS1
+
+
+# --- les correctifs de la relecture -------------------------------------------------
+
+
+def test_a_night_without_its_two_gmt_bounds_is_no_night() -> None:
+    """Les deux bornes GMT de la nuit nulles, les heures murales présentes : la famille
+    est lue sans nuit, et aucun écart ne se compte pour elle ; la sieste reste."""
+    document = sleep_document()
+    document["dailySleepDTO"]["sleepStartTimestampGMT"] = None
+    document["dailySleepDTO"]["sleepEndTimestampGMT"] = None
+    result = read(DayFamily.SLEEP, document)
+    assert result.refusal is None
+    assert result.night is None
+    assert len(result.naps) == 1
+    assert [item for item in result.discards if item.series_path == "night"] == []
+
+
+@pytest.mark.parametrize("bound", ["sleepStartTimestampGMT", "sleepEndTimestampGMT"])
+def test_a_night_missing_one_gmt_bound_is_a_discard(bound: str) -> None:
+    """Une borne GMT nulle, l'autre présente : manquante à demi, ``null_value``."""
+    document = sleep_document()
+    document["dailySleepDTO"][bound] = None
+    result = read(DayFamily.SLEEP, document)
+    assert result.night is None
+    assert (
+        PointDiscardCount(DayFamily.SLEEP, "night", PointDiscard.NULL_VALUE, 1)
+        in result.discards
+    )
+
+
+def test_a_day_body_battery_point_of_three_columns_is_kept_without_version() -> None:
+    """Un point de Body Battery du jour sans sa quatrième colonne (la version) est
+    gardé ; seule la version des points qui la portent se lit."""
+    document = stress_document()
+    document["bodyBatteryValuesArray"] = [
+        [ms(START), "MEASURED", 40],
+        [ms(START + timedelta(minutes=3)), "MODELED", 41, 3],
+    ]
+    result = read(DayFamily.STRESS, document)
+    battery = result.day_series.body_battery
+    assert battery is not None
+    assert battery.epoch_s == (ms(START) / 1000, ms(START) / 1000 + 180)
+    assert battery.level == (40, 41)
+    assert battery.status == (BodyBatteryStatus.MEASURED, BodyBatteryStatus.MODELED)
+    assert result.versions.body_battery_series_versions == (3,)
+    assert result.discards == ()
+
+
+@pytest.mark.parametrize("point", [[ms(START), "MEASURED"], [ms(START)], []])
+def test_a_day_body_battery_point_of_two_columns_refuses_the_file(
+    point: list[Any],
+) -> None:
+    document = stress_document()
+    document["bodyBatteryValuesArray"] = [point]
+    assert read(DayFamily.STRESS, document).refusal is DayFileRefusal.UNEXPECTED_SHAPE
+
+
+@pytest.mark.parametrize("table", ["statuses", "balances"])
+def test_a_device_key_too_long_for_int_is_unreadable(table: str) -> None:
+    """Une clé de table de Training Status faite de 4 301 chiffres (au-delà de la
+    limite de ``int``) : le fichier est refusé, comme un JSON illisible."""
+    key = "1" * 4301
+    if table == "statuses":
+        document = training_status_document(statuses={key: status_entry()})
+    else:
+        document = training_status_document(balances={key: balance_entry()})
+    result = read(DayFamily.TRAINING_STATUS, document)
+    assert result.refusal is DayFileRefusal.UNREADABLE_JSON
+
+
+def test_a_device_key_of_4300_digits_is_read() -> None:
+    key = "1" * 4300
+    document = training_status_document(statuses={key: status_entry()})
+    result = read(DayFamily.TRAINING_STATUS, document)
+    assert result.refusal is None
+    assert result.device_ids == (int(key), DEVICE)
+
+
+@pytest.mark.parametrize(
+    ("path", "value"),
+    [
+        (("hrvSummary", "status"), "BALANCED\ud800"),
+        (("hrvSummary", "\udfff"), 1),
+        (("hrvSummary", "feedbackPhrase"), "\ud800"),
+        (("hrvReadings", 0, "readingTimeLocal"), "\udc00"),
+    ],
+)
+def test_a_text_that_does_not_encode_in_utf8_is_unreadable(
+    path: tuple[str | int, ...], value: Any
+) -> None:
+    """Une demi-paire de substitution échappée (``\\ud800``), que ``json.loads``
+    admet : le fichier est refusé au décodage, où qu'elle soit (une valeur lue, une
+    clé, un champ qui ne s'ingère pas)."""
+    data = encode(_set(hrv_document(), path, value))
+    assert b"\\ud" in data
+    result = read(DayFamily.HRV, data)
+    assert result.refusal is DayFileRefusal.UNREADABLE_JSON
+    assert result.hrv is None
+
+
+def test_a_whole_surrogate_pair_is_a_text() -> None:
+    """Une paire de substitution entière, échappée, est un caractère : lu."""
+    data = encode(_set(hrv_document(), ("hrvSummary", "status"), "BALANCED\U0001f600"))
+    assert b"\\ud83d\\ude00" in data
+    result = read(DayFamily.HRV, data)
+    assert result.refusal is None
+    assert result.hrv is not None
+    assert result.hrv.status == "BALANCED\U0001f600"

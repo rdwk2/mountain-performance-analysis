@@ -72,9 +72,11 @@ from __future__ import annotations
 
 import dataclasses
 import math
+from bisect import bisect_left, bisect_right
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
+from functools import partial
 from typing import Any
 
 from mountain_perf.schemas import (
@@ -130,7 +132,6 @@ type DaySeriesItem = (
 """Une série d'un jour ou d'une nuit."""
 
 _DAY_S = 86400.0
-_HALF_DAY_S = 43200.0
 _RESULTANT_GUARD = 1e-12
 """La garde de la moyenne circulaire : une résultante, rapportée au nombre de nuits, au
 plus égale à elle n'a pas de direction (le bruit d'arrondi, pas un seuil)."""
@@ -565,13 +566,15 @@ def body_battery_at(
         for record in days
         if record.night is not None and _visible(record.night.end, instant, strict)
     ]
-    windows = [(night.start, night.end) for _, night in nights]
+    # Les fenêtres des nuits, fusionnées et triées une fois ; chaque série se lit par
+    # bissection (ses instants croissent) : le dernier point de chaque nuit dans sa
+    # fenêtre, le dernier point de chaque jour connu à ``instant`` et hors des fenêtres.
+    windows = _union([(night.start, night.end) for _, night in nights])
+    window_starts = [start for start, _ in windows]
     best: tuple[datetime, int, BodyBatteryReading] | None = None
 
     def offer(point: datetime, rank: int, reading: BodyBatteryReading) -> None:
         nonlocal best
-        if not _visible(point, instant, strict):
-            return
         if best is None or point > best[0] or (point == best[0] and rank < best[1]):
             best = (point, rank, reading)
 
@@ -580,33 +583,51 @@ def body_battery_at(
         series = night.series.body_battery
         if series is None:
             continue
-        for time, level in zip(series.time_s, series.level, strict=True):
-            point = _at(night.start, time)
-            if night.start <= point <= night.end:
-                offer(
-                    point,
-                    ranks[day],
-                    BodyBatteryReading(
-                        point, level, None, True, day, None, series.source, None
-                    ),
-                )
+        instant_of = partial(_at, night.start)
+        index = bisect_right(series.time_s, night.end, key=instant_of) - 1
+        if index < 0:
+            continue
+        point = instant_of(series.time_s[index])
+        if point < night.start:
+            continue
+        index = bisect_left(series.time_s, point, key=instant_of)
+        offer(
+            point,
+            ranks[day],
+            BodyBatteryReading(
+                point, series.level[index], None, True, day, None, series.source, None
+            ),
+        )
     for record in days:
         series = record.series.body_battery
         if series is None or record.window_start is None:
             continue
-        for time, level, status in zip(
-            series.time_s, series.level, series.status, strict=True
-        ):
-            point = _at(record.window_start, time)
-            if any(start <= point <= end for start, end in windows):
-                continue
-            offer(
+        instant_of = partial(_at, record.window_start)
+        search = bisect_left if strict else bisect_right
+        index = search(series.time_s, instant, key=instant_of) - 1
+        while index >= 0:
+            point = instant_of(series.time_s[index])
+            k = bisect_right(window_starts, point) - 1
+            if k < 0 or point > windows[k][1]:
+                break
+            index = bisect_left(series.time_s, windows[k][0], key=instant_of) - 1
+        if index < 0:
+            continue
+        index = bisect_left(series.time_s, point, key=instant_of)
+        offer(
+            point,
+            ranks[record.day],
+            BodyBatteryReading(
                 point,
-                ranks[record.day],
-                BodyBatteryReading(
-                    point, level, status, False, record.day, None, series.source, None
-                ),
-            )
+                series.level[index],
+                series.status[index],
+                False,
+                record.day,
+                None,
+                series.source,
+                None,
+            ),
+        )
     if best is None:
         return BodyBatteryReading(
             None, None, None, None, None, None, None, ViewAbsence.NO_POINT

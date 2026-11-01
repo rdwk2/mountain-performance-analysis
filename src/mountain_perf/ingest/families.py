@@ -1242,14 +1242,14 @@ def _day_body_battery(
     r: _Reader, items: list[Any] | None
 ) -> tuple[list[_Point], tuple[int, ...]]:
     """La série de Body Battery du jour : le statut avant le niveau ; les versions des
-    points gardés."""
+    points gardés (un point à trois colonnes n'en porte pas)."""
     path = "bodyBatteryValuesArray"
     kept: list[_Point] = []
     versions: set[int] = set()
     for item in items or ():
-        point = _columns(item, 4)
+        point = _columns(item, 3)
         ms, status_raw, level_raw = _ms(point[0]), _text(point[1]), _number(point[2])
-        version_raw = _number(point[3])
+        version_raw = _number(point[3]) if len(point) > 3 else None
         if ms is None:
             r.discard(path, PointDiscard.NULL_VALUE)
             continue
@@ -1695,9 +1695,9 @@ def _night(r: _Reader, doc: dict[str, Any], dto: dict[str, Any]) -> Night | None
             *SKIN_TEMPERATURE_DEVIATION_RANGE_C,
         )
     )
-    if all(bound is None for bound in bounds):
-        return None
     start_gmt, end_gmt, start_local, end_local = bounds
+    if start_gmt is None and end_gmt is None:
+        return None
     if start_gmt is None or end_gmt is None or start_local is None or end_local is None:
         r.discard("night", PointDiscard.NULL_VALUE)
         return None
@@ -1976,7 +1976,8 @@ _BALANCE_TABLE = ("mostRecentTrainingLoadBalance", "metricsTrainingLoadBalanceDT
 def _choose(r: _Reader, doc: dict[str, Any], keys: tuple[str, str]) -> Any:
     """Le bloc choisi d'une table rangée par appareil : sa seule clé, ou le seul bloc
     principal ; sinon ``_NoPrimaryError``. Lit la clé du bloc choisi (si elle n'est
-    faite que de chiffres) puis son ``deviceId``."""
+    faite que de chiffres ; trop longue pour ``int``, ``_UnreadableError``) puis son
+    ``deviceId``."""
     table = _object(_path(doc, *keys))
     if not table:
         return None
@@ -1995,7 +1996,12 @@ def _choose(r: _Reader, doc: dict[str, Any], keys: tuple[str, str]) -> Any:
             raise _NoPrimaryError
         ((key, chosen),) = primary
     if _DIGITS.fullmatch(key):
-        r.device(int(key))
+        try:
+            device = int(key)
+        except ValueError:
+            # Plus de 4 300 chiffres, la limite de int : illisible, comme une valeur.
+            raise _UnreadableError from None
+        r.device(device)
     r.device(chosen.get("deviceId"))
     return chosen
 
@@ -2252,10 +2258,30 @@ def _detail(parts: _Parts) -> bool:
 
 def _decode(data: bytes) -> Any:
     try:
-        return json.loads(data.decode("utf-8"))
+        document = json.loads(data.decode("utf-8"))
+        _require_encodable(document)
     except (ValueError, RecursionError):
-        # UnicodeDecodeError, JSONDecodeError, et l'entier de plus de 4 300 chiffres.
+        # UnicodeDecodeError, JSONDecodeError, l'entier de plus de 4 300 chiffres, et
+        # UnicodeEncodeError (un texte qui ne s'encode pas en UTF-8).
         raise _UnreadableError from None
+    return document
+
+
+def _require_encodable(document: Any) -> None:
+    """Chaque texte du document, clés comprises, s'encode en UTF-8 ; sinon
+    ``UnicodeEncodeError``. ``json.loads`` admet une demi-paire de substitution
+    échappée (``"\\ud800"``), qu'aucun encodage UTF-8 n'écrit."""
+    pending = [document]
+    while pending:
+        value = pending.pop()
+        if isinstance(value, str):
+            value.encode()
+        elif isinstance(value, list):
+            pending.extend(value)
+        elif isinstance(value, dict):
+            for key, item in value.items():
+                key.encode()
+                pending.append(item)
 
 
 class _UnreadableError(Exception):
@@ -2283,7 +2309,9 @@ def read_family(
        ``-Infinity`` est un négatif : ``unknown_code``) ; une clé répétée, la dernière
        l'emporte ; ne se lisent pas : un caractère de contrôle brut dans un texte, un
        entier de plus de 4 300 chiffres (la limite de ``int``), une imbrication trop
-       profonde (``RecursionError``) ;
+       profonde (``RecursionError``), un texte qui ne s'encode pas en UTF-8 (une
+       demi-paire de substitution échappée, comme ``"\\ud800"``, que ``json.loads``
+       admet), où qu'il soit dans le document, clés comprises ;
     2. un document ``{}`` ou ``[]`` n'est pas un refus : la famille est absente ce
        jour-là (``empty``), quelle que soit la forme de sa racine ;
     3. ``unexpected_shape`` : racine d'un autre type que celui de la famille (une liste
@@ -2367,6 +2395,8 @@ def read_family(
     reader = _Reader(family, day, source)
     try:
         parts = _READERS[family](reader, document)
+    except _UnreadableError:
+        return dataclasses.replace(refused, refusal=DayFileRefusal.UNREADABLE_JSON)
     except _DateMismatchError:
         return dataclasses.replace(refused, refusal=DayFileRefusal.DATE_MISMATCH)
     except _NoPrimaryError:
