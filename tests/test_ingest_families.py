@@ -1804,3 +1804,64 @@ def test_a_whole_surrogate_pair_is_a_text() -> None:
     assert result.refusal is None
     assert result.hrv is not None
     assert result.hrv.status == "BALANCED\U0001f600"
+
+
+# --- la relecture bornée et le second balayage --------------------------------------
+
+
+def test_a_text_directly_in_a_list_that_does_not_encode_is_unreadable() -> None:
+    """Un texte posé directement dans une liste, le statut d'un point de Body Battery
+    du jour, porte une demi-paire de substitution : le fichier est refusé."""
+    document = stress_document()
+    document["bodyBatteryValuesArray"] = [[ms(START), "MEASURED\ud800", 40, 3]]
+    data = encode(document)
+    assert b'"MEASURED\\ud800"' in data
+    result = read(DayFamily.STRESS, data)
+    assert result.refusal is DayFileRefusal.UNREADABLE_JSON
+    assert result.day_series.body_battery is None
+
+
+def _wrong_date(text: str | None) -> Any:
+    document = _set(hrv_document(), ("hrvSummary", "calendarDate"), "2001-03-11")
+    return document if text is None else _set(document, ("hrvSummary", "x"), text)
+
+
+def _wrong_root(text: str | None) -> Any:
+    return ["x"] if text is None else [text]
+
+
+def _wrong_type(text: str | None) -> Any:
+    document = _set(hrv_document(), ("hrvSummary", "status"), 5)
+    return document if text is None else _set(document, ("hrvSummary", "x"), text)
+
+
+@pytest.mark.parametrize(
+    ("build", "without"),
+    [
+        (_wrong_date, DayFileRefusal.DATE_MISMATCH),
+        (_wrong_root, DayFileRefusal.UNEXPECTED_SHAPE),
+        (_wrong_type, DayFileRefusal.UNEXPECTED_SHAPE),
+    ],
+    ids=["date", "root", "type"],
+)
+def test_a_text_that_does_not_encode_is_refused_before_any_other_reading(
+    build: Callable[[str | None], Any], without: DayFileRefusal
+) -> None:
+    """Une demi-paire et un autre défaut (la date du document, la racine d'un autre
+    type, un champ lu d'un autre type) : ``unreadable_json``, au décodage, avant toute
+    autre lecture ; sans la demi-paire, l'autre refus."""
+    data = encode(build("\ud800"))
+    assert b"\\ud800" in data
+    assert read(DayFamily.HRV, data).refusal is DayFileRefusal.UNREADABLE_JSON
+    assert read(DayFamily.HRV, encode(build(None))).refusal is without
+
+
+@pytest.mark.parametrize("version", ["x", True, [3]], ids=["text", "bool", "list"])
+def test_a_day_body_battery_version_of_another_type_refuses_the_file(
+    version: Any,
+) -> None:
+    """La quatrième colonne d'un point de Body Battery du jour, d'un autre type qu'un
+    nombre : un champ lu d'un autre type JSON, le fichier est refusé."""
+    document = stress_document()
+    document["bodyBatteryValuesArray"] = [[ms(START), "MEASURED", 40, version]]
+    assert read(DayFamily.STRESS, document).refusal is DayFileRefusal.UNEXPECTED_SHAPE

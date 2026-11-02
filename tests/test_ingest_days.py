@@ -2460,3 +2460,151 @@ def test_device_ranks_follow_the_families_even_borrowed(tmp_path: Path) -> None:
     assert record(ingestion).night is not None
     assert record(ingestion, DAY).device_ranks == (1, 2)
     assert record(ingestion, D1).device_ranks == (2,)
+
+
+# --- la relecture bornée et le second balayage --------------------------------------
+
+
+def _shifted(document: dict[str, Any]) -> dict[str, Any]:
+    """Le document de ``sleep``, sa nuit commencée une seconde plus tard."""
+    dto = document["dailySleepDTO"]
+    dto["sleepStartTimestampGMT"] += 1000
+    dto["sleepStartTimestampLocal"] += 1000
+    return document
+
+
+def _whole_sleep_case(root: Path, case: str) -> Any:
+    """C, la référence, n'a pas ``sleep`` ; B, le plus récent des deux autres, la prête
+    entière sans segments ; A porte des segments qui s'accordent (``agree``), d'une nuit
+    une seconde plus tard (``window``), qui ne redonnent pas la durée du paradoxal
+    (``durations``), ou n'en porte pas (``none``)."""
+    third = _doc(DayFamily.SLEEP)
+    third["sleepLevels"] = [] if case == "none" else _levels(_FULL_PLAN)
+    if case == "window":
+        _shifted(third)
+    elif case == "durations":
+        third["sleepLevels"] = _levels(_REM_30)
+    lender = _doc(DayFamily.SLEEP)
+    lender["sleepLevels"] = []
+    write_day(root, export=EXPORT_A, sleep=third)
+    write_day(root, export=EXPORT_B, sleep=lender)
+    write_day(root, export=EXPORT_C, families=_without(DayFamily.SLEEP))
+    return build(root, EXPORT_A, EXPORT_B, EXPORT_C)
+
+
+_WHOLE_BORROWINGS = (
+    BorrowingCount(DayFamily.SLEEP, "naps", 1),
+    BorrowingCount(DayFamily.SLEEP, "night", 1),
+)
+
+
+def test_the_segments_of_a_whole_borrowed_night_come_from_a_third_export(
+    tmp_path: Path,
+) -> None:
+    """La nuit vient entière de B, sans segments ; ceux de A, à la même nuit et aux
+    durées du résumé : les segments viennent de A, un emprunt ``night.segments``."""
+    ingestion = _whole_sleep_case(tmp_path, "agree")
+    day = record(ingestion)
+    assert day.reference_export == EXPORT_C
+    assert day.night is not None
+    assert day.night.source.retrieved_at == RETRIEVED[EXPORT_B]
+    assert day.night.segments == (
+        SleepSegment(0.0, 3600.0, SleepStage.DEEP),
+        SleepSegment(3600.0, 19800.0, SleepStage.LIGHT),
+        SleepSegment(19800.0, 25200.0, SleepStage.REM),
+        SleepSegment(25200.0, 27000.0, SleepStage.AWAKE),
+        SleepSegment(27000.0, 28800.0, SleepStage.UNMEASURABLE),
+    )
+    assert ingestion.report.borrowings == (
+        *_WHOLE_BORROWINGS,
+        BorrowingCount(DayFamily.SLEEP, "night.segments", 1),
+    )
+    assert ingestion.report.borrowing_refusals == ()
+
+
+@pytest.mark.parametrize(
+    ("case", "reason"),
+    [
+        ("window", BorrowingRefusal.NIGHT_WINDOW),
+        ("durations", BorrowingRefusal.NIGHT_DURATIONS),
+        ("none", None),
+    ],
+)
+def test_the_segments_of_a_whole_borrowed_night_need_their_agreements(
+    tmp_path: Path, case: str, reason: BorrowingRefusal | None
+) -> None:
+    """Le même, les segments de A d'une nuit une seconde plus tard (refus
+    ``night_window``), qui ne redonnent pas la durée du paradoxal du résumé (refus
+    ``night_durations``), ou absents (ni emprunt ni refus) : aucun segment."""
+    ingestion = _whole_sleep_case(tmp_path, case)
+    day = record(ingestion)
+    assert day.night is not None
+    assert day.night.segments == ()
+    assert ingestion.report.borrowings == _WHOLE_BORROWINGS
+    assert ingestion.report.borrowing_refusals == (
+        ()
+        if reason is None
+        else (BorrowingRefusalCount(DayFamily.SLEEP, "night.segments", reason, 1),)
+    )
+
+
+def _only_the_most_recent_lender(root: Path, piece: str) -> Any:
+    """C, la référence, n'a pas ``piece`` ; B, le plus récent des deux autres, la porte
+    à une fenêtre en désaccord (la fenêtre du jour une heure plus tard, la nuit une
+    seconde plus tard) ; A, le plus ancien, à une fenêtre qui s'accorde."""
+    if piece == "series.body_battery":
+        reference = _doc(DayFamily.STRESS)
+        reference["bodyBatteryValuesArray"] = []
+        write_day(root, export=EXPORT_A)
+        write_day(
+            root, export=EXPORT_B, stress=DOCUMENTS[DayFamily.STRESS](DAY, at(DAY, 1))
+        )
+        write_day(root, export=EXPORT_C, stress=reference)
+    else:
+        reference = _doc(DayFamily.SLEEP)
+        older = _doc(DayFamily.SLEEP)
+        newer = _shifted(_doc(DayFamily.SLEEP))
+        if piece == "night.segments":
+            reference["sleepLevels"] = []
+            older["sleepLevels"] = _levels(_FULL_PLAN)
+            newer["sleepLevels"] = _levels(_FULL_PLAN)
+        else:
+            reference["sleepRestlessMoments"] = []
+        write_day(root, export=EXPORT_A, sleep=older)
+        write_day(root, export=EXPORT_B, sleep=newer)
+        write_day(root, export=EXPORT_C, sleep=reference)
+    return build(root, EXPORT_A, EXPORT_B, EXPORT_C)
+
+
+@pytest.mark.parametrize(
+    ("piece", "family", "reason"),
+    [
+        ("series.body_battery", DayFamily.STRESS, BorrowingRefusal.DAY_WINDOW),
+        (
+            "night.series.restless_moments",
+            DayFamily.SLEEP,
+            BorrowingRefusal.NIGHT_WINDOW,
+        ),
+        ("night.segments", DayFamily.SLEEP, BorrowingRefusal.NIGHT_WINDOW),
+    ],
+)
+def test_a_piece_refused_by_the_most_recent_lender_is_not_asked_of_the_next(
+    tmp_path: Path, piece: str, family: DayFamily, reason: BorrowingRefusal
+) -> None:
+    """Une série du jour, une série de la nuit, les segments : du plus récent des
+    autres exports qui la porte, et de lui seul. B la refuse par sa fenêtre ; A, qui
+    s'accorde, n'est pas essayé : rien n'est pris, un refus, aucun emprunt."""
+    ingestion = _only_the_most_recent_lender(tmp_path, piece)
+    day = record(ingestion)
+    assert day.reference_export == EXPORT_C
+    assert day.night is not None
+    if piece == "series.body_battery":
+        assert day.series.body_battery is None
+    elif piece == "night.segments":
+        assert day.night.segments == ()
+    else:
+        assert day.night.series.restless_moments is None
+    assert ingestion.report.borrowings == ()
+    assert ingestion.report.borrowing_refusals == (
+        BorrowingRefusalCount(family, piece, reason, 1),
+    )

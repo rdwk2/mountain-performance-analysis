@@ -1935,6 +1935,39 @@ def test_body_battery_at_strict_on_a_night_ending_at_the_instant() -> None:
     assert body_battery_at((record,), at(DAY, 7), strict=True).level == 60
 
 
+@pytest.mark.parametrize("time_s", [-1800.0, 30000.0], ids=["before", "after"])
+def test_body_battery_at_reads_past_a_night_without_a_point_in_its_window(
+    time_s: float,
+) -> None:
+    """La nuit du 10, son seul point de Body Battery une demi-heure avant son début, ou
+    après sa fin (7 h 20) : la nuit du 11 se lit encore."""
+    days = (
+        _quiet(night=_full_night(series=_bb_night((time_s,), (30,)))),
+        _quiet(NEXT, night=_full_night(NEXT, series=_bb_night((3600.0,), (55,)))),
+    )
+    reading = body_battery_at(days, at(NEXT, 8))
+    assert (reading.point_instant, reading.level, reading.day) == (
+        midnight(NEXT),
+        55,
+        NEXT,
+    )
+
+
+def test_body_battery_at_reads_past_a_day_without_a_point_outside_the_nights() -> None:
+    """Le seul point du jour du 10, à 1 h, tombe dans sa nuit : le jour du 11 se lit
+    encore."""
+    days = (
+        _quiet(night=_full_night(), series=_bb_day(DAY, (3600.0,), (50,))),
+        _quiet(NEXT, series=_bb_day(NEXT, (43200.0,), (52,))),
+    )
+    reading = body_battery_at(days, at(NEXT, 13))
+    assert (reading.point_instant, reading.level, reading.day) == (
+        at(NEXT, 12),
+        52,
+        NEXT,
+    )
+
+
 # --- night_before, nights_after, training_status_at, readiness_at
 
 
@@ -2048,6 +2081,23 @@ def test_usual_midpoint_the_guard_is_relative_to_the_number_of_nights() -> None:
     assert result.usual_nights == 100
     assert result.usual_midpoint_s is None
     assert result.shifted_absence is ViewAbsence.DISPERSED_MIDPOINTS
+
+
+def test_usual_midpoint_the_guard_is_included(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Deux milieux à 6 h : la résultante rapportée aux deux nuits vaut exactement 1.
+    La garde portée à 1 : une résultante égale à la garde n'a pas de moyenne
+    (``dispersed_midpoints``) ; la garde juste en dessous, si."""
+    days = _nights([(2, 10), (2, 10)])
+    guard = "mountain_perf.ingest.day_views._RESULTANT_GUARD"
+    monkeypatch.setattr(guard, 1.0)
+    result = _assess(days)
+    assert result.usual_nights == 2
+    assert result.usual_midpoint_s is None
+    assert result.shifted_absence is ViewAbsence.DISPERSED_MIDPOINTS
+    monkeypatch.setattr(guard, math.nextafter(1.0, 0.0))
+    below = _assess(days)
+    assert below.usual_midpoint_s == pytest.approx(6 * H, abs=1e-6)
+    assert below.shifted_absence is None
 
 
 def test_c1_shifted_reads_the_circular_distance_across_midnight() -> None:

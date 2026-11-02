@@ -76,9 +76,11 @@ from fixtures.days import (
     nap,
     night,
     readiness,
+    source,
     status_block,
 )
 from mountain_perf.ingest.day_views import (
+    BodyBatteryReading,
     body_battery_at,
     night_before,
     readiness_at,
@@ -90,6 +92,7 @@ from mountain_perf.ingest.day_views import (
 from mountain_perf.schemas import (
     BodyBatterySeries,
     BodyBatteryStatus,
+    DayFamily,
     DayRecord,
     DaySeries,
     DayState,
@@ -109,6 +112,7 @@ from mountain_perf.schemas import (
     TrainingStatusBlock,
     TrainingStatusHistory,
     TrainingStatusKind,
+    ViewAbsence,
 )
 
 BASE = date(2001, 3, 8)
@@ -824,3 +828,257 @@ def test_the_rewriting_changes_something_after_t() -> None:
     assert rewritten.history != world.history
     assert len(rewritten.days) == 2
     assert new.series != EMPTY_DAY_SERIES
+
+
+# --- body_battery_at contre une implémentation naïve ----------------------------------
+
+
+def _battery_times(
+    draw: st.DrawFn, low: int, high: int, anchors: list[int]
+) -> tuple[float, ...]:
+    """Des instants en secondes depuis l'origine d'une série : libres, ou sur
+    ``anchors`` (les bornes des nuits) ; parfois doublés à moins d'une microseconde (le
+    même instant)."""
+    pool = st.one_of(st.sampled_from(anchors), st.integers(low, high))
+    times: list[float] = []
+    for value in sorted(set(draw(st.lists(pool, max_size=5)))):
+        times.append(float(value))
+        if draw(st.integers(0, 3)) == 0:
+            times.append(value + 3e-7)
+    return tuple(times)
+
+
+@st.composite
+def _battery_night(
+    draw: st.DrawFn, day: date, rank: int, start: datetime, previous: Night | None
+) -> Night:
+    """Une nuit qui touche la précédente, la recouvre, tient dans elle, ou libre ; ses
+    points de Body Battery dans et hors de sa fenêtre, jusqu'à ses deux bornes, tous
+    avant son début, tous après sa fin, ou aux instants de ceux de la précédente (deux
+    nuits qui offrent un point au même instant)."""
+    shape = draw(st.sampled_from(["touch", "overlap", "inside", "free"]))
+    duration = draw(st.integers(1, 12 * 3600))
+    if previous is not None and shape == "touch":
+        night_start = previous.end
+    elif previous is not None and shape == "overlap":
+        night_start = previous.end - timedelta(seconds=draw(st.integers(1, 3 * 3600)))
+    elif previous is not None and shape == "inside":
+        span = int((previous.end - previous.start).total_seconds())
+        offset = draw(st.integers(0, span - 1))
+        night_start = previous.start + timedelta(seconds=offset)
+        duration = draw(st.integers(1, span - offset))
+    else:
+        night_start = start + timedelta(seconds=draw(st.integers(-6 * 3600, 12 * 3600)))
+    night_end = night_start + timedelta(seconds=duration)
+    before = None if previous is None else previous.series.body_battery
+    if previous is not None and before is not None and draw(st.booleans()):
+        times = tuple(
+            sorted(
+                {
+                    (
+                        previous.start + timedelta(seconds=s) - night_start
+                    ).total_seconds()
+                    for s in before.time_s
+                }
+            )
+        )
+    else:
+        low, high = draw(
+            st.sampled_from(
+                [(-3600, duration + 3600), (-3600, -1), (duration + 1, duration + 3600)]
+            )
+        )
+        anchors = [bound for bound in (0, duration) if low <= bound <= high]
+        times = _battery_times(draw, low, high, anchors or [low])
+    battery = (
+        BodyBatterySeries(
+            times,
+            tuple(10 * rank + index for index in range(len(times))),
+            (None,) * len(times),
+            source(DayFamily.SLEEP, day),
+        )
+        if times
+        else None
+    )
+    return night(
+        day,
+        start=night_start,
+        end=night_end.astimezone(draw(st.sampled_from([PLUS1, PLUS2]))),
+        segments=(),
+        series=NightSeries(None, None, battery, None, None, None, None),
+    )
+
+
+@st.composite
+def _battery_days(draw: st.DrawFn) -> tuple[DayRecord, ...]:
+    """Deux à quatre jours qui se suivent : des nuits qui se recouvrent, se touchent,
+    tiennent l'une dans l'autre ou manquent ; des points du jour dans et hors des
+    fenêtres des nuits, sur leurs bornes et une seconde à côté, ou aucun."""
+    count = draw(st.integers(2, 4))
+    frames: list[tuple[date, datetime, Night | None]] = []
+    previous: Night | None = None
+    for rank in range(count):
+        day = BASE + rank * _DAY
+        start = midnight(day, draw(st.sampled_from([PLUS1, PLUS2])))
+        the_night = (
+            draw(_battery_night(day, rank, start, previous))
+            if draw(st.integers(0, 3))
+            else None
+        )
+        previous = the_night or previous
+        frames.append((day, start, the_night))
+    nights = [the_night for _, _, the_night in frames if the_night is not None]
+    days: list[DayRecord] = []
+    for day, start, the_night in frames:
+        anchors = [
+            max(0, int((bound - start).total_seconds()) + step)
+            for item in nights
+            for bound in (item.start, item.end)
+            for step in (-1, 0, 1)
+        ]
+        times = (
+            _battery_times(draw, 0, 90000, anchors or [0])
+            if draw(st.booleans())
+            else ()
+        )
+        statuses = st.sampled_from(list(BodyBatteryStatus))
+        battery = (
+            BodyBatterySeries(
+                times,
+                tuple(100 - index for index in range(len(times))),
+                tuple(draw(statuses) for _ in times),
+                source(DayFamily.STRESS, day),
+            )
+            if times
+            else None
+        )
+        days.append(
+            day_record(
+                day,
+                window_start=start,
+                data_end=start + _DAY,
+                night=the_night,
+                naps=(),
+                readiness=(),
+                series=DaySeries(None, None, battery, None, None),
+            )
+        )
+    return tuple(days)
+
+
+def _battery_instants(days: tuple[DayRecord, ...]) -> list[datetime]:
+    """Les bornes des nuits et les instants des points."""
+    found: list[datetime] = []
+    for record in days:
+        if record.night is not None:
+            found += [record.night.start, record.night.end]
+            series = record.night.series.body_battery
+            if series is not None:
+                found += [
+                    record.night.start + timedelta(seconds=s) for s in series.time_s
+                ]
+        series = record.series.body_battery
+        if series is not None and record.window_start is not None:
+            found += [record.window_start + timedelta(seconds=s) for s in series.time_s]
+    return found
+
+
+def _naive_body_battery_at(
+    days: tuple[DayRecord, ...], t: datetime, strict: bool
+) -> BodyBatteryReading:
+    """La vue écrite à plat : la visibilité de chaque point calculée directement."""
+
+    def visible(instant: datetime) -> bool:
+        return instant < t if strict else instant <= t
+
+    nights = [
+        (record.day, record.night)
+        for record in days
+        if record.night is not None and visible(record.night.end)
+    ]
+    found: list[tuple[datetime, date, int, BodyBatteryReading]] = []
+    for day, the_night in nights:
+        series = the_night.series.body_battery
+        for index, time in enumerate(() if series is None else series.time_s):
+            assert series is not None
+            point = the_night.start + timedelta(seconds=time)
+            if the_night.start <= point <= the_night.end:
+                reading = BodyBatteryReading(
+                    point,
+                    series.level[index],
+                    None,
+                    True,
+                    day,
+                    None,
+                    series.source,
+                    None,
+                )
+                found.append((point, day, index, reading))
+    for record in days:
+        series = record.series.body_battery
+        if series is None or record.window_start is None:
+            continue
+        for index, time in enumerate(series.time_s):
+            point = record.window_start + timedelta(seconds=time)
+            inside = any(item.start <= point <= item.end for _, item in nights)
+            if visible(point) and not inside:
+                reading = BodyBatteryReading(
+                    point,
+                    series.level[index],
+                    series.status[index],
+                    False,
+                    record.day,
+                    None,
+                    series.source,
+                    None,
+                )
+                found.append((point, record.day, index, reading))
+    if not found:
+        return BodyBatteryReading(
+            None, None, None, None, None, None, None, ViewAbsence.NO_POINT
+        )
+    latest = max(point for point, _, _, _ in found)
+    _, _, _, reading = min(
+        (item for item in found if item[0] == latest),
+        key=lambda item: (item[1], item[2]),
+    )
+    return dataclasses.replace(reading, age_s=(t - latest).total_seconds())
+
+
+@settings(
+    max_examples=2000,
+    deadline=None,
+    suppress_health_check=[HealthCheck.too_slow, HealthCheck.data_too_large],
+)
+@given(days=_battery_days(), data=st.data())
+def test_body_battery_at_is_the_naive_view(
+    days: tuple[DayRecord, ...], data: st.DataObject
+) -> None:
+    """``body_battery_at`` rend ce que rend la vue écrite à plat (le dernier point
+    visible, ceux de la nuit dans sa fenêtre fermée, ceux du jour hors de toutes les
+    fenêtres, à instants égaux le jour le plus ancien puis le premier de la série), sur
+    des nuits qui se recouvrent, se touchent, tiennent l'une dans l'autre ou manquent ;
+    ``t`` à la fin d'une nuit, une heure après tout (toutes les nuits finies), sur une
+    borne de fenêtre ou un point, une microseconde à côté, ou libre (Hypothesis tirant
+    plus souvent la première branche, les instants décisifs viennent en tête)."""
+    instants = _battery_instants(days)
+    ends = [record.night.end for record in days if record.night is not None]
+    near = st.sampled_from(instants) if instants else st.nothing()
+    after = st.just(max(instants) + _HOUR) if instants else st.nothing()
+    free = st.integers(-12 * 3600, (len(days) + 1) * 86400).map(
+        lambda seconds: midnight(BASE) + timedelta(seconds=seconds)
+    )
+    t = data.draw(
+        st.one_of(
+            st.sampled_from(ends) if ends else st.nothing(),
+            after,
+            near,
+            near.map(lambda instant: instant + _MICRO),
+            near.map(lambda instant: instant - _MICRO),
+            free,
+        )
+    )
+    strict = data.draw(st.booleans())
+    assert body_battery_at(days, t, strict=strict) == _naive_body_battery_at(
+        days, t, strict
+    )
