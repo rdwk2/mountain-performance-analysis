@@ -37,7 +37,7 @@ Body Battery sans version, le sommeil mesuré d'un appareil qui ne dit pas s'il 
 le paradoxal, une série d'une famille empruntée entière, la durée de
 `body_battery_at`), deux refus de fichier de plus (une clé d'appareil trop longue, un
 texte qui ne s'encode pas en UTF-8), deux docstrings de `schemas/days.py`, et les tests
-qui manquaient. Conclusion : `just check` vert, 9 275 tests avec tous les extras. Rangé dans
+qui manquaient. Conclusion : `just check` vert, 9 294 tests avec tous les extras. Rangé dans
 `src/mountain_perf/schemas/days.py`, `src/mountain_perf/ingest/{families,days,day_views,interim,export}.py`,
 `src/mountain_perf/cli.py`, `tests/`, `docs/decisions/0018-donnees-journalieres.md`,
 branche `an2/jours`.
