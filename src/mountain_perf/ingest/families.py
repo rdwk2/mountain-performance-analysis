@@ -2295,7 +2295,7 @@ def read_family(
     sous-objet porte ``source``, la provenance de ce fichier. Fonction pure.
 
     **Refus**, le premier rencontré en lisant le document (``FamilyRead.refusal``,
-    rien d'autre n'est rendu), dans cet ordre pour les quatre premiers ; les deux
+    rien d'autre n'est rendu), dans cet ordre pour les quatre premiers ; les trois
     derniers se rencontrent dans l'ordre de la lecture (pour Training Status : la
     table des statuts, puis celle de l'équilibre, puis les champs des blocs ; une
     forme fausse dans la table des statuts passe donc avant un principal manquant
@@ -2330,7 +2330,10 @@ def read_family(
        millisecondes entier ; horodatage texte ``AAAA-MM-JJTHH:MM:SS`` avec ou sans
        fraction d'un à trois chiffres ; date ``AAAA-MM-JJ``), un point en colonnes
        trop court, ou une liste de descripteurs de colonnes qui contredit la disposition
-       lue (``COLUMN_LAYOUTS``).
+       lue (``COLUMN_LAYOUTS``) ;
+    7. ``unreadable_json``, rencontré à son rang dans la lecture : une clé d'une table
+       de Training Status rangée par appareil, faite de chiffres et trop longue pour
+       ``int`` (plus de 4 300 chiffres).
 
     **Instants** : les millisecondes se lisent exactement (``1970-01-01 UTC`` +
     ``timedelta(milliseconds=…)``) ; les textes sont lus comme GMT. Un décalage est
