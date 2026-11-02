@@ -769,7 +769,11 @@ def _export(
     for file_name, members in archives.items():
         with zipfile.ZipFile(raw / "activity_fit" / file_name, "w", compression) as zf:
             for member, data in members.items():
-                zf.writestr(member, data)
+                zf.writestr(
+                    zipfile.ZipInfo(member, date_time=(1980, 1, 1, 0, 0, 0)),
+                    data,
+                    compress_type=compression,
+                )
     return raw
 
 
