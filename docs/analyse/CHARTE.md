@@ -36,12 +36,12 @@ d'analyse, relu, et qui doit respecter la charte.*
 | Étage | Contenu | Écrit par | Dépendances |
 |---|---|---|---|
 | `raw/` | les exports Garmin, chacun dans `raw/garmin/<export>/`, immuables (fichiers en lecture seule) et jamais retirés (`docs/decisions/0013`), et les sources extérieures, dans `raw/<source>/` (§ 12) | l'acquisition, et l'athlète | — |
-| `interim/` | les contrats normalisés (activités, séries, nuits, jours), avec leurs `QualityFlag` | l'ingestion, dans `src/mountain_perf/ingest/` | **aucune** pour le lire ; l'écriture depuis les FIT demande l'extra `ingest` ; format décrit dans `docs/decisions/0013`, relu par le moteur avant fusion |
+| `interim/` | les contrats normalisés (activités, séries, nuits, jours), sans drapeau : les `QualityFlag` se posent dans les vues | l'ingestion, dans `src/mountain_perf/ingest/` | **aucune** pour le lire ; l'ingestion demande l'extra `ingest` (les FIT) ; format décrit dans `docs/decisions/0013` (activités) et `0018` (jours), relu par le moteur avant fusion |
 | `processed/` | les tables d'analyse : `activites`, `montees` et `variantes` (`docs/decisions/0014`, `0015`), puis `jours` (plus tard `descentes`, `plats`) | le code d'analyse (`mperf tables`) | aucune pour le calcul ; l'écriture en Parquet demande l'extra `analyse` (`docs/decisions/0011`, `0014`) |
 | `resultats/` | les sorties de chaque question, datées (§ 10) | les commandes d'analyse | l'extra `analyse` (`docs/decisions/0011`) |
 
 - **Le moteur ne lit jamais `processed/`** ; il lit `interim/` par les contrats
-  (`docs/decisions/0013`).
+  (`docs/decisions/0013`) et par les vues des jours (`docs/decisions/0018`).
 - Tout est régénérable depuis `raw/` par une commande (`just process`) : supprimer
   `interim/` et `processed/` ne perd rien.
 - **Distance et profil** : par les fonctions du moteur (`gpx/geo.py`,

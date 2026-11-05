@@ -16,6 +16,34 @@ Backtest (à partir de M4) : métrique avant → après.
 
 ---
 
+### 2026-10-31 · AN2-1 — Les données journalières
+Les onze familles journalières de tous les exports Garmin s'ingèrent dans
+`interim/days/` (`0018`) : un document par jour (fenêtre et état, nuit principale et
+siestes, une valeur par grandeur, séries de la journée et de la nuit, entrées de
+Training Readiness, provenance de chaque objet), Training Status à part, chaque bloc
+à sa date propre, et le rapport des jours. La lecture d'un fichier
+(`ingest/families.py`) refuse un fichier mal formé, lit les codes par leur valeur et
+contrôle les descripteurs de colonnes ; plusieurs exports (`ingest/days.py`) : l'export
+de référence décidé jour par jour, les emprunts sous accord, les écarts entre exports
+classés (emprunt, dégradation, révision, à part). Onze vues (`ingest/day_views.py`),
+seuils en arguments ; celles qui se prennent à un instant ne rendent que ce dont
+l'instant propre est au plus tard cet instant (ou strictement avant). `mperf ingest`
+écrit les activités, à l'octet comme avant, puis les jours ; `INTERIM_FORMAT_VERSION` reste à 2 (`0013`, précisions
+d'AN2-1). README, `CLAUDE.md`, ROADMAP, charte § 2, `PIEGES_DATA.md`, `BACKLOG.md`.
+Le brief relu, avant la session, par l'A du moteur (`0013`, condition (c)) et par la B
+de la piste. La PR relue par deux relectures profondes et un balayage par mutation,
+puis corrigée : cinq lectures tranchées (une nuit aux deux bornes nulles, un point de
+Body Battery sans version, le sommeil mesuré d'un appareil qui ne dit pas s'il détecte
+le paradoxal, une série d'une famille empruntée entière, la durée de
+`body_battery_at`), deux refus de fichier de plus (une clé d'appareil trop longue, un
+texte qui ne s'encode pas en UTF-8), deux docstrings de `schemas/days.py`, et les tests
+qui manquaient. Conclusion : `just check` vert, 9 294 tests avec tous les extras. Rangé dans
+`src/mountain_perf/schemas/days.py`, `src/mountain_perf/ingest/{families,days,day_views,interim,export}.py`,
+`src/mountain_perf/cli.py`, `tests/`, `docs/decisions/0018-donnees-journalieres.md`,
+branche `an2/jours`.
+
+---
+
 ### 2026-10-29 · M6b-2 — la courbe neuve contre la v0
 La courbe réelle, puis la mesure que demande le « Fini quand » de M6b (ROADMAP).
 `just curve` sur l'`interim/` réel (rdw, sous Windows, sur la tête des correctifs de la

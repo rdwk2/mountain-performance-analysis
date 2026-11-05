@@ -93,7 +93,7 @@ de vrais instants.
 mises à jour en continu), distinguées par `inputContext`, **rangées de la plus récente
 à la plus ancienne** : la première du fichier est la dernière de la journée. La valeur
 du réveil ne se lit donc pas à un rang dans le fichier : elle se définit par les
-instants des entrées et de la nuit (données journalières, AN2-1).
+instants des entrées et de la nuit (`readiness_on_waking`, `docs/decisions/0018`).
 Une entrée « réveil » peut précéder la fin de la nuit ; les copies que Training
 Readiness fait d'autres grandeurs peuvent différer du document final.
 
@@ -127,11 +127,11 @@ contredit : seule la fin GMT est juste. Un jour peut aussi être complet sans ê
 mesuré : l'indicateur de présence du résumé du jour (`includesWellnessData`) le dit.
 
 **Sentinelles et codes** : des codes négatifs dans le stress et la respiration, un
-code de phase « non mesurable » dans le sommeil, des valeurs nulles dans la FC et le
-Body Battery : ce ne sont pas des valeurs. `body_battery` n'a pas de série : elle est
-dans `stress`. Le Body Battery est **borné à son plafond** : au haut de l'échelle, sa
-recharge est censurée. Une SpO2 absente dit souvent un réglage de la montre, pas un
-manque de la source.
+code de phase « non mesurable » dans le sommeil, des valeurs nulles (`null`) dans la
+FC et le Body Battery : ce ne sont pas des valeurs. `body_battery` n'a pas de série :
+elle est dans `stress`. Le Body Battery est **borné à son plafond** : au haut de
+l'échelle, sa recharge est censurée. Une SpO2 absente dit souvent un réglage de la
+montre, pas un manque de la source.
 
 **La FC de repos de Garmin** porte sur la journée calendaire (selon sa définition, la
 plus basse moyenne sur 30 minutes ; à vérifier selon les firmwares) : sans nuit
@@ -139,6 +139,59 @@ portée, elle vient de la journée ; avec une nuit, elle peut venir du début de
 suivante. La HRV moyenne d'une nuit dépend de sa longueur. Sur des mesures entières
 (FC de repos en bpm), une dispersion robuste (MAD) peut valoir zéro sur une fenêtre
 de jours.
+
+**Un document vide** (`{}` ou `[]`) n'est pas une erreur : la famille est absente ce
+jour-là. La date que porte le document (à sa racine, ou dans chaque entrée, selon la
+famille ; Training Status n'en a pas, chaque bloc a la sienne) se contrôle contre celle du
+nom du fichier.
+
+**Trois écritures des instants** : des millisecondes depuis l'époque (entières), des
+textes `AAAA-MM-JJTHH:MM:SS` sans fuseau, avec ou sans fraction (d'un à trois
+chiffres), et des dates `AAAA-MM-JJ`. Un texte « GMT » est un instant ; un texte
+`…Local`, ou des millisecondes « locales », sont de l'heure murale : le décalage se
+lit sur la différence des deux écritures du même instant. Les siestes donnent leurs
+décalages en minutes (`napStartTimeOffset`, `napEndTimeOffset`) ; Training Readiness
+écrit ses horodatages en textes, `timestamp` en GMT et `timestampLocal` en heure
+murale.
+
+**Un code peut s'écrire en flottant** de valeur entière (`1.0` pour `1`) : un code se
+lit par sa valeur, jamais par son type JSON.
+
+**Les séries de la journée sont en colonnes** (`heartRateValues`, `stressValuesArray`,
+`bodyBatteryValuesArray`, `respirationValuesArray`), chacune décrite par une liste de
+descripteurs (clé → index). Contrairement à `activity_details`, ces descripteurs ont
+toujours dit la même disposition dans les exports réels : l'ingestion lit par position,
+et refuse un fichier dont les descripteurs en diraient une autre (`COLUMN_LAYOUTS`).
+`spO2HourlyAverages` n'a pas de descripteur.
+
+**Les lectures de HRV d'une nuit peuvent répéter une partie de la nuit**
+(`sleep.hrvData`, et sa copie `hrv.hrvReadings`) : une liste faite de deux suites
+croissantes, la seconde reprenant des instants de la première. Un point dont l'instant ne
+suit pas strictement le dernier gardé s'écarte et se compte (`duplicate_instant` s'il lui
+est égal, `not_increasing` s'il le précède) : la première suite se garde, avec ce que la
+seconde ajoute après elle. Trier ne se fait pas.
+
+**Une sentinelle peut se cacher hors de la plage** d'un champ, sans être documentée
+(la moyenne HRV de la semaine que copie Training Readiness, `hrvWeeklyAverage`) : elle
+s'écarte comme une valeur hors plage, et se compte ; elle ne se lit jamais comme une
+mesure.
+
+**Des champs de la nuit suivante** (`tomorrow…`) sont dans `respiration` et `spo2` du
+jour J : ils appartiennent à J + 1, et ne s'ingèrent pas.
+
+**Les événements de Body Battery** (`bodyBatteryActivityEvent…`) portent des
+identifiants et des noms d'activités : ils ne s'ingèrent pas.
+
+**Le Body Battery du sommeil a deux grandeurs** : le changement de `sleep`
+(`bodyBatteryChange`) et celui de `daily_summary` (`bodyBatteryDuringSleep`) diffèrent
+sur une part des nuits, et aucun n'est la copie de l'autre.
+
+**L'acclimatation a deux dates** : le même nœud de Training Status
+(`heatAltitudeAcclimation`) porte l'acclimatation à la chaleur et celle à l'altitude,
+chacune à sa date propre (`heatAcclimationDate`, `altitudeAcclimationDate`), qui
+peuvent différer entre elles et précéder la date du fichier ; son horodatage local, sans
+décalage, ne date rien. L'unité de l'altitude d'acclimatation n'est pas publiée par
+Garmin : le mètre est supposé.
 
 **Garmin réécrit l'archive d'un FIT à chaque téléchargement** : ses octets changent,
 son FIT non. Deux exports se comparent par le membre `.fit`, jamais par l'archive.

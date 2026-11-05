@@ -2731,9 +2731,11 @@ INGEST_EXTRA_ERROR = (
 
 
 def _run_ingest() -> int:
-    """``mperf ingest`` (§ 5.8 du brief AN1-1 ; AN2-0) : ingère les exports Garmin de
-    ``MPA_DATA_DIR/raw/garmin`` dans ``MPA_DATA_DIR/interim``, puis affiche le résumé :
-    une ligne par export, puis les comptes.
+    """``mperf ingest`` (§ 5.8 du brief AN1-1 ; AN2-0 ; AN2-1) : ingère les exports
+    Garmin de ``MPA_DATA_DIR/raw/garmin`` dans ``MPA_DATA_DIR/interim``, puis affiche le
+    résumé : une ligne par export, puis les comptes des activités, puis ceux des jours
+    (une ligne par export de référence, par nom croissant ; une par état, dans l'ordre
+    de ``DayState``).
 
     L'ingestion s'importe ici, pas en tête du module : ``mperf`` s'importe sans l'extra
     ``ingest``. Sous cette forme exacte, pour que l'absence de fitdecode se voie même
@@ -2784,6 +2786,22 @@ def _run_ingest() -> int:
         "Enregistrements tirés d'un autre export que leur entrée : "
         f"{summary.recordings_from_other_export}"
     )
+    days = summary.days
+    print(f"Jours : {days.days}")
+    for reference in days.reference_days:
+        print(f"  {reference.export} : export de référence de {reference.days} jour(s)")
+    for state, number in days.states:
+        print(f"  {state.value} : {number} jour(s)")
+    print(f"Morceaux empruntés : {days.borrowings}")
+    print(f"Emprunts refusés : {days.borrowing_refusals}")
+    print(f"Révisions (champs × jours) : {days.revisions}")
+    print(f"Dégradations (champs × jours) : {days.degradations}")
+    print(f"Écarts à part (champs × jours) : {days.set_apart}")
+    print(f"Fichiers journaliers refusés : {days.refused_files}")
+    print(f"Points écartés : {days.point_discards}")
+    print(f"Codes inconnus : {days.unknown_codes}")
+    print(f"Blocs de Training Status : {days.training_status_blocks}")
+    print(f"Blocs sans instant propre : {days.blocks_without_proper_instant}")
     return 0
 
 

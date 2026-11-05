@@ -238,7 +238,8 @@ AN0 → AN1 → AN2 → AN3 …
        └── interim/ ──→ M6b (courbe)
 ```
 
-M7 attend aussi AN2, qui ingère les nuits et les jours (sommeil, Body Battery).
+M7 attend aussi AN2, qui ingère les nuits et les jours (sommeil, Body Battery) ; M7
+les lira par les vues des jours (AN2-1, `docs/decisions/0018`).
 
 ---
 
@@ -313,7 +314,9 @@ de Q1 (`docs/decisions/0015`).
   `raw/garmin/<export>/`, aucun retiré, celui qui fait foi décidé activité par
   activité (`docs/decisions/0013`, précisions d'AN2-0)
 - ingestion des nuits et des jours (sommeil, HRV, FC de repos, indicateurs de Garmin)
-  (AN2-1), puis la table `jours` et les normales (AN2-2)
+  (AN2-1) : un document par jour dans `interim/days/`, Training Status à part, l'export
+  de référence décidé jour par jour, et des vues qui, prises à un instant, ne rendent que
+  ce qui y est connu, sans seuil dans les fichiers (`docs/decisions/0018`) ; puis la table `jours` et les normales (AN2-2)
 - tableau de bord du suivi de la récupération (AN2-3)
 
 ---

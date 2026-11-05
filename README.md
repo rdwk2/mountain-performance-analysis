@@ -13,9 +13,11 @@ un usage personnel d'abord ; le dépôt ne contient aucune donnée personnelle.
 Une seconde piste partage le dépôt et sa méthode : l'analyse des données
 d'entraînement, de récupération et de sommeil de l'athlète, des tableaux de bord
 jusqu'à l'apprentissage automatique (jalons `AN`, [`docs/analyse/`](docs/analyse/)).
-Elle ingère déjà les activités des exports Garmin (`mperf ingest`), en tire les
-tables des activités et des montées (`mperf tables`) et la figure descriptive de sa
-première question, la vitesse ascensionnelle à terrain comparable (`mperf q1`).
+Elle ingère déjà les activités et les données journalières (sommeil, HRV, FC de
+repos, Body Battery, indicateurs de Garmin) des exports Garmin (`mperf ingest`), tire
+des activités les tables des activités et des montées (`mperf tables`) et la figure
+descriptive de sa première question, la vitesse ascensionnelle à terrain comparable
+(`mperf q1`).
 
 ![La chaîne de mountain-performance-analysis sur des données synthétiques : courbe allure↔pente, profil d'un tracé avec temps de passage projetés par v0 et réalisés, écart mesuré tous les 250 m](docs/img/chaine.svg)
 
@@ -62,7 +64,7 @@ just check                      # lint + types + tests : doit être vert
 ```
 
 Aucune dépendance de calcul : la seule dépendance d'exécution est `tzdata`, sous
-Windows. La lecture des FIT de l'ingestion demande en plus l'extra `ingest`
+Windows. L'ingestion (`mperf ingest`, qui lit les FIT) demande en plus l'extra `ingest`
 (fitdecode, [`0011`](docs/decisions/0011-bibliotheques-analyse.md)) :
 `uv sync --locked --extra ingest`, ou `just ingest`, qui l'installe de lui-même ; sans
 lui, les tests qui lisent des FIT se sautent. L'écriture des tables de `processed/` en
@@ -92,10 +94,11 @@ tous les extras, à chaque push et à chaque pull request.
 
 `MPA_DATA_DIR`, le dossier des données personnelles hors du dépôt, sert au backtest
 enregistré (`just backtest` : manifeste, courbe, registre, rapports), à l'ingestion
-(`just ingest` : `raw/garmin/` lu, `interim/activities/` écrit), aux tables (`just process` :
-l'ingestion, puis `interim/` et `athlete.toml` lus, `processed/` écrit), à la figure
+(`just ingest` : `raw/garmin/` lu, `interim/activities/` et `interim/days/`
+écrits), aux tables (`just process` :
+l'ingestion, puis `interim/activities/` et `athlete.toml` lus, `processed/` écrit), à la figure
 de Q1 (`just q1` : `processed/` lu, `resultats/Q1/` écrit), à la courbe personnelle
-(`just curve` : `interim/` lu, `reference/` écrit) et à l'interface
+(`just curve` : `interim/activities/` lu, `reference/` écrit) et à l'interface
 (`just ui` : `routes/`, `sorties/` et `reference/` lus ; `routes/` et `sorties/` écrits
 par l'ajout d'un fichier) ; les autres commandes ne le lisent pas, les tests non plus
 ([`tests/conftest.py`](tests/conftest.py) le pose sur un dossier temporaire neuf
@@ -393,7 +396,9 @@ just backtest courbe.csv --sensitivity
 
 `just ingest` lance `mperf ingest` avec l'extra `ingest` : il lit les exports Garmin
 rangés sous `MPA_DATA_DIR/raw/garmin/` et écrit `MPA_DATA_DIR/interim/activities/`
-([`0013`](docs/decisions/0013-ingestion-et-interim.md)). Chaque export a son
+([`0013`](docs/decisions/0013-ingestion-et-interim.md)) et
+`MPA_DATA_DIR/interim/days/` ([`0018`](docs/decisions/0018-donnees-journalieres.md)).
+Chaque export a son
 dossier, `raw/garmin/<export>/` (lettres et chiffres ASCII, `_`, `.` et `-`, sauf
 `activities` et `acquisition.json`, réservés : dans `raw/garmin/`, ils désignent un
 export laissé à plat ; le nom ne sert qu'au rapport), qui comprend :
@@ -401,16 +406,25 @@ export laissé à plat ; le nom ne sert qu'au rapport), qui comprend :
 - `acquisition.json`, l'instant où l'export a été obtenu, écrit à la main
   (`{"retrieved_at": "<instant ISO 8601 avec fuseau>"}`) ;
 - `activities/activities.json`, l'index des activités ;
-- `activity_fit/<identifiant>.zip`, une archive par activité, qui contient son FIT.
+- `activity_fit/<identifiant>.zip`, une archive par activité, qui contient son FIT ;
+- `<famille>/<AAAA-MM-JJ>.json`, un fichier par jour pour chacune des onze familles
+  journalières (`sleep`, `hrv`, `resting_hr`, `heart_rate`, `body_battery`, `stress`,
+  `respiration`, `spo2`, `daily_summary`, `training_readiness`, `training_status`) ;
+  une famille peut manquer, et un export sans aucune est admis.
 
 Les autres dossiers de `raw/` sont laissés aux autres sources. Aucun export ne se
 retire : Garmin efface avec le temps le détail des jours, et un export ancien en reste
 la seule source. Pour chaque activité, l'export qui fait foi est le plus récent dont
 la période (du premier départ de ses entrées gardées à son instant d'acquisition)
 couvre son départ : une activité qu'il ne porte pas n'est pas ingérée, elle est
-« retirée de la source ».
+« retirée de la source ». Pour chaque jour, l'export de référence est le plus récent
+où le jour est complet et a encore son détail, sinon le plus récent où il est
+complet, puis tronqué, puis sans mesure, puis le plus récent qui le porte ; une
+famille ou une série qu'il n'a pas, ou les segments de la nuit, peuvent venir du plus
+récent des autres exports qui les porte, si leurs fenêtres s'accordent (même début de la
+fenêtre du jour, même nuit à la seconde ; pour les segments, leurs durées aussi).
 
-L'ingestion écrit trois choses :
+Dans `interim/activities/`, l'ingestion écrit trois choses :
 
 - l'index des activités, avec la provenance de chaque export ;
 - un enregistrement par activité dont un FIT se lit : un canal par grandeur, chacun
@@ -420,11 +434,32 @@ L'ingestion écrit trois choses :
   les activités sans vue `Activity`, les désaccords entre un FIT et son entrée, et ce
   qui diffère d'un export à l'autre (champs de l'index, FIT).
 
+Dans `interim/days/`, trois choses aussi :
+
+- un document par jour : sa fenêtre et son état (complet, tronqué, sans mesure,
+  vide), sa nuit principale (rattachée au jour du réveil) et ses siestes, une valeur
+  par grandeur, les séries de la journée et de la nuit, sans interpolation, les
+  entrées de Training Readiness, et la provenance de chaque nuit, sieste, résumé,
+  série et entrée ;
+- Training Status, chaque bloc à sa date propre ;
+- le rapport des jours : par export, ses jours et ses familles ; les fichiers lus et
+  refusés, les jours par export de référence, les emprunts et leurs refus, les écarts
+  entre exports (emprunts, dégradations, révisions, à part) ; les points écartés et les
+  codes inconnus, avec leur motif : ceux de la lecture sur les seules lectures retenues
+  (la référence et les familles empruntées entières, pas le prêteur d'une série ou de
+  segments seuls), et les points que l'assemblage jette (nuit absente, jour sans
+  fenêtre).
+
 Rien n'est corrigé : une valeur écartée est comptée, avec son motif. `raw/` n'est jamais
-écrit. Une ingestion qui s'arrête sur une erreur laisse en place l'`interim/activities/`
-précédent, et deux ingestions des mêmes fichiers écrivent les mêmes octets. Le moteur
-lit `interim/` par ses vues : la trace d'un enregistrement (`trace_view`) pour
-`just curve` (M6b).
+écrit. Une ingestion qui s'arrête sur une erreur avant d'écrire laisse en place les
+`interim/activities/` et `interim/days/` précédents ; si les jours ne prennent pas leur
+place après les activités, le message le dit, et relancer `just ingest` remet tout en
+ordre. Deux ingestions des mêmes fichiers écrivent les mêmes octets. Le moteur lit
+`interim/` par ses vues : la trace d'un enregistrement (`trace_view`) pour
+`just curve` (M6b) ; il lira les jours par les vues de `ingest/day_views.py` (M7) :
+une vue prise à un instant ne rend que ce dont l'instant propre (la fin d'une nuit,
+l'instant d'un point) est au plus tard cet instant, ou strictement avant, et ses
+seuils sont des arguments.
 
 ```bash
 just ingest
@@ -437,7 +472,12 @@ les entrées sans archive, les désaccords et les activités sans vue `Activity`
 ligne par couple (motif, type de la source) de ces dernières ; enfin les activités
 retirées de la source, les champs de l'index qui diffèrent d'un export à l'autre (une
 ligne par champ), les activités aux FIT différents et les enregistrements tirés d'un
-autre export que leur entrée. Pas d'exemple ici : sur les exports réels, ces nombres
+autre export que leur entrée. Viennent ensuite les jours : leur nombre, une ligne par
+export de référence et une par état du jour, puis les morceaux empruntés, les emprunts
+refusés, les révisions, les dégradations et les écarts à part entre exports (en champs
+× jours), les fichiers journaliers refusés, les points écartés, les codes inconnus, les
+blocs de Training Status et ceux sans instant propre. Pas d'exemple ici : sur les
+exports réels, ces nombres
 restent hors du dépôt ([`docs/analyse/CHARTE.md`](docs/analyse/CHARTE.md), § 10).
 
 ### `just process` — les tables des activités, des montées et des variantes
@@ -467,9 +507,9 @@ en temps, sur l'altitude lissée du moteur, et un replat qui monte doucement res
 de la montée, à un pas de grille près (un bout plus court qu'un pas peut y rester et
 diluer la VAM d'une côte courte) ; près de la pente d'un replat, le bruit de l'altitude
 peut y laisser bien plus (`docs/decisions/0014`). Un drapeau marque une montée sans la
-retirer. Les trois fichiers portent la même provenance : l'empreinte d'`interim/`, le
+retirer. Les trois fichiers portent la même provenance : l'empreinte d'`interim/activities/`, le
 commit et la version du paquet, et tous les paramètres de la définition ; régénérés
-depuis le même `interim/` par le même code, avec le même `athlete.toml` et la même
+depuis le même `interim/activities/` par le même code, avec le même `athlete.toml` et la même
 version de pyarrow (celle de `uv.lock`), ils sont identiques à l'octet sur la même
 plateforme (d'un système à l'autre, les derniers chiffres d'un nombre peuvent
 différer). Comme pour `just backtest`, le code exécuté doit être celui d'un clone git,
@@ -497,7 +537,7 @@ just process
 
 Après l'ingestion, `mperf tables` dit le nombre d'activités et de montées, les
 montées par régime, les montées marquées et instables, les montées des variantes,
-l'empreinte d'`interim/`, le commit et les fichiers écrits. Pas d'exemple ici, pour la
+l'empreinte d'`interim/activities/`, le commit et les fichiers écrits. Pas d'exemple ici, pour la
 même raison.
 
 ### `just q1` — la figure de Q1
@@ -646,7 +686,8 @@ puis `http://localhost:8501` dans le navigateur.
   (`just ingest`), les horloges du moteur rendues communes (le temps de mouvement),
   les tables de `processed/` et la commande qui régénère `interim/` et `processed/`
   (`just process`), la figure de Q1 (`just q1`). AN2 (données journalières et tableau
-  de bord) commencé : l'ingestion lit plusieurs exports (AN2-0).
+  de bord) commencé : l'ingestion lit plusieurs exports (AN2-0) et les données
+  journalières, avec leurs vues (AN2-1).
 
 Le détail :
 
@@ -677,6 +718,7 @@ sont au statut « acceptée » :
 - [0015 — La figure de Q1](docs/decisions/0015-figure-de-q1.md)
 - [0016 — Interface v0](docs/decisions/0016-interface-v0.md)
 - [0017 — Estimation de la courbe personnelle](docs/decisions/0017-estimation-de-la-courbe.md)
+- [0018 — Les données journalières dans `interim/days/` et leurs vues](docs/decisions/0018-donnees-journalieres.md)
 
 Autres documents :
 

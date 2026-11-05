@@ -123,7 +123,7 @@ just fmt        # formatage
 just dictionary # régénère docs/DICTIONNAIRE_DONNEES.md depuis les docstrings
 just backtest courbe.csv  # backtest enregistré des cinq modèles, rapport D15 (M4b-5, M4c-2) ; MPA_DATA_DIR/reference/
 just backtest courbe.csv --sensitivity  # puis la sensibilité D13, enregistrée, rapport sensibilite-<n>.txt (M4d-3)
-just ingest     # raw/garmin/ → interim/activities/, extra ingest (AN1-1, AN2-0) ; MPA_DATA_DIR
+just ingest     # raw/garmin/ → interim/activities/ et interim/days/, extra ingest (AN1-1, AN2-0, AN2-1) ; MPA_DATA_DIR
 just process    # raw/ → interim/ → processed/ : ingest, puis mperf tables, extras ingest et analyse (AN1-2b)
 just q1         # processed/ → resultats/Q1/<date>_<empreinte>/ : la figure de Q1, extra analyse (AN1-2c)
 just curve nom --from AAAA-MM-JJ --to AAAA-MM-JJ --athlete x  # une courbe allure↔pente depuis interim/ (M6b-1) ; MPA_DATA_DIR/reference/<nom>.csv
@@ -194,8 +194,13 @@ src/mountain_perf/     le code de la bibliothèque
     bands.py           contrats des fourchettes, stockés au registre au format 4 (M4d-2)
     sensitivity.py     contrats de la sensibilité, stockés au registre au format 5 (M4d-3)
     interim.py         IndexedActivity, ActivityIndex, ActivityRecording et ses canaux,
-                       IngestionReport : contrats d'interim/ (AN1-1) ; plusieurs
-                       exports : ExportReport, RetiredActivity, IndexDifference (AN2-0)
+                       IngestionReport : contrats d'interim/activities/ (AN1-1) ;
+                       plusieurs exports : ExportReport, RetiredActivity,
+                       IndexDifference (AN2-0)
+    days.py            DayRecord (le document d'un jour : fenêtre, état, nuit, siestes,
+                       valeurs, séries, Training Readiness), TrainingStatusHistory et
+                       ses blocs, DaysReport et ses comptes : contrats d'interim/days/
+                       (AN2-1, 0018)
     processed.py       ClimbRow, ClimbVariantRow, ActivityRow, ProcessedProvenance,
                        drapeaux, régimes, strates : contrats des tables de processed/
                        (AN1-2b, AN1-2c)
@@ -269,11 +274,20 @@ src/mountain_perf/     le code de la bibliothèque
     views.py           activity_view, stream_view : vues Activity et TrackPointStream ;
                        `trace_view`, la trace du moteur, commune avec la piste
                        analyse (M6b)
-    interim.py         documents d'interim/ : écriture et relecture par le codec commun
+    interim.py         documents d'interim/ : écriture et relecture par le codec commun ;
+                       interim/days/ : write_days, read_days, read_training_status,
+                       read_days_report (AN2-1)
     index.py           read_index : l'index d'un export
     fit.py             read_fit : le lecteur FIT, lecture stricte
+    families.py        read_family : un fichier d'une famille journalière, depuis ses
+                       octets ; plages, codes, descripteurs de colonnes (AN2-1)
+    days.py            load_export_days, build_days : les familles de tous les exports
+                       → les documents des jours ; export de référence, emprunts, écarts
+                       entre exports, Training Status, rapport (AN2-1)
+    day_views.py       les vues des jours, lues par M7 et par la piste : instant propre,
+                       seuils en arguments (AN2-1)
     export.py          ingest_export : les exports de raw/garmin/ → interim/activities/
-                       (AN1-1, AN2-0)
+                       (AN1-1, AN2-0), puis interim/days/ (AN2-1)
   analyse/             tables de `processed/`, figures et méthodes statistiques de la
                        piste analyse (AN1) ; Python pur, sauf `parquet.py` (pyarrow) et
                        `plot.py` (plotly), seuls importeurs de l'extra `analyse`
@@ -285,8 +299,8 @@ src/mountain_perf/     le code de la bibliothèque
                        paramètres de chaque variante (AN1-2c)
     athlete.py         table [analyse] d'athlete.toml : V_ref, produits barométriques
                        (AN1-2b)
-    tables.py          interim/ → lignes des tables activites et montees, provenance
-                       (AN1-2b) ; table variantes (AN1-2c)
+    tables.py          interim/activities/ → lignes des tables activites et montees,
+                       provenance (AN1-2b) ; table variantes (AN1-2c)
     parquet.py         écriture et relecture des tables en Parquet (AN1-2b) ; trois
                        tables, mises en place par échange de dossier (AN1-2c)
     q1.py              figure de Q1 : points, stabilité des points, flux, changements
@@ -307,8 +321,9 @@ src/mountain_perf/     le code de la bibliothèque
                        --curve, --no-reference : scores de v0 brut (M4b-2) ;
                        mperf backtest <manifeste.json> --curve : backtest enregistré, rapport D15 (M4b-5) ;
                        cinq modèles (M4c-2) ; --sensitivity : sensibilité D13 (M4d-3) ;
-                       mperf ingest : raw/garmin/ → interim/activities/ (AN1-1, AN2-0) ;
-                       mperf tables : interim/ → processed/ (AN1-2b) ;
+                       mperf ingest : raw/garmin/ → interim/activities/ (AN1-1, AN2-0)
+                       et interim/days/ (AN2-1) ;
+                       mperf tables : interim/activities/ → processed/ (AN1-2b) ;
                        mperf q1 : processed/ → resultats/Q1/ (AN1-2c) ;
                        mperf curve <nom> : interim/ → reference/<nom>.csv (M6b)
 tests/

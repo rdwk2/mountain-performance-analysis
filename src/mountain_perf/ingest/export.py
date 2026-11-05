@@ -27,9 +27,16 @@ from datetime import datetime
 from itertools import pairwise
 from pathlib import Path
 
+from mountain_perf.ingest.days import (
+    DaysSummary,
+    ExportDays,
+    ExportDaysError,
+    build_days,
+    load_export_days,
+)
 from mountain_perf.ingest.fit import FitRefusedError, read_fit
 from mountain_perf.ingest.index import IndexReadError, read_index
-from mountain_perf.ingest.interim import write_activities
+from mountain_perf.ingest.interim import write_activities, write_days
 from mountain_perf.ingest.views import activity_view
 from mountain_perf.schemas import (
     ActivityIndex,
@@ -84,8 +91,24 @@ n'est pas l'UTF-8 annoncé (``ValueError``). L'archive est lue en mémoire : une
 ``OSError`` n'y vient que du décompresseur, une ``ValueError`` que de ``zipfile``."""
 
 
+DAYS_NOT_IN_PLACE = (
+    "interim/activities/ est à jour, mais la mise en place d'interim/days/ a échoué : "
+    "relancer `mperf ingest`."
+)
+"""Le message d'``IngestError`` quand ``write_days`` échoue (``OSError``) après la mise
+en place d'``interim/activities/`` (deux échanges de dossier, pas un) : si
+``days.nouveau/`` n'a pas pris sa place, ``interim/days/`` est l'ancien (ou absent) ; si
+seule la suppression de ``days.ancien/`` a échoué, il est le neuf. Le message ne dit pas
+lequel : il ne dit rien de faux, et relancer ``mperf ingest`` remet tout en ordre.
+L'``OSError`` est la cause (``__cause__``)."""
+
+
 class IngestError(Exception):
-    """L'export ne peut pas être ingéré ; rien n'est écrit. Le message dit pourquoi."""
+    """L'export ne peut pas être ingéré ; rien n'est écrit. Le message dit pourquoi.
+
+    Une exception : l'échec de la mise en place des jours, après celle des activités
+    (``DAYS_NOT_IN_PLACE``), qui le dit.
+    """
 
 
 @dataclass(frozen=True)
@@ -108,7 +131,8 @@ class IngestionSummary:
       l'autre, celles du rapport (AN2-0) ;
     - ``fit_differences`` — activités dont deux exports portent des FIT différents ;
     - ``recordings_from_other_export`` — enregistrements tirés d'un autre export que
-      l'entrée de leur activité.
+      l'entrée de leur activité ;
+    - ``days`` — ce que l'ingestion des jours a fait (AN2-1).
     """
 
     exports: tuple[ExportReport, ...]
@@ -123,6 +147,7 @@ class IngestionSummary:
     index_differences: tuple[FieldDifferenceCount, ...]
     fit_differences: int
     recordings_from_other_export: int
+    days: DaysSummary
 
 
 def _label(name: str) -> str:
@@ -371,7 +396,7 @@ def _mismatch(
 
 def ingest_export(data_dir: Path) -> IngestionSummary:
     """Ingère les exports de ``data_dir/raw/garmin/`` et écrit
-    ``data_dir/interim/activities/``.
+    ``data_dir/interim/activities/``, puis ``data_dir/interim/days/``.
 
     Dans cet ordre :
 
@@ -382,7 +407,9 @@ def ingest_export(data_dir: Path) -> IngestionSummary:
     2. les exports, triés par instant d'acquisition ; deux instants égaux :
        ``IngestError`` (« raw/garmin/<a>/ et raw/garmin/<b>/ : même instant
        d'acquisition ; l'ordre des exports serait indéterminé. », ``a`` et ``b`` par nom
-       croissant) ;
+       croissant) ; puis les familles journalières de chaque export, dans l'ordre des
+       instants (``load_export_days``) : leur refus devient ``IngestError``, au même
+       message (« raw/garmin/<export>/ : … ; acquisition.json est faux. ») ;
     3. l'existence de chaque activité : sur l'export le plus récent dont la période
        (du premier départ de ses entrées gardées à son instant d'acquisition, bornes
        comprises) couvre son départ, lu dans l'export le plus récent qui la porte ;
@@ -412,9 +439,14 @@ def ingest_export(data_dir: Path) -> IngestionSummary:
     8. les refus de vue (``activity_view``), comptés par (motif, type de la source) ;
        les désaccords d'un enregistrement avec son entrée (au-delà de
        ``MISMATCH_TOLERANCE_S``), triés par identifiant ;
-    9. le rapport, puis ``write_activities``.
+    9. le rapport ;
+    10. les jours (``build_days``), calculés en entier ;
+    11. ``write_activities`` ; puis ``write_days``. Si ``write_days`` échoue
+        (``OSError``), ``interim/activities/`` est déjà neuf : ``IngestError``
+        (``DAYS_NOT_IN_PLACE``), de cause l'``OSError``.
 
-    Une erreur avant ``write_activities`` n'écrit rien.
+    Les étapes 3 à 9 sont celles d'AN2-0, inchangées. Une erreur avant
+    ``write_activities`` n'écrit rien.
     """
     exports = sorted(
         (_load(path) for path in export_dirs(data_dir / "raw")),
@@ -426,6 +458,18 @@ def ingest_export(data_dir: Path) -> IngestionSummary:
                 f"{_label(first.name)}/ et {_label(second.name)}/ : même instant "
                 "d'acquisition ; l'ordre des exports serait indéterminé."
             )
+    daily: list[ExportDays] = []
+    for export in exports:
+        try:
+            daily.append(
+                load_export_days(
+                    data_dir / "raw" / GARMIN_DIR / export.name,
+                    export.name,
+                    export.retrieved_at,
+                )
+            )
+        except ExportDaysError as error:
+            raise IngestError(str(error)) from None
 
     latest: dict[str, int] = {}
     for position, export in enumerate(exports):
@@ -577,7 +621,12 @@ def ingest_export(data_dir: Path) -> IngestionSummary:
         fit_differences=fit_differences,
         recordings_from_other_export=from_other,
     )
+    days = build_days(daily)
     write_activities(data_dir, index, recordings, report)
+    try:
+        write_days(data_dir, days.records, days.history, days.report)
+    except OSError as error:
+        raise IngestError(DAYS_NOT_IN_PLACE) from error
     return IngestionSummary(
         exports=export_reports,
         activities=len(index.entries),
@@ -593,4 +642,5 @@ def ingest_export(data_dir: Path) -> IngestionSummary:
         index_differences=index_differences,
         fit_differences=fit_differences,
         recordings_from_other_export=from_other,
+        days=days.summary,
     )
