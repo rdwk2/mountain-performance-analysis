@@ -4,7 +4,7 @@ jours des cas sont numérotés depuis 1 ; 45 jours par défaut, une valeur admis
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
-from dataclasses import astuple
+from dataclasses import astuple, replace
 from typing import Any, cast
 
 import pytest
@@ -29,6 +29,25 @@ Ranks = list[tuple[int, ...]]
 
 def params(**values: float) -> ParameterSet:
     return ParameterSet(NORMAL_PARAMETER_SPECS, values)
+
+
+@pytest.mark.parametrize(
+    "change",
+    [{"maximum": 366.0}, {"minimum": 2.0}, {"default": 27.0}],
+    ids=["borne haute", "borne basse", "défaut"],
+)
+def test_straddles_refuses_another_set_with_the_same_names(
+    change: dict[str, Any],
+) -> None:
+    other = ParameterSet(
+        (replace(NORMAL_PARAMETER_SPECS[0], **change), *NORMAL_PARAMETER_SPECS[1:])
+    )
+    with pytest.raises(ValueError, match=r"^parameters ") as caught:
+        straddles([False], [False], other)
+    assert str(caught.value) == (
+        "parameters doit être un ParameterSet de NORMAL_PARAMETER_SPECS, reçu "
+        f"{other!r}."
+    )
 
 
 def days(flags: Sequence[bool]) -> list[int]:

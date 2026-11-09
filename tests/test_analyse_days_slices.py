@@ -13,6 +13,7 @@ from fixtures.day_table import (
     PLUS1,
     PLUS2,
     body_battery,
+    complete_days,
     definition,
     index_entry,
     journal_of,
@@ -228,6 +229,50 @@ def test_the_table_is_the_same_on_slices_and_on_the_whole(
 
 def _shrunk(slice_: tuple[DayRecord, ...], *excluded: date) -> tuple[DayRecord, ...]:
     return tuple(d for d in slice_ if d.day not in excluded)
+
+
+def test_day_rows_gives_each_view_the_slices_of_day_slices(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Chaque vue reçoit l'objet même que ``day_slices`` a rendu pour son jour."""
+    real_slices = day_slices
+    issued: list[DaySlices] = []
+
+    def copied(
+        days: tuple[DayRecord, ...], keys: Any, day: date, window: int
+    ) -> DaySlices:
+        found = real_slices(days, keys, day, window)
+        issued.append(
+            DaySlices(_shrunk(found.night), _shrunk(found.own), _shrunk(found.series))
+        )
+        return issued[-1]
+
+    parts = {
+        "night_assessment": "night",
+        "resting_hr_on": "own",
+        "readiness_on_waking": "own",
+        "series_between": "series",
+    }
+    received: dict[str, list[tuple[DayRecord, ...]]] = {name: [] for name in parts}
+
+    def spy(name: str) -> None:
+        real = getattr(days_module, name)
+
+        def view(documents: tuple[DayRecord, ...], *args: Any, **kwargs: Any) -> Any:
+            received[name].append(documents)
+            return real(documents, *args, **kwargs)
+
+        monkeypatch.setattr(days_module, name, view)
+
+    for name in parts:
+        spy(name)
+    monkeypatch.setattr(days_module, "day_slices", copied)
+    assert len(table(complete_days(3)).rows) == 3
+    assert len(issued) == 3
+    for name, part in parts.items():
+        assert len(received[name]) == 3
+        for got, given in zip(received[name], issued, strict=True):
+            assert got is getattr(given, part)
 
 
 def test_the_night_slice_cut_by_one_day_changes_a_view() -> None:

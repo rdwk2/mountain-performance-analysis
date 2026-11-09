@@ -4,6 +4,7 @@ suites inventées : l'entrée i est le jour i d'une table (le premier est le jou
 
 from __future__ import annotations
 
+import dataclasses
 import inspect
 import math
 import re
@@ -90,6 +91,49 @@ def test_the_eleven_parameters() -> None:
         "min_admitted_days",
         "exclude_altitude_stay",
     )
+
+
+@pytest.mark.parametrize(
+    "change",
+    [{"maximum": 366.0}, {"minimum": 2.0}, {"default": 27.0}],
+    ids=["borne haute", "borne basse", "défaut"],
+)
+def test_another_set_with_the_same_names_is_refused(change: dict[str, Any]) -> None:
+    specs = (
+        dataclasses.replace(NORMAL_PARAMETER_SPECS[0], **change),
+        *NORMAL_PARAMETER_SPECS[1:],
+    )
+    other = ParameterSet(specs)
+    assert [s.name for s in specs] == [s.name for s in NORMAL_PARAMETER_SPECS]
+    with pytest.raises(ValueError, match=r"^parameters ") as caught:
+        run(HR, [1.0], parameters=other)
+    assert str(caught.value) == (
+        "parameters doit être un ParameterSet de NORMAL_PARAMETER_SPECS, reçu "
+        f"{other!r}."
+    )
+
+
+def test_the_floor_of_the_hrv_is_computed_by_log1p() -> None:
+    normal = after(HRV, [50.0] * 14)
+    center = math.exp(math.log(50.0))
+    floor = math.log1p(1.0 / center)
+    assert floor != math.log(1 + 1.0 / center)
+    assert normal.log_dispersion == floor
+
+
+@pytest.mark.parametrize(("value", "k"), [(40.0, 1.0), (60.0, 1.5), (80.0, 3.0)])
+def test_the_range_of_the_hrv_is_exact(value: float, k: float) -> None:
+    normal = after(HRV, [value] * 14, params(range_k=k))
+    median = math.log(value)
+    center = math.exp(median)
+    spread = math.log1p(1.0 / center)
+    growth = math.exp(k * spread)
+    low, high = math.exp(median - k * spread), math.exp(median + k * spread)
+    assert center / growth != low
+    assert center * growth != high
+    assert normal.normal == center
+    assert normal.range_low == low
+    assert normal.range_high == high
 
 
 def test_the_contracts_name_declared_parameters() -> None:

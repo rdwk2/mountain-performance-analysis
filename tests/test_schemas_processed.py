@@ -15,17 +15,28 @@ from typing import Any
 
 import pytest
 
+import mountain_perf.schemas as schemas_package
+import mountain_perf.schemas.processed as processed_module
 from fixtures.processed import COMMIT, write_interim
 from mountain_perf.analyse.athlete import DEFAULT_SETTINGS
 from mountain_perf.analyse.tables import Tables, build_tables
 from mountain_perf.codec import canonical_bytes, decode_contract, encode_contract
 from mountain_perf.schemas import ContractError
+from mountain_perf.schemas._dictionary import ENUM_DESCRIPTIONS
 from mountain_perf.schemas.processed import (
+    ADMISSION_REFUSAL_DESCRIPTIONS,
+    DAY_ROW_STATE_DESCRIPTIONS,
     JOURNAL_ABSENT,
+    JOURNAL_EVENT_TYPE_DESCRIPTIONS,
+    NORMAL_ABSENCE_DESCRIPTIONS,
     ActivityRow,
+    AdmissionRefusal,
     ClimbFlag,
     ClimbRow,
     ClimbVariantRow,
+    DayRowState,
+    JournalEventType,
+    NormalAbsence,
     ProcessedProvenance,
 )
 
@@ -703,3 +714,63 @@ def test_a_provenance_without_the_new_fields_does_not_decode(tables: Tables) -> 
     del encoded["acquired_at"]
     with pytest.raises(ValueError, match="champs manquants de ProcessedProvenance"):
         decode_contract(ProcessedProvenance, encoded)
+
+
+def test_a_letter_that_is_not_hexadecimal(tables: Tables) -> None:
+    _refused_provenance(
+        tables,
+        "interim_days_sha256 : 64 chiffres hexadécimaux minuscules.",
+        interim_days_sha256="X" * 64,
+    )
+    _refused_provenance(
+        tables,
+        "journal_sha256 : 64 chiffres hexadécimaux minuscules, ou 'absent'.",
+        journal_sha256="X" * 64,
+    )
+
+
+def test_the_message_of_an_acquired_at_names_its_type(tables: Tables) -> None:
+    _refused_provenance(
+        tables,
+        "acquired_at : un instant ISO 8601 en texte, obligatoire, reçu int.",
+        acquired_at=5,
+    )
+
+
+# --- ce que le paquet publie (AN2-2) --------------------------------------------------
+
+NEW_PUBLIC_NAMES = (
+    "ADMISSION_REFUSAL_DESCRIPTIONS",
+    "DAY_ROW_STATE_DESCRIPTIONS",
+    "JOURNAL_ABSENT",
+    "JOURNAL_EVENT_TYPE_DESCRIPTIONS",
+    "NORMAL_ABSENCE_DESCRIPTIONS",
+    "AdmissionRefusal",
+    "DayRow",
+    "DayRowState",
+    "JournalEventType",
+    "NormalAbsence",
+)
+
+
+@pytest.mark.parametrize("name", NEW_PUBLIC_NAMES)
+def test_each_new_name_is_published_by_the_package(name: str) -> None:
+    assert name in schemas_package.__all__
+    assert getattr(schemas_package, name, None) is getattr(processed_module, name)
+
+
+def test_the_new_enums_in_the_order_of_the_dictionary() -> None:
+    names = [cls.__name__ for cls in ENUM_DESCRIPTIONS]
+    start = names.index("AltitudeStratum")
+    assert names[start : start + 6] == [
+        "AltitudeStratum",
+        "DayRowState",
+        "JournalEventType",
+        "NormalAbsence",
+        "AdmissionRefusal",
+        "Availability",
+    ]
+    assert ENUM_DESCRIPTIONS[DayRowState] is DAY_ROW_STATE_DESCRIPTIONS
+    assert ENUM_DESCRIPTIONS[JournalEventType] is JOURNAL_EVENT_TYPE_DESCRIPTIONS
+    assert ENUM_DESCRIPTIONS[NormalAbsence] is NORMAL_ABSENCE_DESCRIPTIONS
+    assert ENUM_DESCRIPTIONS[AdmissionRefusal] is ADMISSION_REFUSAL_DESCRIPTIONS

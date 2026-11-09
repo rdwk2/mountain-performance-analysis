@@ -10,7 +10,7 @@ import math
 import shutil
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
@@ -1107,6 +1107,33 @@ def test_acquired_at_is_the_latest_acquisition_in_utc(tmp_path: Path) -> None:
 
 def read_name_sleep(export: str = "garmin_a") -> str:
     return read_name(DayFamily.SLEEP, export=export)
+
+
+def test_acquired_at_keeps_its_microseconds(tmp_path: Path) -> None:
+    write_interim(tmp_path)
+    latest = datetime(
+        2001, 12, 2, 12, 0, 0, 123456, tzinfo=timezone(timedelta(hours=1))
+    )
+    report = days_report(
+        exports=(export_report(), export_report(EXPORT_B, retrieved_at=latest)),
+        read=(
+            ReadFile(read_name_sleep(), "a" * 64),
+            ReadFile(read_name_sleep(EXPORT_B), "b" * 64),
+        ),
+    )
+    write_days_interim(tmp_path, report=report)
+    assert build(tmp_path).provenance.acquired_at == "2001-12-02T11:00:00.123456+00:00"
+
+
+def test_the_day_definition_is_named_only(data_dir: Path) -> None:
+    with pytest.raises(TypeError):
+        cast(Any, build_tables)(
+            data_dir,
+            DEFAULT_SETTINGS,
+            DEFAULT_DEFINITION,
+            DEFAULT_DAY_DEFINITION,
+            commit=COMMIT,
+        )
 
 
 def test_the_day_definition_goes_to_the_rows_and_the_provenance(tmp_path: Path) -> None:

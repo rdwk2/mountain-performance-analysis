@@ -113,6 +113,47 @@ def test_each_count_of_the_summary_at_its_line(
     ]
 
 
+def test_each_line_of_the_days_is_printed_when_it_is_zero(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    pytest.importorskip("pyarrow")
+    folder = data_dir()
+    write_interim(folder)
+    real = build_tables
+    zero = DaySummary(0, 0, 0, 0, 0, 0)
+
+    def summed(*args: Any, **kwargs: Any) -> object:
+        return dataclasses.replace(real(*args, **kwargs), day_summary=zero)
+
+    monkeypatch.setattr(mountain_perf.analyse.tables, "build_tables", summed)
+    assert main(["tables"]) == 0
+    provenance = real(folder, DEFAULT_SETTINGS, commit=COMMIT).provenance
+    assert capsys.readouterr().out.splitlines() == [
+        "Activités : 4",
+        "Montées : 3",
+        "  short_climb : 1",
+        "  intermediate : 0",
+        "  long_climb : 1",
+        "  ski_touring : 1",
+        "  short_ski_touring : 0",
+        "  other_sport : 0",
+        "Montées marquées : 1",
+        "Montées instables : 0",
+        "Montées des variantes : 36",
+        "Jours : 4",
+        "  sans document : 0",
+        "  activités hors des jours : 0",
+        "  blocs de Training Status hors des jours : 0",
+        "  nuits sous la couverture du Body Battery : 0",
+        "  nuits sans point de Body Battery : 0",
+        "Journal : absent",
+        f"Empreinte d'interim/activities/ : {provenance.interim_sha256}",
+        f"Empreinte d'interim/days/ : {provenance.interim_days_sha256}",
+        f"Commit : {COMMIT}",
+        "-> activites.parquet, montees.parquet, variantes.parquet, jours.parquet",
+    ]
+
+
 def test_without_interim_days_the_error_and_nothing_written(
     capsys: pytest.CaptureFixture[str],
 ) -> None:

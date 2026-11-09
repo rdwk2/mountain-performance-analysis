@@ -68,6 +68,18 @@ def refusal(row: DayRow, measure: NormalMeasure) -> AdmissionRefusal | None:
     return value
 
 
+@pytest.mark.parametrize("measure", SIX)
+def test_an_uncertain_day_stays_admitted_and_counted(measure: NormalMeasure) -> None:
+    """Le dixième jour porte deux rangs : sa valeur reste admise, et les normales des
+    jours suivants la comptent ; une rupture n'exclut rien."""
+    rows = table(days_with(20, 9, device_ranks=(1, 2))).rows
+    uncertain, following = rows[9], rows[15]
+    assert uncertain.uncertain_device is True
+    assert refusal(uncertain, measure) is None
+    assert getattr(following, f"{measure.value}_admitted_days") == 15
+    assert getattr(following, f"{measure.value}_normal_straddles") is True
+
+
 def last(journal: Any = None, parameters: Any = None, **changes: Any) -> DayRow:
     """La ligne du 20 janvier, son document aux champs changés."""
     kwargs: dict[str, Any] = {}

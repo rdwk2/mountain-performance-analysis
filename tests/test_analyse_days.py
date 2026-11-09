@@ -32,6 +32,7 @@ from fixtures.days import (
     activity_totals,
     altitude_block,
     at,
+    body_battery_summary,
     day_record,
     empty_day,
     heat_block,
@@ -1040,6 +1041,145 @@ def test_each_set_is_of_its_specs() -> None:
         DayDefinition(normals, normals)
     with pytest.raises(ValueError, match="normals doit être un jeu de ses specs"):
         DayDefinition(views, views)
+
+
+VIEWS_SET_OF_SPECS = "views doit être un jeu de ses specs déclarées."
+NORMALS_SET_OF_SPECS = "normals doit être un jeu de ses specs déclarées."
+
+
+def _other_set(specs: Any, change: dict[str, float]) -> ParameterSet:
+    """Un jeu aux mêmes noms que ``specs``, sa première spec changée."""
+    return ParameterSet((dataclasses.replace(specs[0], **change), *specs[1:]))
+
+
+@pytest.mark.parametrize(
+    "change",
+    [{"maximum": 0.9}, {"minimum": 0.1}, {"default": 0.3}],
+    ids=["borne haute", "borne basse", "défaut"],
+)
+def test_views_of_other_specs_with_the_same_names_are_refused(
+    change: dict[str, float],
+) -> None:
+    other = _other_set(DAY_VIEW_PARAMETER_SPECS, change)
+    with pytest.raises(ValueError, match=r"^views ") as caught:
+        DayDefinition(other, ParameterSet(NORMAL_PARAMETER_SPECS))
+    assert str(caught.value) == VIEWS_SET_OF_SPECS
+
+
+@pytest.mark.parametrize(
+    "change",
+    [{"maximum": 366.0}, {"minimum": 2.0}, {"default": 27.0}],
+    ids=["borne haute", "borne basse", "défaut"],
+)
+def test_normals_of_other_specs_with_the_same_names_are_refused(
+    change: dict[str, float],
+) -> None:
+    other = _other_set(NORMAL_PARAMETER_SPECS, change)
+    with pytest.raises(ValueError, match=r"^normals ") as caught:
+        DayDefinition(ParameterSet(DAY_VIEW_PARAMETER_SPECS), other)
+    assert str(caught.value) == NORMALS_SET_OF_SPECS
+
+
+def test_the_messages_of_the_definition_exactly() -> None:
+    views, normals = (
+        ParameterSet(DAY_VIEW_PARAMETER_SPECS),
+        ParameterSet(NORMAL_PARAMETER_SPECS),
+    )
+    with pytest.raises(ValueError, match=r"^views doit être un jeu") as caught:
+        DayDefinition(normals, normals)
+    assert type(caught.value) is ValueError
+    assert str(caught.value) == VIEWS_SET_OF_SPECS
+    with pytest.raises(ValueError, match=r"^normals doit être un jeu") as caught:
+        DayDefinition(views, views)
+    assert type(caught.value) is ValueError
+    assert str(caught.value) == NORMALS_SET_OF_SPECS
+
+
+# --- des valeurs distinctes là où les fixtures en ont d'égales ------------------------
+
+
+def test_the_maximum_of_stress_and_the_highest_body_battery_are_distinct() -> None:
+    row = only(
+        day_record(
+            D1,
+            stress=stress_summary(D1, max_level=77),
+            body_battery=body_battery_summary(D1, highest=88),
+        )
+    )
+    assert (row.stress_max_level, row.body_battery_highest) == (77, 88)
+
+
+def test_the_load_balance_and_the_altitude_have_distinct_instants() -> None:
+    load, altitude = at(jan(2), 1), at(jan(2), 2)
+    row = only(
+        day_record(D1),
+        history=history(
+            load_balances=(load_balance_block(D1, proper_instant=load),),
+            altitude_acclimation=(altitude_block(D1, proper_instant=altitude),),
+        ),
+    )
+    assert (row.ts_load_balance_instant, row.ts_altitude_instant) == (load, altitude)
+
+
+# --- une activité avec enregistrement, une sieste à deux décalages --------------------
+
+
+def test_an_activity_with_a_recording_counts_like_one_without() -> None:
+    def row_of_day(*, recorded: bool) -> DayRow:
+        chosen = nine(D1, elapsed_duration_s=1800.0, training_load=40.0)
+        return only(
+            day_record(D1),
+            entries=[dataclasses.replace(chosen, has_recording=recorded)],
+        )
+
+    row = row_of_day(recorded=True)
+    assert (row.activity_count, row.foot_elapsed_s) == (1, 1800.0)
+    assert (row.garmin_training_load, row.activities_without_load) == (40.0, 0)
+    assert row == row_of_day(recorded=False)
+
+
+def test_a_nap_across_a_change_of_time_counts_in_real_seconds() -> None:
+    day = date(2000, 3, 26)
+    row = only(
+        day_record(
+            day,
+            naps=(
+                nap(
+                    day,
+                    start=datetime(2000, 3, 26, 1, 30, tzinfo=PLUS1),
+                    end=datetime(2000, 3, 26, 3, 30, tzinfo=PLUS2),
+                    sleep_s=1800.0,
+                ),
+            ),
+        )
+    )
+    assert row.nap_window_s == 3600.0
+
+
+@pytest.mark.parametrize(
+    ("night_offset", "nap_offset", "wall", "count"),
+    [(PLUS1, PLUS2, (7, 30), 1), (PLUS2, PLUS1, (6, 30), 0)],
+    ids=["recoupe en instants seulement", "recoupe en heure murale seulement"],
+)
+def test_a_nap_and_a_night_of_different_offsets(
+    night_offset: Any, nap_offset: Any, wall: tuple[int, int], count: int
+) -> None:
+    """La nuit va de 23 h à 7 h à son décalage, la sieste dure 20 min au sien : elle se
+    place par ses instants, pas par ce qu'affichent les deux horloges."""
+    previous = date(1999, 12, 31)
+    hour, minute = wall
+    the_night = night(
+        D1,
+        start=at(previous, 23, offset=night_offset),
+        end=at(D1, 7, offset=night_offset),
+    )
+    the_nap = nap(
+        D1,
+        start=at(D1, hour, minute, offset=nap_offset),
+        end=at(D1, hour, minute + 20, offset=nap_offset),
+    )
+    row = only(day_record(D1, night=the_night, naps=(the_nap,)))
+    assert row.naps_overlapping_night == count
 
 
 # --- les valeurs que la ligne recopie du document -------------------------------------

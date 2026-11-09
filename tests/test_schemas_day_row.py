@@ -7,6 +7,7 @@ import dataclasses
 import math
 from collections.abc import Callable
 from datetime import UTC, date, datetime, timedelta, timezone, tzinfo
+from itertools import pairwise
 from typing import Any
 
 import pytest
@@ -487,6 +488,80 @@ def test_reals_are_not_negative(name: str) -> None:
 def test_small_negative_reals_are_refused(name: str, value: float) -> None:
     refused(complete_row, f"{name} doit être >= 0, reçu {value}.", **{name: value})
     assert getattr(complete_row(**{name: 0.0}), name) == 0.0
+
+
+NON_NEGATIVE = (
+    "sleep_version",
+    "sleep_respiration_version",
+    "respiration_version",
+    "summary_respiration_version",
+    "summary_body_battery_version",
+    "body_battery_series_versions",
+    "measured_sleep_s",
+    "deep_s",
+    "light_s",
+    "rem_s",
+    "awake_s",
+    "unmeasurable_s",
+    "unmeasured_fraction",
+    "night_restless_moments",
+    "night_body_battery_coverage",
+    "nap_count",
+    "nap_window_s",
+    "nap_sleep_s",
+    "naps_overlapping_night",
+    "stress_measured_s",
+    "steps",
+    "moderate_intensity_s",
+    "vigorous_intensity_s",
+    "floors_ascended_m",
+    "floors_descended_m",
+    "readiness_entry_count",
+    "activity_count",
+    "garmin_training_load",
+    "activities_without_load",
+    "foot_elapsed_s",
+    "mtb_elapsed_s",
+    "ski_touring_elapsed_s",
+    "other_elapsed_s",
+    "other_activity_count",
+    "activities_without_elapsed",
+    "hrv_log_dispersion",
+    "resting_hr_dispersion_bpm",
+    "measured_sleep_dispersion_s",
+    "night_stress_dispersion",
+    "night_respiration_dispersion_breaths_per_min",
+    "night_spo2_dispersion_percent",
+    "hrv_admitted_days",
+    "resting_hr_admitted_days",
+    "measured_sleep_admitted_days",
+    "night_stress_admitted_days",
+    "night_respiration_admitted_days",
+    "night_spo2_admitted_days",
+    "hrv_segment",
+    "resting_hr_segment",
+    "measured_sleep_segment",
+    "night_stress_segment",
+    "night_respiration_segment",
+    "night_spo2_segment",
+)
+"""Les 53 grandeurs positives ou nulles de l'invariant 3, écrites ici une à une : la
+liste du contrat ne se relit pas elle-même."""
+
+FIELD_TYPES = {field.name: str(field.type) for field in dataclasses.fields(DayRow)}
+
+
+def test_the_invariant_names_53_columns_of_the_row() -> None:
+    assert len(NON_NEGATIVE) == len(set(NON_NEGATIVE)) == 53
+    assert set(NON_NEGATIVE) <= set(FIELD_TYPES)
+
+
+@pytest.mark.parametrize("name", NON_NEGATIVE)
+def test_each_quantity_of_the_invariant_is_not_negative(name: str) -> None:
+    kind = FIELD_TYPES[name]
+    negative: float = -1 if kind.startswith(("int", "tuple")) else -1.0
+    value = (negative,) if kind.startswith("tuple") else negative
+    refused(complete_row, f"{name} doit être >= 0, reçu {negative}.", **{name: value})
 
 
 def test_the_versions_of_the_series_are_not_negative() -> None:
@@ -1100,6 +1175,17 @@ def test_the_normal_of_the_hrv_is_the_exponential_of_its_log_median() -> None:
     )
 
 
+def test_the_tolerance_on_the_normal_of_the_hrv() -> None:
+    refused(
+        complete_row,
+        "hrv_normal_ms doit valoir exp(hrv_log_median).",
+        **admitted_measure("hrv", hrv_normal_ms=LOG_CENTER * (1 + 1e-7)),
+    )
+    assert complete_row(
+        **admitted_measure("hrv", hrv_normal_ms=LOG_CENTER * (1 + 1e-11))
+    )
+
+
 def test_a_row_may_carry_a_normal_without_a_value() -> None:
     row = complete_row()
     assert row.respiration_avg_sleep_breaths_per_min is None
@@ -1237,3 +1323,75 @@ def test_an_absent_row_has_no_night_nap_status_nor_readiness() -> None:
 def test_the_day_is_a_date() -> None:
     assert type(absent_row().day) is date
     assert complete_row(day=date(2000, 2, 29)).day == date(2000, 2, 29)
+
+
+# ------------------------------------------------------------------------------------
+# L'ordre des contrôles
+# ------------------------------------------------------------------------------------
+
+
+def test_the_instants_are_checked_before_the_numbers() -> None:
+    naive = _instant_of("window_start").replace(tzinfo=None)
+    refused(
+        complete_row,
+        f"window_start doit porter un fuseau horaire, reçu {naive!r}.",
+        window_start=naive,
+        deep_s=math.nan,
+    )
+
+
+NO_DATA_END = "window_start et data_end vont ensemble."
+NO_NIGHT_END = "night_start et night_end vont ensemble."
+TOO_MANY_NAPS = "naps_overlapping_night : au plus nap_count."
+TOO_MANY_WITHOUT_LOAD = "activities_without_load : au plus activity_count."
+HRV_ADMITTED = "hrv_admitted : vrai si et seulement si hrv_refusal est absent."
+
+
+@pytest.mark.parametrize(
+    ("build", "message", "changes"),
+    [
+        (complete_row, NO_DATA_END, {"data_end": None, "night_end": None}),
+        (
+            complete_row,
+            NO_NIGHT_END,
+            {"night_end": None, "naps_overlapping_night": 2},
+        ),
+        (
+            complete_row,
+            TOO_MANY_NAPS,
+            {"naps_overlapping_night": 2, "activities_without_load": 4},
+        ),
+        (
+            complete_row,
+            TOO_MANY_WITHOUT_LOAD,
+            {"activities_without_load": 4, "hrv_admitted": False},
+        ),
+        (absent_row, HRV_ADMITTED, {"hrv_admitted": True, "device_ranks": (1,)}),
+    ],
+    ids=["5 et 6", "6 et 7", "7 et 8", "8 et 9", "9 et 10"],
+)
+def test_two_consecutive_groups_give_the_message_of_the_first(
+    build: Row, message: str, changes: dict[str, Any]
+) -> None:
+    refused(build, message, **changes)
+
+
+def _flipped(measure: str) -> dict[str, bool]:
+    """Le ``<p>_admitted`` qui contredit ``<p>_refusal`` de la ligne ``complete``."""
+    name = f"{measure}_admitted"
+    return {name: not getattr(complete_row(), name)}
+
+
+@pytest.mark.parametrize(
+    ("first", "second"),
+    list(pairwise(MEASURE_NAMES)),
+)
+def test_two_consecutive_measures_give_the_message_of_the_first(
+    first: str, second: str
+) -> None:
+    refused(
+        complete_row,
+        f"{first}_admitted : vrai si et seulement si {first}_refusal est absent.",
+        **_flipped(first),
+        **_flipped(second),
+    )

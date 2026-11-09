@@ -9,7 +9,8 @@ from __future__ import annotations
 
 import dataclasses
 import re
-from datetime import UTC, date, datetime, timedelta
+from collections.abc import Sequence
+from datetime import UTC, date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -766,6 +767,97 @@ def test_a_provenance_that_is_not_an_object(
     monkeypatch.setattr(parquet, "encode_contract", lambda provenance: value)
     write_tables(tmp_path, tables)
     message = STALE_TABLES.format(name="provenance lisible dans activites.parquet")
+    with pytest.raises(ProcessedError, match=f"^{re.escape(message)}$"):
+        read_tables(tmp_path)
+
+
+# --- deux décalages dans une colonne, provenance illisible, ordre de relecture -------
+
+SAME_INSTANT = (
+    datetime(2000, 1, 6, 12, tzinfo=timezone(timedelta(hours=1))),
+    datetime(2000, 1, 6, 13, tzinfo=timezone(timedelta(hours=2))),
+)
+"""Un même instant, à +01:00 (l'hiver) et à +02:00 (l'été)."""
+
+WALLS_AND_OFFSETS = [
+    (datetime(2000, 1, 6, 12), timedelta(hours=1)),
+    (datetime(2000, 1, 6, 13), timedelta(hours=2)),
+]
+"""Ce que chacune des deux lignes doit garder : son heure murale, son décalage."""
+
+
+def _wall_and_offset(instant: datetime | None) -> tuple[datetime, timedelta | None]:
+    assert instant is not None
+    return instant.replace(tzinfo=None), instant.utcoffset()
+
+
+def test_each_row_of_the_days_keeps_its_own_offset(
+    tmp_path: Path, tables: Tables
+) -> None:
+    winter, summer = SAME_INSTANT
+    rows = (
+        complete_row(ts_status_instant=winter),
+        complete_row(day=date(2000, 1, 7), ts_status_instant=summer),
+    )
+    write_tables(tmp_path, with_rows(tables, rows))
+    again = read_tables(tmp_path).days
+    assert again == rows
+    assert [_wall_and_offset(r.ts_status_instant) for r in again] == WALLS_AND_OFFSETS
+
+
+def test_each_row_of_the_activities_keeps_its_own_offset(
+    tmp_path: Path, tables: Tables
+) -> None:
+    first, second, *others = tables.activities
+    rows = (
+        dataclasses.replace(first, start_time=SAME_INSTANT[0]),
+        dataclasses.replace(second, start_time=SAME_INSTANT[1]),
+        *others,
+    )
+    write_tables(tmp_path, dataclasses.replace(tables, activities=rows))
+    again = read_tables(tmp_path).activities
+    assert again == rows
+    assert [_wall_and_offset(r.start_time) for r in again[:2]] == WALLS_AND_OFFSETS
+
+
+def _table_of(tables: Tables, name: str) -> Any:
+    sources: dict[str, tuple[Sequence[object], type]] = {
+        ACTIVITIES_FILE: (tables.activities, ActivityRow),
+        CLIMBS_FILE: (tables.climbs, ClimbRow),
+        VARIANTS_FILE: (tables.variants, ClimbVariantRow),
+        DAYS_FILE: (tables.days, DayRow),
+    }
+    rows, cls = sources[name]
+    return parquet._table(rows, cls, tables.provenance)
+
+
+@pytest.mark.parametrize("name", ALL_FILES)
+@pytest.mark.parametrize(
+    "metadata",
+    [{}, {parquet.PROVENANCE_KEY: b"{pas du json"}],
+    ids=["sans la clé", "illisible"],
+)
+def test_a_provenance_absent_or_unreadable_is_stale(
+    tmp_path: Path, tables: Tables, name: str, metadata: dict[bytes, bytes]
+) -> None:
+    write_tables(tmp_path, tables)
+    damaged = _table_of(tables, name).replace_schema_metadata(metadata)
+    parquet._write(damaged, tmp_path / PROCESSED_DIR / name)
+    message = STALE_TABLES.format(name=f"provenance lisible dans {name}")
+    with pytest.raises(ProcessedError, match=f"^{re.escape(message)}$"):
+        read_tables(tmp_path)
+
+
+def test_the_tables_are_read_in_order_and_the_first_fault_stops(
+    tmp_path: Path, tables: Tables
+) -> None:
+    """``variantes.parquet`` manque et ``jours.parquet`` est abîmé : la troisième table
+    se relit avant la quatrième, et son défaut seul est dit."""
+    write_tables(tmp_path, tables)
+    (tmp_path / PROCESSED_DIR / VARIANTS_FILE).unlink()
+    days = tmp_path / PROCESSED_DIR / DAYS_FILE
+    days.write_bytes(days.read_bytes()[:200])
+    message = STALE_TABLES.format(name=VARIANTS_FILE)
     with pytest.raises(ProcessedError, match=f"^{re.escape(message)}$"):
         read_tables(tmp_path)
 

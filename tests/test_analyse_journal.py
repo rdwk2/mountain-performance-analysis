@@ -892,3 +892,71 @@ def test_the_bounds_of_the_table() -> None:
 
 def test_read_cause_is_a_template() -> None:
     assert READ_CAUSE.format(reason="x") == "lecture impossible (x)"
+
+
+# --- la limite d'un champ, les fins de ligne, les garanties du module -----------------
+
+
+def admitted(folder: Path, data: bytes) -> Journal:
+    """Le journal de ``data`` ; un refus fait échouer le test, en disant son message."""
+    try:
+        return write(folder, data)
+    except JournalError as error:
+        pytest.fail(f"refusé à tort : {error}")
+
+
+def test_a_note_at_the_limit_of_the_csv_module(tmp_path: Path) -> None:
+    data = text(HEADER, f"{M};{N};maladie;" + "x" * 131_072)
+    assert seen(admitted(tmp_path, data)) == [REFERENCE[0]]
+
+
+def test_a_note_past_the_limit_of_the_csv_module(tmp_path: Path) -> None:
+    refused(
+        tmp_path,
+        text(HEADER, f"{M};{N};maladie;" + "x" * 131_073),
+        at(2, UNREADABLE_CSV_CAUSE),
+    )
+
+
+def test_before_the_header_a_blank_after_two_quotes_is_an_empty_line(
+    tmp_path: Path,
+) -> None:
+    """Sans le mode strict, ``"" `` se lit comme un champ blanc."""
+    data = text('"" ', HEADER, MALADIE)
+    assert seen(admitted(tmp_path, data)) == [(*REFERENCE[0][:3], 3)]
+
+
+def test_a_lone_cr_and_a_lf_in_the_same_file(tmp_path: Path) -> None:
+    data = HEADER.encode() + b"\r" + text(MALADIE, f"{C};{C};course;")
+    assert seen(admitted(tmp_path, data)) == REFERENCE
+
+
+@pytest.mark.parametrize(
+    ("value", "field"),
+    [
+        (JournalEvent(date(2000, 1, 1), date(2000, 1, 1), ILLNESS, 2), "line"),
+        (Journal((), None), "sha256"),
+    ],
+    ids=["JournalEvent", "Journal"],
+)
+def test_the_contracts_of_the_journal_are_frozen(value: object, field: str) -> None:
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        setattr(value, field, None)
+
+
+def test_a_journal_error_is_a_value_error() -> None:
+    assert issubclass(JournalError, ValueError)
+
+
+def test_a_read_error_without_a_text_says_the_name_of_its_class(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def read_bytes(self: Path) -> bytes:
+        raise PermissionError
+
+    monkeypatch.setattr(Path, "read_bytes", read_bytes)
+    with pytest.raises(JournalError) as caught:
+        read_journal(tmp_path)
+    assert str(caught.value) == (
+        f"journal.csv : {READ_CAUSE.format(reason='PermissionError')}"
+    )
