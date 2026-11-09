@@ -16,6 +16,42 @@ Backtest (à partir de M4) : métrique avant → après.
 
 ---
 
+### 2026-11-09 · AN2-2 — La table `jours` et les normales
+`mperf tables` écrit une quatrième table, `processed/jours.parquet` (`0019`), avec les
+trois autres, dont les lignes ne changent pas : une ligne par jour du calendrier, du
+premier au dernier document d'`interim/days/`, un jour sans document compris
+(`absent`) ; la nuit rattachée au jour du réveil, les siestes, les valeurs du jour selon Garmin,
+Training Readiness du réveil, Training Status à sa date propre, le journal et
+l'activité du jour (la charge selon Garmin, sommée, et les temps écoulés par famille).
+Les états, les drapeaux et les statuts viennent des vues des jours, appelées sur une
+tranche bornée des documents (le coût devient linéaire, `day_views.py` ne change pas)
+avec des seuils déclarés (`days.*`). Pour six mesures, l'admission de la valeur du jour
+et son motif, puis la normale des jours qui précèdent, sa plage, sa dispersion, ses
+segments, et les avertissements d'une rupture de rang ou de version : la normale
+continue à travers une rupture et la marque (un écart à la rupture d'office de la
+charte), et une nuit courte entre dans la normale du sommeil mesuré, exclue des autres ;
+paramètres déclarés (`normal.*`). Le lecteur
+de `journal.csv` (`analyse/journal.py`), au format qu'Excel en français enregistre ; un
+fichier malformé arrête `mperf tables`, sans qu'aucun message recopie une valeur du
+fichier. La provenance des tables gagne les empreintes d'`interim/days/` et du journal,
+le nombre de jours et l'instant d'acquisition ; `read_tables` refuse des tables d'avant
+AN2-2 ; le résumé de `mperf tables` dit les jours et ce qui reste hors d'eux, les nuits
+sous la couverture du Body Battery et les nuits sans point, et ses deux empreintes
+d'`interim/`. `0019` (neuve) ; précisions d'AN2-2 dans `0014` ;
+docstrings de contrats des jours (`NightFlag`, `DaysReport`, et ce qu'en lit `jours`),
+dictionnaire régénéré ; le README, `CLAUDE.md`, la charte (§§ 2, 3 et 11), la ROADMAP
+(AN2-2 faite) suivent ; deux lignes du `BACKLOG` faites, une fermée, une laissée
+ouverte avec une note, deux neuves. Après la fusion :
+`just process` une fois (un `interim/` sans `days/` et des tables d'avant AN2-2 sont
+refusés) ; l'empreinte des résultats de Q1 change avec la provenance des tables.
+[À remplir : les relectures du brief et de la PR, leurs correctifs.]
+Conclusion : `just check` vert, 10 375 tests avec tous les extras. Rangé dans
+`src/mountain_perf/analyse/` (`days.py`, `normals.py`, `journal.py`, `tables.py`,
+`parquet.py`), `src/mountain_perf/schemas/processed.py`, `src/mountain_perf/cli.py`,
+`tests/`, `docs/decisions/0019-table-jours-et-normales.md`, branche `an2/table-jours`.
+
+---
+
 ### 2026-10-31 · AN2-1 — Les données journalières
 Les onze familles journalières de tous les exports Garmin s'ingèrent dans
 `interim/days/` (`0018`) : un document par jour (fenêtre et état, nuit principale et
