@@ -28,6 +28,7 @@ from fixtures.figure import (
 )
 from fixtures.processed import COMMIT
 from mountain_perf.analyse import results as results_module
+from mountain_perf.analyse.days import DEFAULT_DAY_DEFINITION
 from mountain_perf.analyse.q1 import Q1_PARAMETER_SPECS, Q1Figure, View, q1_figure
 from mountain_perf.analyse.results import (
     COMMAND,
@@ -45,8 +46,10 @@ from mountain_perf.analyse.results import (
     write_results,
 )
 from mountain_perf.analyse.stability import VARIANTS
+from mountain_perf.analyse.tables import DEFAULT_DEFINITION
 from mountain_perf.schemas import ParameterSet
 from mountain_perf.schemas.processed import (
+    JOURNAL_ABSENT,
     AltitudeStratum,
     ClimbFlag,
     ClimbRegime,
@@ -728,3 +731,40 @@ def test_the_refusal_names_the_folder_with_slashes(
     assert str(raised.value) == (
         f"resultats/Q1/{written.name}/ existe déjà : rien n'est réécrit"
     )
+
+
+def test_the_provenance_of_the_tables_of_an2_2(
+    tmp_path: Path, figure: Q1Figure
+) -> None:
+    """La provenance des tables d'AN2-2 passe entière dans ``provenance.json``, sans
+    conversion."""
+    parameters = tuple(
+        sorted((*DEFAULT_DEFINITION.items(), *DEFAULT_DAY_DEFINITION.items()))
+    )
+    tables = dataclasses.replace(
+        figure.provenance,
+        parameters=parameters,
+        interim_days_sha256="d" * 64,
+        journal_sha256="e" * 64,
+        day_count=400,
+        acquired_at="2001-12-02T11:00:00+00:00",
+    )
+    written = _write(tmp_path, dataclasses.replace(figure, provenance=tables))
+    document = json.loads((written / PROVENANCE_FILE).read_text(encoding="utf-8"))
+    assert document["tables"] == json.loads(json.dumps(dataclasses.asdict(tables)))
+    assert document["tables"]["interim_days_sha256"] == "d" * 64
+    assert document["tables"]["journal_sha256"] == "e" * 64
+    assert document["tables"]["day_count"] == 400
+    assert document["tables"]["acquired_at"] == "2001-12-02T11:00:00+00:00"
+    names = [name for name, _ in document["tables"]["parameters"]]
+    assert "days.night_body_battery_step_s" in names
+    assert "normal.exclude_altitude_stay" in names
+    other = dataclasses.replace(tables, journal_sha256=JOURNAL_ABSENT)
+    second = _write(
+        tmp_path / "autre",
+        dataclasses.replace(figure, provenance=other),
+        date(2026, 10, 20),
+    )
+    again = json.loads((second / PROVENANCE_FILE).read_text(encoding="utf-8"))
+    assert again["tables"]["journal_sha256"] == "absent"
+    assert again["tables"]["acquired_at"] == "2001-12-02T11:00:00+00:00"

@@ -7,13 +7,24 @@ from __future__ import annotations
 import dataclasses
 import hashlib
 import math
-from datetime import timedelta
+import shutil
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
+from typing import Any
 
 import pytest
 
+from fixtures.day_table import definition, index_entry, index_of
+from fixtures.days import (
+    EXPORT_B,
+    days_report,
+    export_report,
+    read_name,
+)
+from fixtures.days import day_record as complete_day
 from fixtures.montees import FLAT, climb_at, recording
-from fixtures.processed import COMMIT, write_interim, write_one
+from fixtures.processed import COMMIT, write_days_interim, write_interim, write_one
+from mountain_perf.analyse import days as days_module
 from mountain_perf.analyse import tables as tables_module
 from mountain_perf.analyse.athlete import DEFAULT_SETTINGS, AthleteSettings
 from mountain_perf.analyse.climbs import (
@@ -22,15 +33,21 @@ from mountain_perf.analyse.climbs import (
     motion_track,
     track_route,
 )
+from mountain_perf.analyse.days import DEFAULT_DAY_DEFINITION
+from mountain_perf.analyse.journal import JOURNAL_FILE, JournalError
 from mountain_perf.analyse.quality import QUALITY_PARAMETER_SPECS
 from mountain_perf.analyse.stability import stability, variant_climbs
 from mountain_perf.analyse.tables import (
+    DAYS_INTERIM,
     DEFAULT_DEFINITION,
+    STALE_INTERIM,
+    DaySummary,
     Tables,
     TablesError,
     _gaps,
     _timer_stops,
     build_tables,
+    interim_days_sha256,
     interim_sha256,
 )
 from mountain_perf.gpx.geo import haversine_m
@@ -38,13 +55,17 @@ from mountain_perf.gpx.profile import (
     PROFILE_PARAMETER_SPECS,
     build_profile_with_diagnostics,
 )
-from mountain_perf.ingest.interim import ACTIVITIES_DIR
+from mountain_perf.ingest.interim import ACTIVITIES_DIR, DAYS_DIR, write_activities
 from mountain_perf.schemas import (
     CENTRAL_CONVENTION_INDEX,
     ActivityRecording,
     ContractError,
+    DayFamily,
+    HeartRateChannel,
     IntervalState,
+    JournalEventType,
     ParameterSet,
+    ReadFile,
     Sport,
     TemperatureChannel,
     TimerEvent,
@@ -52,7 +73,14 @@ from mountain_perf.schemas import (
     TimerTrigger,
     ViewRefusal,
 )
-from mountain_perf.schemas.processed import ClimbFlag, ClimbRegime
+from mountain_perf.schemas.processed import (
+    JOURNAL_ABSENT,
+    AdmissionRefusal,
+    ClimbFlag,
+    ClimbRegime,
+    DayRowState,
+)
+from test_ingest_interim import REPORT
 
 
 @pytest.fixture(scope="module")
@@ -171,9 +199,16 @@ def test_the_provenance(data_dir: Path, tables: Tables) -> None:
     names = [name for name, _ in provenance.parameters]
     assert names == sorted(names)
     assert ("climb.min_gain_m", 20.0) in provenance.parameters
-    assert len(names) == len(DEFAULT_DEFINITION.items())
+    assert provenance.parameters == tuple(
+        sorted((*DEFAULT_DEFINITION.items(), *DEFAULT_DAY_DEFINITION.items()))
+    )
+    assert len(names) == len(DEFAULT_DEFINITION.items()) + len(
+        DEFAULT_DAY_DEFINITION.items()
+    )
     assert {name.split(".")[0] for name in names} == {
         "climb",
+        "days",
+        "normal",
         "profile",
         "quality",
         "regimes",
@@ -827,3 +862,340 @@ def test_the_definition_reaches_the_slow_moving_time(tmp_path: Path) -> None:
     (row,) = build_tables(tmp_path, DEFAULT_SETTINGS, strict, commit=COMMIT).climbs
     assert default.slow_moving_s > 240.0
     assert row.slow_moving_s < 30.0
+
+
+# --- la table jours et la provenance étendue (AN2-2) ---------------------------------
+
+EMPTY_SHA256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+ACQUIRED = "2001-12-01T11:00:00+00:00"
+
+
+def build(folder: Path, **kwargs: Any) -> Tables:
+    return build_tables(folder, DEFAULT_SETTINGS, commit=COMMIT, **kwargs)
+
+
+def test_the_days_table_of_the_synthetic_interim(
+    tables: Tables, data_dir: Path
+) -> None:
+    assert [row.day for row in tables.days] == [date(2000, 1, d) for d in (1, 2, 3, 4)]
+    assert tables.days[2].state is DayRowState.ABSENT
+    assert tables.day_summary == DaySummary(0, 4, 1, 3, 0, 1)
+    assert tables.days[1].ts_status_code == 4
+    provenance = tables.provenance
+    assert provenance.day_count == 4
+    assert provenance.interim_days_sha256 == interim_days_sha256(data_dir)
+    assert provenance.interim_days_sha256 != EMPTY_SHA256
+    assert provenance.journal_sha256 == JOURNAL_ABSENT
+    assert provenance.acquired_at == ACQUIRED
+
+
+def test_the_fingerprint_of_the_days_follows_the_days(tmp_path: Path) -> None:
+    write_interim(tmp_path)
+    before = build(tmp_path).provenance
+    write_days_interim(tmp_path, [complete_day(date(2000, 1, 1))])
+    after = build(tmp_path).provenance
+    assert after.interim_days_sha256 != before.interim_days_sha256
+    assert after.interim_days_sha256 == interim_days_sha256(tmp_path)
+    assert after.interim_sha256 == before.interim_sha256
+    assert after.interim_sha256 == interim_sha256(tmp_path)
+
+
+def test_the_fingerprint_of_an_absent_or_empty_folder(tmp_path: Path) -> None:
+    assert interim_days_sha256(tmp_path) == EMPTY_SHA256
+    (tmp_path / DAYS_DIR).mkdir(parents=True)
+    assert interim_days_sha256(tmp_path) == EMPTY_SHA256
+
+
+def test_the_fingerprint_of_the_days_is_the_one_its_docstring_writes(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / DAYS_DIR
+    (root / "plus").mkdir(parents=True)
+    documents = {
+        "2000-01-05.json": b'{"a":1}',
+        "2000-01-06.json": b'{"a":2}',
+        "training_status.json": b"{}",
+        "report.json": b"[]",
+        "plus/2000-01-07.json": b"{}",
+    }
+    for name, data in documents.items():
+        (root / name).write_bytes(data)
+    (root / ".DS_Store").write_bytes(b"x")
+    (root / "notes.txt").write_bytes(b"x")
+    lines = sorted(
+        f"{name}\t{hashlib.sha256(data).hexdigest()}\n"
+        for name, data in documents.items()
+    )
+    expected = hashlib.sha256("".join(lines).encode("utf-8")).hexdigest()
+    assert interim_days_sha256(tmp_path) == expected
+
+
+def test_the_two_fingerprints_are_separate(tmp_path: Path) -> None:
+    write_interim(tmp_path)
+    days, activities = interim_days_sha256(tmp_path), interim_sha256(tmp_path)
+    (tmp_path / DAYS_DIR / "note.json").write_bytes(b"{}")
+    changed = interim_days_sha256(tmp_path)
+    assert changed != days
+    (tmp_path / DAYS_DIR / "note.json").write_bytes(b"{ }")
+    assert interim_days_sha256(tmp_path) != changed
+    assert interim_sha256(tmp_path) == activities
+    settled = interim_days_sha256(tmp_path)
+    report = tmp_path / ACTIVITIES_DIR / "report.json"
+    report.write_bytes(report.read_bytes() + b" ")
+    assert interim_sha256(tmp_path) != activities
+    assert interim_days_sha256(tmp_path) == settled
+
+
+def _break_index(folder: Path) -> None:
+    (folder / ACTIVITIES_DIR / "index.json").write_bytes(b"pas du json")
+
+
+def test_without_interim_days_nothing_is_read(tmp_path: Path) -> None:
+    write_interim(tmp_path)
+    shutil.rmtree(tmp_path / DAYS_DIR)
+    _break_index(tmp_path)
+    with pytest.raises(TablesError) as caught:
+        build(tmp_path)
+    assert str(caught.value) == STALE_INTERIM
+    assert "relancer just process" in STALE_INTERIM
+    assert STALE_INTERIM == (
+        "interim/days/ manque : interim/ date d'avant AN2-1, ou n'a jamais été écrit : "
+        "relancer just process"
+    )
+
+
+def test_an_empty_data_folder(tmp_path: Path) -> None:
+    with pytest.raises(TablesError, match=r"^interim/days/ manque"):
+        build(tmp_path)
+
+
+def test_an_interim_days_without_a_document(tmp_path: Path) -> None:
+    write_interim(tmp_path)
+    write_days_interim(tmp_path, [])
+    result = build(tmp_path)
+    assert result.days == ()
+    assert result.day_summary == DaySummary(4, 0, 2, 0, 0, 0)
+    assert result.provenance.day_count == 0
+    assert result.provenance.acquired_at == ACQUIRED
+
+
+def _reformat(path: Path) -> None:
+    path.write_bytes(path.read_bytes().replace(b'"format":2', b'"format":9', 1))
+
+
+@pytest.mark.parametrize(
+    ("name", "text"),
+    [
+        ("2000-01-02.json", "document au format 9"),
+        ("training_status.json", "document au format"),
+        ("report.json", "document au format"),
+    ],
+)
+def test_a_document_of_the_days_that_does_not_read_back(
+    tmp_path: Path, name: str, text: str
+) -> None:
+    write_interim(tmp_path)
+    _reformat(tmp_path / DAYS_DIR / name)
+    with pytest.raises(TablesError) as caught:
+        build(tmp_path)
+    assert str(caught.value).startswith(f"{DAYS_INTERIM} : ")
+    assert text in str(caught.value)
+
+
+def test_a_document_of_the_days_refused_by_its_contract(tmp_path: Path) -> None:
+    write_interim(tmp_path)
+    path = tmp_path / DAYS_DIR / "2000-01-02.json"
+    data = path.read_bytes()
+    assert b'"sleep_score":80' in data
+    path.write_bytes(data.replace(b'"sleep_score":80', b'"sleep_score":800', 1))
+    with pytest.raises(TablesError) as caught:
+        build(tmp_path)
+    assert str(caught.value).startswith("jours d'interim/ : ")
+    assert "sleep_score" in str(caught.value)
+
+
+def test_a_row_that_violates_its_contract_is_named_with_its_day(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    real = days_module.activity_columns
+
+    def broken(entries: Any) -> dict[str, Any]:
+        return {**real(()), "activity_count": -1}
+
+    monkeypatch.setattr(days_module, "activity_columns", broken)
+    write_interim(tmp_path)
+    with pytest.raises(TablesError) as caught:
+        build(tmp_path)
+    assert str(caught.value).startswith("jours d'interim/ : jour 2000-01-01 : ")
+
+
+def _journal(folder: Path, data: bytes) -> None:
+    (folder / JOURNAL_FILE).write_bytes(data)
+
+
+def test_a_malformed_journal_stops_the_tables(tmp_path: Path) -> None:
+    write_interim(tmp_path)
+    _journal(tmp_path, b"debut;fin;type\n2000-01-02;2000-01-01;maladie\n")
+    with pytest.raises(JournalError) as caught:
+        build(tmp_path)
+    assert str(caught.value) == "journal.csv, ligne 2 : fin avant debut"
+
+
+def _no_summary(monkeypatch: pytest.MonkeyPatch) -> None:
+    def failing(*args: object, **kwargs: object) -> None:
+        raise AssertionError("les montées ne doivent pas être calculées")
+
+    monkeypatch.setattr(tables_module, "_track_summary", failing)
+
+
+def test_the_journal_is_read_before_the_index_and_the_climbs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    write_interim(tmp_path)
+    _journal(tmp_path, b"debut;fin\n")
+    _break_index(tmp_path)
+    _no_summary(monkeypatch)
+    with pytest.raises(JournalError, match="colonne type manquante"):
+        build(tmp_path)
+
+
+def test_the_documents_of_the_days_are_read_before_the_journal(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    write_interim(tmp_path)
+    _reformat(tmp_path / DAYS_DIR / "report.json")
+    _break_index(tmp_path)
+    _journal(tmp_path, b"debut;fin\n")
+    _no_summary(monkeypatch)
+    with pytest.raises(TablesError) as caught:
+        build(tmp_path)
+    assert str(caught.value).startswith("jours d'interim/ : document au format 9")
+
+
+def test_the_index_is_read_after_the_days_and_the_journal(tmp_path: Path) -> None:
+    write_interim(tmp_path)
+    _journal(tmp_path, b"debut;fin;type\n")
+    _break_index(tmp_path)
+    with pytest.raises(TablesError) as caught:
+        build(tmp_path)
+    assert str(caught.value).startswith("index d'interim/ : ")
+
+
+def test_the_journal_goes_to_its_days_and_to_the_provenance(tmp_path: Path) -> None:
+    write_interim(tmp_path)
+    data = b"debut;fin;type;note\n2000-01-02;2000-01-02;maladie;\n"
+    _journal(tmp_path, data)
+    result = build(tmp_path)
+    assert result.provenance.journal_sha256 == hashlib.sha256(data).hexdigest()
+    assert result.days[1].journal_types == (JournalEventType.ILLNESS,)
+    assert result.days[1].hrv_refusal is AdmissionRefusal.ILLNESS
+    assert result.days[0].journal_types == ()
+
+
+def test_acquired_at_is_the_latest_acquisition_in_utc(tmp_path: Path) -> None:
+    write_interim(tmp_path)
+    report = days_report(
+        exports=(export_report(), export_report(EXPORT_B)),
+        read=(
+            ReadFile(read_name_sleep(), "a" * 64),
+            ReadFile(read_name_sleep(EXPORT_B), "b" * 64),
+        ),
+    )
+    write_days_interim(tmp_path, report=report)
+    assert build(tmp_path).provenance.acquired_at == "2001-12-02T11:00:00+00:00"
+
+
+def read_name_sleep(export: str = "garmin_a") -> str:
+    return read_name(DayFamily.SLEEP, export=export)
+
+
+def test_the_day_definition_goes_to_the_rows_and_the_provenance(tmp_path: Path) -> None:
+    write_interim(tmp_path)
+    chosen = definition({"min_coverage_fraction": 0.0}, {"exclude_altitude_stay": 0.0})
+    result = build(tmp_path, day_definition=chosen)
+    assert result.day_summary is not None
+    assert result.day_summary.nights_below_body_battery_coverage == 0
+    assert result.days[0].night_body_battery_coverage is not None
+    found = dict(result.provenance.parameters)
+    assert found["days.min_coverage_fraction"] == 0.0
+    assert found["normal.exclude_altitude_stay"] == 0.0
+    assert found["days.short_sleep_s"] == 14400.0
+
+
+def test_the_three_tables_read_neither_the_days_nor_the_journal(tmp_path: Path) -> None:
+    write_interim(tmp_path)
+    first = build(tmp_path)
+    write_days_interim(tmp_path, [complete_day(date(2024, 3, 9))])
+    _journal(tmp_path, b"debut,fin,type\n2024-03-09,2024-03-12,maladie\n")
+    second = build(tmp_path)
+    assert second.activities == first.activities
+    assert second.climbs == first.climbs
+    assert second.variants == first.variants
+    assert second.days != first.days
+
+
+def test_the_activities_of_the_index_go_to_the_row_of_their_day(tmp_path: Path) -> None:
+    plus1 = timezone(timedelta(hours=1))
+    entries = [
+        index_entry("b0", datetime(1999, 12, 31, 23, 30, tzinfo=plus1)),
+        index_entry(
+            "b1", datetime(2000, 1, 1, 23, 30, tzinfo=plus1), elapsed_duration_s=7200.0
+        ),
+        index_entry(
+            "b2",
+            datetime(2000, 1, 4, 9, tzinfo=plus1),
+            source_activity_type="road_biking",
+            training_load=None,
+        ),
+        index_entry("b3", datetime(2000, 1, 5, 0, 30, tzinfo=plus1)),
+    ]
+    write_activities(tmp_path, index_of(entries), [], REPORT)
+    write_days_interim(tmp_path)
+    result = build(tmp_path)
+    assert result.day_summary is not None
+    assert result.day_summary.activities_before_first_day == 1
+    assert result.day_summary.activities_after_last_day == 1
+    first, last = result.days[0], result.days[3]
+    assert first.activity_count == 1
+    assert first.foot_elapsed_s == 7200.0
+    assert first.garmin_training_load == 87.5
+    assert last.activity_count == 1
+    assert last.other_activity_count == 1
+    assert last.garmin_training_load is None
+    assert last.other_elapsed_s == 3723.5
+    assert [a.activity_ref for a in result.activities] == ["b0", "b1", "b2", "b3"]
+
+
+def test_a_climb_starts_from_the_origin_of_the_view(tmp_path: Path) -> None:
+    """Un enregistrement décalé de 300,5 s, au pas de 2 s, une FC qui varie : le départ
+    d'une montée se compte depuis l'origine de la vue, sa FC se lit aux instants de
+    l'enregistrement."""
+    shift = 300.5
+    base = recording([FLAT, climb_at(600, 0.15, 300), FLAT], noise=False, step_s=2.0)
+    assert base.position is not None
+    assert base.elevation is not None
+    times = tuple(t + shift for t in base.position.time_s)
+    rec = dataclasses.replace(
+        base,
+        position=dataclasses.replace(base.position, time_s=times),
+        elevation=dataclasses.replace(base.elevation, time_s=times),
+        heart_rate=HeartRateChannel(times, tuple(100.0 + t / 50.0 for t in times)),
+    )
+    write_one(tmp_path, rec)
+    (climb,) = build(tmp_path).climbs
+    track = motion_track(rec)
+    assert track is not None
+    assert track.offset_s == 302.5
+    (measure,) = climbs(track, DEFAULT_DEFINITION.profile, DEFAULT_DEFINITION.climb)
+    assert climb.start_offset_s == track.offset_s + measure.span.start_s
+    assert climb.end_offset_s == track.offset_s + measure.span.end_s
+    assert 500.0 <= climb.start_offset_s - shift <= 560.0
+    assert climb.local_start_time == rec.start_time + timedelta(
+        seconds=climb.start_offset_s
+    )
+    assert climb.local_start_time.utcoffset() == timedelta(hours=2)
+    middle = (climb.start_offset_s + climb.end_offset_s) / 2
+    assert climb.moving_mean_heart_rate_bpm == pytest.approx(
+        100.0 + (middle - 1.0) / 50.0, abs=0.05
+    )
+    assert climb.moving_heart_rate_coverage == pytest.approx(1.0, rel=1e-6)

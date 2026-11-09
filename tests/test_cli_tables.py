@@ -6,22 +6,27 @@ clone propre, au commit des fixtures), sauf dans les tests qui le changent."""
 
 from __future__ import annotations
 
+import dataclasses
+import hashlib
+import shutil
 import sys
 import types
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 import mountain_perf
 import mountain_perf.analyse
 import mountain_perf.analyse.tables
-from fixtures.processed import COMMIT, write_interim
+from fixtures.processed import COMMIT, write_days_interim, write_interim
 from mountain_perf import gitstate
 from mountain_perf.analyse.athlete import DEFAULT_SETTINGS, AthleteError, read_athlete
-from mountain_perf.analyse.tables import build_tables
+from mountain_perf.analyse.tables import STALE_INTERIM, DaySummary, build_tables
 from mountain_perf.cli import main
 from mountain_perf.config import data_dir
 from mountain_perf.gitstate import GitFailure, GitState, GitStateError
+from mountain_perf.ingest.interim import DAYS_DIR
 from mountain_perf.schemas import ContractError
 
 
@@ -38,7 +43,7 @@ def clean_clone(monkeypatch: pytest.MonkeyPatch) -> list[Path]:
     return seen
 
 
-def test_cli_tables_writes_the_three_tables_and_says_what_it_wrote(
+def test_cli_tables_writes_the_four_tables_and_says_what_it_wrote(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     pytest.importorskip("pyarrow")
@@ -48,7 +53,9 @@ def test_cli_tables_writes_the_three_tables_and_says_what_it_wrote(
     write_interim(folder)
     assert main(["tables"]) == 0
     tables = build_tables(folder, DEFAULT_SETTINGS, commit=COMMIT)
-    assert read_tables(folder) == tables
+    assert read_tables(folder) == dataclasses.replace(tables, day_summary=None)
+    provenance = tables.provenance
+    assert provenance.interim_sha256 != provenance.interim_days_sha256
     assert capsys.readouterr().out.splitlines() == [
         "Activités : 4",
         "Montées : 3",
@@ -61,11 +68,114 @@ def test_cli_tables_writes_the_three_tables_and_says_what_it_wrote(
         "Montées marquées : 1",
         "Montées instables : 0",
         "Montées des variantes : 36",
-        f"Empreinte d'interim/ : {tables.provenance.interim_sha256}",
+        "Jours : 4",
+        "  sans document : 1",
+        "  activités hors des jours : 4",
+        "  blocs de Training Status hors des jours : 1",
+        "  nuits sous la couverture du Body Battery : 3",
+        "  nuits sans point de Body Battery : 0",
+        "Journal : absent",
+        f"Empreinte d'interim/activities/ : {provenance.interim_sha256}",
+        f"Empreinte d'interim/days/ : {provenance.interim_days_sha256}",
         f"Commit : {COMMIT}",
-        "-> activites.parquet, montees.parquet, variantes.parquet",
+        "-> activites.parquet, montees.parquet, variantes.parquet, jours.parquet",
     ]
     assert len(tables.variants) == 36
+
+
+def test_each_count_of_the_summary_at_its_line(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    pytest.importorskip("pyarrow")
+    folder = data_dir()
+    write_interim(folder)
+    data = b"debut,fin,type\n"
+    (folder / "journal.csv").write_bytes(data)
+    real = build_tables
+
+    def summed(*args: Any, **kwargs: Any) -> object:
+        tables = real(*args, **kwargs)
+        return dataclasses.replace(tables, day_summary=DaySummary(2, 3, 7, 13, 19, 17))
+
+    monkeypatch.setattr(mountain_perf.analyse.tables, "build_tables", summed)
+    assert main(["tables"]) == 0
+    lines = capsys.readouterr().out.splitlines()
+    assert not any("en double" in line for line in lines)
+    start = lines.index("Jours : 4")
+    assert lines[start : start + 7] == [
+        "Jours : 4",
+        "  sans document : 17",
+        "  activités hors des jours : 5",
+        "  blocs de Training Status hors des jours : 7",
+        "  nuits sous la couverture du Body Battery : 13",
+        "  nuits sans point de Body Battery : 19",
+        f"Journal : {hashlib.sha256(data).hexdigest()}",
+    ]
+
+
+def test_without_interim_days_the_error_and_nothing_written(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    pytest.importorskip("pyarrow")
+    folder = data_dir()
+    write_interim(folder)
+    shutil.rmtree(folder / DAYS_DIR)
+    assert main(["tables"]) == 1
+    assert capsys.readouterr().err == f"Erreur : {STALE_INTERIM}\n"
+    assert not (folder / "processed").exists()
+
+
+def test_an_interim_days_without_a_document_gives_an_empty_table(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    pytest.importorskip("pyarrow")
+    from mountain_perf.analyse.parquet import read_tables
+
+    folder = data_dir()
+    write_interim(folder)
+    write_days_interim(folder, [])
+    assert main(["tables"]) == 0
+    lines = capsys.readouterr().out.splitlines()
+    assert "Jours : 0" in lines
+    assert "  activités hors des jours : 4" in lines
+    assert "  blocs de Training Status hors des jours : 2" in lines
+    assert read_tables(folder).days == ()
+
+
+def test_a_malformed_journal_writes_nothing_and_keeps_the_previous_tables(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    pytest.importorskip("pyarrow")
+    folder = data_dir()
+    write_interim(folder)
+    assert main(["tables"]) == 0
+    capsys.readouterr()
+    processed = folder / "processed"
+    before = {p.name: p.read_bytes() for p in processed.iterdir()}
+    (folder / "journal.csv").write_bytes(
+        "debut;fin;type;note\n2000-01-02;;maladie;privé\n".encode()
+    )
+    assert main(["tables"]) == 1
+    err = capsys.readouterr().err
+    assert err.startswith("Erreur : journal.csv, ligne 2 : fin vide")
+    assert "privé" not in err
+    assert {p.name: p.read_bytes() for p in processed.iterdir()} == before
+    assert not (folder / "processed.nouveau").exists()
+
+
+def test_a_document_of_the_days_that_does_not_read_back(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    pytest.importorskip("pyarrow")
+    folder = data_dir()
+    write_interim(folder)
+    path = folder / DAYS_DIR / "2000-01-02.json"
+    path.write_bytes(path.read_bytes().replace(b'"format":2', b'"format":9', 1))
+    assert main(["tables"]) == 1
+    assert capsys.readouterr().err == (
+        "Erreur : jours d'interim/ : document au format 9, 2 attendu\n"
+    )
+    assert not (folder / "processed").exists()
 
 
 def test_cli_tables_reads_the_declarations_of_the_athlete() -> None:
@@ -145,8 +255,8 @@ def test_mperf_help_lists_the_tables_subcommand(
         main(["--help"])
     assert stop.value.code == 0
     assert (
-        "Écrire les tables de MPA_DATA_DIR/processed depuis interim (AN1-2b)"
-        in capsys.readouterr().out
+        "Écrire MPA_DATA_DIR/processed depuis interim/activities, interim/days et "
+        "journal.csv (AN1-2b, AN2-2)" in capsys.readouterr().out
     )
 
 
@@ -195,7 +305,7 @@ def test_cli_tables_reads_the_state_of_the_executed_package(
     clean_clone: list[Path],
 ) -> None:
     """L'état git lu est celui du paquet exécuté, et son commit va dans la
-    provenance des trois tables (AN1-2c)."""
+    provenance des tables (AN1-2c)."""
     pytest.importorskip("pyarrow")
     from mountain_perf.analyse.parquet import read_tables
 

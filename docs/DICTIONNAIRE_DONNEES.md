@@ -12179,14 +12179,19 @@ questions de la piste qui lisent des jours.
 | `activity_count` | `int` | — |
 | `climb_count` | `int` | — |
 | `variant_climb_count` | `int` | — |
+| `interim_days_sha256` | `str` | — |
+| `journal_sha256` | `str` | — |
+| `day_count` | `int` | — |
+| `acquired_at` | `str` | — |
 
 La provenance des tables de `processed/`, écrite dans les métadonnées de
 chaque fichier.
 
 #### Champs
 
-- `interim_sha256` — sans unité — empreinte d'`interim/activities/` : SHA-256
-  de la liste triée des chemins relatifs et des SHA-256 de ses documents.
+- `interim_sha256` — sans unité — empreinte d'`interim/activities/` seul :
+  SHA-256 de la liste triée des chemins relatifs et des SHA-256 de ses documents ;
+  `interim/days/` a la sienne, `interim_days_sha256`.
 - `package_version` — sans unité — version du paquet qui a écrit les tables.
 - `commit` — sans unité — commit git du code qui a écrit les tables ;
   `mperf tables` refuse un arbre de travail modifié (AN1-2c).
@@ -12196,17 +12201,33 @@ chaque fichier.
 - `barometer_products` — sans unité — produits déclarés barométriques,
   `fabricant:produit`, triés.
 - `parameters` — sans unité — tous les paramètres de la définition, par nom
-  `famille.nom` (profil, montée, drapeaux, régimes, stabilité), triés.
+  `famille.nom` (profil, montée, drapeaux, régimes, stabilité ; depuis AN2-2,
+  `days.<nom>` les seuils des vues et des validités de la table `jours`, et
+  `normal.<nom>` ceux de ses normales), triés.
 - `activity_count`, `climb_count`, `variant_climb_count` — sans unité —
-  lignes des trois tables.
+  lignes des tables `activites`, `montees` et `variantes`.
+- `interim_days_sha256` — sans unité — empreinte d'`interim/days/`, calculée
+  comme `interim_sha256`.
+- `journal_sha256` — sans unité — SHA-256 des octets de `journal.csv`, ou
+  `JOURNAL_ABSENT` (`"absent"`) s'il n'existe pas.
+- `day_count` — sans unité — lignes de la table `jours`.
+- `acquired_at` — instant, en texte ISO 8601 — l'instant d'acquisition le plus
+  récent des exports du rapport des jours (`DaysReport.exports[*].retrieved_at`,
+  stocké en UTC), écrit par la méthode `isoformat` de cet instant en UTC ;
+  toujours présent : le rapport des jours nomme au moins un export.
 
 #### Invariants
 
-- `interim_sha256` : 64 chiffres hexadécimaux minuscules ;
+- `interim_sha256` et `interim_days_sha256` : 64 chiffres hexadécimaux
+  minuscules ; `journal_sha256` de même, ou `JOURNAL_ABSENT` ;
 - `package_version` non vide ; `commit` : 40 ou 64 chiffres hexadécimaux
-  minuscules (SHA-1 ou SHA-256 de git) ; `reference_vertical_speed_ms > 0` ;
+  minuscules (SHA-1 ou SHA-256 de git) ; `reference_vertical_speed_ms` strictement
+  positive ;
 - `barometer_products` et `parameters` triés, sans doublon ; valeurs finies ;
-- comptes positifs ou nuls.
+- comptes positifs ou nuls ;
+- `acquired_at`, un texte, se relit par `datetime.fromisoformat` en un
+  instant *aware* de décalage nul, que la méthode `isoformat` réécrit à
+  l'identique.
 
 #### Producteur
 
@@ -12220,7 +12241,10 @@ Les résultats de la piste (charte, § 10 : empreinte des données, seuils figé
 
 - un instant de génération : il n'y en a pas, et deux régénérations du même
   `interim/` par le même code, avec le même `athlete.toml` (`V_ref`,
-  produits barométriques), sur la même plateforme, écrivent les mêmes tables ;
+  produits barométriques) et le même `journal.csv`, sur la même plateforme,
+  écrivent les mêmes tables : les tables dépendent aussi de `journal.csv`, tenu
+  à la main, et toute retouche du fichier, une note ou un blanc compris, change son
+  empreinte, donc les quatre tables et l'empreinte des résultats de Q1 ;
 - d'une plateforme à l'autre (Windows, Linux), les mêmes tables à l'octet : les
   fonctions trigonométriques du système peuvent différer d'une unité du dernier
   chiffre.
