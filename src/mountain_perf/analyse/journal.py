@@ -34,8 +34,11 @@ debut;fin;type;note
   se refermer, suivi du séparateur ou de la fin de la ligne.
 - **L'encodage** est UTF-8, avec ou sans BOM : dans Excel, « Enregistrer sous », type
   « CSV UTF-8 ». Un autre encodage arrête la lecture, avec un message qui le dit.
-- **Les blancs autour d'un champ** ne comptent jamais : ``2000-01-12, 2000-01-14,
-  maladie`` se lit comme ``2000-01-12,2000-01-14,maladie``.
+- **Les blancs autour d'un champ** sans guillemets ne comptent pas : ``2000-01-12,
+  2000-01-14, maladie`` se lit comme ``2000-01-12,2000-01-14,maladie``. Un champ entre
+  guillemets s'écrit collé à ses séparateurs : un blanc entre le guillemet fermant et
+  le séparateur rend la ligne illisible, et un blanc avant le guillemet ouvrant fait
+  lire les guillemets comme du texte.
 - **Les dates** s'écrivent ``AAAA-MM-JJ``, en chiffres ASCII, et rien d'autre
   (``2000-01-12``) ; ce sont
   des dates locales. Une date d'un autre format (``12/01/2000``) ou qui n'existe pas

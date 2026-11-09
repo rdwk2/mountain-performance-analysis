@@ -358,8 +358,9 @@ besoin.
    commit ; le contrôle réel de la PR refait cette comparaison sur le réel. Le dépôt
    garde le schéma figé des trois tables (les noms des colonnes, dans leur ordre, et
    leurs types) et leur indépendance à l'égard des jours et du journal.
-   `analyse/parquet.py` écrit deux types de plus : la date du jour
-   (`date32`) et un instant facultatif, en deux colonnes toutes deux nulles quand il
+   `analyse/parquet.py` écrit trois types de plus : la date du jour (`date32`), les
+   listes d'entiers (`list<int64>`) et un instant facultatif, en deux colonnes toutes
+   deux nulles quand il
    manque ; une table où une seule des deux est nulle ne se relit pas, ni une table où
    un instant obligatoire (`start_time`, `local_start_time`) a les deux nulles.
 6. **La provenance** gagne quatre champs, à la fin : `interim_days_sha256`, l'empreinte

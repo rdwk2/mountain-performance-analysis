@@ -127,8 +127,9 @@ commande de préremplissage) :
     11 au 12, pas celle du 14 au 15 ;
   - `type` est l'un des huit types ci-dessus, sans accent, la casse et les blancs
     autour sans effet ; `note` est libre, ni gardée ni recopiée ;
-  - les blancs autour d'un champ et les lignes vides ne comptent pas ; sans fichier, ou
-    avec un fichier vide, aucun événement ;
+  - les blancs autour d'un champ sans guillemets et les lignes vides ne comptent pas ;
+    un champ entre guillemets s'écrit collé à ses séparateurs ; sans fichier, ou avec
+    un fichier vide, aucun événement ;
   - toute faute arrête `mperf tables`, qui n'écrit rien ; le message dit la ligne et la
     cause (sans ligne pour l'encodage ou un fichier illisible), jamais une valeur du
     fichier.

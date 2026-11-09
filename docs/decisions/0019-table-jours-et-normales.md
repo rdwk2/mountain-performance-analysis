@@ -294,8 +294,9 @@ docstring du module et au § 3 de la charte. En bref : un CSV en UTF-8, avec ou 
 facultative, `note`, dans n'importe quel ordre ; le séparateur `;` si l'en-tête en
 contient un, sinon `,` ; les dates en `AAAA-MM-JJ`, dates locales, `debut` et `fin`
 compris, `fin` obligatoire et jamais avant `debut` ; l'un des huit types de la charte,
-sans accent ; les blancs autour d'un champ, les lignes vides et une marge de colonnes
-sans nom et vides à la fin de l'en-tête sans effet. Sans fichier, ou avec un fichier
+sans accent ; les blancs autour d'un champ sans guillemets, les lignes vides et une
+marge de colonnes sans nom et vides à la fin de l'en-tête sans effet (un champ entre
+guillemets s'écrit collé à ses séparateurs). Sans fichier, ou avec un fichier
 vide, aucun événement.
 
 - `read_journal` rend un `Journal` : les événements (`JournalEvent` : début, fin, type,

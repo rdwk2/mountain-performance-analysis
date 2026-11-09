@@ -41,11 +41,16 @@ d'`interim/`. `0019` (neuve) ; précisions d'AN2-2 dans `0014` ;
 docstrings de contrats des jours (`NightFlag`, `DaysReport`, et ce qu'en lit `jours`),
 dictionnaire régénéré ; le README, `CLAUDE.md`, la charte (§§ 2, 3 et 11), la ROADMAP
 (AN2-2 faite) suivent ; deux lignes du `BACKLOG` faites, une fermée, une laissée
-ouverte avec une note, deux neuves. Après la fusion :
+ouverte avec une note, cinq neuves. Après la fusion :
 `just process` une fois (un `interim/` sans `days/` et des tables d'avant AN2-2 sont
 refusés) ; l'empreinte des résultats de Q1 change avec la provenance des tables.
-[À remplir : les relectures du brief et de la PR, leurs correctifs.]
-Conclusion : `just check` vert, 10 375 tests avec tous les extras. Rangé dans
+Relectures : le brief, par deux sous-agents, puis par une relecture d'artefact en
+trois passes, dont une sur le plan, et par l'A du moteur ; la PR, par deux relectures
+profondes et un balayage par mutation, les tests du prototype de la conception rejoués
+contre elle et son code passé sur le réel, en comptes. Correctifs : des tests, pour les
+lacunes qu'elles ont trouvées, deux précisions de texte (les blancs autour d'un champ
+du journal, les types que Parquet écrit) et trois lignes du `BACKLOG`.
+Conclusion : `just check` vert, 10 506 tests avec tous les extras. Rangé dans
 `src/mountain_perf/analyse/` (`days.py`, `normals.py`, `journal.py`, `tables.py`,
 `parquet.py`), `src/mountain_perf/schemas/processed.py`, `src/mountain_perf/cli.py`,
 `tests/`, `docs/decisions/0019-table-jours-et-normales.md`, branche `an2/table-jours`.
