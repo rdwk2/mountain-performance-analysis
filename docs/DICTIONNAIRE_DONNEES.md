@@ -8121,7 +8121,8 @@ du jour.
 
 `DayRecord.state` ; le choix de l'export de référence ; les vues des jours ; la
 table `jours` (AN2-2), qui retire les grandeurs `day` des jours `truncated`,
-`empty` et `no_measurement`.
+`empty` et `no_measurement`, sauf la FC de repos d'un jour `truncated`
+(statut `provisional`).
 
 #### Non promis
 
@@ -8162,7 +8163,8 @@ Déclaré ici, une fois pour toutes (`QUANTITY_SUPPORTS`).
 
 Les vues des jours (l'instant propre d'une grandeur) ; la table `jours` (AN2-2),
 qui retire les grandeurs `day` d'un jour `truncated`, `empty` ou
-`no_measurement`.
+`no_measurement`, sauf la FC de repos d'un jour `truncated` (statut
+`provisional`).
 
 #### Non promis
 
@@ -8238,8 +8240,7 @@ La lecture des familles (`stress.bodyBatteryValuesArray`, deuxième colonne).
 
 #### Consommateurs
 
-`BodyBatterySeries` ; la vue `body_battery_at` ; `bb_plafond` (AN2-2), qu'une
-remise à zéro coupe.
+`BodyBatterySeries` ; la vue `body_battery_at`.
 
 #### Non promis
 
@@ -8528,7 +8529,7 @@ un code inconnu fait écarter son point.
 
 #### Consommateurs
 
-La vue `series_between` ; `stress_mesure_s` (AN2-2).
+La vue `series_between`.
 
 #### Non promis
 
@@ -8576,7 +8577,8 @@ La lecture des familles (`stress`, `sleep`).
 #### Consommateurs
 
 La vue `body_battery_at` (la série fusionnée : la nuit dans les fenêtres des
-nuits, la journée ailleurs) ; `bb_plafond` (AN2-2).
+nuits, la journée ailleurs) ; `night_body_battery_ceiling` de `jours` (la série
+de la nuit).
 
 #### Non promis
 
@@ -9297,7 +9299,7 @@ de la moyenne et du maximum, `avgStressLevel`).
 
 #### Consommateurs
 
-La table `jours` (AN2-2) : le stress du jour et `stress_mesure_s` (repos, bas,
+La table `jours` (AN2-2) : le stress du jour et `stress_measured_s` (repos, bas,
 moyen, haut).
 
 #### Non promis
@@ -10710,7 +10712,9 @@ L'ingestion des jours ; écrit par `write_days`.
 #### Consommateurs
 
 L'athlète (`mperf ingest` en affiche les comptes) ; la vérification de
-l'ingestion ; le contrôle réel d'AN2-1, en comptes.
+l'ingestion ; le contrôle réel d'AN2-1, en comptes ; la provenance des tables de
+`processed/` (`analyse/tables.py`, AN2-2, `docs/decisions/0019`) : l'instant
+d'acquisition le plus récent de ses exports (`acquired_at`).
 
 #### Non promis
 
@@ -10791,8 +10795,9 @@ La vue `night_assessment`, avec ses seuils en arguments.
 
 #### Consommateurs
 
-La table `jours` (AN2-2) : une nuit `short` ou `shifted` n'entre dans aucune
-normale de mesure de nuit.
+La table `jours` (AN2-2, `docs/decisions/0019`) : une nuit `short` entre dans
+la normale du sommeil mesuré de `jours`, et dans aucune autre normale de nuit ;
+une nuit `shifted` n'entre dans aucune normale de mesure de nuit.
 
 #### Non promis
 
