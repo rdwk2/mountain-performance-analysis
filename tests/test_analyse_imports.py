@@ -105,6 +105,57 @@ def test_the_engine_does_not_import_analyse() -> None:
         ), name
 
 
+def _allowed(name: str, modules: tuple[str, ...]) -> bool:
+    return any(name == m or name.startswith(f"{m}.") for m in modules)
+
+
+def _package_imports(path: Path) -> set[str]:
+    return {m for m in _imports(path) if m.split(".")[0] == "mountain_perf"}
+
+
+def _standard_only(imports: set[str]) -> bool:
+    return all(
+        m.split(".")[0] in {*sys.stdlib_module_names, "__future__"}
+        for m in imports
+        if m.split(".")[0] != "mountain_perf"
+    )
+
+
+PURE = ("mountain_perf.schemas", "mountain_perf.validation")
+
+
+def test_the_journal_imports_only_the_standard_library_and_the_contracts() -> None:
+    path = ANALYSE / "journal.py"
+    package = _package_imports(path)
+    assert package
+    assert all(_allowed(m, PURE) for m in package)
+    assert _standard_only(_imports(path))
+
+
+def test_the_normals_import_only_the_standard_library_and_the_contracts() -> None:
+    path = ANALYSE / "normals.py"
+    assert all(_allowed(m, PURE) for m in _package_imports(path))
+    assert _standard_only(_imports(path))
+
+
+def test_the_days_read_the_views_the_journal_and_the_normals() -> None:
+    path = ANALYSE / "days.py"
+    allowed = (
+        *PURE,
+        "mountain_perf.ingest.day_views",
+        "mountain_perf.ingest.interim",
+        "mountain_perf.ingest.types",
+        "mountain_perf.ingest.families",
+        "mountain_perf.analyse.journal",
+        "mountain_perf.analyse.normals",
+    )
+    package = _package_imports(path)
+    assert all(_allowed(m, allowed) for m in package)
+    assert "mountain_perf.ingest.day_views" in package
+    assert "mountain_perf.analyse.normals" in package
+    assert _standard_only(_imports(path))
+
+
 EXTRAS = ("pyarrow", "plotly", "fitdecode", "mountain_perf.ingest.fit")
 """Les extras, et le seul module qui importe fitdecode."""
 
@@ -113,6 +164,9 @@ EXTRAS = ("pyarrow", "plotly", "fitdecode", "mountain_perf.ingest.fit")
     ("module", "forbidden"),
     [
         ("mountain_perf.analyse.tables", (*EXTRAS, "mountain_perf.backtest")),
+        ("mountain_perf.analyse.journal", (*EXTRAS, "mountain_perf.backtest")),
+        ("mountain_perf.analyse.normals", (*EXTRAS, "mountain_perf.backtest")),
+        ("mountain_perf.analyse.days", (*EXTRAS, "mountain_perf.backtest")),
         ("mountain_perf.analyse.q1", (*EXTRAS, "mountain_perf.backtest")),
         ("mountain_perf.analyse.results", (*EXTRAS, "mountain_perf.backtest")),
         ("mountain_perf.gitstate", (*EXTRAS, "mountain_perf.backtest")),

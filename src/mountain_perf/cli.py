@@ -2834,8 +2834,9 @@ def _run_tables() -> int:
     L'écriture s'importe ici, pas en tête du module : ``mperf`` s'importe sans l'extra
     ``analyse`` ; seule l'absence de pyarrow est dite, toute autre
     ``ModuleNotFoundError`` se propage. ``GitStateError``, ``InterimError``,
-    ``AthleteError``, ``TablesError`` (l'activité, ou l'index, nommés),
-    ``ConfigError``, ``OSError`` : « Erreur : <message> », code 1."""
+    ``AthleteError``, ``TablesError`` (l'activité, l'index ou les jours d'``interim/``
+    nommés), ``JournalError``, ``ConfigError``, ``OSError`` : « Erreur : <message> »,
+    code 1."""
     try:
         from mountain_perf.analyse.parquet import write_tables
     except ModuleNotFoundError as error:
@@ -2845,6 +2846,7 @@ def _run_tables() -> int:
         return 1
     from mountain_perf import gitstate
     from mountain_perf.analyse.athlete import AthleteError, read_athlete
+    from mountain_perf.analyse.journal import JournalError
     from mountain_perf.analyse.tables import TablesError, build_tables
     from mountain_perf.ingest.interim import InterimError
     from mountain_perf.schemas.processed import ClimbRegime
@@ -2856,12 +2858,13 @@ def _run_tables() -> int:
             print(TABLES_MODIFIED_TREE_ERROR, file=sys.stderr)
             return 1
         tables = build_tables(folder, read_athlete(folder), commit=state.commit)
-        activities_path, climbs_path, variants_path = write_tables(folder, tables)
+        written = write_tables(folder, tables)
     except (
         gitstate.GitStateError,
         InterimError,
         AthleteError,
         TablesError,
+        JournalError,
         ConfigError,
         OSError,
     ) as error:
@@ -2878,9 +2881,26 @@ def _run_tables() -> int:
         f"Montées instables : {sum(1 for row in tables.climbs if row.stable is False)}"
     )
     print(f"Montées des variantes : {provenance.variant_climb_count}")
-    print(f"Empreinte d'interim/ : {provenance.interim_sha256}")
+    summary = tables.day_summary
+    assert summary is not None
+    outside = summary.activities_before_first_day + summary.activities_after_last_day
+    print(f"Jours : {provenance.day_count}")
+    print(f"  sans document : {summary.absent_days}")
+    print(f"  activités hors des jours : {outside}")
+    print(f"  blocs de Training Status hors des jours : {summary.blocks_outside_days}")
+    print(
+        "  nuits sous la couverture du Body Battery : "
+        f"{summary.nights_below_body_battery_coverage}"
+    )
+    print(
+        "  nuits sans point de Body Battery : "
+        f"{summary.nights_without_body_battery_point}"
+    )
+    print(f"Journal : {provenance.journal_sha256}")
+    print(f"Empreinte d'interim/activities/ : {provenance.interim_sha256}")
+    print(f"Empreinte d'interim/days/ : {provenance.interim_days_sha256}")
     print(f"Commit : {provenance.commit}")
-    print(f"-> {activities_path.name}, {climbs_path.name}, {variants_path.name}")
+    print(f"-> {', '.join(path.name for path in written)}")
     return 0
 
 
@@ -3284,7 +3304,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     commands.add_parser(
         "tables",
-        help="Écrire les tables de MPA_DATA_DIR/processed depuis interim (AN1-2b)",
+        help=(
+            "Écrire MPA_DATA_DIR/processed depuis interim/activities, interim/days et "
+            "journal.csv (AN1-2b, AN2-2)"
+        ),
     )
     commands.add_parser(
         "q1",

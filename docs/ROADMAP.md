@@ -316,8 +316,17 @@ de Q1 (`docs/decisions/0015`).
 - ingestion des nuits et des jours (sommeil, HRV, FC de repos, indicateurs de Garmin)
   (AN2-1) : un document par jour dans `interim/days/`, Training Status à part, l'export
   de référence décidé jour par jour, et des vues qui, prises à un instant, ne rendent que
-  ce qui y est connu, sans seuil dans les fichiers (`docs/decisions/0018`) ; puis la table `jours` et les normales (AN2-2)
+  ce qui y est connu, sans seuil dans les fichiers (`docs/decisions/0018`)
+- la table `jours` et les normales (AN2-2) : une ligne par jour du calendrier dans
+  `processed/jours.parquet`, les normales de six mesures et leurs avertissements de
+  rupture, le journal de l'athlète, l'activité du jour (`docs/decisions/0019`)
 - tableau de bord du suivi de la récupération (AN2-3)
+
+**AN2-2 faite** avec la PR AN2-2 : `mperf tables` (`just process`) écrit
+`processed/jours.parquet` avec les trois tables d'AN1, dont les lignes ne changent pas ;
+il lit `journal.csv`, et la provenance des tables porte les empreintes d'`interim/days/`
+et du journal (`docs/decisions/0019` ; `0014`, précisions d'AN2-2). Reste le tableau de
+bord (AN2-3).
 
 ---
 

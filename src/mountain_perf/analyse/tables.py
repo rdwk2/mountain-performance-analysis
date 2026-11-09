@@ -1,5 +1,5 @@
 """De ``interim/`` aux lignes des tables ``activites``, ``montees`` et ``variantes``
-(AN1-2b et AN1-2c, ``docs/decisions/0014``).
+(AN1-2b et AN1-2c, ``docs/decisions/0014``), et à la quatrième, ``jours`` (AN2-2).
 
 Pour chaque entrée de l'index, dans l'ordre de l'index : sa vue ``Activity`` (ou le
 motif de son refus), son enregistrement s'il existe, la vue positions et altitude
@@ -7,7 +7,9 @@ motif de son refus), son enregistrement s'il existe, la vue positions et altitud
 mesures, leur stabilité sous les variantes déclarées, leurs drapeaux, leur régime et
 leurs strates ; puis les montées de chaque variante, avec leurs drapeaux, leur régime
 et leurs strates sous les paramètres de la variante (la table ``variantes``, que lit la
-stabilité des points de la figure de Q1).
+stabilité des points de la figure de Q1). Puis la table ``jours``, des documents
+d'``interim/days/``, de l'index et de ``journal.csv``
+(:func:`~mountain_perf.analyse.days.day_rows`), et la provenance des quatre tables.
 
 Les instants des enregistrements partent du départ de l'enregistrement ; ceux d'une
 :class:`~mountain_perf.analyse.climbs.MotionTrack`, du premier instant de sa vue
@@ -18,8 +20,10 @@ les échantillons du canal d'altitude entre ses deux instants ; la température 
 d'une activité, sur tout son canal.
 
 Une erreur de contrat sur une activité, ou un document d'``interim/`` qui ne se relit
-pas, arrête le calcul et nomme l'activité, ou l'index (:class:`TablesError`) : le
-message reste dans le terminal de l'athlète.
+pas, arrête le calcul et nomme l'activité, l'index, ou les jours d'``interim/``
+(:class:`TablesError`) : le message reste dans le terminal de l'athlète. Un
+``interim/`` sans ``days/`` (écrit avant AN2-1) se refuse avant toute lecture ; les
+documents des jours et ``journal.csv`` se lisent avant le calcul des montées.
 
 Python pur : ce module ne demande aucun extra ; l'écriture en Parquet est dans
 ``mountain_perf.analyse.parquet``.
@@ -32,7 +36,7 @@ import math
 from bisect import bisect_left, bisect_right
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import UTC, timedelta
 from pathlib import Path
 from statistics import median
 
@@ -48,6 +52,15 @@ from mountain_perf.analyse.climbs import (
     state_time_s,
     track_route,
 )
+from mountain_perf.analyse.days import (
+    DEFAULT_DAY_DEFINITION,
+    DayDefinition,
+    day_rows,
+)
+from mountain_perf.analyse.days import (
+    DaySummary as DaySummary,
+)
+from mountain_perf.analyse.journal import read_journal
 from mountain_perf.analyse.quality import (
     QUALITY_PARAMETER_SPECS,
     REGIME_PARAMETER_SPECS,
@@ -72,8 +85,12 @@ from mountain_perf.gpx.profile import (
 )
 from mountain_perf.ingest.interim import (
     ACTIVITIES_DIR,
+    DAYS_DIR,
+    read_days,
+    read_days_report,
     read_index,
     read_recording,
+    read_training_status,
 )
 from mountain_perf.ingest.types import SOURCE_TYPE_SPORTS
 from mountain_perf.ingest.views import activity_view
@@ -90,10 +107,12 @@ from mountain_perf.schemas import (
     ViewRefusal,
 )
 from mountain_perf.schemas.processed import (
+    JOURNAL_ABSENT,
     ActivityRow,
     ClimbRegime,
     ClimbRow,
     ClimbVariantRow,
+    DayRow,
     ProcessedProvenance,
 )
 from mountain_perf.validation import ContractError
@@ -102,9 +121,24 @@ _STOPS = frozenset(t for t in TimerEventType if t is not TimerEventType.START)
 
 
 class TablesError(ValueError):
-    """Les lignes d'une activité violent un contrat, ou un document d'``interim/`` ne
-    se relit pas : le message nomme l'activité (son identifiant dans l'index
-    d'``interim/``), ou l'index, et la cause."""
+    """Les lignes d'une activité ou d'un jour violent un contrat, un document
+    d'``interim/`` ne se relit pas, ou ``interim/days/`` manque : le message nomme
+    l'activité (son identifiant dans l'index d'``interim/``), l'index, ou les jours
+    d'``interim/`` (et le jour d'une ligne), et la cause.
+    """
+
+
+STALE_INTERIM = (
+    "interim/days/ manque : interim/ date d'avant AN2-1, ou n'a jamais été "
+    "écrit : relancer just process"
+)
+"""Le message de :class:`TablesError` sans ``interim/days/`` (AN2-2)."""
+
+DAYS_INTERIM = "jours d'interim/"
+"""Le nom des jours d'``interim/`` dans un message de :class:`TablesError` : un
+document des jours, de Training Status ou le rapport des jours qui ne se relit pas,
+ou une ligne de ``jours`` qui viole son contrat (``jours d'interim/ : <cause>``).
+"""
 
 
 @dataclass(frozen=True)
@@ -144,20 +178,20 @@ DEFAULT_DEFINITION = Definition(
 
 @dataclass(frozen=True)
 class Tables:
-    """Les trois tables et leur provenance."""
+    """Les quatre tables, leur provenance, et le résumé de la table ``jours``
+    (``day_summary`` : absent, ``None``, pour des tables relues, puisqu'il ne s'écrit
+    pas).
+    """
 
     activities: tuple[ActivityRow, ...]
     climbs: tuple[ClimbRow, ...]
     variants: tuple[ClimbVariantRow, ...]
     provenance: ProcessedProvenance
+    days: tuple[DayRow, ...]
+    day_summary: DaySummary | None
 
 
-def interim_sha256(data_dir: Path) -> str:
-    """Empreinte d'``interim/activities/`` : SHA-256 des lignes ``chemin relatif``,
-    tabulation, ``SHA-256 du document``, triées par chemin, terminées par un saut de
-    ligne. Seuls les documents comptent (``*.json``) : un fichier qu'un explorateur de
-    fichiers dépose (``.DS_Store``, ``Thumbs.db``) ne la change pas."""
-    root = data_dir / ACTIVITIES_DIR
+def _documents_sha256(root: Path) -> str:
     lines = sorted(
         f"{path.relative_to(root).as_posix()}\t"
         f"{hashlib.sha256(path.read_bytes()).hexdigest()}\n"
@@ -165,6 +199,24 @@ def interim_sha256(data_dir: Path) -> str:
         if path.is_file()
     )
     return hashlib.sha256("".join(lines).encode("utf-8")).hexdigest()
+
+
+def interim_sha256(data_dir: Path) -> str:
+    """Empreinte d'``interim/activities/`` seul : SHA-256 des lignes ``chemin
+    relatif``, tabulation, ``SHA-256 du document``, triées par chemin, terminées par
+    un saut de ligne. Seuls les documents comptent (``*.json``) : un fichier qu'un
+    explorateur de fichiers dépose (``.DS_Store``, ``Thumbs.db``) ne la change pas.
+    ``interim/days/`` a la sienne (:func:`interim_days_sha256`).
+    """
+    return _documents_sha256(data_dir / ACTIVITIES_DIR)
+
+
+def interim_days_sha256(data_dir: Path) -> str:
+    """Empreinte d'``interim/days/``, calculée comme :func:`interim_sha256` (chemins
+    relatifs à ``interim/days/``) ; un dossier absent donne celle de la liste vide,
+    le SHA-256 de zéro octet.
+    """
+    return _documents_sha256(data_dir / DAYS_DIR)
 
 
 def _intervals(track: MotionTrack, start_s: float, end_s: float) -> range:
@@ -656,15 +708,41 @@ def build_tables(
     definition: Definition = DEFAULT_DEFINITION,
     *,
     commit: str,
+    day_definition: DayDefinition = DEFAULT_DAY_DEFINITION,
 ) -> Tables:
-    """Les trois tables d'``interim/`` sous ``data_dir``, dans l'ordre de l'index ;
-    les montées d'une activité dans l'ordre du temps ; ses montées de variantes dans
-    l'ordre de ``VARIANTS``, puis du temps ; ``commit``, celui du code qui les écrit,
-    va dans leur provenance (``mperf tables`` le lit, AN1-2c). :class:`TablesError` si
-    l'index ou l'enregistrement d'une activité ne se relit pas (``CodecError`` : un
-    document d'un autre format, ou abîmé ; ``ContractError`` : un contrat en refuse la
-    relecture), ou si les lignes d'une activité violent un contrat ;
-    ``InterimError`` si un document manque."""
+    """Les tables d'``interim/`` sous ``data_dir``, dans cet ordre : tout ce qui peut
+    refuser vite se lit avant le calcul des montées.
+
+    1. ``interim/days/`` doit exister : sinon :class:`TablesError`
+       (:data:`STALE_INTERIM`), avant toute lecture ;
+    2. les documents des jours, Training Status et le rapport des jours
+       (``read_days``, ``read_training_status``, ``read_days_report``) ;
+    3. ``journal.csv`` (``read_journal``) : un journal malformé arrête avant les
+       montées ;
+    4. les trois tables d'AN1-2, comme avant AN2-2 : dans l'ordre de l'index ; les
+       montées d'une activité dans l'ordre du temps ; ses montées de variantes dans
+       l'ordre de ``VARIANTS``, puis du temps ;
+    5. la table ``jours`` (``day_rows``, sous ``day_definition``) ;
+    6. la provenance des quatre tables : ``commit``, celui du code qui les écrit
+       (``mperf tables`` le lit, AN1-2c) ; ``parameters``, ceux de ``definition`` et de
+       ``day_definition``, triés ; ``interim_days_sha256`` ; ``journal_sha256``
+       (``JOURNAL_ABSENT`` sans fichier) ; ``day_count`` ; ``acquired_at``.
+
+    :class:`TablesError` si l'index, l'enregistrement d'une activité ou un document
+    des jours ne se relit pas (``CodecError`` : un document d'un autre format, ou
+    abîmé ; ``ContractError`` : un contrat en refuse la relecture), ou si les lignes
+    d'une activité ou d'un jour violent un contrat ; ``InterimError`` si un document
+    manque ; ``JournalError`` (propagée) si ``journal.csv`` est malformé.
+    """
+    if not (data_dir / DAYS_DIR).is_dir():
+        raise TablesError(STALE_INTERIM)
+    try:
+        documents = read_days(data_dir)
+        history = read_training_status(data_dir)
+        days_report = read_days_report(data_dir)
+    except (ContractError, CodecError) as error:
+        raise TablesError(f"{DAYS_INTERIM} : {error}") from error
+    journal = read_journal(data_dir)
     try:
         index = read_index(data_dir)
     except (ContractError, CodecError) as error:
@@ -694,6 +772,11 @@ def build_tables(
         if summary is not None:
             climb_rows += summary.climbs
             variant_rows += summary.variants
+    try:
+        day_table = day_rows(documents, history, index, journal, day_definition)
+    except ContractError as error:
+        raise TablesError(f"{DAYS_INTERIM} : {error}") from error
+    acquired = max(export.retrieved_at for export in days_report.exports)
     provenance = ProcessedProvenance(
         interim_sha256=interim_sha256(data_dir),
         package_version=__version__,
@@ -703,11 +786,20 @@ def build_tables(
         barometer_products=tuple(
             sorted(f"{m}:{p}" for m, p in settings.barometer_products)
         ),
-        parameters=definition.items(),
+        parameters=tuple(sorted((*definition.items(), *day_definition.items()))),
         activity_count=len(activity_rows),
         climb_count=len(climb_rows),
         variant_climb_count=len(variant_rows),
+        interim_days_sha256=interim_days_sha256(data_dir),
+        journal_sha256=JOURNAL_ABSENT if journal.sha256 is None else journal.sha256,
+        day_count=len(day_table.rows),
+        acquired_at=acquired.astimezone(UTC).isoformat(),
     )
     return Tables(
-        tuple(activity_rows), tuple(climb_rows), tuple(variant_rows), provenance
+        tuple(activity_rows),
+        tuple(climb_rows),
+        tuple(variant_rows),
+        provenance,
+        day_table.rows,
+        day_table.summary,
     )

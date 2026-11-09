@@ -14,6 +14,7 @@ from mountain_perf.analyse.stability import VARIANTS
 from mountain_perf.analyse.tables import DEFAULT_DEFINITION, Tables
 from mountain_perf.schemas import CENTRAL_CONVENTION_INDEX, Sport
 from mountain_perf.schemas.processed import (
+    JOURNAL_ABSENT,
     ActivityRow,
     AltitudeStratum,
     ClimbFlag,
@@ -286,5 +287,9 @@ def tables_of(
         activity_count=len(activities),
         climb_count=len(climbs),
         variant_climb_count=len(chosen),
+        interim_days_sha256="0" * 64,
+        journal_sha256=JOURNAL_ABSENT,
+        day_count=0,
+        acquired_at="2000-01-01T00:00:00+00:00",
     )
-    return Tables(tuple(activities), tuple(climbs), tuple(chosen), provenance)
+    return Tables(tuple(activities), tuple(climbs), tuple(chosen), provenance, (), None)

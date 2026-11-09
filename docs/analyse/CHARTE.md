@@ -3,7 +3,10 @@
 *Version 2, validée le 2026-10-08 après une relecture experte indépendante ; § 2 mis à
 jour le 2026-10-09 (source des séries d'activité) ; §§ 2 à 4 et 6 mis à jour le
 2026-10-17 (la montée, `docs/decisions/0014`) ; § 2 mis à jour le 2026-10-20 (la
-table des variantes, `docs/decisions/0015`). Sources : `docs/PIEGES_DATA.md`,
+table des variantes, `docs/decisions/0015`) ; §§ 2, 3 et 11 mis à jour le 2026-11-09
+(la table `jours`, le format du journal et la normale de `jours`,
+`docs/decisions/0019`).
+Sources : `docs/PIEGES_DATA.md`,
 `docs/analyse/QUESTIONS.md` et les decision records du dépôt. Sans chiffre tiré des
 données.*
 
@@ -37,7 +40,7 @@ d'analyse, relu, et qui doit respecter la charte.*
 |---|---|---|---|
 | `raw/` | les exports Garmin, chacun dans `raw/garmin/<export>/`, immuables (fichiers en lecture seule) et jamais retirés (`docs/decisions/0013`), et les sources extérieures, dans `raw/<source>/` (§ 12) | l'acquisition, et l'athlète | — |
 | `interim/` | les contrats normalisés (activités, séries, nuits, jours), sans drapeau : les `QualityFlag` se posent dans les vues | l'ingestion, dans `src/mountain_perf/ingest/` | **aucune** pour le lire ; l'ingestion demande l'extra `ingest` (les FIT) ; format décrit dans `docs/decisions/0013` (activités) et `0018` (jours), relu par le moteur avant fusion |
-| `processed/` | les tables d'analyse : `activites`, `montees` et `variantes` (`docs/decisions/0014`, `0015`), puis `jours` (plus tard `descentes`, `plats`) | le code d'analyse (`mperf tables`) | aucune pour le calcul ; l'écriture en Parquet demande l'extra `analyse` (`docs/decisions/0011`, `0014`) |
+| `processed/` | les tables d'analyse : `activites`, `montees`, `variantes` et `jours` (`docs/decisions/0014`, `0015`, `0019`) (plus tard `descentes`, `plats`) | le code d'analyse (`mperf tables`) | aucune pour le calcul ; l'écriture en Parquet demande l'extra `analyse` (`docs/decisions/0011`, `0014`) |
 | `resultats/` | les sorties de chaque question, datées (§ 10) | les commandes d'analyse | l'extra `analyse` (`docs/decisions/0011`) |
 
 - **Le moteur ne lit jamais `processed/`** ; il lit `interim/` par les contrats
@@ -68,6 +71,19 @@ d'analyse, relu, et qui doit respecter la charte.*
   (erreur de durée sous ~3 %). La durée ne filtre pas : à gain égal, une montée lente
   dure plus longtemps, et filtrer par la durée sélectionnerait sur la mesure. Le pas
   et le plus long intervalle sont des colonnes de la table `montees`.
+- **La table `jours`** (`docs/decisions/0019`) : une ligne par jour du calendrier, du
+  premier au dernier document d'`interim/days/`, un jour sans document compris (état
+  `absent`, § 4 bis, point 7) ; la nuit rattachée au jour du réveil (§ 4), les siestes,
+  les valeurs du jour selon Garmin, Training Readiness du réveil, Training Status à sa
+  date propre, les types du journal (§ 3) et l'activité du jour (la charge selon Garmin,
+  sommée sans être recalculée, et les temps écoulés par famille de sport). Les états, les
+  drapeaux et les statuts viennent des vues des jours (`docs/decisions/0018`), appelées
+  avec des seuils déclarés dans `analyse/` (`days.<nom>`), communs à tous les athlètes ;
+  une grandeur de la journée d'un jour qui n'est pas complet est absente, ni nulle ni
+  partielle (sauf la FC de repos, dont le statut le dit). Pour six mesures (HRV de la
+  nuit, FC de repos, sommeil mesuré, stress, respiration et SpO2 de la nuit), la ligne
+  dit si la valeur du jour entre dans les normales, et sinon pourquoi, et porte la
+  normale, sa plage, ses segments et ses avertissements (§ 3).
 - **Pièges** : `docs/PIEGES_DATA.md`.
 
 ## 3. Configuration, seuils et notes de l'athlète
@@ -91,7 +107,34 @@ commande de préremplissage) :
   quels types elle exclut ou contrôle. Les jours `maladie` et `blessure` sont exclus
   par défaut des normales et des relations ; un plan peut faire autrement s'il le dit,
   et un plan dont le facteur est la charge rapporte l'estimation avec et sans ces
-  jours, et regarde la maladie aussi comme une issue (§ 5).
+  jours, et regarde la maladie aussi comme une issue (§ 5). La table `jours` en exclut
+  aussi, par défaut, les jours `sejour_altitude` (paramètre déclaré
+  `normal.exclude_altitude_stay`). **Le format**, pour qui tient le fichier (lu par
+  `analyse/journal.py`, `docs/decisions/0019`) :
+  - un CSV en UTF-8, avec ou sans BOM (dans Excel, « Enregistrer sous », type « CSV
+    UTF-8 ») ; un autre encodage arrête la lecture ;
+  - l'en-tête est la première ligne non vide : `debut`, `fin` et `type`, obligatoires,
+    et `note`, facultative, dans n'importe quel ordre, sans accent ; la casse et les
+    blancs autour d'un nom ne comptent pas ; un autre nom, ou un nom répété, arrête ;
+    des colonnes sans nom à la fin de l'en-tête (une marge qu'Excel laisse) sont
+    ignorées si tous leurs champs sont vides ;
+  - le séparateur est `;` si l'en-tête en contient un (Excel en français), sinon `,` ;
+    un champ qui contient le séparateur s'écrit entre guillemets ;
+  - les dates s'écrivent `AAAA-MM-JJ` et rien d'autre, en dates locales ; `debut` et
+    `fin` sont le premier et le dernier jour, compris ; `fin` est obligatoire et jamais
+    avant `debut` (un événement en cours s'écrit avec sa fin prévue, qui se corrige) ;
+    une nuit suit son jour de réveil (§ 4) : une `maladie` du 12 au 14 couvre la nuit du
+    11 au 12, pas celle du 14 au 15 ;
+  - `type` est l'un des huit types ci-dessus, sans accent, la casse et les blancs
+    autour sans effet ; `note` est libre, ni gardée ni recopiée ;
+  - les blancs autour d'un champ sans guillemets et les lignes vides ne comptent pas ;
+    un champ entre guillemets s'écrit collé à ses séparateurs ; sans fichier, ou avec
+    un fichier vide, aucun événement ;
+  - toute faute arrête `mperf tables`, qui n'écrit rien ; le message dit la ligne et la
+    cause (sans ligne pour l'encodage ou un fichier illisible), jamais une valeur du
+    fichier.
+
+  Exemple inventé, à en-tête `;` : `2000-01-12;2000-01-14;maladie;`.
 - **Les notes de sorties** (facultatives) : une ligne par sortie, pour ce que Garmin
   ne mesure pas (l'export n'a ni effort perçu ni ressenti) : intention (`facile`,
   `endurance`, `seance`, `course`), décidée la veille ou le jour même, capteur de FC
@@ -112,7 +155,9 @@ commande de préremplissage) :
   une à deux minutes, après filtrage des artefacts), jamais le maximum observé. Une
   série en zones se recalcule tout entière avec la même valeur.
 - **Normales** : une couverture minimale de nuits présentes sur la fenêtre, sinon
-  valeur absente.
+  valeur absente. La normale de la table `jours` (`docs/decisions/0019`), descriptive,
+  continue à travers une rupture (un changement de montre, ou de version d'algorithme)
+  et la marque ; celle d'une question suit le § 11, et se refait dans son plan.
 - **Capacités** : le code vérifie ce que la montre de l'athlète mesure (baromètre, FC,
   HRV nocturne) et n'ouvre pas une question qui en a besoin sans cette mesure.
 
@@ -369,7 +414,9 @@ la nuit, détection du mouvement) sont aussi des algorithmes du firmware. Règle
   de sommeil, HRV et stress) et on cherche un saut **dans le résidu** à chaque
   changement de firmware ; un saut de la mesure sans saut de ses entrées est
   algorithmique (témoin négatif). L'intervalle de date incertain (entre la dernière
-  activité à l'ancienne version et la première à la nouvelle) est exclu des fenêtres.
+  activité à l'ancienne version et la première à la nouvelle) est exclu des fenêtres
+  (sauf la normale descriptive de `jours`, qui continue à travers une rupture et la
+  marque : § 3, `0019`).
   Chaque saut se rapporte avec son intervalle, simultané sur l'ensemble des versions ;
   un saut dont l'intervalle n'exclut pas un saut utile se déclare « non exclu ». Un
   changement de montre est une rupture d'office. Les changements côté serveur restent

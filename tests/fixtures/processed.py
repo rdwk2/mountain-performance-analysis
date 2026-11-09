@@ -1,24 +1,30 @@
-"""Un ``interim/`` synthétique pour les tables de ``processed/`` (AN1-2b) : quatre
-activités écrites par l'écrivain d'``interim/`` de l'ingestion. Aucune donnée réelle
-(règle 1)."""
+"""Un ``interim/`` synthétique pour les tables de ``processed/`` (AN1-2b, AN2-2) :
+quatre activités et quelques jours, écrits par les écrivains d'``interim/`` de
+l'ingestion. Aucune donnée réelle (règle 1)."""
 
 from __future__ import annotations
 
 import dataclasses
-from datetime import datetime, timedelta, timezone
+from collections.abc import Sequence
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
+from fixtures.days import day_record as complete_day
+from fixtures.days import days_report, status_block
 from fixtures.montees import FLAT, climb_at, recording
-from mountain_perf.ingest.interim import write_activities
+from mountain_perf.ingest.interim import write_activities, write_days
 from mountain_perf.schemas import (
     ActivityIndex,
     ActivityRecording,
+    DayRecord,
+    DaysReport,
     HeartRateChannel,
     PositionChannel,
     TemperatureChannel,
     TimerEvent,
     TimerEventType,
     TimerTrigger,
+    TrainingStatusHistory,
 )
 from test_ingest_interim import INDEX_SOURCE, REPORT
 from test_schemas_interim import entry
@@ -26,6 +32,44 @@ from test_schemas_interim import entry
 PLUS2 = timezone(timedelta(hours=2))
 COMMIT = "c0ffee" * 6 + "c0ff"
 """Le commit inventé des tables synthétiques (40 chiffres hexadécimaux)."""
+
+
+DOCUMENT_DAYS = (date(2000, 1, 1), date(2000, 1, 2), date(2000, 1, 4))
+"""Les jours inventés d'``interim/days/`` ; le 3 janvier n'a pas de document, et les
+activités de 2024 tombent toutes après le dernier jour."""
+
+OUTSIDE_DAY = date(1999, 12, 31)
+"""Le jour d'un bloc de Training Status hors de l'étendue."""
+
+
+def default_history() -> TrainingStatusHistory:
+    """Deux blocs « statut » : l'un hors de l'étendue, l'autre du 2 janvier."""
+    return TrainingStatusHistory(
+        (status_block(OUTSIDE_DAY), status_block(date(2000, 1, 2))), (), (), (), ()
+    )
+
+
+def write_days_interim(
+    data_dir: Path,
+    records: Sequence[DayRecord] | None = None,
+    history: TrainingStatusHistory | None = None,
+    report: DaysReport | None = None,
+) -> tuple[DayRecord, ...]:
+    """Écrit ``interim/days/`` seul sous ``data_dir`` : par défaut trois documents
+    complets, deux blocs « statut » et le rapport minimal des jours ; rend les documents
+    écrits."""
+    written = (
+        tuple(complete_day(day) for day in DOCUMENT_DAYS)
+        if records is None
+        else tuple(records)
+    )
+    write_days(
+        data_dir,
+        written,
+        default_history() if history is None else history,
+        days_report() if report is None else report,
+    )
+    return written
 
 
 def _with_heart_rate(rec: ActivityRecording, bpm: float) -> ActivityRecording:
@@ -98,6 +142,7 @@ def write_interim(data_dir: Path) -> ActivityIndex:
         (INDEX_SOURCE,),
     )
     write_activities(data_dir, index, [a1, a2, a3], REPORT)
+    write_days_interim(data_dir)
     return index
 
 
@@ -157,6 +202,7 @@ def write_one(
         (INDEX_SOURCE,),
     )
     write_activities(data_dir, index, [rec], REPORT)
+    write_days_interim(data_dir)
     return index
 
 

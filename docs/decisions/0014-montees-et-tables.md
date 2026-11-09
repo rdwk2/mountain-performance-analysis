@@ -341,3 +341,43 @@ besoin.
    une provenance sans les nouveaux champs), une table qui manque ou qui ne se relit
    pas, avec un message qui dit de relancer `just process`.
 4. **L'extra `analyse`** prend plotly, que seul `analyse/plot.py` importe (`0015`).
+
+## Précisions d'AN2-2
+
+*Ajoutées par la PR AN2-2, avec la table `jours` et ses normales, décrites par `0019`.*
+
+5. **Quatre tables.** `processed/jours.parquet` (`DayRow`), une ligne par jour du
+   calendrier, s'écrit avec les trois autres dans `processed.nouveau/` et se met en
+   place avec elles (précision 3). Les lignes et les colonnes des trois tables d'AN1-2
+   ne changent pas ; leurs octets, eux, changent : la provenance, dans les
+   métadonnées de chaque fichier, a des champs neufs (précision 6). La comparaison se
+   fait une fois, à la PR, contre `main` : pour le même `interim/` synthétique, les
+   trois tables écrites par la branche et par `main` ont le même schéma Arrow (hors
+   des métadonnées) et les mêmes lignes, et leur provenance ne diffère que par ses
+   quatre champs neufs, ses paramètres neufs (`days.<nom>`, `normal.<nom>`) et le
+   commit ; le contrôle réel de la PR refait cette comparaison sur le réel. Le dépôt
+   garde le schéma figé des trois tables (les noms des colonnes, dans leur ordre, et
+   leurs types) et leur indépendance à l'égard des jours et du journal.
+   `analyse/parquet.py` écrit trois types de plus : la date du jour (`date32`), les
+   listes d'entiers (`list<int64>`) et un instant facultatif, en deux colonnes toutes
+   deux nulles quand il
+   manque ; une table où une seule des deux est nulle ne se relit pas, ni une table où
+   un instant obligatoire (`start_time`, `local_start_time`) a les deux nulles.
+6. **La provenance** gagne quatre champs, à la fin : `interim_days_sha256`, l'empreinte
+   d'`interim/days/` calculée comme `interim_sha256`, qui garde son sens
+   (`interim/activities/` seul) ; `journal_sha256`, le SHA-256 des octets de
+   `journal.csv`, ou `JOURNAL_ABSENT` (« absent ») sans fichier ; `day_count`, les lignes
+   de `jours` ; `acquired_at`, l'instant d'acquisition le plus récent des exports du
+   rapport des jours, en texte ISO 8601, en UTC. `parameters` porte aussi les seuils des
+   vues des jours (`days.<nom>`) et les paramètres des normales (`normal.<nom>`). Les
+   tables dépendent donc aussi de `journal.csv`.
+7. **La relecture.** `read_tables` relit les quatre tables, une à une dans l'ordre
+   d'écriture, et refuse la première qui fait défaut : un `processed/` d'avant AN2-2 se
+   refuse à sa première table, par sa provenance (`STALE_DAYS_PROVENANCE`, qui nomme
+   les champs neufs qui manquent) ; `jours.parquet` seul manquant : `MISSING_TABLE`,
+   comme `activites.parquet` ou `montees.parquet` (« jours.parquet manque dans
+   processed/ ») ; chacun avec le message « relancer just process » ; des tables
+   d'avant AN1-2c gardent leur message (`STALE_TABLES`) ; puis
+   des provenances différentes (`MIXED_PROVENANCE`). Aucune des quatre tables :
+   `FileNotFoundError` (`NO_TABLES`). Le résumé de `jours` (`DaySummary`) ne s'écrit
+   pas : des tables relues n'en ont pas (`day_summary` vaut `None`).

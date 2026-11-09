@@ -203,7 +203,9 @@ src/mountain_perf/     le code de la bibliothèque
                        (AN2-1, 0018)
     processed.py       ClimbRow, ClimbVariantRow, ActivityRow, ProcessedProvenance,
                        drapeaux, régimes, strates : contrats des tables de processed/
-                       (AN1-2b, AN1-2c)
+                       (AN1-2b, AN1-2c) ; DayRow, DayRowState, JournalEventType,
+                       NormalAbsence, AdmissionRefusal, et les champs neufs de la
+                       provenance : la table jours (AN2-2, 0019)
     _dictionary.py     rendu du dictionnaire de données depuis les docstrings
   gpx/                 lecture GPX, profil, grille de pente (M2)
     geo.py             haversine 2D, polyligne dédoublonnée, projection point-segment
@@ -299,10 +301,22 @@ src/mountain_perf/     le code de la bibliothèque
                        paramètres de chaque variante (AN1-2c)
     athlete.py         table [analyse] d'athlete.toml : V_ref, produits barométriques
                        (AN1-2b)
+    journal.py         lecture de journal.csv, tenu à la main : événements, empreinte,
+                       types par jour ; Python pur (AN2-2)
+    normals.py         normales, plages, segments, ruptures de rang et de version,
+                       jours incertains, normale à cheval, paramètres normal.* ;
+                       fonctions pures sur des suites de jours (AN2-2)
+    days.py            la ligne de chaque jour : les vues des jours sur une tranche
+                       bornée, les validités, l'activité du jour, l'admission, les
+                       normales ; seuils days.*, DayDefinition (AN2-2)
     tables.py          interim/activities/ → lignes des tables activites et montees,
-                       provenance (AN1-2b) ; table variantes (AN1-2c)
+                       provenance (AN1-2b) ; table variantes (AN1-2c) ; interim/days/
+                       et journal.csv → table jours, son résumé, la provenance
+                       étendue (AN2-2)
     parquet.py         écriture et relecture des tables en Parquet (AN1-2b) ; trois
-                       tables, mises en place par échange de dossier (AN1-2c)
+                       tables, mises en place par échange de dossier (AN1-2c) ; quatre
+                       tables, dates et instants facultatifs, refus des tables d'avant
+                       AN2-2 (AN2-2)
     q1.py              figure de Q1 : points, stabilité des points, flux, changements
                        de montre ; Python pur (AN1-2c)
     results.py         dossier de résultats de Q1 : CSV, provenance, écriture jamais
@@ -324,6 +338,7 @@ src/mountain_perf/     le code de la bibliothèque
                        mperf ingest : raw/garmin/ → interim/activities/ (AN1-1, AN2-0)
                        et interim/days/ (AN2-1) ;
                        mperf tables : interim/activities/ → processed/ (AN1-2b) ;
+                       interim/days/ et journal.csv → jours, son résumé (AN2-2) ;
                        mperf q1 : processed/ → resultats/Q1/ (AN1-2c) ;
                        mperf curve <nom> : interim/ → reference/<nom>.csv (M6b)
 tests/

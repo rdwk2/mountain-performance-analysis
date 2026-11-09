@@ -15,15 +15,28 @@ from typing import Any
 
 import pytest
 
+import mountain_perf.schemas as schemas_package
+import mountain_perf.schemas.processed as processed_module
 from fixtures.processed import COMMIT, write_interim
 from mountain_perf.analyse.athlete import DEFAULT_SETTINGS
 from mountain_perf.analyse.tables import Tables, build_tables
+from mountain_perf.codec import canonical_bytes, decode_contract, encode_contract
 from mountain_perf.schemas import ContractError
+from mountain_perf.schemas._dictionary import ENUM_DESCRIPTIONS
 from mountain_perf.schemas.processed import (
+    ADMISSION_REFUSAL_DESCRIPTIONS,
+    DAY_ROW_STATE_DESCRIPTIONS,
+    JOURNAL_ABSENT,
+    JOURNAL_EVENT_TYPE_DESCRIPTIONS,
+    NORMAL_ABSENCE_DESCRIPTIONS,
     ActivityRow,
+    AdmissionRefusal,
     ClimbFlag,
     ClimbRow,
     ClimbVariantRow,
+    DayRowState,
+    JournalEventType,
+    NormalAbsence,
     ProcessedProvenance,
 )
 
@@ -551,3 +564,213 @@ def test_variant_row_limits(variant_row: ClimbVariantRow) -> None:
     assert (row.start_offset_s, row.gain_m, row.moving_s) == (0.0, 0.0, 0.0)
     assert row.moving_gain_m == -1.0
     assert row.altitude_stratum is None
+
+
+# --- les quatre champs neufs de la provenance (AN2-2) --------------------------------
+
+
+def _refused_provenance(tables: Tables, message: str, **changes: Any) -> None:
+    with pytest.raises(ContractError) as caught:
+        dataclasses.replace(tables.provenance, **changes)
+    assert type(caught.value) is ContractError
+    assert re.fullmatch(re.escape(message), str(caught.value))
+
+
+def test_the_new_fields_come_last() -> None:
+    names = [f.name for f in dataclasses.fields(ProcessedProvenance)]
+    assert names[-5:] == [
+        "variant_climb_count",
+        "interim_days_sha256",
+        "journal_sha256",
+        "day_count",
+        "acquired_at",
+    ]
+
+
+@pytest.mark.parametrize("value", ["0" * 63, "0" * 65, "A" * 64, "absent"])
+def test_interim_days_sha256_refusals(tables: Tables, value: str) -> None:
+    _refused_provenance(
+        tables,
+        "interim_days_sha256 : 64 chiffres hexadécimaux minuscules.",
+        interim_days_sha256=value,
+    )
+
+
+@pytest.mark.parametrize("value", ["0" * 63, "F" * 64, "Absent", ""])
+def test_journal_sha256_refusals(tables: Tables, value: str) -> None:
+    _refused_provenance(
+        tables,
+        "journal_sha256 : 64 chiffres hexadécimaux minuscules, ou 'absent'.",
+        journal_sha256=value,
+    )
+
+
+def test_day_count_refusal(tables: Tables) -> None:
+    _refused_provenance(tables, "day_count doit être >= 0, reçu -1.", day_count=-1)
+
+
+def test_acquired_at_is_mandatory(tables: Tables) -> None:
+    _refused_provenance(
+        tables,
+        "acquired_at : un instant ISO 8601 en texte, obligatoire, reçu NoneType.",
+        acquired_at=None,
+    )
+
+
+@pytest.mark.parametrize("value", ["hier", ""])
+def test_acquired_at_unreadable(tables: Tables, value: str) -> None:
+    _refused_provenance(
+        tables, "acquired_at : instant ISO 8601 illisible.", acquired_at=value
+    )
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["2000-01-02T03:04:05", "2000-01-02", "2000-01-02T04:04:05+01:00"],
+)
+def test_acquired_at_not_in_utc(tables: Tables, value: str) -> None:
+    _refused_provenance(
+        tables,
+        "acquired_at doit être en UTC (un décalage nul, écrit).",
+        acquired_at=value,
+    )
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "2000-01-02T03:04:05Z",
+        "2000-01-02T03:04:05-00:00",
+        "2000-01-02T03:04:05.000+00:00",
+        "2000-01-02 03:04:05+00:00",
+    ],
+)
+def test_acquired_at_not_as_isoformat_writes_it(tables: Tables, value: str) -> None:
+    _refused_provenance(
+        tables,
+        "acquired_at doit être l'écriture isoformat() de son instant en UTC.",
+        acquired_at=value,
+    )
+
+
+def test_the_new_fields_admitted(tables: Tables) -> None:
+    digest = "0123456789abcdef" * 4
+    provenance = dataclasses.replace(
+        tables.provenance,
+        interim_days_sha256=digest,
+        journal_sha256=digest,
+        day_count=0,
+        acquired_at="2000-01-02T03:04:05+00:00",
+    )
+    assert provenance.interim_days_sha256 == digest
+    assert provenance.journal_sha256 == digest
+    assert provenance.day_count == 0
+    again = dataclasses.replace(provenance, journal_sha256=JOURNAL_ABSENT, day_count=3)
+    assert (again.journal_sha256, again.day_count) == (JOURNAL_ABSENT, 3)
+
+
+def test_journal_absent_is_a_word() -> None:
+    assert JOURNAL_ABSENT == "absent"
+
+
+class _ConstantPlus2(tzinfo):
+    def utcoffset(self, dt: datetime | None) -> timedelta:
+        return timedelta(hours=2)
+
+    def dst(self, dt: datetime | None) -> timedelta:
+        return timedelta(0)
+
+    def tzname(self, dt: datetime | None) -> str:
+        return "plus2"
+
+
+@pytest.mark.parametrize(
+    "instant",
+    [
+        datetime(2000, 1, 2, 3, 4, 5, tzinfo=UTC),
+        datetime(2000, 1, 2, 3, 4, 5, 123456, tzinfo=UTC),
+        datetime(2000, 1, 2, 4, 4, 5, tzinfo=timezone(timedelta(hours=1))),
+        datetime(2000, 12, 31, 23, 59, 59, 1, tzinfo=_ConstantPlus2()),
+    ],
+)
+def test_acquired_at_reads_as_it_is_written(tables: Tables, instant: datetime) -> None:
+    text = instant.astimezone(UTC).isoformat()
+    provenance = dataclasses.replace(tables.provenance, acquired_at=text)
+    assert provenance.acquired_at == text
+    back = datetime.fromisoformat(text)
+    assert back == instant
+    assert back.utcoffset() == timedelta(0)
+    assert back.isoformat() == text
+    encoded = encode_contract(provenance)
+    assert isinstance(encoded, dict)
+    assert encoded["acquired_at"] == text
+    assert canonical_bytes(encoded)
+    assert decode_contract(ProcessedProvenance, encoded) == provenance
+
+
+def test_a_provenance_without_the_new_fields_does_not_decode(tables: Tables) -> None:
+    encoded = encode_contract(tables.provenance)
+    assert isinstance(encoded, dict)
+    del encoded["acquired_at"]
+    with pytest.raises(ValueError, match="champs manquants de ProcessedProvenance"):
+        decode_contract(ProcessedProvenance, encoded)
+
+
+def test_a_letter_that_is_not_hexadecimal(tables: Tables) -> None:
+    _refused_provenance(
+        tables,
+        "interim_days_sha256 : 64 chiffres hexadécimaux minuscules.",
+        interim_days_sha256="X" * 64,
+    )
+    _refused_provenance(
+        tables,
+        "journal_sha256 : 64 chiffres hexadécimaux minuscules, ou 'absent'.",
+        journal_sha256="X" * 64,
+    )
+
+
+def test_the_message_of_an_acquired_at_names_its_type(tables: Tables) -> None:
+    _refused_provenance(
+        tables,
+        "acquired_at : un instant ISO 8601 en texte, obligatoire, reçu int.",
+        acquired_at=5,
+    )
+
+
+# --- ce que le paquet publie (AN2-2) --------------------------------------------------
+
+NEW_PUBLIC_NAMES = (
+    "ADMISSION_REFUSAL_DESCRIPTIONS",
+    "DAY_ROW_STATE_DESCRIPTIONS",
+    "JOURNAL_ABSENT",
+    "JOURNAL_EVENT_TYPE_DESCRIPTIONS",
+    "NORMAL_ABSENCE_DESCRIPTIONS",
+    "AdmissionRefusal",
+    "DayRow",
+    "DayRowState",
+    "JournalEventType",
+    "NormalAbsence",
+)
+
+
+@pytest.mark.parametrize("name", NEW_PUBLIC_NAMES)
+def test_each_new_name_is_published_by_the_package(name: str) -> None:
+    assert name in schemas_package.__all__
+    assert getattr(schemas_package, name, None) is getattr(processed_module, name)
+
+
+def test_the_new_enums_in_the_order_of_the_dictionary() -> None:
+    names = [cls.__name__ for cls in ENUM_DESCRIPTIONS]
+    start = names.index("AltitudeStratum")
+    assert names[start : start + 6] == [
+        "AltitudeStratum",
+        "DayRowState",
+        "JournalEventType",
+        "NormalAbsence",
+        "AdmissionRefusal",
+        "Availability",
+    ]
+    assert ENUM_DESCRIPTIONS[DayRowState] is DAY_ROW_STATE_DESCRIPTIONS
+    assert ENUM_DESCRIPTIONS[JournalEventType] is JOURNAL_EVENT_TYPE_DESCRIPTIONS
+    assert ENUM_DESCRIPTIONS[NormalAbsence] is NORMAL_ABSENCE_DESCRIPTIONS
+    assert ENUM_DESCRIPTIONS[AdmissionRefusal] is ADMISSION_REFUSAL_DESCRIPTIONS
