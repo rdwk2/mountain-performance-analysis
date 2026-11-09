@@ -18,23 +18,26 @@ import dataclasses
 import math
 from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from enum import StrEnum
 from types import MappingProxyType
 from typing import Any
 
 from mountain_perf.schemas.clock import CLOCK_CONVENTIONS
 from mountain_perf.schemas.common import UTC_OFFSET_RANGE_S, Sport
+from mountain_perf.schemas.days import NightState, RestingHrStatus, ViewAbsence
 from mountain_perf.schemas.interim import (
     TEMPERATURE_RANGE_C,
     ViewRefusal,
     require_activity_ref,
+    require_export_name,
 )
 from mountain_perf.validation import (
     ContractError,
     require_aware,
     require_finite,
     require_in_range,
+    require_increasing,
     require_non_empty,
 )
 
@@ -229,6 +232,251 @@ ALTITUDE_STRATUM_DESCRIPTIONS: Mapping[AltitudeStratum, str] = MappingProxyType(
         AltitudeStratum.LOW: "Sous 1 500 m.",
         AltitudeStratum.MID: "De 1 500 à 2 500 m.",
         AltitudeStratum.HIGH: "Au-delà de 2 500 m.",
+    }
+)
+
+
+class DayRowState(StrEnum):
+    """L'état d'une ligne de la table ``jours`` (AN2-2) : ``absent`` pour un jour de
+    l'étendue sans document, sinon l'état du document du jour (``DayState``).
+
+    Champs
+    ------
+    Valeurs décrites dans ``DAY_ROW_STATE_DESCRIPTIONS`` (entre guillemets, le terme
+    de l'athlète).
+
+    Invariants
+    ----------
+    Énumération fermée, ordonnée : ``absent``, puis les quatre états de ``DayState``
+    dans leur ordre (``empty``, ``no_measurement``, ``truncated``, ``complete``),
+    de mêmes valeurs.
+
+    Producteur
+    ----------
+    La table ``jours`` (``mountain_perf.analyse.days``, AN2-2) : ``absent``, ou l'état
+    écrit dans le document du jour.
+
+    Consommateurs
+    -------------
+    ``DayRow.state`` ; la page « récupération » (AN2-3), qui en tire ses manques.
+
+    Non promis
+    ----------
+    ``absent`` n'existe que dans ``jours`` : ``interim/days/`` n'a pas de document
+    pour ce jour, et n'en écrit jamais d'``absent``.
+    """
+
+    ABSENT = "absent"
+    EMPTY = "empty"
+    NO_MEASUREMENT = "no_measurement"
+    TRUNCATED = "truncated"
+    COMPLETE = "complete"
+
+
+DAY_ROW_STATE_DESCRIPTIONS: Mapping[DayRowState, str] = MappingProxyType(
+    {
+        DayRowState.ABSENT: (
+            "« absent » : un jour du calendrier, entre le premier et le dernier "
+            "document d'interim/days/, sans document."
+        ),
+        DayRowState.EMPTY: (
+            "« vide » : aucune famille ne porte de fenêtre du jour (la fenêtre de "
+            "la nuit de sleep n'en est pas une)."
+        ),
+        DayRowState.NO_MEASUREMENT: (
+            "« sans_mesure » : l'indicateur de présence de daily_summary est faux "
+            "; ou, sans indicateur, aucun échantillon mesuré dans les séries du "
+            "jour et pas de nuit."
+        ),
+        DayRowState.TRUNCATED: (
+            "« tronqué » : fin_donnees précède début + 24 h (jour pris en cours de "
+            "journée, montre non synchronisée, ou montre arrêtée)."
+        ),
+        DayRowState.COMPLETE: ("« complet » : aucun des cas précédents."),
+    }
+)
+
+
+class JournalEventType(StrEnum):
+    """Le type d'un événement de ``journal.csv``, tenu à la main par l'athlète
+    (charte, § 3) : les valeurs sont celles **du fichier**.
+
+    Champs
+    ------
+    Valeurs décrites dans ``JOURNAL_EVENT_TYPE_DESCRIPTIONS``.
+
+    Invariants
+    ----------
+    Énumération fermée : les huit types de la charte, § 3.
+
+    Producteur
+    ----------
+    La lecture du journal (``mountain_perf.analyse.journal``, AN2-2).
+
+    Consommateurs
+    -------------
+    ``DayRow.journal_types`` ; l'admission dans les normales de ``jours`` (``maladie``,
+    ``blessure``, ``sejour_altitude``) ; les plans des questions, qui disent quels types
+    ils excluent ou contrôlent.
+
+    Non promis
+    ----------
+    Le journal ne dit que ce que l'athlète y écrit : un jour sans événement n'est pas
+    un jour sans maladie. La note d'un événement n'est jamais gardée.
+    """
+
+    ILLNESS = "maladie"
+    INJURY = "blessure"
+    RACE = "course"
+    TRAVEL = "deplacement"
+    MOVE = "demenagement"
+    ALTITUDE_STAY = "sejour_altitude"
+    BENCHMARK = "etalon"
+    OTHER = "autre"
+
+
+JOURNAL_EVENT_TYPE_DESCRIPTIONS: Mapping[JournalEventType, str] = MappingProxyType(
+    {
+        JournalEventType.ILLNESS: (
+            "« maladie » : les jours couverts n'entrent dans aucune normale de jours."
+        ),
+        JournalEventType.INJURY: (
+            "« blessure » : les jours couverts n'entrent dans aucune normale de jours."
+        ),
+        JournalEventType.RACE: (
+            "« course » : une compétition ; marquée, rien d'exclu."
+        ),
+        JournalEventType.TRAVEL: (
+            "« deplacement » : une absence temporaire ; marquée, rien d'exclu."
+        ),
+        JournalEventType.MOVE: (
+            "« demenagement » : un changement durable de lieu de vie, donc de "
+            "terrain ; marqué, rien d'exclu."
+        ),
+        JournalEventType.ALTITUDE_STAY: (
+            "« sejour_altitude » : un séjour en altitude ; exclu des normales de "
+            "jours par défaut (paramètre déclaré normal.exclude_altitude_stay)."
+        ),
+        JournalEventType.BENCHMARK: (
+            "« etalon » : un passage d'un parcours étalon que l'appariement ne "
+            "reconnaît pas ; marqué, rien d'exclu."
+        ),
+        JournalEventType.OTHER: (
+            "« autre » : tout autre événement ; marqué, rien d'exclu."
+        ),
+    }
+)
+
+
+class NormalAbsence(StrEnum):
+    """Pourquoi la normale d'une mesure manque à une ligne de ``jours``.
+
+    Champs
+    ------
+    Valeurs décrites dans ``NORMAL_ABSENCE_DESCRIPTIONS``.
+
+    Invariants
+    ----------
+    Énumération fermée : une normale absente porte un seul motif.
+
+    Producteur
+    ----------
+    Les normales (``mountain_perf.analyse.normals``, AN2-2).
+
+    Consommateurs
+    -------------
+    ``DayRow.<mesure>_normal_absence`` ; la page « récupération » (AN2-3), qui coupe la
+    normale et sa plage où elle manque.
+
+    Non promis
+    ----------
+    Le motif ne dit pas pourquoi les jours de la fenêtre ne sont pas admis : chaque
+    ligne porte son propre motif de refus (``AdmissionRefusal``).
+    """
+
+    NO_ADMITTED_DAY = "no_admitted_day"
+    TOO_FEW_ADMITTED_DAYS = "too_few_admitted_days"
+
+
+NORMAL_ABSENCE_DESCRIPTIONS: Mapping[NormalAbsence, str] = MappingProxyType(
+    {
+        NormalAbsence.NO_ADMITTED_DAY: (
+            "Aucun jour admis dans la fenêtre (au début de la table, ou après une "
+            "longue suite de jours non admis)."
+        ),
+        NormalAbsence.TOO_FEW_ADMITTED_DAYS: (
+            "Au moins un jour admis dans la fenêtre, moins que le minimum déclaré "
+            "(normal.min_admitted_days)."
+        ),
+    }
+)
+
+
+class AdmissionRefusal(StrEnum):
+    """Pourquoi la valeur d'une mesure d'un jour n'entre pas dans les normales,
+    décidé **dans l'ordre des membres** : le premier qui s'applique.
+
+    Champs
+    ------
+    Valeurs décrites dans ``ADMISSION_REFUSAL_DESCRIPTIONS``.
+
+    Invariants
+    ----------
+    Énumération fermée, ordonnée : ``absent_row``, ``no_value``, ``invalid_value``,
+    ``night_not_complete``, ``short_night``, ``shifted_night``, ``illness``,
+    ``injury``, ``altitude_stay``.
+
+    Producteur
+    ----------
+    L'admission de la table ``jours`` (``mountain_perf.analyse.days``, AN2-2).
+
+    Consommateurs
+    -------------
+    ``DayRow.<mesure>_refusal`` ; la page « récupération » (AN2-3), qui en tire ses
+    marques pleines, creuses et grises sans refaire la règle.
+
+    Non promis
+    ----------
+    Un seul motif par mesure et par jour, le premier : une ligne qui en viole deux ne
+    porte pas le second. Une valeur non admise reste dans sa colonne.
+    """
+
+    ABSENT_ROW = "absent_row"
+    NO_VALUE = "no_value"
+    INVALID_VALUE = "invalid_value"
+    NIGHT_NOT_COMPLETE = "night_not_complete"
+    SHORT_NIGHT = "short_night"
+    SHIFTED_NIGHT = "shifted_night"
+    ILLNESS = "illness"
+    INJURY = "injury"
+    ALTITUDE_STAY = "altitude_stay"
+
+
+ADMISSION_REFUSAL_DESCRIPTIONS: Mapping[AdmissionRefusal, str] = MappingProxyType(
+    {
+        AdmissionRefusal.ABSENT_ROW: ("La ligne est absent (aucun document ce jour)."),
+        AdmissionRefusal.NO_VALUE: ("La valeur de la mesure manque ce jour."),
+        AdmissionRefusal.INVALID_VALUE: (
+            "La valeur n'est pas valide pour la mesure : FC de repos d'un statut "
+            "autre que valid, ou HRV <= 0 (sans logarithme)."
+        ),
+        AdmissionRefusal.NIGHT_NOT_COMPLETE: (
+            "Mesure de nuit : l'état de la nuit n'est pas complete."
+        ),
+        AdmissionRefusal.SHORT_NIGHT: (
+            "Mesure de nuit : la nuit porte le drapeau short (sauf pour le sommeil "
+            "mesuré, où une nuit courte est admise)."
+        ),
+        AdmissionRefusal.SHIFTED_NIGHT: (
+            "Mesure de nuit : la nuit porte le drapeau shifted (un drapeau inconnu "
+            "n'exclut pas)."
+        ),
+        AdmissionRefusal.ILLNESS: ("Le journal couvre le jour d'une maladie."),
+        AdmissionRefusal.INJURY: ("Le journal couvre le jour d'une blessure."),
+        AdmissionRefusal.ALTITUDE_STAY: (
+            "Le journal couvre le jour d'un séjour en altitude, exclu par le "
+            "paramètre déclaré normal.exclude_altitude_stay."
+        ),
     }
 )
 
@@ -814,6 +1062,893 @@ class ActivityRow:
             raise ContractError("Les comptes par régime somment climb_count.")
         if max(self.flagged_climb_count, self.unstable_climb_count) > self.climb_count:
             raise ContractError("Montées marquées ou instables : au plus climb_count.")
+
+
+_DAY_ROW_INSTANTS = (
+    "window_start",
+    "data_end",
+    "night_start",
+    "night_end",
+    "readiness_instant",
+    "ts_status_instant",
+    "ts_load_balance_instant",
+    "ts_vo2_max_instant",
+    "ts_heat_instant",
+    "ts_altitude_instant",
+)
+
+_DAY_ROW_NON_NEGATIVE = (
+    "sleep_version",
+    "sleep_respiration_version",
+    "respiration_version",
+    "summary_respiration_version",
+    "summary_body_battery_version",
+    "body_battery_series_versions",
+    "measured_sleep_s",
+    "deep_s",
+    "light_s",
+    "rem_s",
+    "awake_s",
+    "unmeasurable_s",
+    "unmeasured_fraction",
+    "night_restless_moments",
+    "night_body_battery_coverage",
+    "nap_count",
+    "nap_window_s",
+    "nap_sleep_s",
+    "naps_overlapping_night",
+    "stress_measured_s",
+    "steps",
+    "moderate_intensity_s",
+    "vigorous_intensity_s",
+    "floors_ascended_m",
+    "floors_descended_m",
+    "readiness_entry_count",
+    "activity_count",
+    "garmin_training_load",
+    "activities_without_load",
+    "foot_elapsed_s",
+    "mtb_elapsed_s",
+    "ski_touring_elapsed_s",
+    "other_elapsed_s",
+    "other_activity_count",
+    "activities_without_elapsed",
+    "hrv_log_dispersion",
+    "resting_hr_dispersion_bpm",
+    "measured_sleep_dispersion_s",
+    "night_stress_dispersion",
+    "night_respiration_dispersion_breaths_per_min",
+    "night_spo2_dispersion_percent",
+    "hrv_admitted_days",
+    "resting_hr_admitted_days",
+    "measured_sleep_admitted_days",
+    "night_stress_admitted_days",
+    "night_respiration_admitted_days",
+    "night_spo2_admitted_days",
+    "hrv_segment",
+    "resting_hr_segment",
+    "measured_sleep_segment",
+    "night_stress_segment",
+    "night_respiration_segment",
+    "night_spo2_segment",
+)
+
+_NIGHT_FLAGS = (
+    ("night_short", "night_short_absence"),
+    ("night_shifted", "night_shifted_absence"),
+)
+
+_NIGHT_QUANTITIES = (
+    "night_short",
+    "night_shifted",
+    "measured_sleep_s",
+    "deep_s",
+    "light_s",
+    "rem_s",
+    "awake_s",
+    "unmeasurable_s",
+    "unmeasured_fraction",
+    "night_confirmation",
+    "night_window_confirmed",
+    "night_from_device",
+    "night_rem_capable",
+    "sleep_score",
+    "night_avg_stress",
+    "night_avg_heart_rate_bpm",
+    "night_body_battery_change",
+    "night_restless_moments",
+    "skin_temperature_deviation_c",
+    "night_body_battery_ceiling",
+    "night_body_battery_coverage",
+)
+
+_NIGHT_ABSENCES = (
+    "night_short_absence",
+    "night_shifted_absence",
+    "night_body_battery_absence",
+)
+
+_ACTIVITY_COUNTS = (
+    "activities_without_load",
+    "other_activity_count",
+    "activities_without_elapsed",
+)
+
+_ACTIVITY_AMOUNTS = (
+    "garmin_training_load",
+    "foot_elapsed_s",
+    "mtb_elapsed_s",
+    "ski_touring_elapsed_s",
+    "other_elapsed_s",
+)
+
+_ABSENT_ROW_MISSING = (
+    "sleep_version",
+    "sleep_respiration_version",
+    "respiration_version",
+    "summary_respiration_version",
+    "summary_body_battery_version",
+    "resting_hr_bpm",
+    "hrv_last_night_avg_ms",
+    "hrv_last_night_5min_high_ms",
+    "hrv_weekly_avg_ms",
+    "hrv_baseline_balanced_low_ms",
+    "hrv_baseline_balanced_upper_ms",
+    "hrv_baseline_low_upper_ms",
+    "hrv_baseline_marker_value",
+    "hrv_status",
+    "respiration_avg_sleep_breaths_per_min",
+    "respiration_avg_waking_breaths_per_min",
+    "spo2_avg_sleep_percent",
+    "spo2_average_percent",
+    "spo2_lowest_percent",
+    "stress_average_level",
+    "stress_max_level",
+    "stress_measured_s",
+    "stress_valid",
+    "body_battery_charged",
+    "body_battery_drained",
+    "body_battery_highest",
+    "body_battery_lowest",
+    "body_battery_at_wake",
+    "body_battery_during_sleep",
+    "steps",
+    "moderate_intensity_s",
+    "vigorous_intensity_s",
+    "floors_ascended_m",
+    "floors_descended_m",
+    "average_altitude_m",
+)
+
+_MEASURE_COLUMNS = (
+    ("hrv", "_ms", "hrv_last_night_avg_ms"),
+    ("resting_hr", "_bpm", "resting_hr_bpm"),
+    ("measured_sleep", "_s", "measured_sleep_s"),
+    ("night_stress", "", "night_avg_stress"),
+    (
+        "night_respiration",
+        "_breaths_per_min",
+        "respiration_avg_sleep_breaths_per_min",
+    ),
+    ("night_spo2", "_percent", "spo2_avg_sleep_percent"),
+)
+"""Pour chaque mesure, dans l'ordre : son préfixe, le suffixe d'unité de ses colonnes,
+la colonne de sa valeur."""
+
+
+@dataclass(frozen=True)
+class DayRow:
+    """Une ligne de la table ``jours`` (AN2-2) : un jour du calendrier, du premier au
+    dernier document d'``interim/days/``, bornes comprises ; la clé est ``day``.
+
+    Champs
+    ------
+    Un instant est *aware*, au décalage de sa source (en Parquet, l'heure murale et le
+    décalage) ; une grandeur absente (``None``) est un manque, jamais un zéro, sauf les
+    durées de l'activité du jour, sommes des seules activités qui en ont (0 si aucune
+    n'en a), que complète ``activities_without_elapsed``. Les valeurs « selon Garmin »
+    sont celles du document du jour (``DayRecord``), sans rien de recalculé ; les états,
+    les drapeaux et les statuts viennent des vues des jours
+    (``mountain_perf.ingest.day_views``), appelées avec les seuils déclarés ``days.*``
+    de la provenance.
+
+    Le jour :
+
+    - ``day`` — date — le jour de Garmin, celui du document.
+    - ``state`` — sans unité — ``absent`` (aucun document ce jour), sinon l'état du
+      document.
+    - ``window_start``, ``data_end`` — instants — début de la fenêtre du jour (minuit
+      local) et ``fin_donnees`` ; présents si l'état n'est ni ``absent`` ni ``empty``.
+    - ``reference_export`` — sans unité — le nom de l'export de référence du jour.
+    - ``device_ranks`` — sans unité — les rangs des appareils que nomment les familles
+      du jour (``DayRecord.device_ranks``), triés.
+    - ``uncertain_device`` — sans unité — valeur incertaine, commune aux six mesures :
+      au moins deux rangs ce jour (on ne sait pas quelle montre a mesuré), ou un jour
+      sans rang situé entre le dernier jour à rangs avant lui et un jour suivant de
+      rupture de rang, sans jour à rangs entre eux (l'intervalle incertain d'un
+      changement de montre).
+    - ``sleep_version``, ``sleep_respiration_version``, ``respiration_version``,
+      ``summary_respiration_version``, ``summary_body_battery_version`` — sans unité —
+      les versions d'algorithme du jour (``AlgorithmVersions``).
+    - ``body_battery_series_versions`` — sans unité — les versions de la série de
+      Body Battery du jour, triées.
+
+    La nuit rattachée au jour (le document du jour, et la vue ``night_assessment``) :
+
+    - ``night_start``, ``night_end`` — instants — début et fin de la nuit principale.
+    - ``night_state`` — sans unité — l'état de la nuit (``NightState``).
+    - ``night_short``, ``night_shifted`` — sans unité — les drapeaux ``short`` et
+      ``shifted`` : vrai, faux, ou inconnu (absent) ; ``night_short_absence``,
+      ``night_shifted_absence`` — sans unité — le motif d'un drapeau inconnu.
+    - ``measured_sleep_s`` — secondes — le sommeil mesuré (profond + léger, plus le
+      paradoxal s'il est détecté).
+    - ``deep_s``, ``light_s``, ``rem_s``, ``awake_s``, ``unmeasurable_s`` — secondes —
+      profond, léger, paradoxal, éveil, non mesurable, selon Garmin.
+    - ``unmeasured_fraction`` — fraction — non mesurable / (fin − début), positive ou
+      nulle ;
+      au-dessus de 1 si la source le veut (``Night`` ne promet pas que la somme de ses
+      durées tient dans la nuit).
+    - ``night_confirmation`` — sans unité — type de confirmation de la fenêtre, code
+      de la source ; ``night_window_confirmed``, ``night_from_device``,
+      ``night_rem_capable`` — sans unité — fenêtre confirmée, nuit venue de la montre,
+      appareil qui détecte le paradoxal.
+    - ``sleep_score`` — sans unité — score de sommeil selon Garmin.
+    - ``night_avg_stress`` — sans unité — stress moyen du sommeil.
+    - ``night_avg_heart_rate_bpm`` — battements par minute — FC moyenne du sommeil.
+    - ``night_body_battery_change`` — sans unité — changement de Body Battery du
+      sommeil.
+    - ``night_restless_moments`` — sans unité — nombre de moments agités.
+    - ``skin_temperature_deviation_c`` — °C — écart de température cutanée de la nuit.
+    - ``night_body_battery_ceiling`` — sans unité — la série de Body Battery de la nuit
+      atteint le haut de l'échelle de Garmin (« bb_plafond ») ;
+      ``night_body_battery_coverage`` — fraction — sa couverture dans la fenêtre de la
+      nuit (``series_between``, au pas déclaré) ; ``night_body_battery_absence`` —
+      sans unité — le motif quand les deux manquent (sous le minimum de couverture,
+      sans point, sans nuit).
+
+    Les siestes (zéro sans sieste) :
+
+    - ``nap_count`` — sans unité — les siestes du jour.
+    - ``nap_window_s`` — secondes — la somme des durées de leurs fenêtres (fin −
+      début).
+    - ``nap_sleep_s`` — secondes — la somme de leurs durées de sommeil selon Garmin.
+    - ``naps_overlapping_night`` — sans unité — les siestes qui recoupent la nuit.
+
+    Les valeurs du jour (une grandeur de support ``day`` d'un jour qui n'est pas
+    ``complete`` est absente, sauf la FC de repos, dont le statut le dit) :
+
+    - ``resting_hr_bpm`` — battements par minute — la FC de repos selon Garmin
+      (``resting_hr_on``) ; ``resting_hr_status`` — sans unité — son statut.
+    - ``hrv_last_night_avg_ms``, ``hrv_last_night_5min_high_ms``,
+      ``hrv_weekly_avg_ms`` — millisecondes — la HRV de la nuit, sa plus haute valeur
+      de 5 min, celle de la semaine ; ``hrv_baseline_balanced_low_ms``,
+      ``hrv_baseline_balanced_upper_ms``, ``hrv_baseline_low_upper_ms`` —
+      millisecondes — les bornes de la normale de Garmin ;
+      ``hrv_baseline_marker_value`` — sans unité — son repère ; ``hrv_status`` — sans
+      unité — le statut HRV, code de la source.
+    - ``respiration_avg_sleep_breaths_per_min``,
+      ``respiration_avg_waking_breaths_per_min`` — respirations par minute — moyennes
+      du sommeil et de l'éveil.
+    - ``spo2_avg_sleep_percent``, ``spo2_average_percent``, ``spo2_lowest_percent`` —
+      pourcentage — SpO2 du sommeil, moyenne et plus basse du jour.
+    - ``stress_average_level``, ``stress_max_level`` — sans unité — stress moyen et
+      maximal du jour ; ``stress_measured_s`` — secondes — la somme des durées au
+      repos, en stress bas, moyen et haut (absente si l'une manque, donc sur tout jour
+      qui n'est pas ``complete``) ; ``stress_valid`` — sans unité —
+      ``stress_measured_s`` atteint la fraction déclarée de la fenêtre du jour ;
+      absent sans stress ou sans fenêtre.
+    - ``body_battery_charged``, ``body_battery_drained``, ``body_battery_highest``,
+      ``body_battery_lowest``, ``body_battery_at_wake``, ``body_battery_during_sleep``
+      — sans unité — le Body Battery du jour selon Garmin.
+    - ``steps`` — sans unité — les pas ; ``moderate_intensity_s``,
+      ``vigorous_intensity_s`` — secondes — intensité modérée et vigoureuse ;
+      ``floors_ascended_m``, ``floors_descended_m`` — mètres — étages montés et
+      descendus ; ``average_altitude_m`` — mètres — altitude moyenne du jour.
+
+    Chacune, hors la FC de repos (la vue ``resting_hr_on``) et le stress mesuré, se lit
+    au
+    chemin du document de même sens, une clé de ``QUANTITY_SUPPORTS`` : ``hrv_<x>`` à
+    ``hrv.<x>`` (les huit de la HRV), ``body_battery_<x>`` à ``body_battery.<x>`` (les
+    six
+    du Body Battery), les six de l'activité à ``activity_totals.<x>`` (``steps`` à
+    ``activity_totals.steps``), ``stress_average_level`` à ``stress.average_level``,
+    ``stress_max_level`` à ``stress.max_level``,
+    ``respiration_avg_sleep_breaths_per_min``
+    à ``respiration.avg_sleep_breaths_per_min``,
+    ``respiration_avg_waking_breaths_per_min``
+    à ``respiration.avg_waking_breaths_per_min``, ``spo2_avg_sleep_percent`` à
+    ``spo2.avg_sleep_spo2_percent``, ``spo2_average_percent`` à
+    ``spo2.average_spo2_percent``, ``spo2_lowest_percent`` à
+    ``spo2.lowest_spo2_percent``.
+
+    Training Readiness du réveil (``readiness_on_waking``, à la tolérance déclarée) :
+
+    - ``readiness_score`` — sans unité — le score ; ``readiness_level`` — sans unité
+      — le niveau, code de la source ; ``readiness_instant`` — instant — l'instant de
+      l'entrée retenue ; ``readiness_absence`` — sans unité — le motif, sans entrée
+      retenue.
+    - ``readiness_entry_count`` — sans unité — les entrées de Training Readiness du
+      jour.
+
+    Training Status (le bloc de chaque sorte dont la date propre est ce jour ;
+    l'instant d'une sorte est l'instant propre du bloc, absent si le bloc n'en a pas :
+    la ligne porte alors des valeurs que ``training_status_at`` ne rend jamais) :
+
+    - ``ts_status_instant`` — instant ; ``ts_status_code`` — sans unité — le statut,
+      code de la source ; ``ts_acute_load``, ``ts_chronic_load`` — sans unité — les
+      charges aiguë et chronique ; ``ts_acute_chronic_ratio`` — sans unité — leur
+      rapport ; ``ts_acwr_status`` — sans unité — le statut du rapport, code de la
+      source.
+    - ``ts_load_balance_instant`` — instant ; ``ts_monthly_aerobic_low``,
+      ``ts_monthly_aerobic_low_target_min``, ``ts_monthly_aerobic_low_target_max``,
+      ``ts_monthly_aerobic_high``, ``ts_monthly_aerobic_high_target_min``,
+      ``ts_monthly_aerobic_high_target_max``, ``ts_monthly_anaerobic``,
+      ``ts_monthly_anaerobic_target_min``, ``ts_monthly_anaerobic_target_max`` — sans
+      unité — l'équilibre de la charge mensuelle et ses cibles.
+    - ``ts_vo2_max_instant`` — instant ; ``ts_vo2_max_ml_kg_min``,
+      ``ts_vo2_max_precise_ml_kg_min`` — ml/kg/min — la VO2max affichée et précise.
+    - ``ts_heat_instant`` — instant ; ``ts_heat_acclimation_percent`` — pourcentage —
+      l'acclimatation à la chaleur ; ``ts_heat_trend`` — sans unité — sa tendance,
+      code de la source.
+    - ``ts_altitude_instant`` — instant ; ``ts_acclimation_altitude_m``,
+      ``ts_current_altitude_m`` — mètres — les altitudes d'acclimatation et courante
+      selon Garmin ; ``ts_altitude_trend`` — sans unité — sa tendance, code de la
+      source.
+
+    Le journal :
+
+    - ``journal_types`` — sans unité — les types des événements de ``journal.csv`` qui
+      couvrent le jour (du début à la fin, bornes comprises), triés, sans doublon ;
+      vide sans événement.
+
+    L'activité du jour (les entrées de l'index d'``interim/activities/`` de départ ce
+    jour, en date locale, de tout type) :
+
+    - ``activity_count`` — sans unité — les activités du jour.
+    - ``garmin_training_load`` — sans unité — la somme de leurs charges selon Garmin ;
+      ``0`` sans activité ; absente si toutes en sont sans.
+    - ``activities_without_load`` — sans unité — les activités sans charge.
+    - ``foot_elapsed_s``, ``mtb_elapsed_s``, ``ski_touring_elapsed_s`` — secondes — la
+      somme des temps écoulés de l'index, par famille de la table des types.
+    - ``other_elapsed_s`` — secondes — celle des types sans famille ;
+      ``other_activity_count`` — sans unité — leur nombre.
+    - ``activities_without_elapsed`` — sans unité — les activités sans temps écoulé,
+      ajoutées à aucune durée.
+
+    Les normales, pour six mesures, dans cet ordre : ``hrv`` (la HRV de la nuit, ms,
+    en log), ``resting_hr`` (la FC de repos, bpm), ``measured_sleep`` (le sommeil
+    mesuré, s), ``night_stress`` (le stress de la nuit, sans unité),
+    ``night_respiration`` (la respiration de la nuit, respirations par minute),
+    ``night_spo2`` (la SpO2 de la nuit, pourcentage). Pour le préfixe ``<p>`` d'une
+    mesure d'unité ``<u>`` (sans suffixe pour ``night_stress``) :
+
+    - ``<p>_admitted`` — sans unité — la valeur du jour entre dans les normales ;
+      ``<p>_refusal`` — sans unité — sinon le motif, le premier dans l'ordre
+      d'``AdmissionRefusal``.
+    - ``<p>_normal_<u>`` — unité de la mesure — la normale du jour : la médiane des
+      valeurs admises des jours ``[jour − fenêtre, jour − 1]`` ; pour la HRV,
+      l'exponentielle de la médiane du log.
+    - ``<p>_range_low_<u>``, ``<p>_range_high_<u>`` — unité de la mesure — la plage,
+      médiane ∓ k s ; pour la HRV, exp(médiane du log ∓ k s du log), dissymétrique.
+    - ``<p>_dispersion_<u>`` — unité de la mesure — la dispersion s = max(facteur ×
+      MAD ; plancher) ; pour la HRV, à sa place, ``hrv_log_median`` et
+      ``hrv_log_dispersion`` — sans unité — la médiane et s du log de la HRV en ms.
+    - ``<p>_admitted_days`` — sans unité — les jours admis de la fenêtre ;
+      ``<p>_normal_absence`` — sans unité — le motif d'une normale absente.
+    - ``<p>_segment`` — sans unité — le nombre de lignes avant celle-ci dont la
+      normale est absente.
+    - ``<p>_rupture`` — sans unité — une rupture de la mesure ce jour : un rang du jour
+      manque aux rangs du dernier jour précédent qui en porte, ou la version de la
+      famille de la mesure change.
+    - ``<p>_normal_straddles`` — sans unité — normale à cheval : une rupture de la
+      mesure dans la fenêtre, le premier jour exclu, ou un jour incertain dans la
+      fenêtre.
+
+    Les colonnes, mesure par mesure :
+
+    - ``hrv_admitted``, ``hrv_refusal``, ``hrv_normal_ms``, ``hrv_range_low_ms``,
+      ``hrv_range_high_ms``, ``hrv_log_median``, ``hrv_log_dispersion``,
+      ``hrv_admitted_days``, ``hrv_normal_absence``, ``hrv_segment``,
+      ``hrv_rupture``, ``hrv_normal_straddles`` ;
+    - ``resting_hr_admitted``, ``resting_hr_refusal``, ``resting_hr_normal_bpm``,
+      ``resting_hr_range_low_bpm``, ``resting_hr_range_high_bpm``,
+      ``resting_hr_dispersion_bpm``, ``resting_hr_admitted_days``,
+      ``resting_hr_normal_absence``, ``resting_hr_segment``, ``resting_hr_rupture``,
+      ``resting_hr_normal_straddles`` ;
+    - ``measured_sleep_admitted``, ``measured_sleep_refusal``,
+      ``measured_sleep_normal_s``, ``measured_sleep_range_low_s``,
+      ``measured_sleep_range_high_s``, ``measured_sleep_dispersion_s``,
+      ``measured_sleep_admitted_days``, ``measured_sleep_normal_absence``,
+      ``measured_sleep_segment``, ``measured_sleep_rupture``,
+      ``measured_sleep_normal_straddles`` ;
+    - ``night_stress_admitted``, ``night_stress_refusal``, ``night_stress_normal``,
+      ``night_stress_range_low``, ``night_stress_range_high``,
+      ``night_stress_dispersion``, ``night_stress_admitted_days``,
+      ``night_stress_normal_absence``, ``night_stress_segment``,
+      ``night_stress_rupture``, ``night_stress_normal_straddles`` ;
+    - ``night_respiration_admitted``, ``night_respiration_refusal``,
+      ``night_respiration_normal_breaths_per_min``,
+      ``night_respiration_range_low_breaths_per_min``,
+      ``night_respiration_range_high_breaths_per_min``,
+      ``night_respiration_dispersion_breaths_per_min``,
+      ``night_respiration_admitted_days``, ``night_respiration_normal_absence``,
+      ``night_respiration_segment``, ``night_respiration_rupture``,
+      ``night_respiration_normal_straddles`` ;
+    - ``night_spo2_admitted``, ``night_spo2_refusal``, ``night_spo2_normal_percent``,
+      ``night_spo2_range_low_percent``, ``night_spo2_range_high_percent``,
+      ``night_spo2_dispersion_percent``, ``night_spo2_admitted_days``,
+      ``night_spo2_normal_absence``, ``night_spo2_segment``, ``night_spo2_rupture``,
+      ``night_spo2_normal_straddles``.
+
+    Invariants
+    ----------
+    - nombres finis ; instants *aware*, ramenés à un fuseau à décalage fixe ;
+    - positifs ou nuls : les durées, les comptes, les versions, la charge, la
+      couverture, ``unmeasured_fraction``, les jours admis, les segments, les
+      dispersions ; ``night_body_battery_coverage`` dans ``[0, 1]`` ;
+    - ``window_start`` et ``data_end`` présents ensemble, si et seulement si l'état
+      n'est ni ``absent`` ni ``empty`` ; ``reference_export`` présent si et seulement
+      si l'état n'est pas ``absent``, un nom d'export valide ;
+    - ``device_ranks`` : des rangs d'au moins 1, strictement croissants ; au moins deux
+      rangs :
+      ``uncertain_device`` vrai ; ``body_battery_series_versions`` strictement
+      croissant ;
+    - ``night_start`` et ``night_end`` présents ensemble, si et seulement si
+      ``night_state`` n'est pas ``missing`` ; ``night_start`` précède ``night_end`` ;
+      sans
+      nuit, aucune grandeur de la nuit, et les motifs des drapeaux et du Body Battery
+      de la nuit valent ``no_night`` ;
+    - chaque drapeau présent si et seulement si son motif est absent ;
+      ``night_body_battery_ceiling`` et ``night_body_battery_coverage`` présents
+      ensemble, si et seulement si ``night_body_battery_absence`` est absent ;
+    - au plus ``nap_count`` siestes qui recoupent la nuit ; sans sieste, durées des
+      siestes nulles ;
+    - ``stress_valid`` présent seulement avec ``stress_measured_s`` ;
+    - ``readiness_instant`` présent si et seulement si ``readiness_absence`` est
+      absent ; ``readiness_score`` et ``readiness_level`` seulement avec l'instant ;
+      un instant demande au moins une entrée ;
+    - ``journal_types`` trié, sans doublon ;
+    - ``activities_without_load``, ``other_activity_count`` et
+      ``activities_without_elapsed`` au plus ``activity_count`` ;
+      ``garmin_training_load`` absente si et seulement si le jour a des activités,
+      toutes sans charge ; sans activité, charge et durées nulles ;
+    - pour chaque mesure : ``<p>_admitted`` vrai si et seulement si ``<p>_refusal``
+      est absent ; ``<p>_refusal`` vaut ``absent_row`` si et seulement si l'état est
+      ``absent`` ; une valeur admise est présente ; la normale, sa plage et sa
+      dispersion présentes ensemble, si et seulement si ``<p>_normal_absence`` est
+      absent ; ``range_low`` ≤ ``normal`` ≤ ``range_high`` ; ``no_admitted_day`` si et
+      seulement si ``<p>_admitted_days`` est nul ; ``hrv_normal_ms`` vaut
+      l'exponentielle de ``hrv_log_median`` ;
+    - une ligne ``absent`` n'a ni fenêtre, ni export de référence, ni rang, ni
+      version, ni nuit (``night_state`` ``missing``), ni sieste, ni valeur du jour
+      (``resting_hr_status`` ``absent``), ni entrée de Training Readiness ; elle peut
+      porter Training Status, le journal, l'activité du jour, ``uncertain_device`` et
+      sa normale.
+
+    Producteur
+    ----------
+    La table ``jours`` (``mountain_perf.analyse.days``, AN2-2), mise dans les tables
+    par ``mountain_perf.analyse.tables``.
+
+    Consommateurs
+    -------------
+    La page « récupération » (AN2-3), qui lit ``jours`` et n'a rien à calculer ; les
+    questions de la piste qui lisent des jours.
+
+    Non promis
+    ----------
+    - les normales de ``jours`` sont descriptives : elles continuent à travers une
+      rupture et la marquent, sans rien exclure ; celle d'une question se refait dans
+      son plan (charte, § 11) ;
+    - les composites de Garmin (Training Readiness, score de sommeil, statut HRV,
+      Body Battery) n'ont pas de normale ;
+    - une sortie enregistrée par deux appareils, deux fois dans l'index, s'additionne
+      deux fois à l'activité du jour ; la charge est celle de Garmin, jamais
+      recalculée ;
+    - aucun firmware : les rangs ne se comparent pas à l'appareil d'un FIT ;
+    - la ligne dépend aussi de ``journal.csv``, tenu à la main.
+    """
+
+    day: date
+    state: DayRowState
+    window_start: datetime | None
+    data_end: datetime | None
+    reference_export: str | None
+    device_ranks: tuple[int, ...]
+    uncertain_device: bool
+    sleep_version: int | None
+    sleep_respiration_version: int | None
+    respiration_version: int | None
+    summary_respiration_version: int | None
+    summary_body_battery_version: int | None
+    body_battery_series_versions: tuple[int, ...]
+    night_start: datetime | None
+    night_end: datetime | None
+    night_state: NightState
+    night_short: bool | None
+    night_short_absence: ViewAbsence | None
+    night_shifted: bool | None
+    night_shifted_absence: ViewAbsence | None
+    measured_sleep_s: float | None
+    deep_s: float | None
+    light_s: float | None
+    rem_s: float | None
+    awake_s: float | None
+    unmeasurable_s: float | None
+    unmeasured_fraction: float | None
+    night_confirmation: str | None
+    night_window_confirmed: bool | None
+    night_from_device: bool | None
+    night_rem_capable: bool | None
+    sleep_score: int | None
+    night_avg_stress: float | None
+    night_avg_heart_rate_bpm: float | None
+    night_body_battery_change: int | None
+    night_restless_moments: int | None
+    skin_temperature_deviation_c: float | None
+    night_body_battery_ceiling: bool | None
+    night_body_battery_coverage: float | None
+    night_body_battery_absence: ViewAbsence | None
+    nap_count: int
+    nap_window_s: float
+    nap_sleep_s: float
+    naps_overlapping_night: int
+    resting_hr_bpm: float | None
+    resting_hr_status: RestingHrStatus
+    hrv_last_night_avg_ms: float | None
+    hrv_last_night_5min_high_ms: float | None
+    hrv_weekly_avg_ms: float | None
+    hrv_baseline_balanced_low_ms: float | None
+    hrv_baseline_balanced_upper_ms: float | None
+    hrv_baseline_low_upper_ms: float | None
+    hrv_baseline_marker_value: float | None
+    hrv_status: str | None
+    respiration_avg_sleep_breaths_per_min: float | None
+    respiration_avg_waking_breaths_per_min: float | None
+    spo2_avg_sleep_percent: float | None
+    spo2_average_percent: float | None
+    spo2_lowest_percent: float | None
+    stress_average_level: int | None
+    stress_max_level: int | None
+    stress_measured_s: float | None
+    stress_valid: bool | None
+    body_battery_charged: int | None
+    body_battery_drained: int | None
+    body_battery_highest: int | None
+    body_battery_lowest: int | None
+    body_battery_at_wake: int | None
+    body_battery_during_sleep: int | None
+    steps: int | None
+    moderate_intensity_s: float | None
+    vigorous_intensity_s: float | None
+    floors_ascended_m: float | None
+    floors_descended_m: float | None
+    average_altitude_m: float | None
+    readiness_score: int | None
+    readiness_level: str | None
+    readiness_instant: datetime | None
+    readiness_absence: ViewAbsence | None
+    readiness_entry_count: int
+    ts_status_instant: datetime | None
+    ts_status_code: int | None
+    ts_acute_load: float | None
+    ts_chronic_load: float | None
+    ts_acute_chronic_ratio: float | None
+    ts_acwr_status: str | None
+    ts_load_balance_instant: datetime | None
+    ts_monthly_aerobic_low: float | None
+    ts_monthly_aerobic_low_target_min: float | None
+    ts_monthly_aerobic_low_target_max: float | None
+    ts_monthly_aerobic_high: float | None
+    ts_monthly_aerobic_high_target_min: float | None
+    ts_monthly_aerobic_high_target_max: float | None
+    ts_monthly_anaerobic: float | None
+    ts_monthly_anaerobic_target_min: float | None
+    ts_monthly_anaerobic_target_max: float | None
+    ts_vo2_max_instant: datetime | None
+    ts_vo2_max_ml_kg_min: float | None
+    ts_vo2_max_precise_ml_kg_min: float | None
+    ts_heat_instant: datetime | None
+    ts_heat_acclimation_percent: float | None
+    ts_heat_trend: str | None
+    ts_altitude_instant: datetime | None
+    ts_acclimation_altitude_m: float | None
+    ts_current_altitude_m: float | None
+    ts_altitude_trend: str | None
+    journal_types: tuple[JournalEventType, ...]
+    activity_count: int
+    garmin_training_load: float | None
+    activities_without_load: int
+    foot_elapsed_s: float
+    mtb_elapsed_s: float
+    ski_touring_elapsed_s: float
+    other_elapsed_s: float
+    other_activity_count: int
+    activities_without_elapsed: int
+    hrv_admitted: bool
+    hrv_refusal: AdmissionRefusal | None
+    hrv_normal_ms: float | None
+    hrv_range_low_ms: float | None
+    hrv_range_high_ms: float | None
+    hrv_log_median: float | None
+    hrv_log_dispersion: float | None
+    hrv_admitted_days: int
+    hrv_normal_absence: NormalAbsence | None
+    hrv_segment: int
+    hrv_rupture: bool
+    hrv_normal_straddles: bool
+    resting_hr_admitted: bool
+    resting_hr_refusal: AdmissionRefusal | None
+    resting_hr_normal_bpm: float | None
+    resting_hr_range_low_bpm: float | None
+    resting_hr_range_high_bpm: float | None
+    resting_hr_dispersion_bpm: float | None
+    resting_hr_admitted_days: int
+    resting_hr_normal_absence: NormalAbsence | None
+    resting_hr_segment: int
+    resting_hr_rupture: bool
+    resting_hr_normal_straddles: bool
+    measured_sleep_admitted: bool
+    measured_sleep_refusal: AdmissionRefusal | None
+    measured_sleep_normal_s: float | None
+    measured_sleep_range_low_s: float | None
+    measured_sleep_range_high_s: float | None
+    measured_sleep_dispersion_s: float | None
+    measured_sleep_admitted_days: int
+    measured_sleep_normal_absence: NormalAbsence | None
+    measured_sleep_segment: int
+    measured_sleep_rupture: bool
+    measured_sleep_normal_straddles: bool
+    night_stress_admitted: bool
+    night_stress_refusal: AdmissionRefusal | None
+    night_stress_normal: float | None
+    night_stress_range_low: float | None
+    night_stress_range_high: float | None
+    night_stress_dispersion: float | None
+    night_stress_admitted_days: int
+    night_stress_normal_absence: NormalAbsence | None
+    night_stress_segment: int
+    night_stress_rupture: bool
+    night_stress_normal_straddles: bool
+    night_respiration_admitted: bool
+    night_respiration_refusal: AdmissionRefusal | None
+    night_respiration_normal_breaths_per_min: float | None
+    night_respiration_range_low_breaths_per_min: float | None
+    night_respiration_range_high_breaths_per_min: float | None
+    night_respiration_dispersion_breaths_per_min: float | None
+    night_respiration_admitted_days: int
+    night_respiration_normal_absence: NormalAbsence | None
+    night_respiration_segment: int
+    night_respiration_rupture: bool
+    night_respiration_normal_straddles: bool
+    night_spo2_admitted: bool
+    night_spo2_refusal: AdmissionRefusal | None
+    night_spo2_normal_percent: float | None
+    night_spo2_range_low_percent: float | None
+    night_spo2_range_high_percent: float | None
+    night_spo2_dispersion_percent: float | None
+    night_spo2_admitted_days: int
+    night_spo2_normal_absence: NormalAbsence | None
+    night_spo2_segment: int
+    night_spo2_rupture: bool
+    night_spo2_normal_straddles: bool
+
+    def __post_init__(self) -> None:
+        self._check_values()
+        self._check_day()
+        self._check_night()
+        self._check_episodes()
+        self._check_activity()
+        for prefix, unit, value in _MEASURE_COLUMNS:
+            self._check_measure(prefix, unit, value)
+        if self.state is DayRowState.ABSENT:
+            self._check_absent_row()
+
+    def _check_values(self) -> None:
+        for name in _DAY_ROW_INSTANTS:
+            value = getattr(self, name)
+            if value is not None:
+                object.__setattr__(self, name, _local(value, name))
+        _check_numbers(self, dataclasses.fields(self))
+        _check_non_negative(self, *_DAY_ROW_NON_NEGATIVE)
+        _check_fraction(self.night_body_battery_coverage, "night_body_battery_coverage")
+
+    def _check_day(self) -> None:
+        if (self.window_start is None) != (self.data_end is None):
+            raise ContractError("window_start et data_end vont ensemble.")
+        has_window = self.state not in (DayRowState.ABSENT, DayRowState.EMPTY)
+        if (self.window_start is not None) != has_window:
+            raise ContractError(
+                "window_start et data_end : présents si et seulement si state n'est "
+                "ni absent ni empty."
+            )
+        if (self.reference_export is None) != (self.state is DayRowState.ABSENT):
+            raise ContractError(
+                "reference_export : absent si et seulement si state est absent."
+            )
+        if self.reference_export is not None:
+            try:
+                require_export_name(self.reference_export)
+            except ContractError as error:
+                raise ContractError(f"reference_export : {error}") from error
+        for rank in self.device_ranks:
+            if rank < 1:
+                raise ContractError(f"device_ranks doit être >= 1, reçu {rank}.")
+        require_increasing(self.device_ranks, "device_ranks", strict=True)
+        if len(self.device_ranks) >= 2 and not self.uncertain_device:
+            raise ContractError(
+                "uncertain_device : un jour à au moins deux rangs est incertain."
+            )
+        require_increasing(
+            self.body_battery_series_versions,
+            "body_battery_series_versions",
+            strict=True,
+        )
+
+    def _check_night(self) -> None:
+        if (self.night_start is None) != (self.night_end is None):
+            raise ContractError("night_start et night_end vont ensemble.")
+        if (self.night_start is not None) != (
+            self.night_state is not NightState.MISSING
+        ):
+            raise ContractError(
+                "night_start et night_end : présents si et seulement si night_state "
+                "n'est pas missing."
+            )
+        if (
+            self.night_start is not None
+            and self.night_end is not None
+            and not self.night_start < self.night_end
+        ):
+            raise ContractError("night_start doit précéder night_end.")
+        for flag, absence in _NIGHT_FLAGS:
+            if (getattr(self, flag) is None) == (getattr(self, absence) is None):
+                raise ContractError(
+                    f"{flag} et {absence} : l'un ou l'autre, jamais les deux."
+                )
+        if (self.night_body_battery_ceiling is None) != (
+            self.night_body_battery_coverage is None
+        ):
+            raise ContractError(
+                "night_body_battery_ceiling et night_body_battery_coverage vont "
+                "ensemble."
+            )
+        if (self.night_body_battery_coverage is None) == (
+            self.night_body_battery_absence is None
+        ):
+            raise ContractError(
+                "night_body_battery_coverage et night_body_battery_absence : l'un ou "
+                "l'autre, jamais les deux."
+            )
+        if self.night_start is None:
+            for name in _NIGHT_QUANTITIES:
+                if getattr(self, name) is not None:
+                    raise ContractError(
+                        f"Sans nuit, aucune grandeur de la nuit : {name}."
+                    )
+            for name in _NIGHT_ABSENCES:
+                if getattr(self, name) is not ViewAbsence.NO_NIGHT:
+                    raise ContractError(f"Sans nuit, {name} vaut no_night.")
+
+    def _check_episodes(self) -> None:
+        if self.naps_overlapping_night > self.nap_count:
+            raise ContractError("naps_overlapping_night : au plus nap_count.")
+        if self.nap_count == 0 and (self.nap_window_s != 0 or self.nap_sleep_s != 0):
+            raise ContractError("Sans sieste, nap_window_s et nap_sleep_s sont nuls.")
+        if self.stress_valid is not None and self.stress_measured_s is None:
+            raise ContractError("stress_valid demande stress_measured_s.")
+        if (self.readiness_instant is None) == (self.readiness_absence is None):
+            raise ContractError(
+                "readiness_instant et readiness_absence : l'un ou l'autre, jamais les "
+                "deux."
+            )
+        if self.readiness_instant is None and (
+            self.readiness_score is not None or self.readiness_level is not None
+        ):
+            raise ContractError(
+                "readiness_score et readiness_level demandent readiness_instant."
+            )
+        if self.readiness_instant is not None and self.readiness_entry_count < 1:
+            raise ContractError("readiness_instant demande readiness_entry_count >= 1.")
+        if list(self.journal_types) != sorted(set(self.journal_types)):
+            raise ContractError("journal_types doit être trié, sans doublon.")
+
+    def _check_activity(self) -> None:
+        for name in _ACTIVITY_COUNTS:
+            if getattr(self, name) > self.activity_count:
+                raise ContractError(f"{name} : au plus activity_count.")
+        all_without_load = (
+            self.activity_count > 0
+            and self.activities_without_load == self.activity_count
+        )
+        if (self.garmin_training_load is None) != all_without_load:
+            raise ContractError(
+                "garmin_training_load : absente si et seulement si le jour a des "
+                "activités, toutes sans charge."
+            )
+        if self.activity_count == 0 and any(
+            getattr(self, name) != 0 for name in _ACTIVITY_AMOUNTS
+        ):
+            raise ContractError(
+                "Sans activité, garmin_training_load et les durées sont nulles."
+            )
+
+    def _check_measure(self, prefix: str, unit: str, value: str) -> None:
+        admitted = f"{prefix}_admitted"
+        refusal = f"{prefix}_refusal"
+        normal = f"{prefix}_normal{unit}"
+        low = f"{prefix}_range_low{unit}"
+        high = f"{prefix}_range_high{unit}"
+        absence = f"{prefix}_normal_absence"
+        days = f"{prefix}_admitted_days"
+        if getattr(self, admitted) != (getattr(self, refusal) is None):
+            raise ContractError(
+                f"{admitted} : vrai si et seulement si {refusal} est absent."
+            )
+        if (getattr(self, refusal) is AdmissionRefusal.ABSENT_ROW) != (
+            self.state is DayRowState.ABSENT
+        ):
+            raise ContractError(
+                f"{refusal} vaut absent_row si et seulement si state est absent."
+            )
+        if getattr(self, admitted) and getattr(self, value) is None:
+            raise ContractError(f"{admitted} : une valeur admise ({value}) est là.")
+        group = (
+            (normal, low, high, "hrv_log_dispersion", "hrv_log_median")
+            if prefix == "hrv"
+            else (normal, low, high, f"{prefix}_dispersion{unit}")
+        )
+        if len({getattr(self, name) is None for name in group}) > 1:
+            raise ContractError(f"{', '.join(group)} vont ensemble.")
+        if (getattr(self, normal) is None) == (getattr(self, absence) is None):
+            raise ContractError(
+                f"{normal} et {absence} : l'un ou l'autre, jamais les deux."
+            )
+        if (getattr(self, absence) is NormalAbsence.NO_ADMITTED_DAY) != (
+            getattr(self, days) == 0
+        ):
+            raise ContractError(
+                f"{absence} vaut no_admitted_day si et seulement si {days} est nul."
+            )
+        center = getattr(self, normal)
+        if center is None:
+            return
+        if not getattr(self, low) <= center <= getattr(self, high):
+            raise ContractError(f"Il faut {low} <= {normal} <= {high}.")
+        if prefix == "hrv" and self.hrv_log_median is not None:
+            try:
+                expected = math.exp(self.hrv_log_median)
+            except OverflowError:
+                expected = math.inf
+            if not math.isclose(center, expected, rel_tol=1e-9):
+                raise ContractError("hrv_normal_ms doit valoir exp(hrv_log_median).")
+
+    def _check_absent_row(self) -> None:
+        if self.device_ranks:
+            raise ContractError("Une ligne absent n'a pas de rang : device_ranks vide.")
+        if self.body_battery_series_versions:
+            raise ContractError(
+                "Une ligne absent n'a pas de version : body_battery_series_versions "
+                "vide."
+            )
+        for name in _ABSENT_ROW_MISSING:
+            if getattr(self, name) is not None:
+                raise ContractError(
+                    f"Une ligne absent n'a ni version ni valeur du jour : {name}."
+                )
+        if self.night_state is not NightState.MISSING:
+            raise ContractError(
+                "Une ligne absent n'a pas de nuit : night_state missing."
+            )
+        if self.nap_count != 0:
+            raise ContractError("Une ligne absent n'a pas de sieste : nap_count nul.")
+        if self.resting_hr_status is not RestingHrStatus.ABSENT:
+            raise ContractError("Une ligne absent : resting_hr_status vaut absent.")
+        if self.readiness_entry_count != 0:
+            raise ContractError(
+                "Une ligne absent n'a pas d'entrée de Training Readiness : "
+                "readiness_entry_count nul."
+            )
 
 
 @dataclass(frozen=True)
