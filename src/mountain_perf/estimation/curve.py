@@ -31,7 +31,7 @@ import math
 import statistics
 from bisect import bisect_right
 from collections import Counter, defaultdict
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from enum import StrEnum
@@ -179,6 +179,13 @@ class BinValue(StrEnum):
 
     POOLED = "somme"
     MEDIAN = "médiane"
+
+
+class CurveMode(StrEnum):
+    """Comment les activités d'une courbe ont été choisies (OG-1)."""
+
+    RANGE = "plage"
+    ORIGIN = "origine"
 
 
 class IntervalExclusion(StrEnum):
@@ -920,16 +927,23 @@ def estimation_document(
     commit: str,
     exports_retrieved_at: Sequence[datetime],
     support_error: str | None,
+    origin: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
     """Le document que ``write_curve`` range sous la clé ``estimation`` du compagnon,
     et que ``read_curve`` ignore : la méthode, ses paramètres, le niveau, les écarts,
     les comptes et les diagnostics des tranches (``0017``, P5.4), en JSON simple.
 
     ``exports_retrieved_at`` : les instants d'acquisition des exports lus, distincts
-    comme instants, ramenés en UTC et triés comme instants."""
+    comme instants, ramenés en UTC et triés comme instants.
+
+    Le schéma est fixe (OG-1) : ``mode`` dit « plage » ou « origine », ``origin`` porte
+    une copie de la section ``origin`` d'une courbe à l'origine, ``null`` pour une
+    plage."""
     counts = estimate.counts
     return {
         "method": METHOD,
+        "mode": (CurveMode.RANGE if origin is None else CurveMode.ORIGIN).value,
+        "origin": None if origin is None else dict(origin),
         "commit": commit,
         "value": selection.value.value,
         "bin_edges_permille": list(CURVE_BIN_EDGES_PERMILLE),

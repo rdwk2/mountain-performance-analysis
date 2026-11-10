@@ -413,6 +413,8 @@ def test_the_document_keys_in_their_order() -> None:
     )
     assert list(doc) == [
         "method",
+        "mode",
+        "origin",
         "commit",
         "value",
         "bin_edges_permille",
@@ -434,6 +436,8 @@ def test_the_document_keys_in_their_order() -> None:
         "bins",
         "exports_retrieved_at",
     ]
+    assert doc["mode"] == "plage"
+    assert doc["origin"] is None
     assert result.support_grade_range is not None
     assert doc["support_grade_range"] == list(result.support_grade_range)
     level = doc["level"]

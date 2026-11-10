@@ -44,8 +44,10 @@ from mountain_perf.estimation.origin import (
     check_window,
     cold_start_warning,
     estimate_at_origin,
+    origin_document,
     origin_history,
     recording_end,
+    retained_start_days,
     select_at_origin,
     window_lower_bound,
 )
@@ -990,3 +992,144 @@ def test_the_range_selection_wants_dates() -> None:
     index = ActivityIndex((), (SOURCE,))
     with pytest.raises(ContractError, match="une plage de dates est requise"):
         select_candidates(index, origin_selection())
+
+
+# --- Le compagnon -------------------------------------------------------------------
+
+
+LINE_KEYS = [
+    "activity_ref",
+    "decision",
+    "method",
+    "index_start",
+    "index_end",
+    "recording_start",
+    "recording_end",
+    "safe_end",
+    "recording_sha256",
+    "fate",
+    "contributes",
+]
+"""Les onze clés d'une ligne, recopiées du § 6.5 du brief."""
+
+
+def test_the_retained_start_days_are_local_days() -> None:
+    """Le départ de ``a``, le 20 à 00:30 à son heure locale, est le 19 en UTC."""
+    local = datetime(2024, 3, 20, 0, 30, tzinfo=timezone(timedelta(hours=2)))
+    first = activity_pair("a", local, index_elapsed_s=None, recording_s=3600.0)
+    season = corpus([first, *_season()[1:8]])
+    result = rule(season)
+    assert retained_start_days(result, season) == (date(2024, 3, 20), date(2024, 3, 27))
+
+
+def _lines(document: dict[str, object]) -> list[dict[str, object]]:
+    lines = document["activities"]
+    assert isinstance(lines, list)
+    return lines
+
+
+def test_the_origin_document() -> None:
+    season = corpus(_season())
+    document = origin_document(rule(season), season)
+    assert list(document) == [
+        "origin",
+        "window",
+        "lower_bound",
+        "outcome",
+        "index_sha256",
+        "data_available_at",
+        "last_retained_end",
+        "history",
+        "activities",
+    ]
+    assert document["origin"] == "2024-03-31T22:00:00+00:00"
+    assert document["window"] == 56
+    assert document["lower_bound"] == "2024-02-04T23:00:00+00:00"
+    assert document["outcome"] == "courbe projetable"
+    assert document["index_sha256"] == "b" * 64
+    assert document["data_available_at"] == "2024-03-27T09:00:00+00:00"
+    assert document["last_retained_end"] == "2024-03-27T09:00:00+00:00"
+    assert document["history"] == {
+        "foot_index_finished": 0,
+        "foot_without_index_elapsed": 8,
+        "selected_index_finished": 0,
+        "selected_without_index_elapsed": 8,
+    }
+    lines = _lines(document)
+    assert [line["activity_ref"] for line in lines] == [
+        *(f"s{k}" for k in range(8)),
+        "apres",
+    ]
+    assert list(lines[0]) == LINE_KEYS
+    assert lines[0] == {
+        "activity_ref": "s0",
+        "decision": "candidate",
+        "method": "fin inférée",
+        "index_start": "2024-03-20T08:00:00+00:00",
+        "index_end": None,
+        "recording_start": "2024-03-20T08:00:00+00:00",
+        "recording_end": "2024-03-20T09:00:00+00:00",
+        "safe_end": "2024-03-20T09:00:00+00:00",
+        "recording_sha256": SHA,
+        "fate": "retenue",
+        "contributes": True,
+    }
+    assert lines[-1] == {
+        "activity_ref": "apres",
+        "decision": "finie à l'origine ou après",
+        "method": "index seul",
+        "index_start": "2024-04-02T08:00:00+00:00",
+        "index_end": "2024-04-02T09:00:00+00:00",
+        "recording_start": None,
+        "recording_end": None,
+        "safe_end": None,
+        "recording_sha256": None,
+        "fate": None,
+        "contributes": False,
+    }
+
+
+def test_a_read_recording_is_written_for_a_non_candidate() -> None:
+    """Choix 33 : la méthode décide, pas la décision. ``v`` (sans écoulé, finie avant la
+    borne basse) et ``a`` (T01) ont lu leur enregistrement : leur ligne écrit sa
+    fin sûre et son empreinte."""
+    crossing = activity_pair(
+        "a", at(31, 21, 40), index_elapsed_s=600.0, recording_s=2400.0
+    )
+    old = activity_pair(
+        "v", at(1, 8, month=2), index_elapsed_s=None, recording_s=3600.0
+    )
+    season = corpus([old, *_season(), crossing])
+    lines = _lines(origin_document(rule(season), season))
+    assert [line["activity_ref"] for line in lines] == [
+        "v",
+        *(f"s{k}" for k in range(8)),
+        "a",
+        "apres",
+    ]
+    assert lines[0] == {
+        "activity_ref": "v",
+        "decision": "finie avant la fenêtre",
+        "method": "fin inférée",
+        "index_start": "2024-02-01T08:00:00+00:00",
+        "index_end": None,
+        "recording_start": "2024-02-01T08:00:00+00:00",
+        "recording_end": "2024-02-01T09:00:00+00:00",
+        "safe_end": "2024-02-01T09:00:00+00:00",
+        "recording_sha256": SHA,
+        "fate": None,
+        "contributes": False,
+    }
+    assert lines[-2] == {
+        "activity_ref": "a",
+        "decision": "finie à l'origine ou après",
+        "method": "index et enregistrement",
+        "index_start": "2024-03-31T21:40:00+00:00",
+        "index_end": "2024-03-31T21:50:00+00:00",
+        "recording_start": "2024-03-31T21:40:00+00:00",
+        "recording_end": "2024-03-31T22:20:00+00:00",
+        "safe_end": "2024-03-31T22:20:00+00:00",
+        "recording_sha256": SHA,
+        "fate": None,
+        "contributes": False,
+    }

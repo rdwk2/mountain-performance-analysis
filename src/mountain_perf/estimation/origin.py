@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from enum import StrEnum
 from types import MappingProxyType
 from typing import Final, Literal
@@ -610,3 +610,78 @@ def estimate_at_origin(
         history,
         support_threshold_min,
     )
+
+
+def retained_start_days(
+    result: OriginEstimate, corpus: CurveCorpus
+) -> tuple[date, date] | None:
+    """Le plus ancien et le plus récent des jours civils **locaux** de départ des
+    retenues (l'heure locale de l'index, ``0017``, P2.2) : l'étendue descriptive que la
+    provenance porte à l'origine ; ``None`` sans retenue."""
+    retained = {
+        fate.activity_ref for fate in result.activity_fates if fate.exclusion is None
+    }
+    days = [
+        entry.start_time.date()
+        for entry in corpus.index.entries
+        if entry.activity_ref in retained
+    ]
+    return (min(days), max(days)) if days else None
+
+
+def _instant(moment: datetime | None) -> str | None:
+    return None if moment is None else moment.astimezone(UTC).isoformat()
+
+
+def _activity_line(
+    inspection: Inspection, fates: Mapping[str, ActivityFate]
+) -> dict[str, object]:
+    """La ligne d'une inspectée au compagnon. La méthode décide, pas la décision : une
+    ligne décidée sur l'index seul n'a pas lu son enregistrement, et n'écrit ni fin sûre
+    ni empreinte ; une non-candidate dont l'enregistrement a été lu les écrit."""
+    end = inspection.end
+    fate = fates.get(end.activity_ref)
+    label: str | None = None
+    if fate is not None:
+        label = "retenue" if fate.exclusion is None else fate.exclusion.value
+    return {
+        "activity_ref": end.activity_ref,
+        "decision": inspection.decision.value,
+        "method": end.method.value,
+        "index_start": _instant(end.index_start),
+        "index_end": _instant(end.index_end),
+        "recording_start": _instant(end.recording_start),
+        "recording_end": _instant(end.recording_end),
+        "safe_end": (
+            None if end.method is EndMethod.INDEX_ONLY else _instant(end.safe_end)
+        ),
+        "recording_sha256": inspection.recording_sha256,
+        "fate": label,
+        "contributes": fate is not None and fate.contributes,
+    }
+
+
+def origin_document(result: OriginEstimate, corpus: CurveCorpus) -> dict[str, object]:
+    """La section ``origin`` du document d'estimation d'une courbe à l'origine :
+    l'origine, sa fenêtre, l'issue, l'empreinte de l'index, les dates, l'historique et
+    une ligne par activité inspectée, dans l'ordre de l'index."""
+    fates = {fate.activity_ref: fate for fate in result.activity_fates}
+    history = result.history
+    return {
+        "origin": _instant(result.origin),
+        "window": result.window,
+        "lower_bound": _instant(result.lower_bound),
+        "outcome": result.outcome.value,
+        "index_sha256": corpus.index_sha256,
+        "data_available_at": _instant(result.data_available_at),
+        "last_retained_end": _instant(result.last_retained_end),
+        "history": {
+            "foot_index_finished": history.foot_index_finished,
+            "foot_without_index_elapsed": history.foot_without_index_elapsed,
+            "selected_index_finished": history.selected_index_finished,
+            "selected_without_index_elapsed": history.selected_without_index_elapsed,
+        },
+        "activities": [
+            _activity_line(inspection, fates) for inspection in result.inspections
+        ],
+    }
