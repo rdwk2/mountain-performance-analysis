@@ -3053,7 +3053,6 @@ def _run_curve(args: argparse.Namespace) -> int:
     from mountain_perf import gitstate
     from mountain_perf.estimation.curve import (
         CURVE_ESTIMATION_PARAMETER_SPECS,
-        SUPPORT_THRESHOLD_MIN,
         BinValue,
         CurveSelection,
         curve_file_rows,
@@ -3063,7 +3062,12 @@ def _run_curve(args: argparse.Namespace) -> int:
     )
     from mountain_perf.estimation.intervals import activity_intervals
     from mountain_perf.ingest.interim import InterimError, read_index, read_recording
-    from mountain_perf.model.curve_io import META_SUFFIX, check_curve_rows, write_curve
+    from mountain_perf.model.curve_io import (
+        CURVE_PARAMETER_SPECS,
+        META_SUFFIX,
+        check_curve_rows,
+        write_curve,
+    )
     from mountain_perf.schemas import CurveProvenance, Sport
 
     try:
@@ -3078,6 +3082,14 @@ def _run_curve(args: argparse.Namespace) -> int:
         if args.hr_lag is not None:
             values["hr_lag_s"] = args.hr_lag
         parameters = ParameterSet(CURVE_ESTIMATION_PARAMETER_SPECS, values)
+        threshold_values = (
+            {}
+            if args.min_support_min is None
+            else {"curve_min_support_min": args.min_support_min}
+        )
+        support_threshold_min = ParameterSet(CURVE_PARAMETER_SPECS, threshold_values)[
+            "curve_min_support_min"
+        ]
         profile = ParameterSet(PROFILE_PARAMETER_SPECS)
         types = args.types.split(",")
         for value in types:
@@ -3136,10 +3148,14 @@ def _run_curve(args: argparse.Namespace) -> int:
                 )
             )
         estimate = estimate_curve(
-            candidates, [entry.activity_ref for entry in entries], selection, parameters
+            candidates,
+            [entry.activity_ref for entry in entries],
+            selection,
+            parameters,
+            support_threshold_min=support_threshold_min,
         )
         rows = curve_file_rows(estimate)
-        support_error = check_curve_rows(rows, SUPPORT_THRESHOLD_MIN)
+        support_error = check_curve_rows(rows, support_threshold_min)
         filtered = selection.hr_center_bpm is not None
         provenance = CurveProvenance(
             activity_count=len(estimate.activity_refs),
@@ -3158,6 +3174,7 @@ def _run_curve(args: argparse.Namespace) -> int:
             max_duration_s=selection.max_duration_s,
             max_elapsed_s=selection.max_elapsed_s,
             hr_lag_s=parameters["hr_lag_s"] if filtered else None,
+            diagnostic_support_threshold_min=support_threshold_min,
         )
         retained = set(estimate.activity_refs)
         # L'entrée et l'enregistrement d'une activité peuvent venir de deux exports
@@ -3190,10 +3207,13 @@ def _run_curve(args: argparse.Namespace) -> int:
         print(f"Erreur : {error}", file=sys.stderr)
         return 1
     counts = estimate.counts
-    long_bins = sum(1 for b in estimate.bins if b.moving_s >= 600)
+    long_bins = sum(
+        1 for b in estimate.bins if b.moving_s >= support_threshold_min * 60
+    )
     print(
         f"activités retenues : {counts.retained} sur {counts.candidates} candidates ; "
-        f"tranches : {len(estimate.bins)}, dont {long_bins} d'au moins 10 min"
+        f"tranches : {len(estimate.bins)}, dont {long_bins} d'au moins "
+        f"{support_threshold_min:g} min"
     )
     for activity_reason, count in estimate.excluded_activities:
         print(f"  activités écartées, {activity_reason.value} : {count}")
@@ -3390,6 +3410,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         type=float,
         metavar="S",
         help="Décalage de la FC (défaut 60)",
+    )
+    curve_parser.add_argument(
+        "--min-support-min",
+        dest="min_support_min",
+        type=float,
+        metavar="MIN",
+        help=(
+            "Seuil de support des diagnostics (niveau, forme, verdict projetable), "
+            "écrit dans le compagnon (défaut 10) ; une lecture garde son propre seuil"
+        ),
     )
     curve_parser.add_argument(
         "--value",

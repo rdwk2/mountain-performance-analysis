@@ -25,6 +25,7 @@ from typing import Any, Final
 
 from mountain_perf.schemas import (
     GRADE_RANGE,
+    SUPPORT_THRESHOLD_RANGE_MIN,
     CurveProvenance,
     PaceCurve,
     ParameterDisplay,
@@ -35,13 +36,16 @@ from mountain_perf.schemas import (
 )
 from mountain_perf.units import kmh_to_ms
 
+DEFAULT_SUPPORT_THRESHOLD_MIN: Final = 10.0
+"""Le seuil de support par défaut, en minutes (``0009`` D2)."""
+
 CURVE_PARAMETER_SPECS: tuple[ParameterSpec, ...] = (
     ParameterSpec(
         name="curve_min_support_min",
         unit="min",
-        default=10.0,
-        minimum=0.0,
-        maximum=1440.0,
+        default=DEFAULT_SUPPORT_THRESHOLD_MIN,
+        minimum=SUPPORT_THRESHOLD_RANGE_MIN[0],
+        maximum=SUPPORT_THRESHOLD_RANGE_MIN[1],
         description=(
             "Données minimales par tranche de pente pour la retenir ; "
             "0 = aucun filtre de support."
@@ -54,6 +58,11 @@ La borne haute de 1 440 minutes — vingt-quatre heures de données dans une seu
 tranche — n'a pas de sens physique atteignable ; elle existe parce que
 ``ParameterSpec`` exige un maximum fini, et elle transforme une faute de frappe en
 erreur de contrat plutôt qu'en courbe vide.
+
+*(OG-1)* Le seuil reste un paramètre de chaque lecture : ``read_curve`` filtre à ce
+seuil, sans rien recalculer. L'estimation écrit, au compagnon, celui de ses diagnostics
+(``diagnostic_support_threshold_min``) : une information, jamais une contrainte de
+lecture.
 """
 
 CURVE_PARAMETER_DISPLAYS: tuple[ParameterDisplay, ...] = (
@@ -505,6 +514,9 @@ def _read_provenance(path: Path) -> tuple[Sport, CurveProvenance]:
         max_duration_s=_absent_or_number(meta, "max_duration_s", name),
         max_elapsed_s=_absent_or_number(meta, "max_elapsed_s", name),
         hr_lag_s=_absent_or_number(meta, "hr_lag_s", name),
+        diagnostic_support_threshold_min=_absent_or_number(
+            meta, "diagnostic_support_threshold_min", name
+        ),
     )
     return _sport(meta, name), provenance
 
@@ -653,6 +665,7 @@ def _meta_text(
         "min_duration_s": provenance.min_duration_s,
         "max_duration_s": provenance.max_duration_s,
         "max_elapsed_s": provenance.max_elapsed_s,
+        "diagnostic_support_threshold_min": provenance.diagnostic_support_threshold_min,
         "athlete_ref": provenance.athlete_ref,
         "estimator": provenance.estimator,
         "generated_at": provenance.generated_at.isoformat(),

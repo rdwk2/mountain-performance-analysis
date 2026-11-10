@@ -102,7 +102,11 @@ from mountain_perf.schemas.common import (
     SourceRef,
     Sport,
 )
-from mountain_perf.schemas.curve import CurveProvenance, PaceCurve
+from mountain_perf.schemas.curve import (
+    SUPPORT_THRESHOLD_RANGE_MIN,
+    CurveProvenance,
+    PaceCurve,
+)
 from mountain_perf.schemas.days import (
     BODY_BATTERY_STATUS_DESCRIPTIONS,
     BORROWING_REFUSAL_DESCRIPTIONS,
@@ -545,6 +549,7 @@ __all__ = [
     "SPORT_DESCRIPTIONS",
     "SUPPORT_COMPONENT_DESCRIPTIONS",
     "SUPPORT_DESCRIPTIONS",
+    "SUPPORT_THRESHOLD_RANGE_MIN",
     "TEMPERATURE_RANGE_C",
     "THRESHOLD_SOURCE_DESCRIPTIONS",
     "TIMER_EVENT_TYPE_DESCRIPTIONS",

@@ -44,7 +44,7 @@ from mountain_perf.estimation.intervals import (
     TraceRefusal,
 )
 from mountain_perf.model.curve_io import (
-    CURVE_PARAMETER_SPECS,
+    DEFAULT_SUPPORT_THRESHOLD_MIN,
     CurveBin,
     CurveError,
     CurveFileRow,
@@ -53,6 +53,7 @@ from mountain_perf.model.curve_io import (
 from mountain_perf.model.pace import PaceModel
 from mountain_perf.schemas import (
     HEART_RATE_RANGE_BPM,
+    SUPPORT_THRESHOLD_RANGE_MIN,
     ActivityIndex,
     CurveProvenance,
     IndexedActivity,
@@ -155,9 +156,9 @@ CURVE_ESTIMATION_PARAMETER_SPECS: tuple[ParameterSpec, ...] = (
 )
 """Les paramètres de l'estimateur (``0017``)."""
 
-SUPPORT_THRESHOLD_MIN = ParameterSet(CURVE_PARAMETER_SPECS)["curve_min_support_min"]
-"""Le seuil de support par défaut de ``read_curve`` (``0009`` D2), en minutes, pour le
-niveau et pour ``check_curve_rows``."""
+SUPPORT_THRESHOLD_MIN = DEFAULT_SUPPORT_THRESHOLD_MIN
+"""Le seuil de support par défaut de ``read_curve`` (``0009`` D2), en minutes ; le seuil
+des diagnostics d'une estimation qui n'en dit pas d'autre (OG-1)."""
 
 _FILL_PROVENANCE = CurveProvenance(
     activity_count=0,
@@ -385,7 +386,10 @@ class CurveEstimate:
     - ``activity_refs`` — les activités retenues, dans l'ordre reçu ;
     - ``excluded_activities``, ``excluded_intervals`` — les écarts par motif, dans
       l'ordre de leur énumération, sans les motifs à zéro ;
-    - ``counts`` — les comptes par étage.
+    - ``counts`` — les comptes par étage ;
+    - ``support_grade_range`` — fractions — les centres de la première et de la dernière
+      tranche du support au seuil des diagnostics, ``None`` si le support est impossible
+      (OG-1).
     """
 
     bins: tuple[EstimatedBin, ...]
@@ -395,6 +399,7 @@ class CurveEstimate:
     excluded_activities: tuple[tuple[ActivityExclusion, int], ...]
     excluded_intervals: tuple[tuple[IntervalExclusion, int], ...]
     counts: CurveCounts
+    support_grade_range: tuple[float, float] | None = None
 
 
 def bin_index(grade: float) -> int | None:
@@ -555,15 +560,16 @@ def _predicted_s(model: PaceModel, intervals: Sequence[CurveInterval]) -> float:
     return math.fsum(i.length_m * model.pace_s_per_m(i.grade) for i in intervals)
 
 
-def _pace_model(bins: Sequence[EstimatedBin]) -> PaceModel | None:
+def _pace_model(bins: Sequence[EstimatedBin], threshold_min: float) -> PaceModel | None:
     """Le moteur sur la courbe des tranches estimées, à la règle de support de
-    ``read_curve`` ; ``None`` si le support est impossible (``0017``, P3.7, P4.1)."""
+    ``read_curve`` au seuil ``threshold_min`` (minutes) ; ``None`` si le support est
+    impossible (``0017``, P3.7, P4.1 ; le seuil, OG-1)."""
     curve_bins = [
         CurveBin(b.center_grade, b.speed_ms, b.moving_s / 60, b.activity_count)
         for b in bins
     ]
     try:
-        kept, _ = select_support(curve_bins, SUPPORT_THRESHOLD_MIN)
+        kept, _ = select_support(curve_bins, threshold_min)
     except CurveError:
         return None
     return PaceModel(
@@ -584,14 +590,24 @@ def estimate_curve(
     candidate_refs: Sequence[str],
     selection: CurveSelection,
     parameters: ParameterSet,
+    *,
+    support_threshold_min: float = SUPPORT_THRESHOLD_MIN,
 ) -> CurveEstimate:
     """La courbe estimée sur ``candidates`` (``candidate_refs[i]`` nomme
     ``candidates[i]``), la chaîne de la docstring du module dans cet ordre.
+
+    Le niveau, la forme et la plage de support se calculent au seuil
+    ``support_threshold_min`` (minutes, OG-1) ; un seuil non fini ou hors de
+    ``SUPPORT_THRESHOLD_RANGE_MIN`` lève ``ContractError``, avant tout calcul.
 
     ``ValueError`` si des intervalles ont été coupés à un autre plafond que celui de la
     sélection (l'appelant coupe au plafond déclaré, ``0017``, P2.4) ; ``CurveError`` si
     aucune tranche ne s'estime, avec la raison.
     """
+    require_finite(support_threshold_min, "support_threshold_min")
+    require_in_range(
+        support_threshold_min, *SUPPORT_THRESHOLD_RANGE_MIN, "support_threshold_min"
+    )
     activity_exclusions: Counter[ActivityExclusion] = Counter()
     interval_exclusions: Counter[IntervalExclusion] = Counter()
     excluded_length: defaultdict[IntervalExclusion, list[float]] = defaultdict(list)
@@ -669,7 +685,7 @@ def estimate_curve(
 
     level: LevelQuantiles | None = None
     levels: dict[str, float] = {}
-    model = _pace_model(bins)
+    model = _pace_model(bins, support_threshold_min)
     if model is not None:
         for ref, kept in retained:
             moving = [interval for interval in kept if interval.moving_s > 0]
@@ -763,6 +779,7 @@ def estimate_curve(
             if interval_exclusions[reason]
         ),
         counts=counts,
+        support_grade_range=None if model is None else model.grade_range,
     )
 
 
@@ -824,6 +841,11 @@ def estimation_document(
         "parameters": dict(parameters.values),
         "projectable": support_error is None,
         "support_error": support_error,
+        "support_grade_range": (
+            None
+            if estimate.support_grade_range is None
+            else list(estimate.support_grade_range)
+        ),
         "level": (
             None
             if estimate.level is None

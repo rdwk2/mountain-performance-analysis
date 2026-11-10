@@ -22,6 +22,7 @@ from fixtures.montees import recording as montee
 from mountain_perf.estimation.curve import (
     CURVE_ESTIMATION_PARAMETER_SPECS,
     METHOD,
+    SUPPORT_THRESHOLD_MIN,
     ActivityExclusion,
     BinValue,
     CurveEstimate,
@@ -423,6 +424,7 @@ def test_the_document_keys_in_their_order() -> None:
         "parameters",
         "projectable",
         "support_error",
+        "support_grade_range",
         "level",
         "elapsed_moving_ratio",
         "excluded_activities",
@@ -432,6 +434,8 @@ def test_the_document_keys_in_their_order() -> None:
         "bins",
         "exports_retrieved_at",
     ]
+    assert result.support_grade_range is not None
+    assert doc["support_grade_range"] == list(result.support_grade_range)
     level = doc["level"]
     assert isinstance(level, dict)
     assert list(level) == ["p10", "p50", "p90", "count"]
@@ -713,7 +717,7 @@ def test_a_bin_of_ten_minutes_at_the_edge_is_in_the_support() -> None:
     result = estimate(outings)
     b = bin_of(result, GRADES[-1])
     assert b.moving_s == 600.0
-    model = _pace_model(result.bins)
+    model = _pace_model(result.bins, SUPPORT_THRESHOLD_MIN)
     assert model is not None
     assert model.grade_range == (GRADES[0], GRADES[-1])
     assert result.level is not None
