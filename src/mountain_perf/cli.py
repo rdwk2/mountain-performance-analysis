@@ -3161,8 +3161,8 @@ def _run_curve(args: argparse.Namespace) -> int:
             activity_count=len(estimate.activity_refs),
             hr_center_bpm=selection.hr_center_bpm,
             hr_width_bpm=parameters["hr_width_bpm"] if filtered else None,
-            date_from=selection.date_from,
-            date_to=selection.date_to,
+            date_from=args.date_from,
+            date_to=args.date_to,
             source_activity_types=selection.source_activity_types,
             min_duration_s=selection.min_duration_s,
             estimator=(

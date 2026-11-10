@@ -209,7 +209,8 @@ class CurveSelection:
     - ``source_activity_types`` — sans unité — types de la source retenus, au moins un
       (P2.1 : une liste vide n'est jamais « aucun filtre ») ;
     - ``date_from``, ``date_to`` — dates civiles — la fenêtre, bornes comprises, sur le
-      jour local du départ (P2.2) ;
+      jour local du départ (P2.2) ; présentes ensemble ou absentes ensemble (OG-1) :
+      absentes, la sélection est celle de la règle à l'origine, par l'instant de fin ;
     - ``min_duration_s`` — secondes — durée minimale d'une activité, comprise,
       ``>= 0`` ;
     - ``max_duration_s`` — secondes — durée maximale, exclue, ``> 0`` et au-dessus de la
@@ -223,8 +224,8 @@ class CurveSelection:
     """
 
     source_activity_types: frozenset[str]
-    date_from: date
-    date_to: date
+    date_from: date | None
+    date_to: date | None
     min_duration_s: float | None
     max_duration_s: float | None
     max_elapsed_s: float | None
@@ -236,7 +237,15 @@ class CurveSelection:
             raise ContractError("source_activity_types : au moins un type.")
         for activity_type in sorted(self.source_activity_types):
             require_non_empty(activity_type, "source_activity_types")
-        if self.date_from > self.date_to:
+        if (self.date_from is None) != (self.date_to is None):
+            raise ContractError(
+                "date_from et date_to : présentes ensemble ou absentes ensemble."
+            )
+        if (
+            self.date_from is not None
+            and self.date_to is not None
+            and self.date_from > self.date_to
+        ):
             raise ContractError(
                 f"date_from ({self.date_from}) doit être <= date_to ({self.date_to})."
             )
@@ -464,13 +473,22 @@ def select_candidates(
     Ce jour peut différer du jour à Paris de ``0010`` (D0, D2.2) pour une sortie
     enregistrée sous un autre fuseau ; l'index est la source de vérité du filtre
     (``0013``, précision 3).
+
+    Une sélection sans dates est refusée (``ContractError``, OG-1) : celle de la règle à
+    l'origine se fait par l'instant de fin (:mod:`mountain_perf.estimation.origin`).
     """
+    date_from, date_to = selection.date_from, selection.date_to
+    if date_from is None or date_to is None:
+        raise ContractError(
+            "select_candidates : une plage de dates est requise ; la règle à l'origine "
+            "sélectionne par l'instant de fin (estimation/origin.py)."
+        )
     return tuple(
         entry
         for entry in index.entries
         if entry.has_recording
         and entry.source_activity_type in selection.source_activity_types
-        and selection.date_from <= entry.start_time.date() <= selection.date_to
+        and date_from <= entry.start_time.date() <= date_to
     )
 
 
