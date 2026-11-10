@@ -1,5 +1,6 @@
 """Les enchaînements des commandes, communs à ``mperf`` et à l'interface : ``mperf
-project`` (M5-1) et ``mperf match`` (M5-2).
+project`` (M5-1) et ``mperf match`` (M5-2) ; le chargement du corpus de la règle à
+l'origine (OG-1).
 
 Une commande et une page qui font la même chose appellent la même fonction, donc dans
 le même ordre, et la même erreur sort la première. Ce module importe les seuls modules
@@ -9,7 +10,7 @@ ni l'exécution enregistrée.
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from mountain_perf.backtest.calendar import civil_date
@@ -19,6 +20,12 @@ from mountain_perf.backtest.passages import observe_passages
 from mountain_perf.backtest.scoring import report_clocks, v0_scores
 from mountain_perf.backtest.segments import match_trace
 from mountain_perf.clocks import clock_partition
+from mountain_perf.estimation.origin import (
+    CurveCorpus,
+    OriginWindow,
+    check_origin,
+    window_lower_bound,
+)
 from mountain_perf.gpx import (
     PROFILE_PARAMETER_SPECS,
     GpxReadResult,
@@ -28,6 +35,10 @@ from mountain_perf.gpx import (
     read_gpx,
 )
 from mountain_perf.gpx.trace_reader import read_trace
+from mountain_perf.ingest.interim import (
+    read_index_with_sha256,
+    read_recording_with_sha256,
+)
 from mountain_perf.model import (
     PROJECTION_PARAMETER_SPECS,
     CurveReadResult,
@@ -36,6 +47,7 @@ from mountain_perf.model import (
     read_curve,
     route_endpoints,
 )
+from mountain_perf.model.curve_io import CurveError
 from mountain_perf.schemas import (
     Clock,
     ClockPartition,
@@ -192,3 +204,51 @@ def check_outing(match: OutingMatch, *, with_reference: bool = True) -> OutingCh
         civil_date(match.trace.start_time),
         in_curve_window(match.trace.start_time, curve.curve.estimation),
     )
+
+
+def load_curve_corpus(
+    folder: Path,
+    athlete_ref: str,
+    activity_types: frozenset[str],
+    origin: datetime,
+    window: OriginWindow,
+) -> CurveCorpus:
+    """Le corpus de ``athlete_ref`` pour la règle à l'origine (OG-1,
+    ``docs/decisions/0020``), attesté par les empreintes des octets lus sous
+    ``folder`` : l'index, puis, dans son ordre, l'enregistrement de chaque entrée des
+    types choisis qui en a un, **sauf** si l'index la fait finir (départ + écoulé) à
+    l'origine ou après, ou avant la borne basse ; une entrée sans écoulé est lue. Ce
+    sont exactement les décisions que ``select_at_origin`` prend sur l'index seul.
+
+    Un document qui ne se relit pas (une ``ValueError`` : ``CodecError``,
+    ``ContractError``) devient une ``CurveError`` qui le nomme et dit de relancer
+    ``mperf ingest`` ; une ``InterimError`` (fichier absent, document qui porte un autre
+    identifiant que son nom) remonte telle quelle.
+    """
+    moment = check_origin(origin)
+    lower_bound = window_lower_bound(moment, window)
+    try:
+        index, index_sha256 = read_index_with_sha256(folder)
+    except ValueError as error:
+        raise CurveError(
+            f"index d'interim/ : {error} ; relancer `mperf ingest`."
+        ) from error
+    recordings = {}
+    digests = {}
+    for entry in index.entries:
+        if not entry.has_recording or entry.source_activity_type not in activity_types:
+            continue
+        if entry.elapsed_duration_s is not None:
+            index_end = entry.start_time + timedelta(seconds=entry.elapsed_duration_s)
+            if index_end >= moment:
+                continue
+            if lower_bound is not None and index_end < lower_bound:
+                continue
+        ref = entry.activity_ref
+        try:
+            recordings[ref], digests[ref] = read_recording_with_sha256(folder, ref)
+        except ValueError as error:
+            raise CurveError(
+                f"activité {ref} : {error} ; relancer `mperf ingest`."
+            ) from error
+    return CurveCorpus(athlete_ref, index, index_sha256, recordings, digests)
