@@ -187,6 +187,31 @@ l'acquisition, reportée (ci-dessus), et les détecteurs de qualité (une ligne 
 
 ---
 
+### OG — L'origine glissante, l'athlète comme dimension
+Nécessite M6b.
+
+Le backtest projette aujourd'hui toutes les performances avec une seule courbe, déclarée
+une fois, et la courbe neuve de M6b est estimée sur des performances qui la mesurent.
+L'origine glissante remplace la courbe déclarée par une règle : pour chaque performance,
+la courbe estimée sur les seules activités de l'athlète finies avant l'origine, chaque
+score devenant une prévision hors échantillon. La même règle sert l'usage.
+
+- passe experte 1 (la règle) ;
+- **OG-1** : la règle à l'origine (`mperf curve --at`) ;
+- **OG-UI** : les pages à l'origine et `mperf project course.gpx --at D`, en parallèle de
+  la passe experte 2 (le backtest glissant) ;
+- **OG-2** : le backtest glissant (structurante : `0010`) ;
+- les trois exécutions réelles, par rdw (28 jours, 56 jours, tout le passé) ;
+- **OG-3** : le `JOURNAL`.
+
+**Fini quand** : les trois exécutions réelles sont publiées côte à côte au `JOURNAL`, sur
+les mêmes performances, sans qu'aucune fenêtre soit choisie après coup, et les pages de
+l'interface donnent la courbe à l'origine d'une date.
+
+**État** : OG-1 livrée (PR #41) : la règle à l'origine et `mperf curve --at` (`0020`).
+
+---
+
 ### M7 — Effets physiologiques et environnementaux
 Nécessite M6b.
 
@@ -228,6 +253,8 @@ M0 → M1 → M2 → M3 → M4 → M5
                          ├── M6a ──┐
                          └── M6b ──┴── M7 → M8 → M9
 ```
+
+OG attend M6b, dont il réemploie l'estimateur.
 
 M6a et M6b sont indépendants l'un de l'autre : rien de l'un ne bloque l'autre.
 L'estimation de la courbe (M6b) attend l'ingestion des activités, écrite par la piste

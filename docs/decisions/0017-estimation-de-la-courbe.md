@@ -93,6 +93,9 @@ Les règles ci-dessous, numérotées comme dans le code (« `0017`, P2.4 »).
 - **P2.2 — fenêtre.** Une fenêtre de dates déclarée, bornes comprises, sur le jour civil
   local du départ que dit l'index (`0013`, précision 3) ; il peut différer du jour à
   Paris de `0010` (D0, D2.2) pour une sortie enregistrée sous un autre fuseau.
+  *(précision, OG-1)* À l'origine (`mperf curve --at`, `0020`), la sélection ne se fait
+  pas par jour de départ : une activité est candidate si sa fin sûre est avant l'origine
+  et sa fin d'index à la borne basse ou après. P2.2 reste la sélection de `--from/--to`.
 - **P2.3 — durée.** Une durée minimale (comprise) et une durée maximale (exclue), sur
   l'écoulé de la trace, plafond ignoré.
 - **P2.4 — plafond.** Un plafond depuis le départ, aucun par défaut : il **coupe**
@@ -106,7 +109,9 @@ Les règles ci-dessous, numérotées comme dans le code (« `0017`, P2.4 »).
   retenues, en mouvement, de la médiane, avec un niveau ; intervalles de la grille,
   coupés, retenus, retenus sans temps M ; longueurs, temps et écoulés retenus ; écarts
   par motif, avec leur longueur. Un intervalle n'est écarté qu'une fois, au premier
-  motif.
+  motif. *(précision, OG-1)* Le sort de chaque candidate est associé à sa référence
+  (retenue ou son motif, et si elle porte une tranche estimée) ; sans tranche, ce
+  diagnostic survit, sans courbe.
 
 **P3 — les tranches.**
 
@@ -133,6 +138,9 @@ Les règles ci-dessous, numérotées comme dans le code (« `0017`, P2.4 »).
 - **P3.7 — le fichier.** Une ligne que `read_curve` refuserait n'est **pas écrite** :
   rien n'est écrit, et l'erreur dit la tranche. Un support impossible (`0009` D2), lui,
   s'écrit et se dit : la courbe est non projetable, sans niveau ni forme.
+  *(précision, OG-1)* Le contrôle des lignes et le verdict « projetable » se calculent au
+  seuil des diagnostics déclaré à l'estimation (10 min par défaut), écrit au compagnon ;
+  une lecture garde son propre seuil.
 
 **P4 — la dispersion.**
 
@@ -140,7 +148,9 @@ Les règles ci-dessous, numérotées comme dans le code (« `0017`, P2.4 »).
   moteur prévoit sur la courbe estimée (`PaceModel`, prolongement compris), sur ses
   seuls intervalles de temps M positif. Un **diagnostic d'ajustement, en échantillon** :
   la courbe contient l'activité. Absent si la courbe n'est pas projetable — jamais
-  `λ = 0`.
+  `λ = 0`. *(précision, OG-1)* Le niveau et la forme se calculent au seuil des
+  diagnostics déclaré à l'estimation (10 min par défaut), écrit au compagnon ; une
+  lecture garde son propre seuil.
 - **P4.2 — quantiles.** p10, p50, p90 du niveau et leur nombre, au compagnon, par la
   règle de rang de `0010` D11 (rang `⌈n·a/b⌉`) : `n = 0` absent, `n = 1` ponctuel, p50
   la médiane inférieure.
@@ -175,12 +185,16 @@ le compagnon porte en plus, sous `estimation`, ce que `read_curve` ignore : la m
 les paramètres, le niveau, les écarts, les comptes, les diagnostics des tranches et les
 exports lus — par leur instant d'acquisition, ceux des entrées **et** ceux des
 enregistrements (`0013`, précision 16). Une courbe n'est jamais réécrite ; le compagnon
-s'écrit avant le CSV et s'efface si le CSV échoue.
+s'écrit avant le CSV et s'efface si le CSV échoue. *(précision, OG-1)*
+`diagnostic_support_threshold_min` s'ajoute à la provenance ; `mode`, `origin` et
+`support_grade_range` au document `estimation`.
 
 **La commande.** `mperf curve <nom> --from --to --athlete` (et `just curve`), lancée par
 l'humain : les durées en minutes à la ligne de commande ; un arbre modifié refusé (la
 courbe dit le commit qui l'a estimée) ; une courbe existante refusée avant toute
-lecture ; `MPA_DATA_DIR/reference/<nom>.csv` et son compagnon.
+lecture ; `MPA_DATA_DIR/reference/<nom>.csv` et son compagnon. *(précision, OG-1)*
+`--at D [--window JOURS|all]`, exclusif de `--from/--to` (`0020`) ; `--min-support-min`,
+le seuil des diagnostics.
 
 **Ce que les sorties ne sont pas.** Le niveau est un diagnostic d'ajustement en
 échantillon ; `n_eff` mesure la concentration des poids, pas un nombre de jours
@@ -236,7 +250,9 @@ critère de support reste celui de `0009`.
 
 - La vitesse selon la durée de la sortie (M6a) : les sorties longues sont plus lentes à
   pente égale.
-- L'origine glissante, au lieu d'une fenêtre déclarée.
+- L'origine glissante, au lieu d'une fenêtre déclarée. *Note du 2026-11-10 (OG-1,
+  `0020`) :* la règle à l'origine existe pour la commande ; le backtest glissant vient
+  avec OG-2.
 - Les vecteurs conjoints par sortie et par régime pour M8 ; ne jamais ajouter le niveau
   de la courbe aux `Z_c` de `0010` D11 (double compte).
 - Le critère de support (`0009`), maintenant que le fichier porte le nombre d'activités

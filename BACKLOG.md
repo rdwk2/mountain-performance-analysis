@@ -35,6 +35,11 @@ Format : `- [ ] (jalon visé) idée — pourquoi`
 - [ ] (M7) Projection.start_time : quel instant désigne-t-il quand passages[0].arrival_s ≠ 0 — t = 0 ou passages[0].departure_s ? Indifférent en M3, à trancher avant les effets d'heure
 - [x] ~~(prochain passage sur model/pace, ou dès qu'il fait rougir une CI) Test de propriété instable : test_pace_varies_at_the_local_slope_on_each_side (tests/test_model_pace.py) — sa borne relative 1e−9 est trop serrée pour une pente extrême. Contre-exemple d'Hypothesis : grade = (−1.453125, −1.4375, 1.0), speed_ms = (1.0, 0.00390625, 1.0), epsilon = 1e−9 ; écart 1,6320001350e−5 pour une borne 1,6320001016e−5. Probablement l'échec intermittent de CI vu à la PR #8.~~ — fait le 2026-09-28 : PR M4b-0 (second contre-exemple : PR #12 ; le pas est mesuré sur l'abscisse évaluée)
 - [ ] (docs, prochaine PR documentaire qui touche ces fichiers) `docs/ROADMAP.md` (M3) et `docs/MODELE_V1.md` écrivent `v = pace(pente) × effort`, qui mêle allure et vitesse : le moteur calcule `durée_i = Δd_i × p(pente_i) / effort` (`model/engine.py`), soit une vitesse `effort / p(pente)`. La ROADMAP est un point de contact avec la piste analyse (relais README, 2026-10-16).
+- [ ] (après OG, recherche) L'historique cumulé appris par athlète : la forme comme empilement de l'entraînement des semaines, des mois et des années ; lié à M7 (l'état de forme au moment de la course).
+- [ ] (après OG) Une forme de population hors support, à la place du prolongement à vitesse verticale constante (`0009` D4), apprise sur GoldenCheetah seul (CC0).
+- [ ] (après OG) L'a priori et le rétrécissement de la courbe vers une forme de population pendant les vingt premières sorties (démarrage à froid).
+- [ ] (après OG) Le modèle hiérarchique de la courbe : une forme commune, un écart par athlète et par période, estimés ensemble.
+- [ ] (logiciel pour tous) `Gx3`, pour un athlète dont les séries sont à pas grossier ; sans effet sur des séries à 1 s.
 
 ## Données et ingestion
 
@@ -57,6 +62,7 @@ Format : `- [ ] (jalon visé) idée — pourquoi`
 - [x] ~~(M3) `format_duration(duration_s)` → `"1:23:45"` pour les tableaux de temps de passage~~ — fait : units.format_duration existe depuis M3 (relevé au cadrage de M5)
 - [ ] (M6a, avec le temps d'arrêt par point ; et la question du singulier contre frozenset) Remplir PointKind, à la main ou semi-automatiquement — aucune inférence en M1
 - [ ] (M2) Projeter un tracé à l'envers — ce n'est pas renverser la liste, D+ et D− s'échangent
+- [ ] (OG-1) `mperf curve --at D` avec D parmi les huit premiers jours de l'an 1 (jusqu'au 0001-01-08) : `backtest.calendar.origin` lève `OverflowError` hors du `try` de `_run_curve`, d'où une trace au lieu de « Erreur : … », code 1 ; aucun test ne l'exerce (point soumis du plan d'OG-1 ; décision de la conception : hors d'OG-1)
 
 ## Long terme — hors périmètre actuel
 
@@ -86,7 +92,7 @@ Format : `- [ ] (jalon visé) idée — pourquoi`
 
 - [x] ~~(M6b) Aligner la définition de `sample_count` : la lecture M3 y met des secondes de données, faute de comptage de points dans le CSV de courbe.~~ — fait le 2026-10-29 : PR M6b-1 (le nombre d'activités dans l'en-tête étendu, et la docstring de `PaceCurve`)
 - [x] ~~(M6b) Réestimer la courbe avec **le même opérateur de pente** que le moteur — largeur `W` identique — pour supprimer le biais d'échelle de D6 (`docs/decisions/0009`).~~ — fait le 2026-10-29 : PR M6b-1 (`mperf curve`, `0017`)
-- [ ] (M6b) Le seuil de support de 10 min est un choix par défaut d'aujourd'hui : le bon critère serait le nombre d'activités contributrices et leur dispersion, absents du fichier de courbe. Depuis M6b-1, le fichier porte le nombre d'activités de chaque tranche et sa forme ; le critère reste à décider.
+- [ ] (M6b) Le seuil de support de 10 min est un choix par défaut d'aujourd'hui : le bon critère serait le nombre d'activités contributrices et leur dispersion, absents du fichier de courbe. Depuis M6b-1, le fichier porte le nombre d'activités de chaque tranche et sa forme ; le critère reste à décider ; compter en intervalles de 50 m et en sorties distinctes de la tranche (rdw), 10 min en montée raide valant moins de passages que 10 min sur le plat. Depuis OG-1, l'estimation écrit le seuil de ses diagnostics.
 - [ ] (M6b) Vérifier que les temps de référence sont comparables aux **temps en mouvement** de la courbe : un arrêt compté dans un passage réel se lirait comme une baisse d'effort.
 - [x] ~~Sortie console : `mperf` écrit `→` et `−`, absents de cp1252 ; depuis un terminal Windows non UTF-8 la commande lève `UnicodeEncodeError` après quelques lignes. Repéré au M3, présent depuis le M2.~~ — fait le 2026-09-28 : PR M4b-0
 - [ ] `ParameterSpec.default` de `grid_step_m` vaut l'entier `50`, donc `grid_m[0]` est un `int 0` et le CSV écrit `0` au lieu de `0.0` — cosmétique, mais un mélange int/float dans un calcul est un piège en attente.
@@ -102,12 +108,16 @@ Format : `- [ ] (jalon visé) idée — pourquoi`
 - [ ] (après M6b, ≥ 20 jours hors échantillon) Modèle d'erreur hiérarchique et score prédictif — seuil de réexamen, pas une garantie.
 - [ ] (≥ 10 performances postérieures au figement) Test de confirmation d'un gain utile : blocs indépendants définis avant analyse, `S = Σ_b 1{G_b > δ*}`, égalités non-succès, `p = Σ_{s=S}^{B} binom(B, s) 2^{−B}` ; `δ*`, date d'analyse et gestion de plusieurs candidats fixés d'avance.
 - [ ] (avant la première expérience déclarée, M6a) Réexaminer les seuils d'admission (critère « comparable », référence empruntée) ; après la première déclaration, toute modification est une nouvelle version.
-- [ ] (M6b) Origine glissante 28 j, demi-vie 7 j, `n_eff` publié.
+- [ ] (OG) Origine glissante, fenêtre déclarée ; la demi-vie mesurée sans gain sur un banc multi-athlète (note « méthode » n° 1).
 - [x] ~~(M6b) Définition commune du mouvement et même opérateur de pente à l'estimation et à l'application.~~ — fait le 2026-10-29 : PR M6b-1 (θc et la grille du profil, `0017`)
 - [ ] (M6a) Valider le détecteur d'arrêts sur des épisodes arrêt / marche connus avant toute revendication de temps de mouvement calibré.
 - [ ] (M6a+) Effort de course et affûtage : calibrables sur des courses seulement.
-- [ ] (après M6b) Progression sur 28 j par régime, à comparer à l'origine glissante.
+- [ ] (après OG, recherche) La progression ou la régression propre à chaque athlète, apprise sur ses données (série temporelle) : bibliographie, puis modèles (forme-fatigue, Kalman), mesurés contre la fenêtre glissante à support égal.
 - [ ] (M6b+) Courbe par période et test des sorties de plat dans leur domaine ; lissage à noyau pondéré ; banc du traitement GPX (MNT ou concordance des répétitions).
+- [ ] (OG-2, si une mesure le demande) Les options (b) et (c) du support : un seuil de part hors support, une fenêtre élargie jusqu'à le passer ; écartées par rdw, mesurées sur le banc multi-athlète (l'erreur croît au-delà de la moitié du temps prévu hors support).
+- [ ] (M8) Le résidu pris à l'arrivée : un résidu pris sur le support admis laisse une part de couverture à l'arrivée (note « méthode » n° 2).
+- [ ] (OG, si une sortie de plusieurs jours ou un écart de fins franchit la borne sur des données réelles) L'horizon de vérification des fins à la borne basse : relire à la montre les fins des sorties parties dans les H heures (48 par défaut) avant la borne basse, un réglage dit (solution de rdw, 2026-11-09).
+- [ ] (OG-UI) Avertir des sorties en bordure de fenêtre : une sortie qui finit tout près d'une borne (la borne basse, l'origine) peut ne pas être comptée quand la fin de l'index et celle de la montre diffèrent ; le dire sur une page d'information liée depuis la page de projection ; le remède : élargir la fenêtre d'un jour.
 - [ ] (M8) Fourchettes par régime ; loi complète et CRPS ; référence propre `F_usage`.
 - [x] ~~(M5-2) Lecture de `e^L` comme correction d'effort a posteriori : rétrospective, limitée au support comparé, invalide en présence d'arrêts additifs.~~ — fait le 2026-10-22 : PR M5-2 (l'effort effectif de la page « sortie » ; `0016`)
 - [ ] (premier cas réel) Jours à plusieurs sorties : revoir la règle des 4 h et définir l'agrégation d'une performance multi-sorties (référence, étiquettes, durée, `K`, cellules répétées).
@@ -220,7 +230,7 @@ Format : `- [ ] (jalon visé) idée — pourquoi`
 - [ ] (prochain passage sur l'ingestion) `ingest_export` garde en mémoire, jusqu'à la fin, le membre `.fit` décompressé de chaque archive admise de tous les exports, y compris celles qu'il n'essaiera pas ; aucun export ne se retirant, la mémoire croît avec leur nombre. N'en garder que l'empreinte, et relire le membre à l'essai (relecture B d'AN2-0).
 - [ ] (prochain passage sur l'ingestion) `write_activities` : quand la remise en place de l'ancien dossier échoue elle-même, c'est son erreur qui se propage (l'erreur d'origine reste en `__context__`) ; la docstring dit que l'erreur se propage sans dire laquelle : le préciser (relecture B d'AN2-0).
 - [ ] (si l'un se présente) `mperf ingest` imprime l'`OSError` d'une mise en place refusée (le renommage d'`interim/activities/`) avec le chemin absolu du dossier des données ; antérieur à AN2-0, voisin de la ligne de `read_gpx` et `read_trace` (relecture C de la PR AN2-0).
-- [ ] (M6a) La vitesse selon la durée de la sortie : les sorties longues sont nettement plus lentes que les courtes à pente égale (cadrage et passe experte de M6b) ; un effet de fatigue, ou une courbe par classe de durée.
+- [ ] (M6a) La vitesse selon la durée de la sortie : les sorties longues sont nettement plus lentes que les courtes à pente égale (cadrage et passe experte de M6b) ; un effet de fatigue, ou une courbe par classe de durée ; mesurée sur un banc multi-athlète (note « méthode » n° 1) : l'effet le plus fort, à estimer avec la courbe et à admettre par `0010` D10.
 - [ ] (M6a ou PR à part) La projection écoulée, depuis la vitesse écoulée de la courbe (`kmh_elapsed`) ; le rapport écoulé / M n'en est pas un facteur de conversion (`0017`).
 - [ ] (après M6b) Recaler la FC sur une estimation de l'effort local, au lieu du décalage fixe (`0017`, P5).
 - [ ] (après M6b) Le filtre de FC par montée, avec la détection des montées rendue commune (`analyse/climbs.py`).

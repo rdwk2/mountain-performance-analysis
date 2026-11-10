@@ -16,6 +16,25 @@ Backtest (à partir de M4) : métrique avant → après.
 
 ---
 
+### 2026-11-10 · OG-1 — L'origine glissante : la règle à l'origine
+PR #41. La règle d'estimation à l'origine (`0020`, `estimation/origin.py`) : la courbe à
+l'origine ne lit que ce qui a fini avant l'origine, 00:00 à Paris de D − 7 ; une activité
+entre en entier ou pas du tout, sa fin sûre étant la plus tardive de celle de l'index et de
+celle de la montre, et la fenêtre (56 jours par défaut, ou tout le passé) se lit sur la fin
+de l'index. Une seule fonction, `estimate_at_origin`, sans horloge ni fichier ; la commande
+`mperf curve --at D [--window JOURS|all]` charge le corpus de l'athlète et l'atteste par
+les empreintes des octets lus. L'estimation calcule ses diagnostics au seuil qu'on lui donne
+(`--min-support-min`) et l'écrit au compagnon ; les lecteurs d'une courbe gardent le leur.
+Le sort de chaque activité, l'absence de tranche sans exception (`NoCurve`), trois issues
+(absence, courbe non projetable, courbe projetable). Aucune sortie existante ne change au
+seuil de 10 min. Ce qui n'est pas fait : le backtest glissant (OG-2), les pages à l'origine
+et `mperf project --at` (OG-UI) ; la vérification sur les données réelles reste à faire,
+par rdw. 167 tests neufs en quatre fichiers ; les contre-épreuves et leur table sont dans la
+description de la PR. Le code dans `src/mountain_perf/estimation/origin.py`, `runs.py`,
+`cli.py` ; la décision dans `docs/decisions/0020`.
+
+---
+
 ### 2026-11-09 · AN2-2 — La table `jours` et les normales
 `mperf tables` écrit une quatrième table, `processed/jours.parquet` (`0019`), avec les
 trois autres, dont les lignes ne changent pas : une ligne par jour du calendrier, du
