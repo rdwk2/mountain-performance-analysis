@@ -425,6 +425,18 @@ def test_a_journal_without_event_in_the_period(base: Tables) -> None:
     assert _view(base, rows=rows, everything=True).ribbons
 
 
+def test_a_journal_without_any_event_is_not_absent(base: Tables) -> None:
+    """V14 : ``journal_absent`` se lit sur la provenance, jamais sur les types des
+    jours ; un ``journal.csv`` présent sans aucun événement n'est pas un journal
+    absent (contre-épreuve M04, sous sa forme « toute la table »)."""
+    rows = world_rows(journal=False)
+    assert not any(row.journal_types for row in rows)
+    for everything in (False, True):
+        view = _view(base, rows=rows, everything=everything)
+        assert view.ribbons == ()
+        assert not view.journal_absent
+
+
 def test_an_isolated_normal_that_straddles_is_dashed(base: Tables) -> None:
     rows = _replaced({70: {"night_spo2_normal_straddles": True}})
     isolated = _panel(_view(base, rows=rows, everything=True), SPO2).isolated
