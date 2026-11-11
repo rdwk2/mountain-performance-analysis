@@ -372,7 +372,8 @@ def test_the_two_charts_in_full() -> None:
 
 def test_the_page_line_of_pages() -> None:
     """La ligne de ``PAGES`` du § 6.5 : ``st.Page(outing_page, title="Sortie",
-    url_path="sortie")``, après la projection."""
+    url_path="sortie")``, après la projection ; puis les deux pages de la piste
+    analyse (AN2-3, annexe A.6), « Récupération » et « Q1 »."""
     tree = ast.parse(APP.read_text(encoding="utf-8"))
     pages = [
         node
@@ -391,4 +392,6 @@ def test_the_page_line_of_pages() -> None:
     assert described == [
         ("projection_page", {"title": "Projection", "url_path": "projection"}),
         ("outing_page", {"title": "Sortie", "url_path": "sortie"}),
+        ("recuperation_page", {"title": "Récupération", "url_path": "recuperation"}),
+        ("q1_page", {"title": "Q1", "url_path": "q1"}),
     ]

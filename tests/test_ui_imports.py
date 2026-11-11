@@ -236,3 +236,16 @@ def test_streamlit_configuration_is_local_and_without_telemetry() -> None:
         "server": {"address": "localhost", "headless": True},
         "browser": {"gatherUsageStats": False},
     }
+
+
+def test_just_ui_runs_with_the_analyse_extra() -> None:
+    """La recette ``ui`` lance l'appli avec les extras ``tableau`` et ``analyse`` : les
+    pages de la piste lisent ``processed/`` (pyarrow) (AN2-3, annexe A.6)."""
+    lines = [
+        line
+        for line in (ROOT / "justfile").read_text(encoding="utf-8").splitlines()
+        if "streamlit run src/mountain_perf/ui/app.py" in line
+    ]
+    assert len(lines) == 1, lines
+    assert "--extra tableau" in lines[0]
+    assert "--extra analyse" in lines[0]
