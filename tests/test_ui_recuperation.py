@@ -32,6 +32,7 @@ from fixtures.recovery_world import (
 )
 from mountain_perf.analyse import parquet
 from mountain_perf.analyse.recovery import RecoveryView, recovery_view
+from mountain_perf.analyse.results import FIGURE_FILE, PROVENANCE_FILE, RESULTS_DIR
 from mountain_perf.analyse.tables import Tables
 from mountain_perf.config import data_dir
 from mountain_perf.schemas.processed import DayRow
@@ -154,6 +155,12 @@ def _recovery() -> None:
     from mountain_perf.ui.recuperation import recuperation_page
 
     recuperation_page()
+
+
+def _q1() -> None:
+    from mountain_perf.ui.q1 import q1_page
+
+    q1_page()
 
 
 def _app(page: Callable[[], None]) -> AppTest:
@@ -596,3 +603,153 @@ def test_the_empty_panel_sentence_is_written(base: Tables) -> None:
     assert sentences == [
         "SpO2 de la nuit (%) : aucune valeur ni normale sur la période"
     ]
+
+
+# Les tests qui ouvrent la page « Q1 » (commit 4).
+
+
+def _result(
+    name: str,
+    tables: object,
+    *,
+    generated: str | None = None,
+    figure: bool = True,
+) -> Path:
+    """Un dossier ``resultats/Q1/<name>/`` sous ``data_dir()``."""
+    folder = data_dir() / RESULTS_DIR / name
+    folder.mkdir(parents=True)
+    document = {
+        "genere_le": name.split("_")[0] if generated is None else generated,
+        "tables": tables,
+    }
+    (folder / PROVENANCE_FILE).write_text(json.dumps(document), encoding="utf-8")
+    if figure:
+        (folder / FIGURE_FILE).write_text("<p>figure</p>", encoding="utf-8")
+    return folder
+
+
+def _as_json(tables: Tables) -> object:
+    return json.loads(json.dumps(dataclasses.asdict(tables.provenance)))
+
+
+def _iframes(at: AppTest) -> list[Any]:
+    return list(at.get("iframe"))
+
+
+UNREADABLE_1 = "Dossiers de résultats illisibles, ignorés : 1."
+
+
+def test_q1_without_result_asks_for_just_q1() -> None:
+    at = _app(_q1)
+    assert not at.exception
+    assert [info.value for info in at.info] == [
+        "Aucun résultat de Q1 dans resultats/Q1/ : lancer just q1."
+    ]
+    assert not at.caption
+    assert not _iframes(at)
+
+
+def test_q1_of_the_current_tables_shows_no_warning(base: Tables) -> None:
+    tables = _written(base)
+    _result("2000-01-05_ffffffffffff", _as_json(tables))
+    at = _app(_q1)
+    assert not at.exception
+    assert not at.warning
+    assert not at.error
+    assert [caption.value for caption in at.caption] == [
+        "Figure du 05/01/2000 (resultats/Q1/2000-01-05_ffffffffffff/), telle que just "
+        "q1 l'a écrite."
+    ]
+    assert len(_iframes(at)) == 1
+
+
+def test_q1_of_other_tables_warns(base: Tables) -> None:
+    tables = _written(base)
+    _result("2000-01-05_ffffffffffff", _as_json(_other(tables)))
+    at = _app(_q1)
+    assert [warning.value for warning in at.warning] == [
+        "Cette figure ne vient pas des tables actuelles : just process a été relancé "
+        "depuis (autre commit, autres paramètres, journal.csv retouché…). Relancer "
+        "just q1 pour la refaire."
+    ]
+
+
+def test_q1_without_readable_tables_says_the_comparison_is_impossible(
+    base: Tables,
+) -> None:
+    _result("2000-01-05_ffffffffffff", {"commit": "autre"})
+    at = _app(_q1)
+    assert not at.exception
+    assert len(at.warning) == 1
+    assert at.warning[0].value.startswith("Comparaison impossible")
+    assert len(_iframes(at)) == 1
+
+
+def test_q1_without_figure_is_an_error(base: Tables) -> None:
+    tables = _written(base)
+    _result("2000-01-05_ffffffffffff", _as_json(tables), figure=False)
+    at = _app(_q1)
+    assert not at.exception
+    assert [error.value for error in at.error] == [
+        "figure.html manque dans resultats/Q1/2000-01-05_ffffffffffff/."
+    ]
+    assert not at.info
+    assert not _iframes(at)
+
+
+def test_q1_with_only_unreadable_results_counts_them() -> None:
+    _result("2000-01-05_ffffffffffff", {}, generated="2030-01-05")
+    at = _app(_q1)
+    assert not at.exception
+    assert [info.value for info in at.info] == [
+        "Aucun résultat de Q1 dans resultats/Q1/ : lancer just q1."
+    ]
+    assert [caption.value for caption in at.caption] == [UNREADABLE_1]
+
+
+def test_q1_counts_the_unreadable_beside_a_readable_result(base: Tables) -> None:
+    tables = _written(base)
+    _result("2000-01-05_ffffffffffff", _as_json(tables))
+    _result("2000-01-06_eeeeeeeeeeee", {}, generated="2030-01-06")
+    at = _app(_q1)
+    assert not at.exception
+    assert UNREADABLE_1 in [caption.value for caption in at.caption]
+    assert len(_iframes(at)) == 1
+
+
+def test_mixed_tables_show_the_error_of_read_tables(base: Tables) -> None:
+    tables = _written(base)
+    other = data_dir() / "autres"
+    write_world(other, _other(tables))
+    target = data_dir() / parquet.PROCESSED_DIR / parquet.DAYS_FILE
+    shutil.copy(other / parquet.PROCESSED_DIR / parquet.DAYS_FILE, target)
+    with pytest.raises(parquet.ProcessedError) as raised:
+        parquet.read_tables(data_dir())
+    at = _app(_recovery)
+    assert not at.exception
+    assert [error.value for error in at.error] == [str(raised.value)]
+    assert not at.get("vega_lite_chart")
+    q1 = _app(_q1)
+    assert not q1.exception
+
+
+def _files(root: Path) -> dict[str, tuple[int, int]]:
+    return {
+        path.relative_to(root).as_posix(): (
+            path.stat().st_size,
+            path.stat().st_mtime_ns,
+        )
+        for path in sorted(root.rglob("*"))
+    }
+
+
+def test_the_page_writes_nothing_under_the_data_dir(base: Tables) -> None:
+    tables = _written(base)
+    _result("2000-01-05_ffffffffffff", _as_json(tables))
+    before = _files(data_dir())
+    at = _app(_recovery)
+    at.radio(key="recuperation.periode").set_value(PERIOD_ALL).run()
+    assert not at.exception
+    q1 = _app(_q1)
+    assert not q1.exception
+    assert _files(data_dir()) == before
