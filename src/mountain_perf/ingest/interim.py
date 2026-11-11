@@ -7,6 +7,7 @@ revalide le contrat et vérifie que la réécriture redonne les octets lus. Ce m
 demande aucun extra : ``interim/`` se relit sans fitdecode (``0011``).
 """
 
+import hashlib
 import shutil
 from collections.abc import Iterable, Mapping
 from datetime import date
@@ -186,8 +187,14 @@ def _read_document(path: Path) -> bytes:
 def read_index(data_dir: Path) -> ActivityIndex:
     """L'index d'``interim/activities/`` sous ``data_dir`` ; fichier absent :
     ``InterimError`` (« index.json manque dans interim/ : lancer `mperf ingest`. »)."""
+    return read_index_with_sha256(data_dir)[0]
+
+
+def read_index_with_sha256(data_dir: Path) -> tuple[ActivityIndex, str]:
+    """L'index, comme :func:`read_index`, et l'empreinte SHA-256 des octets lus, en une
+    seule lecture : celle du fichier, jamais d'un document réencodé (OG-1)."""
     data = _read_document(data_dir / ACTIVITIES_DIR / INDEX_FILE)
-    return decode_interim(data, ActivityIndex)
+    return decode_interim(data, ActivityIndex), hashlib.sha256(data).hexdigest()
 
 
 def read_report(data_dir: Path) -> IngestionReport:
@@ -206,15 +213,25 @@ def read_recording(data_dir: Path, activity_ref: str) -> ActivityRecording:
     `mperf ingest`. ») ; document relu ; un document dont l'``activity_ref`` n'est pas
     celui demandé lève ``InterimError`` (« interim/ incohérent : … »).
     """
+    return read_recording_with_sha256(data_dir, activity_ref)[0]
+
+
+def read_recording_with_sha256(
+    data_dir: Path, activity_ref: str
+) -> tuple[ActivityRecording, str]:
+    """L'enregistrement, comme :func:`read_recording`, mêmes contrôles et mêmes
+    messages, et l'empreinte SHA-256 des octets lus, en une seule lecture : celle du
+    fichier, jamais d'un document réencodé (OG-1)."""
     require_activity_ref(activity_ref)
     path = data_dir / ACTIVITIES_DIR / RECORDINGS_DIR / (activity_ref + DOCUMENT_SUFFIX)
-    recording = decode_interim(_read_document(path), ActivityRecording)
+    data = _read_document(path)
+    recording = decode_interim(data, ActivityRecording)
     if recording.activity_ref != activity_ref:
         raise InterimError(
             "interim/ incohérent : un enregistrement porte un autre identifiant que "
             "son nom de fichier. Lancer `mperf ingest`."
         )
-    return recording
+    return recording, hashlib.sha256(data).hexdigest()
 
 
 def write_days(

@@ -75,8 +75,21 @@ from mountain_perf.backtest import (
     subclass_metrics,
     third_clock_is_elapsed,
 )
+from mountain_perf.backtest.calendar import origin as civil_origin
 from mountain_perf.backtest.registry import RegistryError, read_registry
 from mountain_perf.config import ConfigError, data_dir
+from mountain_perf.estimation.origin import (
+    ALL_PAST,
+    DEFAULT_WINDOW_DAYS,
+    OriginEstimate,
+    OriginOutcome,
+    OriginWindow,
+    TemporalDecision,
+    cold_start_warning,
+    estimate_at_origin,
+    origin_document,
+    retained_start_days,
+)
 from mountain_perf.gpx import (
     PROFILE_PARAMETER_SPECS,
     GpxError,
@@ -100,7 +113,12 @@ from mountain_perf.outing_views import (
     point_name,
 )
 from mountain_perf.reports import grid_lines, passage_lines, projection_summary_lines
-from mountain_perf.runs import check_outing, match_outing, project_route
+from mountain_perf.runs import (
+    check_outing,
+    load_curve_corpus,
+    match_outing,
+    project_route,
+)
 from mountain_perf.schemas import (
     BAND_LABEL,
     CALIBRATED_MODELS,
@@ -3005,6 +3023,84 @@ CURVE_MODIFIED_TREE_ERROR = (
 )
 """Le message de ``mperf curve`` sur un clone modifié (M6b)."""
 
+CURVE_WINDOW_PATTERN = r"[1-9][0-9]*"
+"""Une fenêtre de ``mperf curve --at`` en jours : un entier d'au moins 1, sans signe ni
+zéro en tête (OG-1)."""
+
+
+def _now() -> datetime:
+    """L'instant présent, en UTC : la seule horloge de ``mperf curve`` (OG-1), que les
+    tests remplacent."""
+    return datetime.now(UTC)
+
+
+def _window_argument(text: str) -> OriginWindow:
+    """La valeur de ``--window`` : ``all``, ou un entier qui correspond en entier à
+    :data:`CURVE_WINDOW_PATTERN` ; argparse sort sinon en code 2."""
+    if text == ALL_PAST:
+        return ALL_PAST
+    if re.fullmatch(CURVE_WINDOW_PATTERN, text) is None:
+        raise argparse.ArgumentTypeError(
+            f"fenêtre invalide {text!r} : un nombre entier de jours, au moins 1, ou all"
+        )
+    return int(text)
+
+
+def _paris(moment: datetime) -> str:
+    """L'instant à Paris, à la minute."""
+    return moment.astimezone(PARIS).strftime("%Y-%m-%d %H:%M")
+
+
+def _curve_mode_error(args: argparse.Namespace) -> str | None:
+    """Ce qui ne va pas dans le choix des activités de ``mperf curve`` : une plage de
+    dates ou une origine, et ``--window`` seulement avec une origine (OG-1)."""
+    has_from = args.date_from is not None
+    has_to = args.date_to is not None
+    if args.at is not None and (has_from or has_to):
+        return (
+            "--at exclut --from et --to : une courbe se choisit sur une plage de dates "
+            "ou à une origine."
+        )
+    if args.at is None and not (has_from and has_to):
+        return "--from et --to ensemble, ou --at."
+    if args.window is not None and args.at is None:
+        return "--window demande --at."
+    return None
+
+
+def _print_origin_summary(result: OriginEstimate, day: date) -> None:
+    """Les lignes de l'origine, avant le résumé de ``mperf curve`` : l'origine et sa
+    fenêtre, les décisions (zéros compris), les dernières fins s'il y a une candidate,
+    l'historique selon l'index, l'avertissement du démarrage à froid s'il y en a un."""
+    window = (
+        "fenêtre tout le passé"
+        if result.lower_bound is None
+        else (
+            f"fenêtre {result.window} jours, fins depuis le "
+            f"{_paris(result.lower_bound)} à Paris"
+        )
+    )
+    print(f"jour {day} : origine {_paris(result.origin)} à Paris ; {window}")
+    decisions = Counter(inspection.decision for inspection in result.inspections)
+    details = ", ".join(f"{d.value} {decisions[d]}" for d in TemporalDecision)
+    print(f"activités inspectées : {len(result.inspections)} ({details})")
+    if result.data_available_at is not None:
+        last = result.last_retained_end
+        print(
+            f"  dernières fins, à Paris : candidate {_paris(result.data_available_at)} "
+            f"; retenue {'aucune' if last is None else _paris(last)}"
+        )
+    history = result.history
+    print(
+        f"historique à l'origine, selon l'index : {history.foot_index_finished} "
+        f"sorties à pied finies ({history.foot_without_index_elapsed} sans écoulé), "
+        f"{history.selected_index_finished} des types choisis "
+        f"({history.selected_without_index_elapsed} sans écoulé)"
+    )
+    warning = cold_start_warning(history)
+    if warning is not None:
+        print(f"avertissement : {warning}")
+
 
 def _minutes_to_seconds(minutes: float | None) -> float | None:
     """Une durée de la ligne de commande, en minutes, en secondes ; ``None`` reste
@@ -3019,7 +3115,8 @@ def _run_curve(args: argparse.Namespace) -> int:
 
     1. le nom, refusé s'il ne correspond pas en entier à :data:`CURVE_NAME_PATTERN` ou
        s'il finit par ``.csv`` (sans casse) ; ``--hr-width`` ou ``--hr-lag`` sans
-       ``--hr-center``, refusés ;
+       ``--hr-center``, refusés ; le choix des activités (:func:`_curve_mode_error`) ;
+       avec ``--at``, l'origine, refusée si elle est dans le futur (OG-1) ;
     2. ``MPA_DATA_DIR`` ; l'état git du paquet exécuté, un clone modifié refusé
        (:data:`CURVE_MODIFIED_TREE_ERROR`) ;
     3. les paramètres (les seules options données ; le profil aux défauts) et la
@@ -3031,10 +3128,13 @@ def _run_curve(args: argparse.Namespace) -> int:
        enregistrement et ses intervalles, coupés au plafond déclaré ; l'estimation. Un
        document d'``interim/`` qui ne se relit pas (d'un autre format, abîmé, ou qu'un
        contrat refuse à la relecture : une ``ValueError``) devient une ``CurveError``
-       qui nomme l'index ou l'activité et dit de relancer ``mperf ingest`` ;
+       qui nomme l'index ou l'activité et dit de relancer ``mperf ingest``. À l'origine
+       (OG-1) : le corpus attesté (:func:`~mountain_perf.runs.load_curve_corpus`), la
+       règle, les lignes de l'origine ; une absence n'écrit rien, code 1 ;
     6. les lignes du fichier, contrôlées comme ``read_curve`` les lirait : une ligne
        illisible lève, rien n'est écrit ; un support impossible s'écrit et se dit ;
-    7. la provenance — sans filtre de FC, ni largeur ni décalage — et le document de
+    7. la provenance — sans filtre de FC, ni largeur ni décalage ; à l'origine,
+       l'étendue descriptive des jours de départ des retenues — et le document de
        l'estimation, avec les instants d'acquisition des exports lus, ceux des entrées
        et ceux des enregistrements des activités retenues ;
     8. ``reference/`` créé au besoin, les deux fichiers écrits ; puis le résumé.
@@ -3050,10 +3150,21 @@ def _run_curve(args: argparse.Namespace) -> int:
     if band_option and args.hr_center is None:
         print("Erreur : --hr-width et --hr-lag demandent --hr-center.", file=sys.stderr)
         return 1
+    mode_error = _curve_mode_error(args)
+    if mode_error is not None:
+        print(f"Erreur : {mode_error}", file=sys.stderr)
+        return 1
+    origin_instant = None if args.at is None else civil_origin(args.at)
+    if origin_instant is not None and origin_instant > _now():
+        print(
+            f"Erreur : l'origine du jour {args.at} ({_paris(origin_instant)} à Paris) "
+            "est dans le futur : la règle ne lit que le passé.",
+            file=sys.stderr,
+        )
+        return 1
     from mountain_perf import gitstate
     from mountain_perf.estimation.curve import (
         CURVE_ESTIMATION_PARAMETER_SPECS,
-        SUPPORT_THRESHOLD_MIN,
         BinValue,
         CurveSelection,
         curve_file_rows,
@@ -3063,7 +3174,12 @@ def _run_curve(args: argparse.Namespace) -> int:
     )
     from mountain_perf.estimation.intervals import activity_intervals
     from mountain_perf.ingest.interim import InterimError, read_index, read_recording
-    from mountain_perf.model.curve_io import META_SUFFIX, check_curve_rows, write_curve
+    from mountain_perf.model.curve_io import (
+        CURVE_PARAMETER_SPECS,
+        META_SUFFIX,
+        check_curve_rows,
+        write_curve,
+    )
     from mountain_perf.schemas import CurveProvenance, Sport
 
     try:
@@ -3078,6 +3194,14 @@ def _run_curve(args: argparse.Namespace) -> int:
         if args.hr_lag is not None:
             values["hr_lag_s"] = args.hr_lag
         parameters = ParameterSet(CURVE_ESTIMATION_PARAMETER_SPECS, values)
+        threshold_values = (
+            {}
+            if args.min_support_min is None
+            else {"curve_min_support_min": args.min_support_min}
+        )
+        support_threshold_min = ParameterSet(CURVE_PARAMETER_SPECS, threshold_values)[
+            "curve_min_support_min"
+        ]
         profile = ParameterSet(PROFILE_PARAMETER_SPECS)
         types = args.types.split(",")
         for value in types:
@@ -3101,73 +3225,136 @@ def _run_curve(args: argparse.Namespace) -> int:
                 raise CurveError(
                     f"{path.name} existe déjà : une courbe n'est jamais réécrite."
                 )
-        # ValueError : CodecError et ContractError en sont, et seuls les modules de
-        # documents importent le codec commun (tests/test_codec.py).
-        try:
-            index = read_index(folder)
-        except ValueError as error:
-            raise CurveError(
-                f"index d'interim/ : {error} ; relancer `mperf ingest`."
-            ) from error
-        entries = select_candidates(index, selection)
-        if not entries:
-            raise CurveError(
-                "aucune activité candidate : aucun enregistrement des types demandés "
-                "dans la fenêtre."
+        date_from: date
+        date_to: date
+        origin_section: dict[str, object] | None = None
+        value_label = selection.value.value
+        if origin_instant is not None:
+            window = DEFAULT_WINDOW_DAYS if args.window is None else args.window
+            corpus = load_curve_corpus(
+                folder,
+                args.athlete,
+                selection.source_activity_types,
+                origin_instant,
+                window,
             )
-        candidates = []
-        recorded_at = []
-        for entry in entries:
+            result = estimate_at_origin(
+                corpus,
+                args.athlete,
+                origin_instant,
+                window,
+                selection,
+                parameters,
+                profile,
+                support_threshold_min=support_threshold_min,
+            )
+            _print_origin_summary(result, args.at)
+            if result.outcome is OriginOutcome.ABSENT or result.estimate is None:
+                print(
+                    f"Erreur : aucune courbe à l'origine : {result.absence_reason} "
+                    "Rien n'est écrit.",
+                    file=sys.stderr,
+                )
+                return 1
+            estimate = result.estimate
+            rows = result.rows
+            support_error = result.support_error
+            days = retained_start_days(result, corpus)
+            assert days is not None  # une tranche estimée a une activité retenue
+            date_from, date_to = days
+            origin_section = origin_document(result, corpus)
+            retained_refs = set(estimate.activity_refs)
+            exports = [
+                instant
+                for item in corpus.index.entries
+                if item.activity_ref in retained_refs
+                for instant in (
+                    item.source.retrieved_at,
+                    corpus.recordings[item.activity_ref].source.retrieved_at,
+                )
+            ]
+            label = f"{window} jours" if isinstance(window, int) else window
+            estimator = (
+                f"mperf curve --at (OG-1) : règle à l'origine, fenêtre {label} ; "
+                "intervalles de la grille du profil, temps M θc, tranches variables, "
+                f"valeur {value_label}"
+            )
+        else:
+            # ValueError : CodecError et ContractError en sont, et seuls les modules de
+            # documents importent le codec commun (tests/test_codec.py).
             try:
-                recording = read_recording(folder, entry.activity_ref)
+                index = read_index(folder)
             except ValueError as error:
                 raise CurveError(
-                    f"activité {entry.activity_ref} : {error} ; relancer `mperf "
-                    "ingest`."
+                    f"index d'interim/ : {error} ; relancer `mperf ingest`."
                 ) from error
-            recorded_at.append(recording.source.retrieved_at)
-            candidates.append(
-                activity_intervals(
-                    recording,
-                    profile,
-                    hr_lag_s=parameters["hr_lag_s"],
-                    hr_min_coverage=parameters["hr_min_coverage"],
-                    max_elapsed_s=selection.max_elapsed_s,
+            entries = select_candidates(index, selection)
+            if not entries:
+                raise CurveError(
+                    "aucune activité candidate : aucun enregistrement des types "
+                    "demandés dans la fenêtre."
                 )
+            candidates = []
+            recorded_at = []
+            for entry in entries:
+                try:
+                    recording = read_recording(folder, entry.activity_ref)
+                except ValueError as error:
+                    raise CurveError(
+                        f"activité {entry.activity_ref} : {error} ; relancer `mperf "
+                        "ingest`."
+                    ) from error
+                recorded_at.append(recording.source.retrieved_at)
+                candidates.append(
+                    activity_intervals(
+                        recording,
+                        profile,
+                        hr_lag_s=parameters["hr_lag_s"],
+                        hr_min_coverage=parameters["hr_min_coverage"],
+                        max_elapsed_s=selection.max_elapsed_s,
+                    )
+                )
+            estimate = estimate_curve(
+                candidates,
+                [entry.activity_ref for entry in entries],
+                selection,
+                parameters,
+                support_threshold_min=support_threshold_min,
             )
-        estimate = estimate_curve(
-            candidates, [entry.activity_ref for entry in entries], selection, parameters
-        )
-        rows = curve_file_rows(estimate)
-        support_error = check_curve_rows(rows, SUPPORT_THRESHOLD_MIN)
+            rows = curve_file_rows(estimate)
+            support_error = check_curve_rows(rows, support_threshold_min)
+            date_from, date_to = args.date_from, args.date_to
+            retained = set(estimate.activity_refs)
+            # L'entrée et l'enregistrement d'une activité peuvent venir de deux exports
+            # (0013, précision 16) : la courbe est choisie sur l'une, mesurée sur
+            # l'autre.
+            exports = [
+                instant
+                for entry, recorded in zip(entries, recorded_at, strict=True)
+                if entry.activity_ref in retained
+                for instant in (entry.source.retrieved_at, recorded)
+            ]
+            estimator = (
+                "mperf curve (M6b) : intervalles de la grille du profil, temps M θc, "
+                f"tranches variables, valeur {value_label}"
+            )
         filtered = selection.hr_center_bpm is not None
         provenance = CurveProvenance(
             activity_count=len(estimate.activity_refs),
             hr_center_bpm=selection.hr_center_bpm,
             hr_width_bpm=parameters["hr_width_bpm"] if filtered else None,
-            date_from=selection.date_from,
-            date_to=selection.date_to,
+            date_from=date_from,
+            date_to=date_to,
             source_activity_types=selection.source_activity_types,
             min_duration_s=selection.min_duration_s,
-            estimator=(
-                "mperf curve (M6b) : intervalles de la grille du profil, temps M θc, "
-                f"tranches variables, valeur {selection.value.value}"
-            ),
-            generated_at=datetime.now(UTC),
+            estimator=estimator,
+            generated_at=_now(),
             athlete_ref=args.athlete,
             max_duration_s=selection.max_duration_s,
             max_elapsed_s=selection.max_elapsed_s,
             hr_lag_s=parameters["hr_lag_s"] if filtered else None,
+            diagnostic_support_threshold_min=support_threshold_min,
         )
-        retained = set(estimate.activity_refs)
-        # L'entrée et l'enregistrement d'une activité peuvent venir de deux exports
-        # (0013, précision 16) : la courbe est choisie sur l'une, mesurée sur l'autre.
-        exports = [
-            instant
-            for entry, recorded in zip(entries, recorded_at, strict=True)
-            if entry.activity_ref in retained
-            for instant in (entry.source.retrieved_at, recorded)
-        ]
         document = estimation_document(
             estimate,
             selection,
@@ -3176,6 +3363,7 @@ def _run_curve(args: argparse.Namespace) -> int:
             commit=state.commit,
             exports_retrieved_at=exports,
             support_error=support_error,
+            origin=origin_section,
         )
         target.parent.mkdir(parents=True, exist_ok=True)
         write_curve(target, rows, Sport.FOOT, provenance, document)
@@ -3190,10 +3378,13 @@ def _run_curve(args: argparse.Namespace) -> int:
         print(f"Erreur : {error}", file=sys.stderr)
         return 1
     counts = estimate.counts
-    long_bins = sum(1 for b in estimate.bins if b.moving_s >= 600)
+    long_bins = sum(
+        1 for b in estimate.bins if b.moving_s >= support_threshold_min * 60
+    )
     print(
         f"activités retenues : {counts.retained} sur {counts.candidates} candidates ; "
-        f"tranches : {len(estimate.bins)}, dont {long_bins} d'au moins 10 min"
+        f"tranches : {len(estimate.bins)}, dont {long_bins} d'au moins "
+        f"{support_threshold_min:g} min"
     )
     for activity_reason, count in estimate.excluded_activities:
         print(f"  activités écartées, {activity_reason.value} : {count}")
@@ -3325,17 +3516,32 @@ def main(argv: Sequence[str] | None = None) -> int:
         "--from",
         dest="date_from",
         type=date.fromisoformat,
-        required=True,
         metavar="AAAA-MM-JJ",
-        help="Premier jour de la fenêtre, compris",
+        help="Premier jour de la plage, compris (avec --to ; exclut --at)",
     )
     curve_parser.add_argument(
         "--to",
         dest="date_to",
         type=date.fromisoformat,
-        required=True,
         metavar="AAAA-MM-JJ",
-        help="Dernier jour de la fenêtre, compris",
+        help="Dernier jour de la plage, compris (avec --from ; exclut --at)",
+    )
+    curve_parser.add_argument(
+        "--at",
+        type=date.fromisoformat,
+        metavar="AAAA-MM-JJ",
+        help=(
+            "Jour D de la règle à l'origine : les activités finies avant 00:00 à "
+            "Paris de D − 7 jours (OG-1 ; exclut --from et --to)"
+        ),
+    )
+    curve_parser.add_argument(
+        "--window",
+        type=_window_argument,
+        metavar="JOURS|all",
+        help=(
+            "Fenêtre de la règle à l'origine, en jours ou all (défaut 56 ; avec --at)"
+        ),
     )
     curve_parser.add_argument(
         "--athlete",
@@ -3390,6 +3596,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         type=float,
         metavar="S",
         help="Décalage de la FC (défaut 60)",
+    )
+    curve_parser.add_argument(
+        "--min-support-min",
+        dest="min_support_min",
+        type=float,
+        metavar="MIN",
+        help=(
+            "Seuil de support des diagnostics (niveau, forme, verdict projetable), "
+            "écrit dans le compagnon (défaut 10) ; une lecture garde son propre seuil"
+        ),
     )
     curve_parser.add_argument(
         "--value",

@@ -45,6 +45,7 @@ BRIEF_KEYS = [
     "min_duration_s",
     "max_duration_s",
     "max_elapsed_s",
+    "diagnostic_support_threshold_min",
     "athlete_ref",
     "estimator",
     "generated_at",

@@ -239,6 +239,10 @@ nombre d'activités contributrices et leur dispersion, tous deux absents du fich
 - **M4** — le prolongement en descente est peut-être trop conservateur ; l'écart aux
   tranches écartées (jusqu'à −16,5 % à −60 %) est exactement ce qu'un backtest peut
   trancher. Le seuil de support de 10 minutes mérite le même examen.
+  *Note du 2026-11-10 (OG-1, `0020`) :* le seuil reste un réglage de chaque lecture
+  (`curve_min_support_min`) ; une courbe estimée écrit le seuil de ses diagnostics
+  (`diagnostic_support_threshold_min`) ; son examen reste à faire (`BACKLOG`, le support
+  compté en intervalles de 50 m et en sorties distinctes).
 - **M6b** — réestimer la courbe avec le **même opérateur de pente** que le moteur,
   ce qui supprime le biais de D6 ; et aligner la définition de `sample_count`, où la
   lecture M3 met des secondes de données faute de comptage de points dans le CSV.

@@ -662,7 +662,9 @@ décalée de 60 s, est dans une bande de 10 bpm, aux pentes de −5 % ou plus se
 
 | Option | Défaut | Rôle |
 |---|---|---|
-| `--from`, `--to` | — (obligatoires) | Premier et dernier jour de la fenêtre, compris (`AAAA-MM-JJ`) |
+| `--from`, `--to` | — (avec `--to` / `--from`, ou `--at`) | Premier et dernier jour de la plage, compris (`AAAA-MM-JJ`) |
+| `--at` | — | Jour D de la règle à l'origine (`AAAA-MM-JJ`) ; exclut `--from` et `--to` |
+| `--window` | 56 | Fenêtre de la règle, en jours, ou `all` ; avec `--at` |
 | `--athlete` | — (obligatoire) | Pseudonyme de l'athlète (celui du manifeste) |
 | `--types` | `trail_running` | Types de la source retenus, séparés par des virgules, sans espace |
 | `--min-duration-min` | — | Durée minimale d'une sortie, en minutes |
@@ -671,11 +673,21 @@ décalée de 60 s, est dans une bande de 10 bpm, aux pentes de −5 % ou plus se
 | `--hr-center` | — | Centre de la bande de FC (bpm) |
 | `--hr-width` | 10 | Largeur de la bande (bpm) |
 | `--hr-lag` | 60 | Décalage de la FC (s) |
+| `--min-support-min` | 10 | Seuil de support des diagnostics (niveau, forme, verdict) ; une lecture garde le sien |
 | `--value` | `a` | Valeur d'une tranche : (a) somme / somme, (b) médiane des activités |
 
 ```bash
 just curve <nom> --from AAAA-MM-JJ --to AAAA-MM-JJ --athlete <pseudonyme>
+just curve <nom> --at AAAA-MM-JJ --athlete <pseudonyme>
 ```
+
+**À une origine.** `--at D` estime la courbe que la règle donne à l'origine, 00:00 à Paris
+de D − 7 jours ([`0020`](docs/decisions/0020-origine-glissante.md)) : sur les activités
+finies avant l'origine (l'activité entière, la plus tardive des fins de l'index et de la
+montre) et, pour une fenêtre de W jours, dont la fin d'index est dans les W jours civils
+avant l'origine. C'est une courbe **reconstituée depuis le corpus figé identifié**. Le résumé
+dit l'origine, les décisions, l'historique et l'avertissement des moins de 20 sorties à
+pied ; une absence n'écrit rien.
 
 Comme `just backtest`, la commande refuse un clone dont un fichier suivi est modifié :
 la courbe dit le commit qui l'a estimée. Une courbe dont le support ne se lit pas
@@ -742,7 +754,8 @@ puis `http://localhost:8501` dans le navigateur.
   les fourchettes aussi au registre), et l'admission exploratoire d'un effet (`0010` D10,
   hors le figement pour confirmation de D10.7), calculée par la bibliothèque — sa commande
   viendra avec le premier effet, au M6a ; enfin la sensibilité (`0010` D13,
-  `just backtest courbe.csv --sensitivity`).
+  `just backtest courbe.csv --sensitivity`). L'origine glissante est commencée : OG-1
+  livrée, la règle à l'origine et `just curve --at` (`0020`).
 - **Piste analyse** : cadrage livré (AN0 : charte, questions, décisions 0011 à 0013) ;
   AN1 (activités et montées) livré : son codec commun, l'ingestion des activités
   (`just ingest`), les horloges du moteur rendues communes (le temps de mouvement),
@@ -783,6 +796,7 @@ sont au statut « acceptée » :
 - [0017 — Estimation de la courbe personnelle](docs/decisions/0017-estimation-de-la-courbe.md)
 - [0018 — Les données journalières dans `interim/days/` et leurs vues](docs/decisions/0018-donnees-journalieres.md)
 - [0019 — La table `jours` et les normales](docs/decisions/0019-table-jours-et-normales.md)
+- [0020 — L'origine glissante : la règle d'estimation à l'origine](docs/decisions/0020-origine-glissante.md)
 
 Autres documents :
 

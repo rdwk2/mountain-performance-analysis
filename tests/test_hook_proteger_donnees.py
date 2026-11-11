@@ -160,6 +160,8 @@ def test_glob_and_grep_without_path_use_the_working_directory(tmp_path: Path) ->
         ("uv run mperf curve saison --from 2000-01-01 --to 2000-12-31", 2),
         ("uv run python -m mountain_perf.cli curve saison", 2),
         ("just curve saison --athlete x", 2),
+        ("uv run mperf curve saison --at 2000-06-07 --window all --athlete x", 2),
+        ("just curve saison --at 2000-06-07 --athlete x", 2),
         ("just -f justfile curve saison", 2),
         ("just.exe curve saison", 2),
         ("mperf.exe curve saison", 2),

@@ -32,11 +32,12 @@ def _modules(path: Path) -> set[str]:
     }
 
 
-def test_the_package_has_three_modules() -> None:
+def test_the_package_has_four_modules() -> None:
     assert sorted(p.name for p in ESTIMATION.glob("*.py")) == [
         "__init__.py",
         "curve.py",
         "intervals.py",
+        "origin.py",
     ]
 
 
@@ -45,3 +46,30 @@ def test_estimation_imports_neither_analyse_nor_backtest_nor_an_extra() -> None:
         for module in _modules(path):
             assert not module.startswith(FORBIDDEN_PACKAGES), (path.name, module)
             assert module.split(".")[0] not in FORBIDDEN_LIBRARIES, (path.name, module)
+
+
+def test_the_rule_reads_no_clock_no_file_no_environment() -> None:
+    """Le noyau de la règle à l'origine (OG-1) est déterministe : ``origin.py``
+    n'importe ni le système, ni la configuration, ni git, ni le lecteur d'``interim/``,
+    et n'appelle ni l'horloge, ni l'environnement, ni ``open``."""
+    path = ESTIMATION / "origin.py"
+    forbidden_modules = {
+        "os",
+        "pathlib",
+        "time",
+        "subprocess",
+        "mountain_perf.config",
+        "mountain_perf.gitstate",
+        "mountain_perf.ingest.interim",
+    }
+    assert not _modules(path) & forbidden_modules
+    forbidden_names = {"now", "today", "utcnow", "getenv", "environ", "open"}
+    for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+        name = (
+            node.attr
+            if isinstance(node, ast.Attribute)
+            else node.id
+            if isinstance(node, ast.Name)
+            else None
+        )
+        assert name not in forbidden_names, name

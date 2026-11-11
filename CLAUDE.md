@@ -127,6 +127,7 @@ just ingest     # raw/garmin/ → interim/activities/ et interim/days/, extra in
 just process    # raw/ → interim/ → processed/ : ingest, puis mperf tables, extras ingest et analyse (AN1-2b)
 just q1         # processed/ → resultats/Q1/<date>_<empreinte>/ : la figure de Q1, extra analyse (AN1-2c)
 just curve nom --from AAAA-MM-JJ --to AAAA-MM-JJ --athlete x  # une courbe allure↔pente depuis interim/ (M6b-1) ; MPA_DATA_DIR/reference/<nom>.csv
+just curve nom --at AAAA-MM-JJ --athlete x  # la courbe de la règle à l'origine (OG-1)
 just ui         # l'interface (M5) : appli Streamlit locale sur MPA_DATA_DIR, extra tableau
 uv run mperf profile tests/fixtures/mini_11.gpx  # compte-rendu GPX (M2), --csv pour la grille
 uv run mperf project tests/fixtures/mini_11.gpx --curve tests/fixtures/courbe_synthetique.csv  # temps de passage (M3)
@@ -155,8 +156,9 @@ src/mountain_perf/     le code de la bibliothèque
   controls.py          contrôles de l'interface générés depuis les specs (M5)
   data_files.py        fichiers de l'interface : lister, ajouter dans routes/ et sorties/ (M5)
   runs.py              enchaînements de `mperf project` et `mperf match`, communs à
-                       mperf et à l'interface ; importe les seuls modules purs de
-                       `backtest/` (M5)
+                       mperf et à l'interface, et le chargement du corpus de la règle
+                       à l'origine ; importe les seuls modules purs de `backtest/`
+                       (M5), `estimation/origin.py` et `ingest/interim.py` (OG-1)
   reports.py           textes de mperf profile et project, communs (M5)
   outing_views.py      ce que la page sortie affiche d'une sortie : tracé suivi,
                        effort effectif, écarts ; libellés communs avec mperf match
@@ -227,6 +229,8 @@ src/mountain_perf/     le code de la bibliothèque
                        M/S/U sous θc, plafond, FC décalée
     curve.py           tranches, valeurs (a) et (b), niveau, forme, comptes ; lignes
                        du fichier et document du compagnon
+    origin.py          la règle à l'origine : fins, corpus, sélection, issue, compagnon
+                       (OG-1)
   backtest/            évaluation contre des performances réelles (M4)
     calendar.py        jour civil à Paris, origine o_j, disponibilité (M4a)
     manifest.py        load_manifest, ManifestReadResult, ManifestError (M4a)
@@ -278,7 +282,7 @@ src/mountain_perf/     le code de la bibliothèque
                        analyse (M6b)
     interim.py         documents d'interim/ : écriture et relecture par le codec commun ;
                        interim/days/ : write_days, read_days, read_training_status,
-                       read_days_report (AN2-1)
+                       read_days_report (AN2-1) ; l'empreinte des octets lus (OG-1)
     index.py           read_index : l'index d'un export
     fit.py             read_fit : le lecteur FIT, lecture stricte
     families.py        read_family : un fichier d'une famille journalière, depuis ses
@@ -340,7 +344,8 @@ src/mountain_perf/     le code de la bibliothèque
                        mperf tables : interim/activities/ → processed/ (AN1-2b) ;
                        interim/days/ et journal.csv → jours, son résumé (AN2-2) ;
                        mperf q1 : processed/ → resultats/Q1/ (AN1-2c) ;
-                       mperf curve <nom> : interim/ → reference/<nom>.csv (M6b)
+                       mperf curve <nom> : interim/ → reference/<nom>.csv (M6b) ;
+                       --at : la règle à l'origine (OG-1)
 tests/
   conftest.py          MPA_DATA_DIR sur un dossier temporaire neuf pour chaque test (M4c-1)
   strategies.py        stratégies Hypothesis des contrats, réutilisées par tous les jalons

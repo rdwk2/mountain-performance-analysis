@@ -31,7 +31,7 @@ import math
 import statistics
 from bisect import bisect_right
 from collections import Counter, defaultdict
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from enum import StrEnum
@@ -44,7 +44,7 @@ from mountain_perf.estimation.intervals import (
     TraceRefusal,
 )
 from mountain_perf.model.curve_io import (
-    CURVE_PARAMETER_SPECS,
+    DEFAULT_SUPPORT_THRESHOLD_MIN,
     CurveBin,
     CurveError,
     CurveFileRow,
@@ -53,6 +53,7 @@ from mountain_perf.model.curve_io import (
 from mountain_perf.model.pace import PaceModel
 from mountain_perf.schemas import (
     HEART_RATE_RANGE_BPM,
+    SUPPORT_THRESHOLD_RANGE_MIN,
     ActivityIndex,
     CurveProvenance,
     IndexedActivity,
@@ -155,9 +156,9 @@ CURVE_ESTIMATION_PARAMETER_SPECS: tuple[ParameterSpec, ...] = (
 )
 """Les paramètres de l'estimateur (``0017``)."""
 
-SUPPORT_THRESHOLD_MIN = ParameterSet(CURVE_PARAMETER_SPECS)["curve_min_support_min"]
-"""Le seuil de support par défaut de ``read_curve`` (``0009`` D2), en minutes, pour le
-niveau et pour ``check_curve_rows``."""
+SUPPORT_THRESHOLD_MIN = DEFAULT_SUPPORT_THRESHOLD_MIN
+"""Le seuil de support par défaut de ``read_curve`` (``0009`` D2), en minutes ; le seuil
+des diagnostics d'une estimation qui n'en dit pas d'autre (OG-1)."""
 
 _FILL_PROVENANCE = CurveProvenance(
     activity_count=0,
@@ -178,6 +179,13 @@ class BinValue(StrEnum):
 
     POOLED = "somme"
     MEDIAN = "médiane"
+
+
+class CurveMode(StrEnum):
+    """Comment les activités d'une courbe ont été choisies (OG-1)."""
+
+    RANGE = "plage"
+    ORIGIN = "origine"
 
 
 class IntervalExclusion(StrEnum):
@@ -208,7 +216,8 @@ class CurveSelection:
     - ``source_activity_types`` — sans unité — types de la source retenus, au moins un
       (P2.1 : une liste vide n'est jamais « aucun filtre ») ;
     - ``date_from``, ``date_to`` — dates civiles — la fenêtre, bornes comprises, sur le
-      jour local du départ (P2.2) ;
+      jour local du départ (P2.2) ; présentes ensemble ou absentes ensemble (OG-1) :
+      absentes, la sélection est celle de la règle à l'origine, par l'instant de fin ;
     - ``min_duration_s`` — secondes — durée minimale d'une activité, comprise,
       ``>= 0`` ;
     - ``max_duration_s`` — secondes — durée maximale, exclue, ``> 0`` et au-dessus de la
@@ -222,8 +231,8 @@ class CurveSelection:
     """
 
     source_activity_types: frozenset[str]
-    date_from: date
-    date_to: date
+    date_from: date | None
+    date_to: date | None
     min_duration_s: float | None
     max_duration_s: float | None
     max_elapsed_s: float | None
@@ -235,7 +244,15 @@ class CurveSelection:
             raise ContractError("source_activity_types : au moins un type.")
         for activity_type in sorted(self.source_activity_types):
             require_non_empty(activity_type, "source_activity_types")
-        if self.date_from > self.date_to:
+        if (self.date_from is None) != (self.date_to is None):
+            raise ContractError(
+                "date_from et date_to : présentes ensemble ou absentes ensemble."
+            )
+        if (
+            self.date_from is not None
+            and self.date_to is not None
+            and self.date_from > self.date_to
+        ):
             raise ContractError(
                 f"date_from ({self.date_from}) doit être <= date_to ({self.date_to})."
             )
@@ -375,6 +392,23 @@ class CurveCounts:
 
 
 @dataclass(frozen=True)
+class ActivityFate:
+    """Le sort d'une candidate (OG-1 ; le motif d'écart de ``0017``, P2.6, attaché à sa
+    référence).
+
+    - ``activity_ref`` — sans unité — la candidate ;
+    - ``exclusion`` — son motif d'écart, ``None`` si elle est retenue ;
+    - ``contributes`` — sans unité — vrai si elle porte la valeur d'au moins une tranche
+      estimée : avec (a), une cellule de temps M positif ; avec (b), une cellule de
+      temps M positif et d'au moins ``median_min_moving_s`` ; faux pour une écartée.
+    """
+
+    activity_ref: str
+    exclusion: ActivityExclusion | None
+    contributes: bool
+
+
+@dataclass(frozen=True)
 class CurveEstimate:
     """Le résultat d'une estimation.
 
@@ -385,7 +419,11 @@ class CurveEstimate:
     - ``activity_refs`` — les activités retenues, dans l'ordre reçu ;
     - ``excluded_activities``, ``excluded_intervals`` — les écarts par motif, dans
       l'ordre de leur énumération, sans les motifs à zéro ;
-    - ``counts`` — les comptes par étage.
+    - ``counts`` — les comptes par étage ;
+    - ``activity_fates`` — une par candidate, dans l'ordre reçu (OG-1) ;
+    - ``support_grade_range`` — fractions — les centres de la première et de la dernière
+      tranche du support au seuil des diagnostics, ``None`` si le support est impossible
+      (OG-1).
     """
 
     bins: tuple[EstimatedBin, ...]
@@ -395,6 +433,21 @@ class CurveEstimate:
     excluded_activities: tuple[tuple[ActivityExclusion, int], ...]
     excluded_intervals: tuple[tuple[IntervalExclusion, int], ...]
     counts: CurveCounts
+    activity_fates: tuple[ActivityFate, ...] = ()
+    support_grade_range: tuple[float, float] | None = None
+
+
+@dataclass(frozen=True)
+class NoCurve:
+    """L'absence de tranche estimée et son diagnostic (OG-1) : ``reason``, sa raison ;
+    ``excluded_activities``, ``excluded_intervals``, ``counts``, ``activity_fates``,
+    comme dans :class:`CurveEstimate`."""
+
+    reason: str
+    excluded_activities: tuple[tuple[ActivityExclusion, int], ...]
+    excluded_intervals: tuple[tuple[IntervalExclusion, int], ...]
+    counts: CurveCounts
+    activity_fates: tuple[ActivityFate, ...]
 
 
 def bin_index(grade: float) -> int | None:
@@ -427,13 +480,22 @@ def select_candidates(
     Ce jour peut différer du jour à Paris de ``0010`` (D0, D2.2) pour une sortie
     enregistrée sous un autre fuseau ; l'index est la source de vérité du filtre
     (``0013``, précision 3).
+
+    Une sélection sans dates est refusée (``ContractError``, OG-1) : celle de la règle à
+    l'origine se fait par l'instant de fin (:mod:`mountain_perf.estimation.origin`).
     """
+    date_from, date_to = selection.date_from, selection.date_to
+    if date_from is None or date_to is None:
+        raise ContractError(
+            "select_candidates : une plage de dates est requise ; la règle à l'origine "
+            "sélectionne par l'instant de fin (estimation/origin.py)."
+        )
     return tuple(
         entry
         for entry in index.entries
         if entry.has_recording
         and entry.source_activity_type in selection.source_activity_types
-        and selection.date_from <= entry.start_time.date() <= selection.date_to
+        and date_from <= entry.start_time.date() <= date_to
     )
 
 
@@ -555,15 +617,16 @@ def _predicted_s(model: PaceModel, intervals: Sequence[CurveInterval]) -> float:
     return math.fsum(i.length_m * model.pace_s_per_m(i.grade) for i in intervals)
 
 
-def _pace_model(bins: Sequence[EstimatedBin]) -> PaceModel | None:
+def _pace_model(bins: Sequence[EstimatedBin], threshold_min: float) -> PaceModel | None:
     """Le moteur sur la courbe des tranches estimées, à la règle de support de
-    ``read_curve`` ; ``None`` si le support est impossible (``0017``, P3.7, P4.1)."""
+    ``read_curve`` au seuil ``threshold_min`` (minutes) ; ``None`` si le support est
+    impossible (``0017``, P3.7, P4.1 ; le seuil, OG-1)."""
     curve_bins = [
         CurveBin(b.center_grade, b.speed_ms, b.moving_s / 60, b.activity_count)
         for b in bins
     ]
     try:
-        kept, _ = select_support(curve_bins, SUPPORT_THRESHOLD_MIN)
+        kept, _ = select_support(curve_bins, threshold_min)
     except CurveError:
         return None
     return PaceModel(
@@ -584,27 +647,63 @@ def estimate_curve(
     candidate_refs: Sequence[str],
     selection: CurveSelection,
     parameters: ParameterSet,
+    *,
+    support_threshold_min: float = SUPPORT_THRESHOLD_MIN,
 ) -> CurveEstimate:
     """La courbe estimée sur ``candidates`` (``candidate_refs[i]`` nomme
     ``candidates[i]``), la chaîne de la docstring du module dans cet ordre.
 
+    Le niveau, la forme et la plage de support se calculent au seuil
+    ``support_threshold_min`` (minutes, OG-1) ; un seuil non fini ou hors de
+    ``SUPPORT_THRESHOLD_RANGE_MIN`` lève ``ContractError``, avant tout calcul.
+
     ``ValueError`` si des intervalles ont été coupés à un autre plafond que celui de la
     sélection (l'appelant coupe au plafond déclaré, ``0017``, P2.4) ; ``CurveError`` si
-    aucune tranche ne s'estime, avec la raison.
+    aucune tranche ne s'estime, avec la raison (:func:`estimate_curve_outcome` rend
+    cette absence sans la lever).
     """
+    outcome = estimate_curve_outcome(
+        candidates,
+        candidate_refs,
+        selection,
+        parameters,
+        support_threshold_min=support_threshold_min,
+    )
+    if isinstance(outcome, NoCurve):
+        raise CurveError(outcome.reason)
+    return outcome
+
+
+def estimate_curve_outcome(
+    candidates: Sequence[ActivityIntervals | TraceRefusal],
+    candidate_refs: Sequence[str],
+    selection: CurveSelection,
+    parameters: ParameterSet,
+    *,
+    support_threshold_min: float = SUPPORT_THRESHOLD_MIN,
+) -> CurveEstimate | NoCurve:
+    """Comme :func:`estimate_curve`, mais une absence de tranche est rendue,
+    :class:`NoCurve`, avec son diagnostic (OG-1). Les autres erreurs restent levées."""
+    require_finite(support_threshold_min, "support_threshold_min")
+    require_in_range(
+        support_threshold_min, *SUPPORT_THRESHOLD_RANGE_MIN, "support_threshold_min"
+    )
     activity_exclusions: Counter[ActivityExclusion] = Counter()
     interval_exclusions: Counter[IntervalExclusion] = Counter()
     excluded_length: defaultdict[IntervalExclusion, list[float]] = defaultdict(list)
     retained: list[tuple[str, list[CurveInterval]]] = []
     with_intervals = eligible = intervals = truncated = 0
     after_ceiling: list[float] = []
+    fates: list[tuple[str, ActivityExclusion | None]] = []
     for ref, candidate in zip(candidate_refs, candidates, strict=True):
         if isinstance(candidate, TraceRefusal):
-            activity_exclusions[
+            refusal = (
                 ActivityExclusion.NO_TRACE
                 if candidate is TraceRefusal.NO_TRACE
                 else ActivityExclusion.NO_PROFILE
-            ] += 1
+            )
+            activity_exclusions[refusal] += 1
+            fates.append((ref, refusal))
             continue
         with_intervals += 1
         if candidate.ceiling_s != selection.max_elapsed_s:
@@ -618,12 +717,14 @@ def estimate_curve(
             and candidate.elapsed_s < selection.min_duration_s
         ):
             activity_exclusions[ActivityExclusion.SHORT] += 1
+            fates.append((ref, ActivityExclusion.SHORT))
             continue
         if (
             selection.max_duration_s is not None
             and candidate.elapsed_s >= selection.max_duration_s
         ):
             activity_exclusions[ActivityExclusion.LONG] += 1
+            fates.append((ref, ActivityExclusion.LONG))
             continue
         eligible += 1
         intervals += len(candidate.intervals) + candidate.after_ceiling
@@ -641,8 +742,10 @@ def estimate_curve(
                 excluded_length[reason].append(interval.length_m)
         if kept:
             retained.append((ref, kept))
+            fates.append((ref, None))
         else:
             activity_exclusions[ActivityExclusion.NO_INTERVAL] += 1
+            fates.append((ref, ActivityExclusion.NO_INTERVAL))
 
     cells = [(ref, _cells(kept)) for ref, kept in retained]
     median_min = parameters["median_min_moving_s"]
@@ -656,20 +759,10 @@ def estimate_curve(
         if estimated is not None:
             bins.append(estimated)
             members.append(present)
-    if not bins:
-        if selection.value is BinValue.MEDIAN:
-            raise CurveError(
-                f"Aucune tranche estimée : aucune activité n'a {median_min:g} s de "
-                "temps en mouvement dans une même tranche (valeur (b))."
-            )
-        raise CurveError(
-            "Aucune tranche estimée : aucun intervalle retenu n'a de temps en "
-            "mouvement."
-        )
 
     level: LevelQuantiles | None = None
     levels: dict[str, float] = {}
-    model = _pace_model(bins)
+    model = _pace_model(bins, support_threshold_min)
     if model is not None:
         for ref, kept in retained:
             moving = [interval for interval in kept if interval.moving_s > 0]
@@ -747,22 +840,53 @@ def estimate_curve(
             if excluded_length[reason]
         ),
     )
+    carrying = {
+        ref
+        for ref, activity in cells
+        if any(
+            cell.moving_s > 0
+            and (selection.value is BinValue.POOLED or cell.moving_s >= median_min)
+            for cell in activity.values()
+        )
+    }
+    activity_fates = tuple(
+        ActivityFate(ref, exclusion, exclusion is None and ref in carrying)
+        for ref, exclusion in fates
+    )
+    excluded_activities = tuple(
+        (reason, activity_exclusions[reason])
+        for reason in ActivityExclusion
+        if activity_exclusions[reason]
+    )
+    excluded_by_interval = tuple(
+        (reason, interval_exclusions[reason])
+        for reason in IntervalExclusion
+        if interval_exclusions[reason]
+    )
+    if not bins:
+        return NoCurve(
+            (
+                f"Aucune tranche estimée : aucune activité n'a {median_min:g} s de "
+                "temps en mouvement dans une même tranche (valeur (b))."
+                if selection.value is BinValue.MEDIAN
+                else "Aucune tranche estimée : aucun intervalle retenu n'a de temps en "
+                "mouvement."
+            ),
+            excluded_activities,
+            excluded_by_interval,
+            counts,
+            activity_fates,
+        )
     return CurveEstimate(
         bins=tuple(bins),
         level=level,
         elapsed_moving_ratio=counts.elapsed_s / counts.moving_s,
         activity_refs=tuple(ref for ref, _ in retained),
-        excluded_activities=tuple(
-            (reason, activity_exclusions[reason])
-            for reason in ActivityExclusion
-            if activity_exclusions[reason]
-        ),
-        excluded_intervals=tuple(
-            (reason, interval_exclusions[reason])
-            for reason in IntervalExclusion
-            if interval_exclusions[reason]
-        ),
+        excluded_activities=excluded_activities,
+        excluded_intervals=excluded_by_interval,
         counts=counts,
+        activity_fates=activity_fates,
+        support_grade_range=None if model is None else model.grade_range,
     )
 
 
@@ -803,16 +927,23 @@ def estimation_document(
     commit: str,
     exports_retrieved_at: Sequence[datetime],
     support_error: str | None,
+    origin: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
     """Le document que ``write_curve`` range sous la clé ``estimation`` du compagnon,
     et que ``read_curve`` ignore : la méthode, ses paramètres, le niveau, les écarts,
     les comptes et les diagnostics des tranches (``0017``, P5.4), en JSON simple.
 
     ``exports_retrieved_at`` : les instants d'acquisition des exports lus, distincts
-    comme instants, ramenés en UTC et triés comme instants."""
+    comme instants, ramenés en UTC et triés comme instants.
+
+    Le schéma est fixe (OG-1) : ``mode`` dit « plage » ou « origine », ``origin`` porte
+    une copie de la section ``origin`` d'une courbe à l'origine, ``null`` pour une
+    plage."""
     counts = estimate.counts
     return {
         "method": METHOD,
+        "mode": (CurveMode.RANGE if origin is None else CurveMode.ORIGIN).value,
+        "origin": None if origin is None else dict(origin),
         "commit": commit,
         "value": selection.value.value,
         "bin_edges_permille": list(CURVE_BIN_EDGES_PERMILLE),
@@ -824,6 +955,11 @@ def estimation_document(
         "parameters": dict(parameters.values),
         "projectable": support_error is None,
         "support_error": support_error,
+        "support_grade_range": (
+            None
+            if estimate.support_grade_range is None
+            else list(estimate.support_grade_range)
+        ),
         "level": (
             None
             if estimate.level is None

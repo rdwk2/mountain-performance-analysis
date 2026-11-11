@@ -1042,6 +1042,7 @@ L'estimation de courbe (M6b) ; les montées de la piste analyse
 | `max_duration_s` | `float \| None` | `None` |
 | `max_elapsed_s` | `float \| None` | `None` |
 | `hr_lag_s` | `float \| None` | `None` |
+| `diagnostic_support_threshold_min` | `float \| None` | `None` |
 
 Comment une courbe a été estimée : sur quelles activités, avec quels filtres.
 
@@ -1065,6 +1066,10 @@ Comment une courbe a été estimée : sur quelles activités, avec quels filtres
   coupés au plafond, rien de ce qui le suit n'a servi, hors la FC décalée d'un
   intervalle coupé (`0017`, P2.4 ; M6b).
 - `hr_lag_s` — secondes — décalage de la FC du filtre (M6b).
+- `diagnostic_support_threshold_min` — minutes — le seuil de support auquel
+  l'estimation a calculé ses diagnostics (niveau, forme, verdict projetable). Une
+  information : une lecture applique son propre seuil, sans recalcul. `None` pour
+  une courbe d'avant OG-1, dont les diagnostics sont à 10 min.
 
 #### Invariants
 
@@ -1079,7 +1084,9 @@ Comment une courbe a été estimée : sur quelles activités, avec quels filtres
 - `max_duration_s` puis `max_elapsed_s` finis et `> 0` s'ils sont présents ;
 - `max_duration_s > min_duration_s` si les deux sont présents ;
 - `hr_lag_s` fini et `>= 0` s'il est présent, et seulement avec un filtre de
-  FC (`hr_center_bpm` présent).
+  FC (`hr_center_bpm` présent) ;
+- `diagnostic_support_threshold_min` fini et dans
+  :data:`SUPPORT_THRESHOLD_RANGE_MIN` s'il est présent (OG-1).
 
 **Pourquoi la provenance est un champ et non un commentaire** : il y aura plusieurs
 courbes pour un même sport — course, randonnée, fin de saison, FC 150. Marcher les
