@@ -144,3 +144,26 @@ ouvre l'extra `tableau`.
 - **Ce qui n'est pas montré** : les régimes (`E_R`, `D_R`), les enveloppes, les épisodes
   d'arrêt, `q_usage`, le rapport complet ; on les lit dans `mperf match --curve`
   (`BACKLOG.md`, si le détail manque à l'usage).
+
+## AN2-3 — les pages de la piste (2026-11-11)
+
+- **Deux pages, une PR** : AN2-3 ajoute « récupération » (`ui/recuperation.py`, `0019`) et
+  « Q1 » (`ui/q1.py`, `0015`), deux lignes de `PAGES` ; « deux pages, deux PR » valait
+  pour M5, et AN2 ajoute deux pages, non une.
+- **`just ui`** lance l'appli avec les extras `tableau` et `analyse` : les pages de la
+  piste lisent `processed/` par `analyse.parquet`, qui demande pyarrow.
+- **Les clôtures** : `ui/` n'importe toujours aucun module de `backtest/`, ni `analyse/`
+  au premier niveau d'un module ; seules les pages de la piste, listées dans
+  `tests/test_ui_imports.py` (`PISTE_PAGES`), importent `analyse`, dans leurs fonctions
+  seulement, si bien qu'elles restent chargeables sans l'extra ; les deux tests de
+  clôture le vérifient. Aucune page n'importe plotly ni pyarrow.
+- **Le cache** (« À revisiter » ci-dessus) : la page « récupération » garde les tables en
+  mémoire (`st.cache_resource`, une entrée) tant que leur provenance ne change pas, la
+  clé lue dans les seules métadonnées des fichiers ; la page « Q1 » relit les tables par
+  le même cache. Sans l'extra `tableau`, Streamlit vaut `Any` pour `mypy`, qui refuse un
+  décorateur non typé : le cache s'applique par un appel, pas par un décorateur.
+- **Vega-Lite** : un graphique par panneau, sans `vconcat` (Streamlit ne donne pas la
+  largeur du conteneur aux vues concaténées qui ont des couches) ; `autosize` en
+  `fit-x` (en largeur étirée, Streamlit ferait tenir toute la figure dans sa hauteur) ;
+  des noms de couche uniques sur la page (deux couches du même nom mêlent leurs
+  données) ; la virgule décimale (`config.locale`).

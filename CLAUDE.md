@@ -128,7 +128,7 @@ just process    # raw/ → interim/ → processed/ : ingest, puis mperf tables, 
 just q1         # processed/ → resultats/Q1/<date>_<empreinte>/ : la figure de Q1, extra analyse (AN1-2c)
 just curve nom --from AAAA-MM-JJ --to AAAA-MM-JJ --athlete x  # une courbe allure↔pente depuis interim/ (M6b-1) ; MPA_DATA_DIR/reference/<nom>.csv
 just curve nom --at AAAA-MM-JJ --athlete x  # la courbe de la règle à l'origine (OG-1)
-just ui         # l'interface (M5) : appli Streamlit locale sur MPA_DATA_DIR, extra tableau
+just ui         # l'interface (M5, AN2-3) : appli Streamlit locale sur MPA_DATA_DIR, extras tableau et analyse
 uv run mperf profile tests/fixtures/mini_11.gpx  # compte-rendu GPX (M2), --csv pour la grille
 uv run mperf project tests/fixtures/mini_11.gpx --curve tests/fixtures/courbe_synthetique.csv  # temps de passage (M3)
 uv run mperf match tests/fixtures/appariement_reference.gpx tests/fixtures/appariement_trace_x01.gpx  # points de score (M4a-2a)
@@ -313,6 +313,8 @@ src/mountain_perf/     le code de la bibliothèque
     days.py            la ligne de chaque jour : les vues des jours sur une tranche
                        bornée, les validités, l'activité du jour, l'admission, les
                        normales ; seuils days.*, DayDefinition (AN2-2)
+    recovery.py        la vue de la page récupération : marques, suites de la normale,
+                       étendue, rubans, activité, légende ; Python pur (AN2-3)
     tables.py          interim/activities/ → lignes des tables activites et montees,
                        provenance (AN1-2b) ; table variantes (AN1-2c) ; interim/days/
                        et journal.csv → table jours, son résumé, la provenance
@@ -320,11 +322,13 @@ src/mountain_perf/     le code de la bibliothèque
     parquet.py         écriture et relecture des tables en Parquet (AN1-2b) ; trois
                        tables, mises en place par échange de dossier (AN1-2c) ; quatre
                        tables, dates et instants facultatifs, refus des tables d'avant
-                       AN2-2 (AN2-2)
+                       AN2-2 (AN2-2) ; tables_key, la provenance lue dans les seules
+                       métadonnées (AN2-3)
     q1.py              figure de Q1 : points, stabilité des points, flux, changements
                        de montre ; Python pur (AN1-2c)
     results.py         dossier de résultats de Q1 : CSV, provenance, écriture jamais
-                       réécrite ; Python pur (AN1-2c)
+                       réécrite ; Python pur (AN1-2c) ; relecture des résultats, le
+                       dernier, sa comparaison aux tables actuelles (AN2-3)
     plot.py            rendu HTML de la figure de Q1 ; seul importeur de plotly (AN1-2c)
   ui/                  interface — appelle la bibliothèque, ne calcule rien (M5) ;
                        extra tableau, seul importeur de streamlit (0016)
@@ -333,6 +337,9 @@ src/mountain_perf/     le code de la bibliothèque
                        des figures
     projection.py      la page projection, M5-1
     sortie.py          la page sortie, M5-2
+    recuperation.py    la page récupération et le cache des tables, AN2-3 ; importe
+                       analyse dans ses fonctions seulement
+    q1.py              la page Q1 : la dernière figure de just q1, AN2-3
   cli.py               mperf profile <fichier.gpx>, compte-rendu ou CSV sur stdout ;
                        mperf match <référence.gpx> <trace.gpx>, points de score (M4a-2a),
                        segments, couverture et horloges (M4a-2b), passages (M4a-3) ;
