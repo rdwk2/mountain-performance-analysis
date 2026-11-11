@@ -7,8 +7,9 @@ from __future__ import annotations
 
 import dataclasses
 import hashlib
+import json
 import math
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -38,12 +39,22 @@ from mountain_perf.estimation.origin import (
 )
 from mountain_perf.gitstate import GitState
 from mountain_perf.gpx.profile import PROFILE_PARAMETER_SPECS
-from mountain_perf.model.curve_io import CurveError, curve_documents, write_curve
+from mountain_perf.model.curve_io import (
+    CURVE_PARAMETER_SPECS,
+    CurveError,
+    CurveReadResult,
+    curve_documents,
+    read_curve,
+    read_curve_documents,
+    write_curve,
+)
 from mountain_perf.runs import load_curve_corpus
 from mountain_perf.schemas import ActivityRecording, ParameterSet, Sport
 from mountain_perf.validation import ContractError
 from test_estimation_curve import DEFAULTS
+from test_model_curve_io import CURVE, MINIMAL, base_meta
 from test_model_curve_io_extended import ESTIMATION, PROVENANCE, ROWS
+from test_model_engine import run as project_run
 from test_og1_cli_at import (
     AT,
     EXPORTS,
@@ -578,3 +589,198 @@ def test_curve_documents_le_compagnon_d_abord() -> None:
     assert str(error.value) == "could not convert string to float: 'abc'"
     with pytest.raises(ValueError, match="JSON compliant"):
         curve_documents(rows, Sport.FOOT, PROVENANCE, {"level": {"p10": math.nan}})
+
+
+# --- Section 3 : la lecture depuis les octets (commit 3) ---------------------------
+
+
+P = ParameterSet(CURVE_PARAMETER_SPECS)
+CSV_BYTES = CURVE.read_bytes()
+COMPANION_BYTES = CURVE.with_name("courbe_synthetique.meta.json").read_bytes()
+CURVE_HASH = "6767dd38064dd789547329f9b46bb6c46d3e54b1593daa38f575614cb4744f06"
+UTC_ELEVEN = datetime(2026, 2, 1, 11, tzinfo=UTC)
+"""Le ``generated_at`` de la fixture, en UTC."""
+NO_SOURCE = (
+    "k.meta.json : champ « generated_at » présent, et generated_at donné à part : une "
+    "seule source."
+)
+
+
+def without_generated_at() -> bytes:
+    """Le compagnon de la fixture, sans la clé ``generated_at``."""
+    meta = base_meta()
+    del meta["generated_at"]
+    return json.dumps(meta).encode("utf-8")
+
+
+def same_curve(a: CurveReadResult, b: CurveReadResult) -> None:
+    """Égales hors ``retrieved_at``."""
+    assert dataclasses.replace(a.curve, source=b.curve.source) == b.curve
+    for field in ("kind", "identifier", "content_hash"):
+        assert getattr(a.source, field) == getattr(b.source, field)
+
+
+@pytest.mark.parametrize("source", ["fixture", "ecrite"])
+def test_read_curve_documents_lit_comme_read_curve(tmp_path: Path, source: str) -> None:
+    if source == "fixture":
+        path = CURVE
+    else:
+        path = tmp_path / "k.csv"
+        write_curve(path, ROWS, Sport.FOOT, PROVENANCE, ESTIMATION)
+    companion_path = path.with_name(f"{path.stem}.meta.json")
+    from_file = read_curve(path, P)
+    from_bytes = read_curve_documents(
+        path.read_bytes(), companion_path.read_bytes(), path.name, P
+    )
+    same_curve(from_file, from_bytes)
+    assert from_bytes.bin_count_read == from_file.bin_count_read
+    assert from_bytes.bin_count_kept == from_file.bin_count_kept
+    assert from_bytes.discarded == from_file.discarded
+    if source == "fixture":
+        assert (from_bytes.bin_count_read, from_bytes.bin_count_kept) == (9, 5)
+        assert from_bytes.source.content_hash == CURVE_HASH
+        assert from_bytes.curve_ref == "courbe_synthetique.csv#6767dd38064d"
+
+
+def test_un_compagnon_sans_generated_at_et_l_instant_a_part() -> None:
+    result = read_curve_documents(
+        CSV_BYTES,
+        without_generated_at(),
+        "courbe_synthetique.csv",
+        P,
+        generated_at=datetime(2026, 2, 1, 12, tzinfo=timezone(timedelta(hours=1))),
+    )
+    assert result.curve.estimation.generated_at == UTC_ELEVEN
+    same_curve(result, read_curve(CURVE, P))
+
+
+@pytest.mark.parametrize("carried", ["instant", "null"])
+def test_generated_at_d_une_seule_source(carried: str) -> None:
+    if carried == "instant":
+        companion_bytes = COMPANION_BYTES
+    else:
+        meta = base_meta()
+        meta["generated_at"] = None
+        companion_bytes = json.dumps(meta).encode("utf-8")
+    with pytest.raises(CurveError) as error:
+        read_curve_documents(
+            CSV_BYTES, companion_bytes, "k.csv", P, generated_at=UTC_ELEVEN
+        )
+    assert str(error.value) == NO_SOURCE
+
+
+def test_sans_generated_at_nulle_part() -> None:
+    with pytest.raises(CurveError) as error:
+        read_curve_documents(CSV_BYTES, without_generated_at(), "og1.csv", P)
+    assert str(error.value) == "og1.meta.json : champ « generated_at » manquant."
+
+
+def test_un_generated_at_sans_fuseau_est_refuse() -> None:
+    with pytest.raises(ContractError) as error:
+        read_curve_documents(
+            CSV_BYTES,
+            without_generated_at(),
+            "k.csv",
+            P,
+            generated_at=datetime(2026, 2, 1, 11),
+        )
+    assert str(error.value) == (
+        "generated_at doit porter un fuseau horaire, reçu "
+        "datetime.datetime(2026, 2, 1, 11, 0)."
+    )
+
+
+def test_un_compagnon_crlf_se_lit_comme_son_fichier(tmp_path: Path) -> None:
+    lines = json.dumps(base_meta(), indent=2).split("\n")
+    lines[1] = "  x"
+    crlf = "\r\n".join(lines).encode("utf-8")
+    (tmp_path / "k.csv").write_bytes(CSV_BYTES)
+    (tmp_path / "k.meta.json").write_bytes(crlf)
+    expected = (
+        "k.meta.json : JSON illisible (Expecting property name enclosed in double "
+        "quotes: line 2 column 3 (char 4))."
+    )
+    with pytest.raises(CurveError) as from_file:
+        read_curve(tmp_path / "k.csv", P)
+    assert str(from_file.value) == expected
+    with pytest.raises(CurveError) as from_bytes:
+        read_curve_documents(CSV_BYTES, crlf, "k.csv", P)
+    assert str(from_bytes.value) == expected
+
+
+def test_sans_compagnon_le_message_de_read_curve() -> None:
+    with pytest.raises(CurveError) as error:
+        read_curve_documents(CSV_BYTES, None, "k.csv", P)
+    assert str(error.value) == (
+        "Fichier de provenance absent : « k.meta.json » est attendu à côté de "
+        "« k.csv ». Une courbe sans provenance est une projection dont on ne peut "
+        "plus dire sur quoi elle repose."
+    )
+
+
+@pytest.mark.parametrize(
+    ("csv_bytes", "companion_bytes", "message"),
+    [
+        pytest.param(b"\xff", None, "k.csv : fichier illisible en UTF-8.", id="csv"),
+        pytest.param(
+            CSV_BYTES,
+            b"\xff",
+            "k.meta.json : fichier illisible en UTF-8.",
+            id="compagnon",
+        ),
+    ],
+)
+def test_un_fichier_illisible_en_utf8(
+    csv_bytes: bytes, companion_bytes: bytes | None, message: str
+) -> None:
+    with pytest.raises(CurveError) as error:
+        read_curve_documents(csv_bytes, companion_bytes, "k.csv", P)
+    assert str(error.value) == message
+
+
+BAD_HEADER = (
+    "En-tête inattendu « pente,kmh,hr,vam_mh,time_min » ; attendu "
+    "« grade_pct,kmh,hr,vam_mh,time_min » ou "
+    "« grade_pct,kmh,hr,vam_mh,time_min,kmh_elapsed,activities,shape_iqr »."
+)
+
+
+@pytest.mark.parametrize("through", ["octets", "fichiers"])
+def test_le_csv_d_abord(tmp_path: Path, through: str) -> None:
+    csv_bytes = MINIMAL.replace("grade_pct", "pente", 1).encode("utf-8")
+    (tmp_path / "k.csv").write_bytes(csv_bytes)
+
+    def read() -> CurveReadResult:
+        if through == "octets":
+            return read_curve_documents(csv_bytes, None, "k.csv", P)
+        return read_curve(tmp_path / "k.csv", P)
+
+    with pytest.raises(CurveError) as error:
+        read()
+    assert str(error.value) == BAD_HEADER
+
+
+def test_un_dossier_a_la_place_du_compagnon(tmp_path: Path) -> None:
+    (tmp_path / "k.csv").write_bytes(CSV_BYTES)
+    (tmp_path / "k.meta.json").mkdir()
+    with pytest.raises(OSError, match=r"k\.meta\.json") as error:
+        read_curve(tmp_path / "k.csv", P)
+    assert not isinstance(error.value, CurveError)
+
+
+def test_le_nom_donne_la_reference() -> None:
+    result = read_curve_documents(CSV_BYTES, COMPANION_BYTES, "og1_2024-03-25.csv", P)
+    assert result.source.identifier == "og1_2024-03-25.csv"
+    assert result.curve_ref == "og1_2024-03-25.csv#6767dd38064d"
+
+
+def test_une_courbe_relue_projette_comme_read_curve() -> None:
+    from_file = project_run(curve=read_curve(CURVE, P).curve)
+    from_bytes = project_run(
+        curve=read_curve_documents(
+            CSV_BYTES, COMPANION_BYTES, "courbe_synthetique.csv", P
+        ).curve
+    )
+    assert dataclasses.replace(from_file, generated_at=from_bytes.generated_at) == (
+        from_bytes
+    )

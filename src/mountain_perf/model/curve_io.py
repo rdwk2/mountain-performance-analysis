@@ -20,7 +20,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from itertools import pairwise
-from pathlib import Path
+from pathlib import Path, PurePath
 from typing import Any, Final
 
 from mountain_perf.schemas import (
@@ -473,8 +473,25 @@ def _sport(meta: dict[str, Any], file_name: str) -> Sport:
         ) from error
 
 
-def _read_provenance(path: Path) -> tuple[Sport, CurveProvenance]:
-    """Sport et provenance lus dans le compagnon ``<stem>.meta.json``, obligatoire.
+def _generated_at(meta: dict[str, Any], name: str, given: datetime | None) -> datetime:
+    """L'instant de l'estimation, d'une seule source (OG-1b) : le compagnon le porte dès
+    que sa clé est présente, même à ``null`` ; sinon l'appelant le donne."""
+    if "generated_at" in meta:
+        if given is not None:
+            raise CurveError(
+                f"{name} : champ « generated_at » présent, et generated_at donné à "
+                "part : une seule source."
+            )
+        return _instant(meta, "generated_at", name)
+    if given is None:
+        raise CurveError(f"{name} : champ « generated_at » manquant.")
+    return given
+
+
+def _provenance(
+    text: str, name: str, generated_at: datetime | None
+) -> tuple[Sport, CurveProvenance]:
+    """Sport et provenance lus dans le texte du compagnon ``name``, obligatoire.
 
     Le CSV ne porte que des nombres : ni dates, ni filtres, ni estimateur, ni
     famille de modèle. Inventer ces valeurs produirait une projection qui affirme
@@ -482,20 +499,8 @@ def _read_provenance(path: Path) -> tuple[Sport, CurveProvenance]:
     cherche à empêcher. Un champ supplémentaire inconnu est ignoré en silence, pour
     ne pas bloquer une version future du fichier.
     """
-    meta_path = path.with_name(f"{path.stem}{META_SUFFIX}")
-    name = meta_path.name
     try:
-        raw = meta_path.read_text(encoding="utf-8")
-    except FileNotFoundError as error:
-        raise CurveError(
-            f"Fichier de provenance absent : « {name} » est attendu à côté de "
-            f"« {path.name} ». Une courbe sans provenance est une projection dont "
-            "on ne peut plus dire sur quoi elle repose."
-        ) from error
-    except UnicodeDecodeError as error:
-        raise CurveError(f"{name} : fichier illisible en UTF-8.") from error
-    try:
-        meta = json.loads(raw)
+        meta = json.loads(text)
     except json.JSONDecodeError as error:
         raise CurveError(f"{name} : JSON illisible ({error}).") from error
     if not isinstance(meta, dict):
@@ -509,7 +514,7 @@ def _read_provenance(path: Path) -> tuple[Sport, CurveProvenance]:
         source_activity_types=_texts(meta, "source_activity_types", name),
         min_duration_s=_optional_number(meta, "min_duration_s", name),
         estimator=_text(meta, "estimator", name),
-        generated_at=_instant(meta, "generated_at", name),
+        generated_at=_generated_at(meta, name, generated_at),
         athlete_ref=_optional_text(meta, "athlete_ref", name),
         max_duration_s=_absent_or_number(meta, "max_duration_s", name),
         max_elapsed_s=_absent_or_number(meta, "max_elapsed_s", name),
@@ -534,19 +539,62 @@ def read_curve(path: Path, parameters: ParameterSet) -> CurveReadResult:
     Les violations d'invariant du contrat — fenêtre de FC à moitié renseignée,
     fréquence hors plage physiologique — restent des ``ContractError`` : elles sont
     déjà lisibles, et les recopier ici ferait deux messages à maintenir.
+
+    *(OG-1b)* Lit les octets du CSV et ceux du compagnon (``None`` s'il n'existe pas),
+    puis appelle :func:`read_curve_documents`. Une autre erreur d'ouverture du
+    compagnon (un dossier à sa place, des droits) remonte donc avant une erreur du CSV,
+    toujours comme ``OSError``.
     """
     content = path.read_bytes()
+    meta_path = path.with_name(f"{path.stem}{META_SUFFIX}")
     try:
-        text = content.decode("utf-8")
+        companion: bytes | None = meta_path.read_bytes()
+    except FileNotFoundError:
+        companion = None
+    return read_curve_documents(content, companion, path.name, parameters)
+
+
+def read_curve_documents(
+    csv: bytes,
+    companion: bytes | None,
+    name: str,
+    parameters: ParameterSet,
+    *,
+    generated_at: datetime | None = None,
+) -> CurveReadResult:
+    """Lit une courbe depuis les octets de son CSV et de son compagnon (OG-1b), comme
+    :func:`read_curve` les lirait dans les fichiers ``name`` et ``<stem>.meta.json``.
+    ``companion`` ``None`` : le compagnon manque. ``generated_at`` : l'instant de
+    l'estimation, quand le compagnon ne le porte pas ; jamais les deux.
+
+    Le CSV d'abord (UTF-8, lignes, support au seuil de ``parameters``), puis le
+    compagnon, ses fins de ligne ramenées à ``"\\n"`` comme le ferait une lecture en
+    texte. Le compagnon porte ``generated_at`` dès que sa clé est présente, même à
+    ``null``. ``name`` n'est pas contrôlé.
+    """
+    meta_name = f"{PurePath(name).stem}{META_SUFFIX}"
+    try:
+        text = csv.decode("utf-8")
     except UnicodeDecodeError as error:
-        raise CurveError(f"{path.name} : fichier illisible en UTF-8.") from error
+        raise CurveError(f"{name} : fichier illisible en UTF-8.") from error
     bins = _read_bins(text)
     kept, discarded = _select_support(bins, parameters["curve_min_support_min"])
-    sport, provenance = _read_provenance(path)
+    if companion is None:
+        raise CurveError(
+            f"Fichier de provenance absent : « {meta_name} » est attendu à côté de "
+            f"« {name} ». Une courbe sans provenance est une projection dont "
+            "on ne peut plus dire sur quoi elle repose."
+        )
+    try:
+        meta_text = companion.decode("utf-8")
+    except UnicodeDecodeError as error:
+        raise CurveError(f"{meta_name} : fichier illisible en UTF-8.") from error
+    meta_text = meta_text.replace("\r\n", "\n").replace("\r", "\n")
+    sport, provenance = _provenance(meta_text, meta_name, generated_at)
     source = SourceRef(
         kind="csv",
-        identifier=path.name,
-        content_hash=hashlib.sha256(content).hexdigest(),
+        identifier=name,
+        content_hash=hashlib.sha256(csv).hexdigest(),
         retrieved_at=datetime.now(UTC),
     )
     return CurveReadResult(
