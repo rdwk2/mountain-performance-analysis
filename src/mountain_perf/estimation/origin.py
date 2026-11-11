@@ -23,7 +23,7 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from enum import StrEnum
 from types import MappingProxyType
-from typing import Final, Literal
+from typing import Final, Literal, Protocol
 from zoneinfo import ZoneInfo
 
 from mountain_perf.estimation.curve import (
@@ -35,7 +35,11 @@ from mountain_perf.estimation.curve import (
     curve_file_rows,
     estimate_curve_outcome,
 )
-from mountain_perf.estimation.intervals import activity_intervals
+from mountain_perf.estimation.intervals import (
+    ActivityIntervals,
+    TraceRefusal,
+    activity_intervals,
+)
 from mountain_perf.ingest.types import SOURCE_TYPE_SPORTS
 from mountain_perf.model.curve_io import CurveFileRow, check_curve_rows
 from mountain_perf.schemas import (
@@ -482,6 +486,22 @@ class OriginEstimate:
         )
 
 
+class IntervalsOf(Protocol):
+    """Ce qui rend les intervalles d'un enregistrement, à la signature
+    d'``activity_intervals`` (OG-1b)."""
+
+    def __call__(
+        self,
+        recording: ActivityRecording,
+        profile_parameters: ParameterSet,
+        /,
+        *,
+        hr_lag_s: float,
+        hr_min_coverage: float,
+        max_elapsed_s: float | None,
+    ) -> ActivityIntervals | TraceRefusal: ...
+
+
 def _latest_end(inspections: Iterable[Inspection]) -> datetime | None:
     """La plus tardive des fins sûres de ``inspections`` ; ``None`` sans aucune."""
     ends = [i.end.safe_end for i in inspections if i.end.safe_end is not None]
@@ -498,6 +518,7 @@ def estimate_at_origin(
     profile_parameters: ParameterSet,
     *,
     support_threshold_min: float = SUPPORT_THRESHOLD_MIN,
+    intervals_of: IntervalsOf | None = None,
 ) -> OriginEstimate:
     """La règle à l'origine : **la seule fonction de la règle**. Rend la courbe en
     mémoire et n'écrit rien.
@@ -508,6 +529,11 @@ def estimate_at_origin(
     ``CurveError`` (``0017``, P3.7). Dans cet ordre : les contrôles, la sélection,
     l'historique, les intervalles des candidates, l'estimation au seuil donné, l'issue
     au même seuil.
+
+    ``intervals_of`` (OG-1b) : le fournisseur des intervalles, à la signature
+    d':func:`activity_intervals`, appelé une fois par candidate avec les paramètres de
+    la règle ; ``None`` : :func:`activity_intervals`. Un cache s'y pose (OG-2, OG-UI),
+    avec sa propre clé (``0020``, « Conséquences »).
     """
     if athlete_ref != corpus.athlete_ref:
         raise ContractError(
@@ -562,8 +588,10 @@ def estimate_at_origin(
     if not candidates:
         return absence(NO_CANDIDATE)
     refs = [inspection.end.activity_ref for inspection in candidates]
+    # Le défaut se lit dans le module à l'appel, jamais à la définition (OG-1b, C2).
+    provider = activity_intervals if intervals_of is None else intervals_of
     intervals = [
-        activity_intervals(
+        provider(
             corpus.recordings[ref],
             profile_parameters,
             hr_lag_s=parameters["hr_lag_s"],
