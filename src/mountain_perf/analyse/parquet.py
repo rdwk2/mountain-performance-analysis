@@ -337,6 +337,26 @@ def _row[T](record: dict[str, Any], cls: type[T]) -> T:
     return cls(**values)
 
 
+def tables_key(data_dir: Path) -> bytes | None:
+    """La clé du cache de l'interface (AN2-3) : la provenance de chacun des quatre
+    fichiers de ``data_dir/processed/`` (activités, montées, variantes, jours, dans cet
+    ordre), lue dans les **seules** métadonnées du schéma Parquet, sans les lignes,
+    jointes par ``b"\\n"``. ``None`` si un fichier manque, ne se lit pas ou n'a pas de
+    provenance : :func:`read_tables` dira pourquoi. La clé change dès qu'une des quatre
+    provenances change."""
+    folder = data_dir / PROCESSED_DIR
+    values: list[bytes] = []
+    for name in (ACTIVITIES_FILE, CLIMBS_FILE, VARIANTS_FILE, DAYS_FILE):
+        try:
+            metadata = pq.read_schema(folder / name).metadata
+        except (pa.ArrowException, OSError):
+            return None
+        if not metadata or PROVENANCE_KEY not in metadata:
+            return None
+        values.append(metadata[PROVENANCE_KEY])
+    return b"\n".join(values)
+
+
 def read_tables(data_dir: Path) -> Tables:
     """Relit les quatre tables de ``data_dir/processed/``, une à une dans l'ordre
     d'écriture (``activites``, ``montees``, ``variantes``, ``jours``) ; le résumé de

@@ -10,7 +10,7 @@ from pathlib import Path
 
 import mountain_perf
 from test_backtest_metrics_reuse import _imported_modules, _package
-from test_ui_imports import RUNS_BACKTEST_MODULES
+from test_ui_imports import PISTE_PAGES, RUNS_BACKTEST_MODULES
 
 SOURCE = Path(mountain_perf.__file__).parent
 UI = SOURCE / "ui"
@@ -47,13 +47,16 @@ def _allowed_for_runs(target: str) -> bool:
 
 
 def test_the_interface_imports_neither_backtest_nor_analyse_in_any_form() -> None:
+    """``analyse`` est permis aux seules pages de la piste (``PISTE_PAGES``, AN2-3) ;
+    ``backtest`` reste refusé partout."""
     modules = sorted(UI.rglob("*.py"))
     assert modules
     for path in modules:
+        refused: tuple[str, ...] = ("mountain_perf.backtest", "mountain_perf.analyse")
+        if path.relative_to(UI).as_posix() in PISTE_PAGES:
+            refused = ("mountain_perf.backtest",)
         for target in _targets(path):
-            assert not target.startswith(
-                ("mountain_perf.backtest", "mountain_perf.analyse")
-            ), (path.name, target)
+            assert not target.startswith(refused), (path.name, target)
 
 
 def test_new_modules_import_neither_ui_backtest_nor_analyse_in_any_form() -> None:
