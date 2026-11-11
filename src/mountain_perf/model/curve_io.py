@@ -674,6 +674,33 @@ def _meta_text(
     return json.dumps(document, ensure_ascii=False, indent=2, allow_nan=False) + "\n"
 
 
+@dataclass(frozen=True)
+class CurveDocuments:
+    """Les octets d'une courbe à écrire (OG-1b), UTF-8 à fins de ligne ``"\\n"`` :
+
+    - ``csv`` — le CSV à l'en-tête étendu ;
+    - ``companion`` — le compagnon ``<stem>.meta.json``.
+    """
+
+    csv: bytes
+    companion: bytes
+
+
+def curve_documents(
+    rows: Sequence[CurveFileRow],
+    sport: Sport,
+    provenance: CurveProvenance,
+    estimation: Mapping[str, object],
+) -> CurveDocuments:
+    """Les octets que :func:`write_curve` écrit, sans rien écrire ni regarder aucun
+    fichier (OG-1b) : ce qui s'écrit, ce qui se hache, ce que
+    :func:`read_curve_documents` relit. Le compagnon est rendu avant le CSV : une valeur
+    non finie du compagnon lève son ``ValueError`` avant un ``grade_pct`` illisible."""
+    companion = _meta_text(sport, provenance, estimation).encode("utf-8")
+    csv_bytes = _csv_text(rows).encode("utf-8")
+    return CurveDocuments(csv=csv_bytes, companion=companion)
+
+
 def write_curve(
     path: Path,
     rows: Sequence[CurveFileRow],
@@ -690,11 +717,11 @@ def write_curve(
     toute plateforme.
 
     Une courbe n'est jamais réécrite : si le CSV ou le compagnon existe, ``CurveError``
-    avant tout écrit. Les deux textes sont calculés avant tout écrit (un ``grade_pct``
-    illisible, une valeur non finie du compagnon sortent sans rien écrire). Le
-    compagnon s'écrit d'abord, puis le CSV ; si l'écriture du CSV échoue, le compagnon
-    est retiré et l'exception remonte : un compagnon orphelin ferait refuser la
-    tentative suivante.
+    avant tout écrit. Les octets écrits sont ceux de :func:`curve_documents` (OG-1b),
+    calculés après ce refus et avant tout écrit (un ``grade_pct`` illisible, une valeur
+    non finie du compagnon sortent sans rien écrire). Le compagnon s'écrit d'abord, puis
+    le CSV ; si l'écriture du CSV échoue, le compagnon est retiré et l'exception
+    remonte : un compagnon orphelin ferait refuser la tentative suivante.
     """
     meta_path = path.with_name(f"{path.stem}{META_SUFFIX}")
     for target in (path, meta_path):
@@ -702,13 +729,12 @@ def write_curve(
             raise CurveError(
                 f"{target.name} existe déjà : une courbe n'est jamais réécrite."
             )
-    meta_bytes = _meta_text(sport, provenance, estimation).encode("utf-8")
-    csv_bytes = _csv_text(rows).encode("utf-8")
+    documents = curve_documents(rows, sport, provenance, estimation)
     with meta_path.open("xb") as stream:
-        stream.write(meta_bytes)
+        stream.write(documents.companion)
     try:
         with path.open("xb") as stream:
-            stream.write(csv_bytes)
+            stream.write(documents.csv)
     except BaseException:
         meta_path.unlink(missing_ok=True)
         raise

@@ -33,7 +33,9 @@ from mountain_perf.estimation.curve import (
     CurveSelection,
     NoCurve,
     curve_file_rows,
+    curve_provenance,
     estimate_curve_outcome,
+    estimation_document,
 )
 from mountain_perf.estimation.intervals import (
     ActivityIntervals,
@@ -46,6 +48,7 @@ from mountain_perf.schemas import (
     SUPPORT_THRESHOLD_RANGE_MIN,
     ActivityIndex,
     ActivityRecording,
+    CurveProvenance,
     IndexedActivity,
     ParameterSet,
     Sport,
@@ -713,3 +716,70 @@ def origin_document(result: OriginEstimate, corpus: CurveCorpus) -> dict[str, ob
             _activity_line(inspection, fates) for inspection in result.inspections
         ],
     }
+
+
+def origin_companion(
+    result: OriginEstimate,
+    corpus: CurveCorpus,
+    selection: CurveSelection,
+    parameters: ParameterSet,
+    profile_parameters: ParameterSet,
+    *,
+    commit: str,
+    generated_at: datetime,
+) -> tuple[CurveProvenance, dict[str, object]]:
+    """La provenance et le document d'estimation d'une courbe à l'origine, ceux que
+    ``mperf curve --at`` écrit (OG-1b) : une fonction pure ; l'appelant donne le commit
+    et l'instant de l'estimation. ``corpus``, ``selection``, ``parameters`` et
+    ``profile_parameters`` sont ceux passés à :func:`estimate_at_origin` ; seul
+    l'athlète se vérifie."""
+    estimate = result.estimate
+    if estimate is None:
+        raise ContractError("result : une absence n'a pas de compagnon.")
+    if corpus.athlete_ref != result.athlete_ref:
+        raise ContractError(
+            f"corpus : celui de {corpus.athlete_ref!r}, la règle a été rendue pour "
+            f"{result.athlete_ref!r}."
+        )
+    days = retained_start_days(result, corpus)
+    assert days is not None  # une tranche estimée a une activité retenue
+    retained = set(estimate.activity_refs)
+    # L'entrée et l'enregistrement d'une activité peuvent venir de deux exports
+    # (0013, précision 16) ; estimation_document les dédoublonne et les trie.
+    exports = [
+        instant
+        for entry in corpus.index.entries
+        if entry.activity_ref in retained
+        for instant in (
+            entry.source.retrieved_at,
+            corpus.recordings[entry.activity_ref].source.retrieved_at,
+        )
+    ]
+    label = f"{result.window} jours" if isinstance(result.window, int) else "all"
+    estimator = (
+        f"mperf curve --at (OG-1) : règle à l'origine, fenêtre {label} ; "
+        "intervalles de la grille du profil, temps M θc, tranches variables, "
+        f"valeur {selection.value.value}"
+    )
+    provenance = curve_provenance(
+        estimate,
+        selection,
+        parameters,
+        date_from=days[0],
+        date_to=days[1],
+        estimator=estimator,
+        generated_at=generated_at,
+        athlete_ref=result.athlete_ref,
+        support_threshold_min=result.support_threshold_min,
+    )
+    document = estimation_document(
+        estimate,
+        selection,
+        parameters,
+        profile_parameters,
+        commit=commit,
+        exports_retrieved_at=exports,
+        support_error=result.support_error,
+        origin=origin_document(result, corpus),
+    )
+    return provenance, document
