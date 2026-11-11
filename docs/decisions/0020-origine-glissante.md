@@ -149,6 +149,31 @@ a priori de population.
 divergerait ; le noyau sans horloge ni fichier la rend appelable des trois, et testable sans
 disque.
 
+## Précision OG-1b — les coutures (2026-11-11)
+
+*Sur l'arbitrage de la passe experte 2 (§ 0 de sa réponse). Aucune décision de la règle ne
+change ; aucun octet écrit par `mperf curve` ne change.*
+
+Trois coutures, pour qu'OG-UI et OG-2 appellent la règle sans la recoder :
+
+1. **Le fournisseur des intervalles.** `estimate_at_origin(…, intervals_of=None)` : la fonction
+   qui rend les intervalles d'un enregistrement, à la signature d'`activity_intervals`, appelée
+   une fois par candidate, dans l'ordre de l'index, avec les paramètres de la règle ; `None` :
+   `activity_intervals`. Un cache s'y pose, avec la clé que donne « Conséquences ».
+2. **Le compagnon en fonctions pures.** `origin_companion` rend la provenance et le document
+   d'estimation d'une courbe à l'origine ; l'appelant donne le commit et l'instant de
+   l'estimation. `curve_provenance` construit la provenance des deux modes de `mperf curve`.
+   `curve_documents` rend les octets du CSV et du compagnon ; `write_curve` les écrit.
+3. **La lecture depuis les octets.** `read_curve_documents` lit une courbe depuis les octets de
+   son CSV et de son compagnon ; l'instant de l'estimation vient du compagnon ou de l'appelant,
+   jamais des deux. `read_curve` l'appelle. Le compagnon porte l'instant dès que sa clé
+   `generated_at` est présente, même à `null` : une forme sans l'instant n'a pas la clé.
+
+**Tout appelant projette la courbe relue de ses octets canoniques** (ceux de `curve_documents`),
+jamais les lignes en mémoire : le CSV porte des km/h, la lecture les redivise, et la vitesse relue
+peut différer d'un ulp de la vitesse estimée. Une page qui projetterait depuis la mémoire
+n'afficherait pas au bit ce que `mperf curve --at` puis `mperf project` donnent.
+
 ## Conséquences
 
 **Ce que ça rend facile.** Une courbe par origine, sans recoder la règle ; un score hors
