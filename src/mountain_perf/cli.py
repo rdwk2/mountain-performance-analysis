@@ -853,6 +853,7 @@ MISSING_LABELS: Mapping[str, str] = {
     Unavailability.ZERO_TIME.value: "temps nul",
     Unavailability.UNIDENTIFIED_REFERENCE.value: "référence non identifiée",
     Unavailability.NON_CONVERGENCE.value: "non-convergence",
+    Unavailability.NO_CURVE.value: "sans courbe",
     Unavailability.MODEL_ERROR.value: "erreur du modèle",
     Unavailability.NOT_CALIBRATED.value: "non calé",
     Unavailability.MULTI_OUTING_DAY.value: "jour multi-sorties",
@@ -1362,6 +1363,7 @@ def _summary_parts(
         f"{_count(len(performances), 'performance', 'performances')}"
     )
     curve = declaration.curve
+    assert curve is not None  # mode « courbe déclarée » : le contrat la garantit
     available_at = curve.available_at
     ages = [
         curve_age_days(available_at, p.performance.civil_date) for p in performances
@@ -1873,7 +1875,9 @@ def _detail_lines(
     label = (
         "sans étiquette" if entry.label is None else OUTING_LABEL_LABELS[entry.label]
     )
-    available_at = preparation.declaration.curve.available_at
+    curve = preparation.declaration.curve
+    assert curve is not None  # mode « courbe déclarée » : le contrat la garantit
+    available_at = curve.available_at
     origin = declared.origin
     at_day = curve_age_days(available_at, performance.civil_date)
     at_origin = curve_age_days(available_at, civil_date(origin))

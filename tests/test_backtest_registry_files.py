@@ -39,22 +39,26 @@ from mountain_perf.backtest import (
 from mountain_perf.schemas import Exclusion
 from test_backtest_registry import filled, journal_lines, snapshot
 
-FIRST_LINE_SHA256 = "6fbf404dfa250aab87455ab4e7f85ec65ae821c0ce251c1efc640eeffa449390"
-"""Au format 4 (M4d-2) : la ligne du format 3 (``2e93ac2c…``), ``"format_version":4``
-au lieu de 3, rien d'autre (vérifié en conception) ; celle du format 3 était la ligne
-du format 2 (``603f00f7…``), ``"format_version":3`` au lieu de 2 (M4c-3)."""
+FIRST_LINE_SHA256 = "9651ad331dd4fcdf55b3309975d06fa8fb4265e1e082219a70b6e7204bcd7aab"
+"""Au format 6 (OG-2) : la ligne du format 5 (``6fbf404d…``), ``"format_version":6`` au
+lieu de 5, ``"activity_refs":[]`` dans chaque sortie et ``"rolling":null`` dans la
+DÉCLARATION, rien d'autre (vérifié : sans ces clés, la ligne du format 5 se
+reconstruit à l'octet). Au format 4 (M4d-2) : la ligne du format 3 (``2e93ac2c…``),
+``"format_version":4`` au lieu de 3, rien d'autre (vérifié en conception) ; celle du
+format 3 était la ligne du format 2 (``603f00f7…``), ``"format_version":3`` au lieu de
+2 (M4c-3)."""
 
 
 def test_first_line_of_the_journal(tmp_path: Path) -> None:
     """§ 7.2 : la première ligne d'un registre où l'on a ajouté ``declaration()`` à
-    ``at(0)`` : 5 493 octets et son ``sha256`` (format 5 : ``"sensitivity": null``,
-    M4d-3)."""
+    ``at(0)`` : 5 565 octets et son ``sha256`` (format 5 : ``"sensitivity": null``,
+    M4d-3 ; format 6 : trois clés neuves à vide, OG-2)."""
     root = registry_root(tmp_path)
     append_declaration(root, declaration(), recorded_at=at(0))
     data = (root / EVENTS_FILE).read_bytes()
     assert data.endswith(b"\n")
     (line,) = journal_lines(root)
-    assert len(line) == 5493
+    assert len(line) == 5565
     assert content_hash(line) == FIRST_LINE_SHA256
 
 

@@ -64,7 +64,7 @@ def _shape() -> tuple[int, str]:
 
 
 def test_shape_of_the_stored_contracts() -> None:
-    """D14 : 77 contrats stockés, et leur empreinte de forme d'aujourd'hui — le format
+    """D14 : 83 contrats stockés, et leur empreinte de forme d'aujourd'hui — le format
     2 ajoute ``CalibratedScenarioScores``, ``CalibratedClockScores``,
     ``ModelCalibration`` et ``CalibrationWithdrawal`` (M4c-2) ; le format 3, le
     document d'admission, ``Admission``, et ses huit contrats
@@ -80,11 +80,16 @@ def test_shape_of_the_stored_contracts() -> None:
     ``SensitivityDeclaration``, et ses trois contrats (``PairReferences``,
     ``ConfigurationReferences``, ``SensitivityConfiguration``), ``PairResult``, et
     trois champs, ``Declaration.sensitivity``, ``Result.pairs`` et
-    ``Result.sensitivity`` (M4d-3) ; le format 6 (OG-2), les documents ``RollingRule``,
-    ``FrozenCurve`` et ``AbsentCurve``, et le champ ``Outing.activity_refs`` ; les 44
-    du format 1 gardent leur forme, ces sept champs mis à part
-    (``test_backtest_registry_format2.py``)."""
+    ``Result.sensitivity`` (M4d-3) ; le format 6 (OG-2), ``RollingDeclaration``,
+    ``RollingPerformance``, ``RollingResult``, ``RollingRule``, ``FrozenCurve``,
+    ``AbsentCurve``, ``CalibrationTerms``, ``ScenarioClockTerms``,
+    ``CalibrationTerm``, les trois énumérations ``CurveStatus``, ``ShareScope`` et
+    ``ShareUnavailability``, les champs ``Outing.activity_refs``,
+    ``Declaration.rolling`` et ``Result.rolling``, la valeur
+    ``Unavailability.NO_CURVE``, et les trois champs de courbe de la DÉCLARATION
+    devenus facultatifs ; les 44 du format 1 gardent leur forme, ces champs, cette
+    valeur et ces annotations mis à part (``test_backtest_registry_format2.py``)."""
     assert _shape() == (
-        77,
-        "4d3bc675fd170d5fb36cba48f41adb30bab5f429620a4a7b8a110ce5e84f6d1c",
+        83,
+        "eb0dfc56e6d403d6c7a010e21c591707191ef87fe457824441eec33029e88acb",
     )

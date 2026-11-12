@@ -52,7 +52,7 @@ from mountain_perf.validation import (
     require_non_empty,
 )
 
-REGISTRY_FORMAT_VERSION = 5
+REGISTRY_FORMAT_VERSION = 6
 """Version du format que l'ajout d'un événement ou d'un document écrit (``0010`` D14).
 
 Chaque document la porte, chaque événement aussi (``format_version``). Le registre
@@ -72,12 +72,17 @@ M4d-2). Le format 5 (M4d-3) ajoute la sensibilité de D13 : le champ
 ``Declaration.sensitivity`` (la DÉCLARATION de sensibilité), les champs
 ``Result.pairs`` et ``Result.sensitivity`` (son RÉSULTAT) et le document de sensibilité
 (``SensitivityOutcome``) ; une ligne d'un format antérieur se relit et se réécrit de
-même, sans eux (précision de D14, M4d-3)."""
+même, sans eux (précision de D14, M4d-3). Le format 6 (OG-2) ajoute le mode glissant :
+les champs ``Outing.activity_refs``, ``Declaration.rolling`` et ``Result.rolling``, les
+documents ``RollingRule``, ``FrozenCurve``, ``AbsentCurve`` et ``CalibrationTerms``, et
+rend facultatifs selon le mode ``curve_ref``, ``curve`` et ``curve_metadata`` (par
+exception à Q4.7, ``0010`` précision OG-2, point 12) ; une ligne d'un format antérieur
+se relit et se réécrit de même, sans les champs neufs, sa courbe toujours présente."""
 
-REGISTRY_READABLE_FORMATS: tuple[int, ...] = (1, 2, 3, 4, 5)
+REGISTRY_READABLE_FORMATS: tuple[int, ...] = (1, 2, 3, 4, 5, 6)
 """Les formats que le registre relit, dans l'ordre (précisions de D14, M4c-2, M4c-3,
-M4d-2 et M4d-3) : chaque ligne au sien, chaque document au format de l'événement qui le
-cite."""
+M4d-2, M4d-3 et OG-2) : chaque ligne au sien, chaque document au format de l'événement
+qui le cite."""
 
 ADMISSION_FIRST_FORMAT = 3
 """Le premier format dont le RÉSULTAT d'une expérience cite un document d'admission et
@@ -1180,6 +1185,434 @@ class AbsentCurve:
         require_non_empty(self.document, "document")
 
 
+class CurveStatus(StrEnum):
+    """Le sort de la courbe d'une performance en mode glissant (OG-2).
+
+    Valeurs décrites dans ``CURVE_STATUS_DESCRIPTIONS``.
+    """
+
+    CURVE = "curve"
+    ABSENT = "absent"
+    NO_READ_SUPPORT = "no_read_support"
+
+
+CURVE_STATUS_DESCRIPTIONS: Mapping[CurveStatus, str] = MappingProxyType(
+    {
+        CurveStatus.CURVE: "courbe",
+        CurveStatus.ABSENT: "sans courbe : absence",
+        CurveStatus.NO_READ_SUPPORT: "sans courbe : aucun support au seuil de lecture",
+    }
+)
+
+
+class ShareScope(StrEnum):
+    """Sur quel profil se prend la part hors support d'une performance (OG-2).
+
+    Valeurs décrites dans ``SHARE_SCOPE_DESCRIPTIONS``.
+    """
+
+    USAGE = "usage"
+    CONTROL = "control"
+
+
+SHARE_SCOPE_DESCRIPTIONS: Mapping[ShareScope, str] = MappingProxyType(
+    {
+        ShareScope.USAGE: "usage — sur la portion déclarée du profil de référence.",
+        ShareScope.CONTROL: (
+            "contrôle — sans référence, sur le profil de la trace (PG11 de la note)."
+        ),
+    }
+)
+
+
+class ShareUnavailability(StrEnum):
+    """Le motif d'une part hors support indisponible (OG-2, PG12).
+
+    Valeurs décrites dans ``SHARE_UNAVAILABILITY_DESCRIPTIONS``.
+    """
+
+    NO_CURVE = "no_curve"
+    MULTI_OUTING_DAY = "multi_outing_day"
+    NO_PROFILE = "no_profile"
+
+
+SHARE_UNAVAILABILITY_DESCRIPTIONS: Mapping[ShareUnavailability, str] = MappingProxyType(
+    {
+        ShareUnavailability.NO_CURVE: "sans courbe — l'un des deux statuts.",
+        ShareUnavailability.MULTI_OUTING_DAY: (
+            "jour multi-sorties — la portion déclarée est celle d'une sortie."
+        ),
+        ShareUnavailability.NO_PROFILE: (
+            "sans profil — une sortie non tracée et sans référence."
+        ),
+    }
+)
+
+
+@dataclass(frozen=True)
+class RollingPerformance:
+    """Ce qu'une DÉCLARATION glissante fixe d'une performance (OG-2, ``0010``
+    précision OG-2, points 3 et 9).
+
+    Champs
+    ------
+    - ``status`` — sans unité — le sort de sa courbe.
+    - ``document`` — sans unité — le ``sha256`` du document ``FrozenCurve`` ou
+      ``AbsentCurve``.
+    - ``curve_sha256`` — sans unité — le ``sha256`` des octets du CSV ; absent pour une
+      absence.
+    - ``curve_ref`` — sans unité — ``<nom>#<12 caractères>`` ; absent pour une absence.
+    - ``out_of_support_share`` — fraction — la part hors support, entière.
+    - ``share_scope`` — sans unité — le profil de la part.
+    - ``share_unavailability`` — sans unité — le motif d'une part indisponible.
+
+    Invariants
+    ----------
+    - ``document`` est un ``sha256`` ;
+    - ``ABSENT`` ⟺ ``curve_sha256`` et ``curve_ref`` absents ; sinon ``curve_sha256``
+      est un ``sha256`` et ``curve_ref`` vaut ``<nom>#<curve_sha256[:12]>`` ;
+    - la part présente ⟺ ``share_unavailability`` absent ;
+    - la part présente : dans ``[0 ; 1]``, avec ``share_scope``, et le statut vaut
+      ``CURVE`` ;
+    - le statut n'est pas ``CURVE`` : ``share_unavailability`` vaut ``NO_CURVE``.
+
+    Producteur
+    ----------
+    ``prepare_rolling`` (``mountain_perf.backtest.rolling``).
+
+    Consommateurs
+    -------------
+    ``RollingDeclaration`` ; l'accord ; les rapports (ensembles).
+
+    Non promis
+    ----------
+    Le contrat ne relit pas les documents.
+    """
+
+    status: CurveStatus
+    document: str
+    curve_sha256: str | None
+    curve_ref: str | None
+    out_of_support_share: float | None
+    share_scope: ShareScope | None
+    share_unavailability: ShareUnavailability | None
+
+    def __post_init__(self) -> None:
+        _require_sha256(self.document, "document")
+        if self.status is CurveStatus.ABSENT:
+            if self.curve_sha256 is not None or self.curve_ref is not None:
+                raise ContractError(
+                    "une courbe absente n'a ni curve_sha256 ni curve_ref (OG-2)."
+                )
+        else:
+            if self.curve_sha256 is None or self.curve_ref is None:
+                raise ContractError(
+                    f"une performance {self.status} porte curve_sha256 et curve_ref "
+                    "(OG-2)."
+                )
+            _require_sha256(self.curve_sha256, "curve_sha256")
+            name, separator, digest = self.curve_ref.rpartition("#")
+            expected = self.curve_sha256[:CURVE_REF_HASH_LENGTH]
+            if not name or not separator or digest != expected:
+                raise ContractError(
+                    f"curve_ref ({self.curve_ref!r}) doit valoir "
+                    f"'<nom>#{expected}' (OG-2)."
+                )
+        share = self.out_of_support_share
+        if (share is None) == (self.share_unavailability is None):
+            raise ContractError(
+                "la part hors support est présente si et seulement si son motif "
+                "d'indisponibilité est absent (OG-2)."
+            )
+        if share is not None:
+            require_finite(share, "out_of_support_share")
+            if not 0 <= share <= 1:
+                raise ContractError(
+                    f"out_of_support_share doit être dans [0 ; 1], reçu {share}."
+                )
+            if self.share_scope is None:
+                raise ContractError("une part présente porte son share_scope (OG-2).")
+            if self.status is not CurveStatus.CURVE:
+                raise ContractError("une part présente demande le statut curve (OG-2).")
+        elif self.share_scope is not None:
+            raise ContractError("une part indisponible n'a pas de share_scope (OG-2).")
+        if (
+            self.status is not CurveStatus.CURVE
+            and self.share_unavailability is not ShareUnavailability.NO_CURVE
+        ):
+            raise ContractError(
+                "sans courbe, la part est indisponible au motif no_curve (OG-2)."
+            )
+
+
+@dataclass(frozen=True)
+class RollingDeclaration:
+    """Le mode glissant d'une DÉCLARATION (OG-2, ``0010`` précision OG-2, points 1, 2,
+    9 et 10).
+
+    Champs
+    ------
+    - ``rule`` — sans unité — le ``sha256`` du document ``RollingRule``.
+    - ``window_days`` — jours — la fenêtre ; ``None`` : tout le passé.
+    - ``command_windows`` — jours — les fenêtres de la commande, dans son ordre.
+    - ``covered_threshold`` — fraction — ``s`` : couverte ⟺ part ``<= s``.
+    - ``beyond_marker`` — fraction — le repère : au-delà ⟺ part ``>`` repère.
+    - ``coverage_tolerance_s`` — secondes — la tolérance de la correspondance.
+    - ``index_sha256`` — sans unité — l'empreinte de l'index d'``interim/`` lu.
+    - ``platform`` — sans unité — la plateforme de l'exécution.
+    - ``performances`` — sans unité — une entrée par performance, dans l'ordre.
+
+    Invariants
+    ----------
+    - ``rule`` et ``index_sha256`` sont des ``sha256`` ;
+    - ``window_days >= 1`` ou ``None`` ;
+    - ``command_windows`` non vide, distinctes, chacune ``>= 1`` ou ``None``, et
+      contient ``window_days`` ;
+    - ``covered_threshold`` et ``beyond_marker`` finis, dans ``[0 ; 1]`` ;
+    - la tolérance finie, ``>= 0`` ; ``platform`` non vide.
+
+    Producteur
+    ----------
+    ``prepare_rolling`` (``mountain_perf.backtest.rolling``).
+
+    Consommateurs
+    -------------
+    ``Declaration`` ; l'accord ; les rapports.
+
+    Non promis
+    ----------
+    Le seuil de lecture n'y est pas : c'est le paramètre déclaré
+    ``curve_min_support_min`` de v0 brut et du comparateur.
+    """
+
+    rule: str
+    window_days: int | None
+    command_windows: tuple[int | None, ...]
+    covered_threshold: float
+    beyond_marker: float
+    coverage_tolerance_s: float
+    index_sha256: str
+    platform: str
+    performances: tuple[RollingPerformance, ...]
+
+    def __post_init__(self) -> None:
+        _require_sha256(self.rule, "rule")
+        _require_sha256(self.index_sha256, "index_sha256")
+        require_immutable_sequence(self.command_windows, "command_windows")
+        require_immutable_sequence(self.performances, "performances")
+        for name, window in (
+            ("window_days", self.window_days),
+            *(("command_windows", w) for w in self.command_windows),
+        ):
+            if window is not None and window < 1:
+                raise ContractError(f"{name} : au moins 1 jour, reçu {window}.")
+        if not self.command_windows:
+            raise ContractError("command_windows ne doit pas être vide.")
+        _require_distinct(
+            self.command_windows, "command_windows : {!r} donnée deux fois."
+        )
+        if self.window_days not in self.command_windows:
+            raise ContractError(
+                f"command_windows doit contenir window_days ({self.window_days})."
+            )
+        for name in ("covered_threshold", "beyond_marker"):
+            value: float = getattr(self, name)
+            require_finite(value, name)
+            if not 0 <= value <= 1:
+                raise ContractError(f"{name} doit être dans [0 ; 1], reçu {value}.")
+        require_finite(self.coverage_tolerance_s, "coverage_tolerance_s")
+        if self.coverage_tolerance_s < 0:
+            raise ContractError(
+                "coverage_tolerance_s doit être >= 0, reçu "
+                f"{self.coverage_tolerance_s}."
+            )
+        require_non_empty(self.platform, "platform")
+
+
+@dataclass(frozen=True)
+class CalibrationTerm:
+    """Un membre du calage d'une performance (OG-2, E6) : les termes dont ``β`` est
+    fait.
+
+    Champs
+    ------
+    - ``civil_date`` — date civile — le jour du membre.
+    - ``observed_s`` — secondes — ``T_c``.
+    - ``forecast_s`` — secondes — ``P_c`` ; absent : la projection du membre est
+      invalide.
+
+    Invariants
+    ----------
+    ``T_c`` fini et ``> 0`` ; ``P_c`` absent, ou fini et ``> 0``.
+
+    Producteur
+    ----------
+    ``calibration_terms`` (``mountain_perf.backtest.calibration``).
+
+    Consommateurs
+    -------------
+    ``ScenarioClockTerms`` ; l'accord (condition 7) ; le rapport (contributeurs).
+
+    Non promis
+    ----------
+    Le terme ne dit pas la sortie du membre.
+    """
+
+    civil_date: date
+    observed_s: float
+    forecast_s: float | None
+
+    def __post_init__(self) -> None:
+        require_finite(self.observed_s, "observed_s")
+        if not self.observed_s > 0:
+            raise ContractError(f"observed_s doit être > 0, reçu {self.observed_s}.")
+        if self.forecast_s is not None:
+            require_finite(self.forecast_s, "forecast_s")
+            if not self.forecast_s > 0:
+                raise ContractError(
+                    f"forecast_s doit être > 0, reçu {self.forecast_s}."
+                )
+
+
+@dataclass(frozen=True)
+class ScenarioClockTerms:
+    """Les termes du calage d'une performance sous un scénario et une horloge (OG-2).
+
+    Champs
+    ------
+    - ``scenario`` — sans unité — le scénario.
+    - ``clock`` — sans unité — l'horloge.
+    - ``terms`` — sans unité — un terme par membre de ``C_j^eff``, dans l'ordre.
+
+    Invariants
+    ----------
+    ``terms`` est un tuple ; jours strictement croissants.
+
+    Producteur
+    ----------
+    ``evaluate_rolling`` (``mountain_perf.backtest.rolling``).
+
+    Consommateurs
+    -------------
+    ``CalibrationTerms``.
+
+    Non promis
+    ----------
+    Le contrat ne recalcule pas ``β``.
+    """
+
+    scenario: Scenario
+    clock: Clock
+    terms: tuple[CalibrationTerm, ...]
+
+    def __post_init__(self) -> None:
+        require_immutable_sequence(self.terms, "terms")
+        for previous, current in pairwise(self.terms):
+            if not previous.civil_date < current.civil_date:
+                raise ContractError(
+                    "les termes sont par jour strictement croissant, reçu "
+                    f"{previous.civil_date} puis {current.civil_date}."
+                )
+
+
+@dataclass(frozen=True)
+class CalibrationTerms:
+    """Le document des termes du calage d'une performance (OG-2, E6) : pour le
+    comparateur, chaque scénario présent et chaque horloge, les ``(T_c, P_c)`` des
+    membres de ``C_j^eff``.
+
+    Champs
+    ------
+    - ``model`` — sans unité — le comparateur, v0 + effort recalé.
+    - ``sets`` — sans unité — un ensemble de termes par paire ``(scénario, horloge)``.
+
+    Invariants
+    ----------
+    ``sets`` est un tuple ; paires ``(scenario, clock)`` distinctes, dans l'ordre des
+    scénarios puis de ``CLOCKS``.
+
+    Producteur
+    ----------
+    ``evaluate_rolling`` (``mountain_perf.backtest.rolling``).
+
+    Consommateurs
+    -------------
+    Le RÉSULTAT glissant ; l'accord (condition 7) ; le rapport.
+
+    Non promis
+    ----------
+    Le contrat ne recoupe pas les termes avec un calage : l'accord le fait.
+    """
+
+    model: ModelKind
+    sets: tuple[ScenarioClockTerms, ...]
+
+    def __post_init__(self) -> None:
+        require_immutable_sequence(self.sets, "sets")
+        scenarios = tuple(Scenario)
+        keys = [
+            (scenarios.index(item.scenario), CLOCKS.index(item.clock))
+            if item.clock in CLOCKS
+            else (scenarios.index(item.scenario), -1)
+            for item in self.sets
+        ]
+        for previous, current in pairwise(keys):
+            if not previous < current:
+                raise ContractError(
+                    "les paires (scénario, horloge) sont distinctes, dans l'ordre des "
+                    "scénarios puis de CLOCKS."
+                )
+
+
+@dataclass(frozen=True)
+class RollingResult:
+    """Ce que le RÉSULTAT d'une exécution glissante publie de plus (OG-2, ``0010``
+    précision OG-2, point 12).
+
+    Champs
+    ------
+    - ``rule`` — sans unité — le ``sha256`` du document de règle.
+    - ``curves`` — sans unité — les documents de courbe, un par performance, dans
+      l'ordre de la DÉCLARATION.
+    - ``calibration_terms`` — sans unité — un document ``CalibrationTerms`` par
+      performance ; absent pour une performance sans courbe.
+
+    Invariants
+    ----------
+    des ``sha256`` ; ``curves`` et ``calibration_terms`` de même longueur.
+
+    Producteur
+    ----------
+    ``append_result`` (``mountain_perf.backtest.registry``).
+
+    Consommateurs
+    -------------
+    ``Result`` ; l'accord.
+
+    Non promis
+    ----------
+    Le contrat ne lit pas les documents.
+    """
+
+    rule: str
+    curves: tuple[str, ...]
+    calibration_terms: tuple[str | None, ...]
+
+    def __post_init__(self) -> None:
+        _require_sha256(self.rule, "rule")
+        require_immutable_sequence(self.curves, "curves")
+        require_immutable_sequence(self.calibration_terms, "calibration_terms")
+        for sha in self.curves:
+            _require_sha256(sha, "curves")
+        for item in self.calibration_terms:
+            if item is not None:
+                _require_sha256(item, "calibration_terms")
+        if len(self.curves) != len(self.calibration_terms):
+            raise ContractError(
+                "curves et calibration_terms : un document par performance (OG-2)."
+            )
+
+
 @dataclass(frozen=True)
 class Declaration:
     """Le contenu d'une DÉCLARATION (``0010`` D14, D2.6, D10.1).
@@ -1194,9 +1627,11 @@ class Declaration:
     - ``matching`` — sans unité — les paramètres de l'appariement (``Δ``, ``ε``,
       ``r_c``).
     - ``clocks`` — sans unité — les horloges de l'exécution.
-    - ``curve_ref`` — sans unité — la référence de la courbe.
-    - ``curve`` — sans unité — le CSV de la courbe.
-    - ``curve_metadata`` — sans unité — son compagnon ``.meta.json``.
+    - ``curve_ref`` — sans unité — la référence de la courbe ; absente en mode
+      glissant (format 6, OG-2).
+    - ``curve`` — sans unité — le CSV de la courbe ; absent en mode glissant.
+    - ``curve_metadata`` — sans unité — son compagnon ``.meta.json`` ; absent en mode
+      glissant.
     - ``manifest`` — sans unité — le manifeste lu, cité par son empreinte, sans rôle.
     - ``performances`` — sans unité — les performances évaluées.
     - ``exclusions`` — sans unité — les sorties écartées, avec leur motif.
@@ -1204,13 +1639,16 @@ class Declaration:
     - ``experiment`` — sans unité — l'expérience ; absente sans effet testé.
     - ``sensitivity`` — sans unité — ce qu'ajoute une DÉCLARATION de sensibilité
       (format 5, M4d-3) ; absent pour une autre déclaration.
+    - ``rolling`` — sans unité — le mode glissant (OG-2) : ``None`` pour une courbe
+      déclarée.
 
     Propriétés calculées (jamais stockées) : ``outing_ids``, ``route_ids``,
     ``artifacts``.
 
     Invariants
     ----------
-    1. ``protocol_record``, ``athlete_ref``, ``curve_ref`` non vides ; ``clocks``,
+    1. ``protocol_record``, ``athlete_ref``, ``curve_ref`` (présent) non vides ;
+       ``clocks``,
        ``performances``, ``exclusions``, ``models`` sont des tuples ;
     2. ``commit`` : 40 caractères hexadécimaux **minuscules** ;
     3. ``clocks`` non vide ; chaque horloge est dans ``CLOCKS`` ; leurs rangs dans
@@ -1227,7 +1665,11 @@ class Declaration:
        ``clocks`` ; le parcours de chaque ``K`` est dans ``route_ids`` ;
     9. ``sensitivity`` présent : l'horloge de chacune de ses configurations est dans
        ``clocks`` ; ses références figées sont présentes **si et seulement si** la
-       déclaration porte une expérience.
+       déclaration porte une expérience ;
+    10. ``rolling`` absent : ``curve_ref``, ``curve`` et ``curve_metadata`` présents
+        (l'invariant 4) ; ``rolling`` présent : les trois absents (OG-2, D-P7) ;
+    11. ``rolling`` présent : ni ``experiment`` ni ``sensitivity`` (D-OG2-8) ;
+    12. ``rolling`` présent : une entrée de ``rolling.performances`` par performance.
 
     Producteur
     ----------
@@ -1253,19 +1695,22 @@ class Declaration:
     athlete_ref: str
     matching: ParameterSet
     clocks: tuple[Clock, ...]
-    curve_ref: str
-    curve: ArtifactRef
-    curve_metadata: ArtifactRef
+    curve_ref: str | None
+    curve: ArtifactRef | None
+    curve_metadata: ArtifactRef | None
     manifest: SourceRef
     performances: tuple[DeclaredPerformance, ...]
     exclusions: tuple[Exclusion, ...]
     models: tuple[DeclaredModel, ...]
     experiment: ExperimentDeclaration | None
     sensitivity: SensitivityDeclaration | None = None
+    rolling: RollingDeclaration | None = None
 
     def __post_init__(self) -> None:
-        for name in ("protocol_record", "athlete_ref", "curve_ref"):
+        for name in ("protocol_record", "athlete_ref"):
             require_non_empty(getattr(self, name), name)
+        if self.curve_ref is not None:
+            require_non_empty(self.curve_ref, "curve_ref")
         for name in ("clocks", "performances", "exclusions", "models"):
             require_immutable_sequence(getattr(self, name), name)
         if not _COMMIT_HEX.fullmatch(self.commit):
@@ -1285,6 +1730,8 @@ class Declaration:
             self._check_experiment(self.experiment)
         if self.sensitivity is not None:
             self._check_sensitivity(self.sensitivity)
+        if self.rolling is not None:
+            self._check_rolling(self.rolling)
 
     @property
     def outing_ids(self) -> tuple[str, ...]:
@@ -1307,9 +1754,10 @@ class Declaration:
 
     @property
     def artifacts(self) -> tuple[ArtifactRef, ...]:
-        """Tous les fichiers déclarés (D2.6) : la courbe, son compagnon, puis, sortie
-        par sortie, ses traces, ses doublons et sa référence si elle en a une."""
-        files = [self.curve, self.curve_metadata]
+        """Tous les fichiers déclarés (D2.6) : la courbe et son compagnon s'ils sont
+        présents (OG-2), puis, sortie par sortie, ses traces, ses doublons et sa
+        référence si elle en a une."""
+        files = [f for f in (self.curve, self.curve_metadata) if f is not None]
         for declared in self.performances:
             for outing in declared.performance.outings:
                 files.extend(outing.traces)
@@ -1337,6 +1785,23 @@ class Declaration:
                 )
 
     def _check_curve(self) -> None:
+        present = [
+            value is not None
+            for value in (self.curve_ref, self.curve, self.curve_metadata)
+        ]
+        if self.rolling is not None:
+            if any(present):
+                raise ContractError(
+                    "le mode glissant n'a pas de courbe déclarée : curve_ref, curve et "
+                    "curve_metadata absents (0010, précision OG-2, D-P7)."
+                )
+            return
+        if not all(present):
+            raise ContractError(
+                "curve_ref, curve et curve_metadata vont ensemble en mode « courbe "
+                "déclarée » (0010 D2.6)."
+            )
+        assert self.curve is not None  # all(present)
         for name in ("curve", "curve_metadata"):
             artifact: ArtifactRef = getattr(self, name)
             if artifact.role is not ArtifactRole.FORECAST_INPUT:
@@ -1419,6 +1884,23 @@ class Declaration:
             raise ContractError(
                 "une DÉCLARATION de sensibilité fige les références de chaque "
                 "configuration si et seulement si elle porte une expérience (M4d-3)."
+            )
+
+    def _check_rolling(self, rolling: RollingDeclaration) -> None:
+        if self.experiment is not None:
+            raise ContractError(
+                "une expérience d'admission n'existe pas en mode glissant : hors du "
+                "jalon (0010 D10, précision OG-2)."
+            )
+        if self.sensitivity is not None:
+            raise ContractError(
+                "une DÉCLARATION de sensibilité n'existe pas en mode glissant : hors "
+                "du jalon (0010 D13, précision OG-2)."
+            )
+        if len(rolling.performances) != len(self.performances):
+            raise ContractError(
+                "rolling : une entrée par performance attendue "
+                f"({len(self.performances)}), reçu {len(rolling.performances)}."
             )
 
 
@@ -1634,6 +2116,8 @@ class Result:
       M4d-3) ; vide sinon.
     - ``sensitivity`` — sans unité — pour une sensibilité, le ``sha256`` du document
       ``SensitivityOutcome`` (format 5, M4d-3) ; absent sinon.
+    - ``rolling`` — sans unité — ce que publie une exécution glissante (format 6,
+      OG-2) ; absent sinon.
 
     Invariants
     ----------
@@ -1670,6 +2154,7 @@ class Result:
     admission: str | None = None
     pairs: tuple[PairResult, ...] = ()
     sensitivity: str | None = None
+    rolling: RollingResult | None = None
 
     def __post_init__(self) -> None:
         for name in ("outings", "unscored", "references", "pairs"):

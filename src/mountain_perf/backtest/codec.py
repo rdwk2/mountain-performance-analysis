@@ -29,6 +29,7 @@ from mountain_perf.schemas import (
     AbsentCurve,
     Admission,
     CalibratedScenarioScores,
+    CalibrationTerms,
     FrozenCurve,
     OutingBands,
     OutingObservation,
@@ -64,6 +65,7 @@ DOCUMENT_TYPES: tuple[type, ...] = (
     RollingRule,
     FrozenCurve,
     AbsentCurve,
+    CalibrationTerms,
 )
 """Les contrats que le registre range en documents, nommés par leur empreinte
 (``0010`` D14) : l'observation d'une sortie, les scores d'un scénario (prévision
@@ -72,7 +74,7 @@ modèle dans un scénario (prévision non calée et calages compris, M4c-2) ; de
 format 3, le document d'admission d'une expérience (M4c-3) ; depuis le format 4, les
 fourchettes d'une sortie (M4d-2) ; depuis le format 5, le document de sensibilité
 (M4d-3) ; depuis le format 6, le document de règle, la courbe figée et la courbe
-absente du mode glissant (OG-2)."""
+absente du mode glissant, et les termes du calage d'une performance (OG-2)."""
 
 DOCUMENT_FIRST_FORMAT: Mapping[type, int] = types.MappingProxyType(
     {
@@ -86,6 +88,7 @@ DOCUMENT_FIRST_FORMAT: Mapping[type, int] = types.MappingProxyType(
         RollingRule: 6,
         FrozenCurve: 6,
         AbsentCurve: 6,
+        CalibrationTerms: 6,
     }
 )
 """Le premier format du registre qui connaît chaque type de document (précision de

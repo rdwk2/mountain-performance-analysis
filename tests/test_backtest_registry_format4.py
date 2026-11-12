@@ -308,8 +308,8 @@ def test_versions() -> None:
     """Précision de D14 (M4d-2) : le format écrit, les formats relus, le premier
     format des fourchettes et leur place parmi les documents (sixième, la sensibilité
     du format 5 après elles, M4d-3, puis les types du format 6, OG-2)."""
-    assert REGISTRY_FORMAT_VERSION == 5
-    assert REGISTRY_READABLE_FORMATS == (1, 2, 3, 4, 5)
+    assert REGISTRY_FORMAT_VERSION == 6
+    assert REGISTRY_READABLE_FORMATS == (1, 2, 3, 4, 5, 6)
     assert BANDS_FIRST_FORMAT == 4
     assert DOCUMENT_FIRST_FORMAT[OutingBands] == 4
     assert DOCUMENT_TYPES[5] is OutingBands
@@ -404,16 +404,16 @@ def test_append_follows_old_format(tmp_path: Path, version: int) -> None:
     assert [event.format_version for event in log.events] == [
         version,
         version,
-        5,
-        5,
+        6,
+        6,
     ]
     assert (root / EVENTS_FILE).read_bytes().startswith(before)
     assert count_trials(log).declarations == 2
     assert load_outcomes(root, log, 4) == written
     cited = [outing["bands"] for outing in _lines(root)[3]["result"]["outings"]]
     assert cited == [
-        content_hash(encode_document(_bands(Q20_ID), 5)),
-        content_hash(encode_document(_bands(Q27_ID), 5)),
+        content_hash(encode_document(_bands(Q20_ID), 6)),
+        content_hash(encode_document(_bands(Q27_ID), 6)),
         None,
     ]
 
@@ -488,7 +488,7 @@ def test_five_models_result_is_read_back_at_bit(tmp_path: Path) -> None:
     bit ; ses fourchettes sont des documents du format 4."""
     root = _five_registry(tmp_path)
     log = verify_registry(root)
-    assert [event.format_version for event in log.events] == [5, 5]
+    assert [event.format_version for event in log.events] == [6, 6]
     outcomes_ = load_outcomes(root, log, 2)
     assert outcomes_ == _five()
     assert [o.bands for o in outcomes_] == [_bands(Q20_ID), _bands(Q27_ID), None]
@@ -770,7 +770,7 @@ def test_bands_document_must_be_stored(tmp_path: Path) -> None:
     """Le document des fourchettes est un document cité (``_cited``) : absent, la
     relecture le nomme, avant tout accord."""
     root = _five_registry(tmp_path)
-    sha = content_hash(encode_document(_bands(Q27_ID), 5))
+    sha = content_hash(encode_document(_bands(Q27_ID), 6))
     (root / "documents" / f"{sha}.json").unlink()
     with pytest.raises(
         RegistryError, match=re.escape(f"documents/{sha}.json : document introuvable")

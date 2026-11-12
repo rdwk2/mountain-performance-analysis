@@ -212,7 +212,9 @@ class Unavailability(StrEnum):
 
     Invariants
     ----------
-    Énumération fermée : les douze statuts de ``0010`` D0, ni plus ni moins.
+    Énumération fermée : les treize statuts de ``0010`` D0, ni plus ni moins — les
+    douze du protocole, et « sans courbe », qui n'existe qu'en mode glissant (OG-2,
+    ``0010`` précision OG-2, point 5).
 
     Producteur
     ----------
@@ -238,6 +240,7 @@ class Unavailability(StrEnum):
     ZERO_TIME = "zero_time"
     UNIDENTIFIED_REFERENCE = "unidentified_reference"
     NON_CONVERGENCE = "non_convergence"
+    NO_CURVE = "no_curve"
     MODEL_ERROR = "model_error"
     NOT_CALIBRATED = "not_calibrated"
     MULTI_OUTING_DAY = "multi_outing_day"
@@ -267,6 +270,10 @@ UNAVAILABILITY_DESCRIPTIONS: Mapping[Unavailability, str] = MappingProxyType(
         ),
         Unavailability.NON_CONVERGENCE: (
             "non-convergence — limite d'itérations atteinte."
+        ),
+        Unavailability.NO_CURVE: (
+            "sans courbe — la règle n'a pas rendu de courbe à l'origine, ou la courbe "
+            "n'a aucune tranche au seuil de lecture (OG-2)."
         ),
         Unavailability.MODEL_ERROR: (
             "erreur du modèle — sortie de modèle nulle, négative, non finie ou "

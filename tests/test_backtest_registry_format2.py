@@ -17,6 +17,7 @@ import typing
 from collections.abc import Callable
 from dataclasses import replace
 from datetime import date, timedelta
+from enum import Enum
 from pathlib import Path
 
 import pytest
@@ -71,8 +72,10 @@ from mountain_perf.schemas import (
     REGISTRY_READABLE_FORMATS,
     AbsentCurve,
     Admission,
+    ArtifactRef,
     CalibratedOutingScores,
     CalibratedScenarioScores,
+    CalibrationTerms,
     ContractError,
     DeclaredModel,
     DeclaredPerformance,
@@ -185,15 +188,20 @@ def _line_at(event: RegistryEvent) -> bytes:
     (M4d-3) ; avant le format 4, sans ``bands`` aux sorties du RÉSULTAT (M4d-2) ; avant
     le format 3, sans ``admission`` au RÉSULTAT ni ``reference_documents`` à
     l'expérience (M4c-3), comme le registre l'écrit et la relit ; avant le format 6,
-    sans ``activity_refs`` aux sorties de la DÉCLARATION (OG-2)."""
+    sans ``activity_refs`` aux sorties de la DÉCLARATION ni ``rolling`` à la
+    DÉCLARATION et au RÉSULTAT (OG-2)."""
     data = encode_contract(event)
     assert isinstance(data, dict)
     if event.format_version < 6:
         declaration = data.get("declaration")
         if isinstance(declaration, dict):
+            declaration.pop("rolling")
             for declared in declaration["performances"]:
                 for outing in declared["performance"]["outings"]:
                     outing.pop("activity_refs")
+        result = data.get("result")
+        if isinstance(result, dict):
+            result.pop("rolling")
     if event.format_version < 5:
         declaration = data.get("declaration")
         if isinstance(declaration, dict):
@@ -344,14 +352,29 @@ def _scored_models(
 
 
 def _shape(
-    roots: list[type], without: dict[str, set[str]] | None = None
+    roots: list[type],
+    without: dict[str, set[str]] | None = None,
+    before: dict[str, dict[str, object]] | None = None,
+    dropped: dict[type[Enum], set[str]] | None = None,
 ) -> tuple[int, str]:
     """L'empreinte de forme de ``test_backtest_registry_shape.py``, depuis ``roots`` ;
     ``without`` : par contrat, des champs laissés de côté (ceux d'un format
-    ultérieur)."""
+    ultérieur) ; ``before`` : par contrat, l'annotation d'avant d'un champ qu'un format
+    ultérieur a changée ; ``dropped`` : par énumération, les valeurs d'un format
+    ultérieur, écartées du rendu (OG-2)."""
     seen: dict[str, str] = {}
     todo = list(roots)
     skipped = without or {}
+    earlier = before or {}
+    removed = dropped or {}
+
+    def render(annotation: object) -> str:
+        text = _render(annotation)
+        for enum, values in removed.items():
+            kept = ",".join(str(m.value) for m in enum if m.value not in values)
+            text = text.replace(_render(enum), f"{enum.__name__}{{{kept}}}")
+        return text
+
     while todo:
         cls = todo.pop()
         if cls.__name__ in seen:
@@ -361,8 +384,10 @@ def _shape(
         for field in dataclasses.fields(cls):
             if field.name in skipped.get(cls.__name__, set()):
                 continue
-            annotation = hints[field.name]
-            parts.append(f"{field.name}:{_render(annotation)}")
+            annotation = earlier.get(cls.__name__, {}).get(
+                field.name, hints[field.name]
+            )
+            parts.append(f"{field.name}:{render(annotation)}")
             stack = [annotation]
             while stack:
                 a = stack.pop()
@@ -382,8 +407,8 @@ def _shape(
 def test_versions() -> None:
     """§ 6.1 : le format écrit, les formats relus, le premier format de chaque type de
     document."""
-    assert REGISTRY_FORMAT_VERSION == 5
-    assert REGISTRY_READABLE_FORMATS == (1, 2, 3, 4, 5)
+    assert REGISTRY_FORMAT_VERSION == 6
+    assert REGISTRY_READABLE_FORMATS == (1, 2, 3, 4, 5, 6)
     assert dict(DOCUMENT_FIRST_FORMAT) == {
         OutingObservation: 1,
         ScenarioScores: 1,
@@ -395,6 +420,7 @@ def test_versions() -> None:
         RollingRule: 6,
         FrozenCurve: 6,
         AbsentCurve: 6,
+        CalibrationTerms: 6,
     }
     assert tuple(DOCUMENT_FIRST_FORMAT) == DOCUMENT_TYPES
 
@@ -406,16 +432,28 @@ def test_shape_of_format_1_is_unchanged() -> None:
     ``ExperimentDeclaration.reference_documents``, absents des lignes antérieures
     (M4c-3) ; le format 4, que ``OutingResult.bands`` (M4d-2) ; le format 5, que
     ``Declaration.sensitivity``, ``Result.pairs`` et ``Result.sensitivity``
-    (M4d-3) ; le format 6, que ``Outing.activity_refs`` (OG-2), absent des lignes
-    antérieures."""
+    (M4d-3) ; le format 6 (OG-2), que ``Outing.activity_refs``, ``Declaration.rolling``
+    et ``Result.rolling``, absents des lignes antérieures, la valeur ``no_curve`` de
+    ``Unavailability``, et les annotations de ``curve_ref``, ``curve`` et
+    ``curve_metadata``, facultatives selon le mode (toujours présentes dans une ligne
+    antérieure)."""
     without = {
-        "Result": {"admission", "pairs", "sensitivity"},
+        "Result": {"admission", "pairs", "sensitivity", "rolling"},
         "ExperimentDeclaration": {"reference_documents"},
         "OutingResult": {"bands"},
-        "Declaration": {"sensitivity"},
+        "Declaration": {"sensitivity", "rolling"},
         "Outing": {"activity_refs"},
     }
-    assert _shape([RegistryEvent, *DOCUMENT_TYPES[:3]], without) == (
+    before: dict[str, dict[str, object]] = {
+        "Declaration": {
+            "curve_ref": str,
+            "curve": ArtifactRef,
+            "curve_metadata": ArtifactRef,
+        }
+    }
+    dropped: dict[type[Enum], set[str]] = {Unavailability: {"no_curve"}}
+    roots = [RegistryEvent, *DOCUMENT_TYPES[:3]]
+    assert _shape(roots, without, before, dropped) == (
         44,
         "4e2f2b5569ef8b6cdf9a1ea6d7c952bd1c14e5bb409f2f9653c43847dcb6d2ed",
     )

@@ -54,11 +54,13 @@ from mountain_perf.schemas import (
     REGISTRY_FORMAT_VERSION,
     ROLLING_FIRST_FORMAT,
     SENSITIVITY_FIRST_FORMAT,
+    AbsentCurve,
     Admission,
     ArtifactRef,
     ArtifactRole,
     CalibratedOutingScores,
     CalibratedScenarioScores,
+    CalibrationTerms,
     DataSet,
     Declaration,
     DeclaredModel,
@@ -68,6 +70,7 @@ from mountain_perf.schemas import (
     ExperimentMetric,
     ExperimentTrials,
     Failure,
+    FrozenCurve,
     ModelKind,
     ModelResult,
     Outing,
@@ -83,6 +86,8 @@ from mountain_perf.schemas import (
     RepeatabilityRecord,
     RepeatabilityReference,
     Result,
+    RollingResult,
+    RollingRule,
     Scenario,
     ScenarioScores,
     SensitivityConfiguration,
@@ -145,11 +150,15 @@ def _line(event: RegistryEvent) -> bytes:
     ``sensitivity`` de la DÉCLARATION, ``pairs`` et ``sensitivity`` du RÉSULTAT, qui y
     valent ``null`` et ``[]`` (précision de D14, M4d-3) : chaque ligne ancienne se
     réécrit à l'octet. Avant le format 6, sans la clé ``activity_refs`` des sorties de
-    la DÉCLARATION (OG-2)."""
+    la DÉCLARATION ni la clé ``rolling`` de la DÉCLARATION et du RÉSULTAT (OG-2)."""
     data = encode_contract(event)
     if event.format_version < ROLLING_FIRST_FORMAT and isinstance(data, dict):
         for outing in _declared_outing_items(data.get("declaration")):
             outing.pop("activity_refs", None)
+        for key in ("declaration", "result"):
+            part = data.get(key)
+            if isinstance(part, dict):
+                part.pop("rolling", None)
     if event.format_version < SENSITIVITY_FIRST_FORMAT and isinstance(data, dict):
         declaration = data.get("declaration")
         if isinstance(declaration, dict):
@@ -293,20 +302,32 @@ def _declared_outing_items(declaration: object) -> list[dict[str, object]]:
 
 
 def _upgraded_rolling(raw: dict[str, object], version: int) -> dict[str, object]:
-    """Avant le format 6 (OG-2) : chaque sortie de la DÉCLARATION reçoit
-    ``"activity_refs": []`` ; une sortie qui porte déjà la clé est refusée."""
+    """Avant le format 6 (OG-2) : la DÉCLARATION reçoit ``"rolling": null`` et chacune
+    de ses sorties ``"activity_refs": []`` ; le RÉSULTAT reçoit ``"rolling": null``.
+    Une ligne qui porte déjà l'une de ces clés est refusée : champ inconnu à son
+    format."""
     declaration = raw.get("declaration")
-    if not isinstance(declaration, dict):
-        return raw
-    for outing in _declared_outing_items(declaration):
-        if "activity_refs" in outing:
+    if isinstance(declaration, dict):
+        if "rolling" in declaration:
             raise CodecError(
-                f"declaration : champ inconnu au format {version} : 'activity_refs'"
+                f"declaration : champ inconnu au format {version} : 'rolling'"
             )
-    upgraded = json.loads(json.dumps(declaration))
-    for outing in _declared_outing_items(upgraded):
-        outing["activity_refs"] = []
-    return {**raw, "declaration": upgraded}
+        for outing in _declared_outing_items(declaration):
+            if "activity_refs" in outing:
+                raise CodecError(
+                    f"declaration : champ inconnu au format {version} : 'activity_refs'"
+                )
+        upgraded = json.loads(json.dumps(declaration))
+        for outing in _declared_outing_items(upgraded):
+            outing["activity_refs"] = []
+        upgraded["rolling"] = None
+        raw = {**raw, "declaration": upgraded}
+    result = raw.get("result")
+    if isinstance(result, dict):
+        if "rolling" in result:
+            raise CodecError(f"result : champ inconnu au format {version} : 'rolling'")
+        raw = {**raw, "result": {**result, "rolling": None}}
+    return raw
 
 
 def _upgraded(raw: object) -> object:
@@ -392,7 +413,9 @@ def _cited(result: Result) -> list[str]:
     """Les documents d'un résultat, dans l'ordre : par sortie, l'observation puis, par
     modèle, le contrôle et l'usage, puis ses fourchettes (M4d-2) ; puis les références ;
     le document d'admission en dernier (M4c-3). Pour une sensibilité (M4d-3), de même
-    paire par paire, puis le document de sensibilité."""
+    paire par paire, puis le document de sensibilité. Pour une exécution glissante
+    (OG-2), enfin, le document de règle, chaque document de courbe, chaque document des
+    termes du calage."""
     cited: list[str] = []
     for outings, references in (
         (result.outings, result.references),
@@ -411,6 +434,10 @@ def _cited(result: Result) -> list[str]:
         cited.append(result.admission)
     if result.sensitivity is not None:
         cited.append(result.sensitivity)
+    if result.rolling is not None:
+        cited.append(result.rolling.rule)
+        cited.extend(result.rolling.curves)
+        cited.extend(sha for sha in result.rolling.calibration_terms if sha)
     return cited
 
 
@@ -1284,6 +1311,19 @@ class PairOutcome:
     references: tuple[tuple[str, RepeatabilityReference], ...]
 
 
+@dataclass(frozen=True)
+class RollingDocuments:
+    """Ce qu'une exécution glissante publie au RÉSULTAT (OG-2), en mémoire : le document
+    de règle, le document de courbe de chaque performance (figée ou absente) et le
+    document des termes du calage de chaque performance (absent sans courbe), dans
+    l'ordre de la DÉCLARATION. N'est pas un contrat stocké : ``append_result`` en écrit
+    les documents."""
+
+    rule: RollingRule
+    curves: tuple[FrozenCurve | AbsentCurve, ...]
+    calibration_terms: tuple[CalibrationTerms | None, ...]
+
+
 def append_result(
     root: Path,
     declaration: int,
@@ -1294,6 +1334,7 @@ def append_result(
     admission: Admission | None = None,
     pairs: tuple[PairOutcome, ...] = (),
     sensitivity: SensitivityOutcome | None = None,
+    rolling: RollingDocuments | None = None,
     recorded_at: datetime | None = None,
     corrects: int | None = None,
     correction_reason: str | None = None,
@@ -1308,11 +1349,12 @@ def append_result(
     d'une expérience (``admission``) est écrit en dernier et cité par
     ``Result.admission`` (M4c-3). Le RÉSULTAT d'une sensibilité (M4d-3) porte ses
     sorties paire par paire (``pairs``, ``outcomes`` vide) et cite le document de
-    sensibilité (``sensitivity``), écrit en dernier. L'accord à l'ajout est celui de la
-    vérification, documents compris.
+    sensibilité (``sensitivity``), écrit en dernier. Le RÉSULTAT d'une exécution
+    glissante (OG-2) publie ses documents (``rolling``), cités par ``Result.rolling``.
+    L'accord à l'ajout est celui de la vérification, documents compris.
     """
     result, documents = _result_documents(
-        outcomes, unscored, references, admission, pairs, sensitivity
+        outcomes, unscored, references, admission, pairs, sensitivity, rolling
     )
     return _append(
         root,
@@ -1356,6 +1398,7 @@ def _result_documents(
     admission: Admission | None = None,
     pairs: tuple[PairOutcome, ...] = (),
     sensitivity: SensitivityOutcome | None = None,
+    rolling: RollingDocuments | None = None,
 ) -> tuple[Result, dict[str, bytes]]:
     """Étape 0 de l'ajout d'un résultat, avant tout accès au registre : les documents
     écrits en mémoire, dans l'ordre, chacun une fois — par sortie, ses fourchettes après
@@ -1418,8 +1461,18 @@ def _result_documents(
             for pair in pairs
         )
         outcome = None if sensitivity is None else store(sensitivity)
+        published = None
+        if rolling is not None:
+            published = RollingResult(
+                store(rolling.rule),
+                tuple(store(curve) for curve in rolling.curves),
+                tuple(
+                    None if terms is None else store(terms)
+                    for terms in rolling.calibration_terms
+                ),
+            )
         result = Result(
-            outings, unscored, cited_references, cited, pair_results, outcome
+            outings, unscored, cited_references, cited, pair_results, outcome, published
         )
     except ContractError as error:
         raise RegistryError(f"{_REFUSED}{error}") from error

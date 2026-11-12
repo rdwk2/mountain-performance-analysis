@@ -191,10 +191,10 @@ USAGE_EXPERIMENT = replace(
 
 
 def test_registry_format_version_is_5() -> None:
-    """``0010`` D14 et ses précisions de M4c-2, M4c-3, M4d-2 et M4d-3 : le format écrit,
-    et les formats relus."""
-    assert REGISTRY_FORMAT_VERSION == 5
-    assert REGISTRY_READABLE_FORMATS == (1, 2, 3, 4, 5)
+    """``0010`` D14 et ses précisions de M4c-2, M4c-3, M4d-2, M4d-3 et OG-2 : le format
+    écrit, et les formats relus."""
+    assert REGISTRY_FORMAT_VERSION == 6
+    assert REGISTRY_READABLE_FORMATS == (1, 2, 3, 4, 5, 6)
 
 
 def test_event_of_format_1_is_accepted() -> None:
@@ -974,8 +974,8 @@ def test_event_recorded_at_is_normalized_to_utc() -> None:
     [
         (
             DECLARED,
-            {"format_version": 6},
-            "format_version vaut l'un de 1, 2, 3, 4, 5, reçu 6",
+            {"format_version": 7},
+            "format_version vaut l'un de 1, 2, 3, 4, 5, 6, reçu 7",
         ),
         (
             DECLARED,

@@ -353,6 +353,7 @@ def test_every_missing_motif_has_its_label() -> None:
         "temps nul",
         "référence non identifiée",
         "non-convergence",
+        "sans courbe",
         "erreur du modèle",
         "non calé",
         "jour multi-sorties",

@@ -1690,6 +1690,7 @@ Le rôle ne dit pas si l'artefact a effectivement servi à une prévision donné
 | `ZERO_TIME` | `zero_time` | temps nul — un temps observé nul sous une horloge. |
 | `UNIDENTIFIED_REFERENCE` | `unidentified_reference` | référence non identifiée — gabarit de répétabilité non identifiable. |
 | `NON_CONVERGENCE` | `non_convergence` | non-convergence — limite d'itérations atteinte. |
+| `NO_CURVE` | `no_curve` | sans courbe — la règle n'a pas rendu de courbe à l'origine, ou la courbe n'a aucune tranche au seuil de lecture (OG-2). |
 | `MODEL_ERROR` | `model_error` | erreur du modèle — sortie de modèle nulle, négative, non finie ou manquante. |
 | `NOT_CALIBRATED` | `not_calibrated` | non calé — population de calage vide. |
 | `MULTI_OUTING_DAY` | `multi_outing_day` | jour multi-sorties — performance de plusieurs sorties, non évaluable. |
@@ -1703,7 +1704,9 @@ commence par le nom français du protocole.
 
 #### Invariants
 
-Énumération fermée : les douze statuts de `0010` D0, ni plus ni moins.
+Énumération fermée : les treize statuts de `0010` D0, ni plus ni moins — les
+douze du protocole, et « sans courbe », qui n'existe qu'en mode glissant (OG-2,
+`0010` précision OG-2, point 5).
 
 #### Producteur
 
@@ -4966,21 +4969,22 @@ l'instant de la déclaration ni aux origines (M4c).
 | `athlete_ref` | `str` | — |
 | `matching` | `ParameterSet` | — |
 | `clocks` | `tuple[Clock, ...]` | — |
-| `curve_ref` | `str` | — |
-| `curve` | `ArtifactRef` | — |
-| `curve_metadata` | `ArtifactRef` | — |
+| `curve_ref` | `str \| None` | — |
+| `curve` | `ArtifactRef \| None` | — |
+| `curve_metadata` | `ArtifactRef \| None` | — |
 | `manifest` | `SourceRef` | — |
 | `performances` | `tuple[DeclaredPerformance, ...]` | — |
 | `exclusions` | `tuple[Exclusion, ...]` | — |
 | `models` | `tuple[DeclaredModel, ...]` | — |
 | `experiment` | `ExperimentDeclaration \| None` | — |
 | `sensitivity` | `SensitivityDeclaration \| None` | `None` |
+| `rolling` | `RollingDeclaration \| None` | `None` |
 
 | Propriété calculée | Type | Sens |
 |---|---|---|
 | `outing_ids` | `tuple[str, ...]` | Les identifiants des sorties des performances, dans l'ordre. |
 | `route_ids` | `frozenset[str]` | Les parcours (`route_id` non `None`) des sorties des performances. |
-| `artifacts` | `tuple[ArtifactRef, ...]` | Tous les fichiers déclarés (D2.6) : la courbe, son compagnon, puis, sortie par sortie, ses traces, ses doublons et sa référence si elle en a une. |
+| `artifacts` | `tuple[ArtifactRef, ...]` | Tous les fichiers déclarés (D2.6) : la courbe et son compagnon s'ils sont présents (OG-2), puis, sortie par sortie, ses traces, ses doublons et sa référence si elle en a une. |
 
 Le contenu d'une DÉCLARATION (`0010` D14, D2.6, D10.1).
 
@@ -4994,9 +4998,11 @@ Le contenu d'une DÉCLARATION (`0010` D14, D2.6, D10.1).
 - `matching` — sans unité — les paramètres de l'appariement (`Δ`, `ε`,
   `r_c`).
 - `clocks` — sans unité — les horloges de l'exécution.
-- `curve_ref` — sans unité — la référence de la courbe.
-- `curve` — sans unité — le CSV de la courbe.
-- `curve_metadata` — sans unité — son compagnon `.meta.json`.
+- `curve_ref` — sans unité — la référence de la courbe ; absente en mode
+  glissant (format 6, OG-2).
+- `curve` — sans unité — le CSV de la courbe ; absent en mode glissant.
+- `curve_metadata` — sans unité — son compagnon `.meta.json` ; absent en mode
+  glissant.
 - `manifest` — sans unité — le manifeste lu, cité par son empreinte, sans rôle.
 - `performances` — sans unité — les performances évaluées.
 - `exclusions` — sans unité — les sorties écartées, avec leur motif.
@@ -5004,13 +5010,16 @@ Le contenu d'une DÉCLARATION (`0010` D14, D2.6, D10.1).
 - `experiment` — sans unité — l'expérience ; absente sans effet testé.
 - `sensitivity` — sans unité — ce qu'ajoute une DÉCLARATION de sensibilité
   (format 5, M4d-3) ; absent pour une autre déclaration.
+- `rolling` — sans unité — le mode glissant (OG-2) : `None` pour une courbe
+  déclarée.
 
 Propriétés calculées (jamais stockées) : `outing_ids`, `route_ids`,
 `artifacts`.
 
 #### Invariants
 
-1. `protocol_record`, `athlete_ref`, `curve_ref` non vides ; `clocks`,
+1. `protocol_record`, `athlete_ref`, `curve_ref` (présent) non vides ;
+   `clocks`,
    `performances`, `exclusions`, `models` sont des tuples ;
 2. `commit` : 40 caractères hexadécimaux **minuscules** ;
 3. `clocks` non vide ; chaque horloge est dans `CLOCKS` ; leurs rangs dans
@@ -5027,7 +5036,11 @@ Propriétés calculées (jamais stockées) : `outing_ids`, `route_ids`,
    `clocks` ; le parcours de chaque `K` est dans `route_ids` ;
 9. `sensitivity` présent : l'horloge de chacune de ses configurations est dans
    `clocks` ; ses références figées sont présentes **si et seulement si** la
-   déclaration porte une expérience.
+   déclaration porte une expérience ;
+10. `rolling` absent : `curve_ref`, `curve` et `curve_metadata` présents
+    (l'invariant 4) ; `rolling` présent : les trois absents (OG-2, D-P7) ;
+11. `rolling` présent : ni `experiment` ni `sensitivity` (D-OG2-8) ;
+12. `rolling` présent : une entrée de `rolling.performances` par performance.
 
 #### Producteur
 
@@ -5180,6 +5193,7 @@ Le contrat ne lit pas le document.
 | `admission` | `str \| None` | `None` |
 | `pairs` | `tuple[PairResult, ...]` | `()` |
 | `sensitivity` | `str \| None` | `None` |
+| `rolling` | `RollingResult \| None` | `None` |
 
 Le contenu d'un RÉSULTAT (`0010` D14, D0).
 
@@ -5194,6 +5208,8 @@ Le contenu d'un RÉSULTAT (`0010` D14, D0).
   M4d-3) ; vide sinon.
 - `sensitivity` — sans unité — pour une sensibilité, le `sha256` du document
   `SensitivityOutcome` (format 5, M4d-3) ; absent sinon.
+- `rolling` — sans unité — ce que publie une exécution glissante (format 6,
+  OG-2) ; absent sinon.
 
 #### Invariants
 
