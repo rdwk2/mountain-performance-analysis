@@ -89,6 +89,12 @@ SENSITIVITY_FIRST_FORMAT = 5
 (``Declaration.sensitivity``), son RÉSULTAT par paire (``Result.pairs``) et son
 document de sensibilité (``Result.sensitivity``) (précision de D14, M4d-3)."""
 
+ROLLING_FIRST_FORMAT = 6
+"""Le premier format qui connaît le mode glissant (OG-2, ``0010`` précision OG-2) : la
+correspondance déclarée d'une sortie (``Outing.activity_refs``), puis la DÉCLARATION
+et le RÉSULTAT glissants. Une ligne d'un format antérieur s'écrit sans ces clés, et se
+relit sans elles."""
+
 CURVE_REF_HASH_LENGTH = 12
 """Nombre de caractères de l'empreinte ``sha256`` du CSV recopiés dans ``curve_ref``
 (la règle de ``curve_reference``, ``mountain_perf.model.curve_io``, M3)."""

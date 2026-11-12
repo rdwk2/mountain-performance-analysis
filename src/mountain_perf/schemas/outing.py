@@ -381,6 +381,9 @@ class Outing:
     - ``dataset`` — sans unité — jeu déclaré.
     - ``label`` — sans unité — course ou entraînement ; ``None`` si absent.
     - ``external_records`` — sans unité — relevés externes de la sortie.
+    - ``activity_refs`` — sans unité — les activités d'``interim/`` qui ont enregistré
+      la sortie, déclarées par l'humain (OG-2) ; vide : aucune correspondance
+      déclarée.
 
     Propriété calculée (jamais stockée) : ``elapsed_s``.
 
@@ -395,7 +398,8 @@ class Outing:
     - ``route_id`` et ``variant`` sont ``None`` ou non vides ;
     - ``declared_portion_m`` est ``None`` ou un tuple ``(a, b)`` fini avec
       ``0 <= a < b`` ;
-    - chaque relevé externe porte l'``athlete_ref`` de la sortie.
+    - chaque relevé externe porte l'``athlete_ref`` de la sortie ;
+    - ``activity_refs`` est un tuple de textes non vides, distincts (OG-2).
 
     Producteur
     ----------
@@ -434,10 +438,18 @@ class Outing:
     dataset: DataSet | None = None
     label: OutingLabel | None = None
     external_records: tuple[ReferencePerformance, ...] = ()
+    activity_refs: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         require_non_empty(self.outing_id, "outing_id")
         require_non_empty(self.athlete_ref, "athlete_ref")
+        require_immutable_sequence(self.activity_refs, "activity_refs")
+        seen: set[str] = set()
+        for ref in self.activity_refs:
+            require_non_empty(ref, "activity_refs")
+            if ref in seen:
+                raise ContractError(f"activity_refs : {ref} en double.")
+            seen.add(ref)
         for name in ("start_time", "end_time"):
             instant: datetime = getattr(self, name)
             require_aware(instant, name)

@@ -181,9 +181,16 @@ def _line_at(event: RegistryEvent) -> bytes:
     ``sensitivity`` à la DÉCLARATION ni ``pairs`` et ``sensitivity`` au RÉSULTAT
     (M4d-3) ; avant le format 4, sans ``bands`` aux sorties du RÉSULTAT (M4d-2) ; avant
     le format 3, sans ``admission`` au RÉSULTAT ni ``reference_documents`` à
-    l'expérience (M4c-3), comme le registre l'écrit et la relit."""
+    l'expérience (M4c-3), comme le registre l'écrit et la relit ; avant le format 6,
+    sans ``activity_refs`` aux sorties de la DÉCLARATION (OG-2)."""
     data = encode_contract(event)
     assert isinstance(data, dict)
+    if event.format_version < 6:
+        declaration = data.get("declaration")
+        if isinstance(declaration, dict):
+            for declared in declaration["performances"]:
+                for outing in declared["performance"]["outings"]:
+                    outing.pop("activity_refs")
     if event.format_version < 5:
         declaration = data.get("declaration")
         if isinstance(declaration, dict):
@@ -393,12 +400,14 @@ def test_shape_of_format_1_is_unchanged() -> None:
     ``ExperimentDeclaration.reference_documents``, absents des lignes antérieures
     (M4c-3) ; le format 4, que ``OutingResult.bands`` (M4d-2) ; le format 5, que
     ``Declaration.sensitivity``, ``Result.pairs`` et ``Result.sensitivity``
-    (M4d-3)."""
+    (M4d-3) ; le format 6, que ``Outing.activity_refs`` (OG-2), absent des lignes
+    antérieures."""
     without = {
         "Result": {"admission", "pairs", "sensitivity"},
         "ExperimentDeclaration": {"reference_documents"},
         "OutingResult": {"bands"},
         "Declaration": {"sensitivity"},
+        "Outing": {"activity_refs"},
     }
     assert _shape([RegistryEvent, *DOCUMENT_TYPES[:3]], without) == (
         44,

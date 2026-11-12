@@ -52,6 +52,7 @@ from mountain_perf.schemas import (
     CALIBRATED_KINDS,
     CLOCKS,
     REGISTRY_FORMAT_VERSION,
+    ROLLING_FIRST_FORMAT,
     SENSITIVITY_FIRST_FORMAT,
     Admission,
     ArtifactRef,
@@ -143,8 +144,12 @@ def _line(event: RegistryEvent) -> bytes:
     vaut ``null`` (précision de D14, M4d-2) ; avant le format 5, sans les clés
     ``sensitivity`` de la DÉCLARATION, ``pairs`` et ``sensitivity`` du RÉSULTAT, qui y
     valent ``null`` et ``[]`` (précision de D14, M4d-3) : chaque ligne ancienne se
-    réécrit à l'octet."""
+    réécrit à l'octet. Avant le format 6, sans la clé ``activity_refs`` des sorties de
+    la DÉCLARATION (OG-2)."""
     data = encode_contract(event)
+    if event.format_version < ROLLING_FIRST_FORMAT and isinstance(data, dict):
+        for outing in _declared_outing_items(data.get("declaration")):
+            outing.pop("activity_refs", None)
     if event.format_version < SENSITIVITY_FIRST_FORMAT and isinstance(data, dict):
         declaration = data.get("declaration")
         if isinstance(declaration, dict):
@@ -267,20 +272,61 @@ def _read_events(data: bytes) -> tuple[RegistryEvent, ...]:
     return tuple(events)
 
 
+def _declared_outing_items(declaration: object) -> list[dict[str, object]]:
+    """Les sorties d'une DÉCLARATION en JSON (``performances[*].performance.outings``),
+    celles qui sont des dictionnaires ; rien pour une forme inattendue (le décodage la
+    jugera)."""
+    found: list[dict[str, object]] = []
+    if not isinstance(declaration, dict):
+        return found
+    performances = declaration.get("performances")
+    if not isinstance(performances, list):
+        return found
+    for declared in performances:
+        performance = (
+            declared.get("performance") if isinstance(declared, dict) else None
+        )
+        outings = performance.get("outings") if isinstance(performance, dict) else None
+        if isinstance(outings, list):
+            found.extend(outing for outing in outings if isinstance(outing, dict))
+    return found
+
+
+def _upgraded_rolling(raw: dict[str, object], version: int) -> dict[str, object]:
+    """Avant le format 6 (OG-2) : chaque sortie de la DÉCLARATION reçoit
+    ``"activity_refs": []`` ; une sortie qui porte déjà la clé est refusée."""
+    declaration = raw.get("declaration")
+    if not isinstance(declaration, dict):
+        return raw
+    for outing in _declared_outing_items(declaration):
+        if "activity_refs" in outing:
+            raise CodecError(
+                f"declaration : champ inconnu au format {version} : 'activity_refs'"
+            )
+    upgraded = json.loads(json.dumps(declaration))
+    for outing in _declared_outing_items(upgraded):
+        outing["activity_refs"] = []
+    return {**raw, "declaration": upgraded}
+
+
 def _upgraded(raw: object) -> object:
-    """Une ligne JSON d'un format antérieur, avant son décodage : avant le format 5, sa
+    """Une ligne JSON d'un format antérieur, avant son décodage : avant le format 6, les
+    clés du mode glissant (OG-2, :func:`_upgraded_rolling`) ; avant le format 5, sa
     DÉCLARATION reçoit ``"sensitivity": null``, son RÉSULTAT ``"pairs": []`` et
     ``"sensitivity": null`` (précision de D14, M4d-3) ; avant le format 4,
     chaque sortie de son RÉSULTAT reçoit ``"bands": null`` (précision de D14, M4d-2) ;
     avant le format 3, son RÉSULTAT reçoit aussi ``"admission": null``, l'expérience de
     sa DÉCLARATION ``"reference_documents": null`` (précision de D14, M4c-3). Une ligne
     qui porte déjà l'une de ces clés, même ``null``, est refusée : champ inconnu à son
-    format. Une ligne du format 4, ou non lisible (pas un dictionnaire, version
+    format. Une ligne du format courant, ou non lisible (pas un dictionnaire, version
     absente), passe telle quelle : le décodage la juge."""
     if not isinstance(raw, dict):
         return raw
     version = raw.get("format_version")
-    if type(version) is not int or version >= SENSITIVITY_FIRST_FORMAT:
+    if type(version) is not int or version >= ROLLING_FIRST_FORMAT:
+        return raw
+    raw = _upgraded_rolling(raw, version)
+    if version >= SENSITIVITY_FIRST_FORMAT:
         return raw
     declaration = raw.get("declaration")
     if isinstance(declaration, dict):

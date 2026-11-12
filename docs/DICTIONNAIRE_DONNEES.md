@@ -1818,6 +1818,7 @@ Le profil n'est pas construit ici ; le fichier n'est pas relu.
 | `dataset` | `DataSet \| None` | `None` |
 | `label` | `OutingLabel \| None` | `None` |
 | `external_records` | `tuple[ReferencePerformance, ...]` | `()` |
+| `activity_refs` | `tuple[str, ...]` | `()` |
 
 | Propriété calculée | Type | Sens |
 |---|---|---|
@@ -1842,6 +1843,9 @@ Une sortie du manifeste, résolue : fichiers, instants, déclarations.
 - `dataset` — sans unité — jeu déclaré.
 - `label` — sans unité — course ou entraînement ; `None` si absent.
 - `external_records` — sans unité — relevés externes de la sortie.
+- `activity_refs` — sans unité — les activités d'`interim/` qui ont enregistré
+  la sortie, déclarées par l'humain (OG-2) ; vide : aucune correspondance
+  déclarée.
 
 Propriété calculée (jamais stockée) : `elapsed_s`.
 
@@ -1856,7 +1860,8 @@ Propriété calculée (jamais stockée) : `elapsed_s`.
 - `route_id` et `variant` sont `None` ou non vides ;
 - `declared_portion_m` est `None` ou un tuple `(a, b)` fini avec
   `0 <= a < b` ;
-- chaque relevé externe porte l'`athlete_ref` de la sortie.
+- chaque relevé externe porte l'`athlete_ref` de la sortie ;
+- `activity_refs` est un tuple de textes non vides, distincts (OG-2).
 
 #### Producteur
 

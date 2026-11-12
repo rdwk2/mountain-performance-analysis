@@ -80,9 +80,10 @@ def test_shape_of_the_stored_contracts() -> None:
     ``SensitivityDeclaration``, et ses trois contrats (``PairReferences``,
     ``ConfigurationReferences``, ``SensitivityConfiguration``), ``PairResult``, et
     trois champs, ``Declaration.sensitivity``, ``Result.pairs`` et
-    ``Result.sensitivity`` (M4d-3) ; les 44 du format 1 gardent leur forme, ces six
-    champs mis à part (``test_backtest_registry_format2.py``)."""
+    ``Result.sensitivity`` (M4d-3) ; le format 6 (OG-2), le champ
+    ``Outing.activity_refs`` ; les 44 du format 1 gardent leur forme, ces sept champs
+    mis à part (``test_backtest_registry_format2.py``)."""
     assert _shape() == (
         74,
-        "bd1cc8c992904ee3cdf63c9dacfdd99c52066b339fa451bb72d87479583995db",
+        "697ce9aebb52f6aaa00a887de5d5ba035a72f7e7e108bca678c28e61a9cc7bc2",
     )
