@@ -416,6 +416,15 @@ def test_the_exact_registry_is_accepted(tmp_path: Path) -> None:
     assert result.rolling.curves == tuple(entry.document for entry in built.entries)
 
 
+def test_a_forecast_on_another_performance_curve_is_refused(tmp_path: Path) -> None:
+    """Condition 6 : les prévisions de chaque performance nomment sa courbe. Les deux
+    performances ``curve`` échangent leurs courbes dans le RÉSULTAT (chacune nomme une
+    courbe de la DÉCLARATION, mais pas la sienne) : refusé."""
+    built = world()
+    swapped = dataclasses.replace(built, refs=[built.refs[1], built.refs[0], None])
+    refused(tmp_path, swapped, "courbe différente de la déclaration")
+
+
 def test_the_comparator_is_calibrated_away_from_zero(tmp_path: Path) -> None:
     """La précondition du cas « β changé de 1e−9 » : ``|β| >= 0,01``, sinon, à
     ``τ·max(1, |β|)``, le changement serait accepté sans faute."""
