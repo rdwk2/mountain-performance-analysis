@@ -8,20 +8,29 @@ une montée de 10 à 90 s, arrêtée de 30 à 40 s (70 s)."""
 
 from __future__ import annotations
 
+import dataclasses
 from collections.abc import Sequence
 
 import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
+from fixtures.montees import FLAT, recording
+from mountain_perf.analyse.climbs import motion_track
 from mountain_perf.analyse.heart_rate import (
     HR_LAG_S,
     ClimbHeartRate,
+    moving_pieces,
     second_half,
     support_heart_rate,
 )
 from mountain_perf.estimation.intervals import HeartRateSeries, heart_rate_series
-from mountain_perf.schemas import HeartRateChannel
+from mountain_perf.schemas import (
+    CENTRAL_CONVENTION_INDEX,
+    CLOCK_CONVENTIONS,
+    HeartRateChannel,
+    IntervalState,
+)
 from test_schemas_interim import recording as interim_recording
 
 M = ((10.0, 30.0), (40.0, 90.0))
@@ -167,3 +176,31 @@ def test_a_coverage_that_rounds_to_zero_has_no_value() -> None:
     assert covered > 0.0
     assert covered / 100.0 == 0.0
     assert support_heart_rate(series, ((0.0, 100.0),), 0.0) == ClimbHeartRate(None, 0.0)
+
+
+def test_the_moving_pieces_of_a_climb() -> None:
+    """Une vue aux instants 0, 10, 20, 30, 40 s ; sous la convention centrale, les
+    quatre pas sont M, S, M, M ; sous les autres, tous S : seule la centrale compte."""
+    track = motion_track(recording([FLAT], noise=False))
+    assert track is not None
+    m, s = IntervalState.MOVING, IntervalState.STOPPED
+    states = tuple(
+        (m, s, m, m) if k == CENTRAL_CONVENTION_INDEX else (s, s, s, s)
+        for k in range(len(CLOCK_CONVENTIONS))
+    )
+    view = dataclasses.replace(
+        track, time_s=(0.0, 10.0, 20.0, 30.0, 40.0), states=states
+    )
+    assert moving_pieces(view, 5.0, 40.0) == (
+        (5.0, 10.0),
+        (20.0, 30.0),
+        (30.0, 40.0),
+    )
+    assert moving_pieces(view, 10.0, 35.0) == ((20.0, 30.0), (30.0, 35.0))
+
+
+def test_a_climb_heart_rate_is_frozen() -> None:
+    value = ClimbHeartRate(140.0, 1.0)
+    field = "bpm"
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        setattr(value, field, 150.0)

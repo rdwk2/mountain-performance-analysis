@@ -5,6 +5,7 @@ mesures publiques (``analyse.climbs``), l'index et l'enregistrement ; deux
 
 from __future__ import annotations
 
+import dataclasses
 import math
 from bisect import bisect_right
 from collections.abc import Sequence
@@ -18,8 +19,10 @@ from fixtures.processed import (
     GAP,
     HEART_RATE_FROM_S,
     HEART_RATE_STEP_S,
+    gap_recording,
     write_gap_interim,
     write_interim,
+    write_one,
 )
 from mountain_perf.analyse.athlete import DEFAULT_SETTINGS
 from mountain_perf.analyse.climbs import (
@@ -54,6 +57,7 @@ from mountain_perf.schemas import (
     CENTRAL_CONVENTION_INDEX,
     CLOCK_CONVENTIONS,
     ActivityRecording,
+    HeartRateChannel,
     IntervalState,
     ParameterSet,
 )
@@ -474,3 +478,51 @@ def test_the_heart_rate_columns_come_from_the_common_window(
     assert lagged_half[0] != pytest.approx(lagged[0])
     assert lagged_half[0] != pytest.approx(unlagged[0])
     assert lagged[1] != pytest.approx(unlagged[1])
+
+
+GAP_HEART_RATE = (GAP[0] + 60.0, GAP[1] + 60.0)
+"""Le trou de ``g1`` décalé de 60 s : la FC y vaut 180, et 100 partout ailleurs."""
+
+
+@pytest.fixture(scope="module")
+def gap_heart_rate(tmp_path_factory: pytest.TempPathFactory) -> tuple[Path, Tables]:
+    """``g1`` avec une FC sur toute l'activité, qui change pendant le temps non M de la
+    montée (le trou de la vue, décalé)."""
+    folder = tmp_path_factory.mktemp("trou_fc")
+    rec = gap_recording()
+    assert rec.elevation is not None
+    times = rec.elevation.time_s
+    values = tuple(
+        180.0 if GAP_HEART_RATE[0] <= t <= GAP_HEART_RATE[1] else 100.0 for t in times
+    )
+    write_one(
+        folder,
+        dataclasses.replace(rec, heart_rate=HeartRateChannel(times, values)),
+    )
+    return folder, build_tables(folder, DEFAULT_SETTINGS, commit=COMMIT)
+
+
+def test_the_lagged_moving_and_elapsed_heart_rates_differ(
+    gap_heart_rate: tuple[Path, Tables],
+) -> None:
+    """La FC décalée du temps M et celle de la fenêtre écoulée, refaites depuis l'outil
+    public, sans ``analyse.heart_rate`` : la fenêtre écoulée garde le trou décalé, où
+    la FC est haute ; le temps M, non."""
+    folder, tables = gap_heart_rate
+    (climb,) = tables.climbs
+    recording, track = _track(folder, "g1")
+    offset = track.offset_s
+    series = heart_rate_series(recording, offset)
+    assert series is not None
+    start_s, end_s = climb.start_offset_s - offset, climb.end_offset_s - offset
+    moving = [
+        (max(a - offset, start_s), min(b - offset, end_s))
+        for a, b, _ in _moving_pieces(track, start_s, end_s)
+    ]
+    on_moving = _support_mean(series, moving, 60.0)
+    on_elapsed = _support_mean(series, [(start_s, end_s)], 60.0)
+    assert on_moving[0] is not None
+    assert on_elapsed[0] is not None
+    assert climb.lagged_moving_heart_rate_bpm == pytest.approx(on_moving[0], rel=1e-9)
+    assert climb.lagged_elapsed_heart_rate_bpm == pytest.approx(on_elapsed[0], rel=1e-9)
+    assert on_elapsed[0] - on_moving[0] >= 1.0

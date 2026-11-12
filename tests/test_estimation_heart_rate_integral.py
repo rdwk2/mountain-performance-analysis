@@ -9,7 +9,7 @@ from collections.abc import Sequence
 from itertools import accumulate, pairwise
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import example, given, settings
 from hypothesis import strategies as st
 
 from mountain_perf.estimation.intervals import (
@@ -66,6 +66,8 @@ def test_a_window_is_clipped_to_the_series() -> None:
     assert series.integral(12.0, 14.0) == (0.0, 0.0)
     assert series.integral(-5.0, -1.0) == (0.0, 0.0)
     assert series.integral(-2.0, 12.0) == pytest.approx((1250.0, 10.0), rel=1e-9)
+    assert series.integral(10.0, 14.0) == (0.0, 0.0)
+    assert series.integral(-5.0, 0.0) == (0.0, 0.0)
 
 
 @st.composite
@@ -104,8 +106,20 @@ def series_and_window(
     return series, low, high
 
 
+FSUM_WITNESS = (
+    series_of(
+        [0.0, 10.0, 11.0, 21.0, 31.0, 41.0, 41.99999],
+        [20.0, 20.637937696711063, 20.0, 20.0, 163.0, 20.0, 25.0],
+    ),
+    0.0,
+    41.99999,
+)
+"""Un témoin fixe de T4 : la forme ``math.fsum`` y change le dernier bit."""
+
+
 @settings(deadline=None)
 @given(series_and_window())
+@example(FSUM_WITNESS)
 def test_the_mean_is_the_integral_over_the_covered_time(
     case: tuple[HeartRateSeries, float, float],
 ) -> None:
