@@ -50,7 +50,8 @@ def test_contracts_import_only_the_named_contracts() -> None:
     ``CALIBRATED_KINDS`` — les modèles de D9.1 et le candidat — depuis M4c-3, à la
     place de ``CALIBRATED_MODELS`` ; ``OutingBands`` depuis M4d-2
     (``OutingOutcome``) ; ``SensitivityConfiguration`` depuis M4d-3
-    (``SensitivityDeclaration``)."""
+    (``SensitivityDeclaration``) ; ``SUPPORT_THRESHOLD_RANGE_MIN`` depuis OG-2
+    (``RollingRule``)."""
     imported = _imports(SCHEMAS_MODULE)
     assert _project(SCHEMAS_MODULE) <= {
         "mountain_perf.validation",
@@ -58,6 +59,7 @@ def test_contracts_import_only_the_named_contracts() -> None:
         "mountain_perf.schemas.calibration",
         "mountain_perf.schemas.clock",
         "mountain_perf.schemas.common",
+        "mountain_perf.schemas.curve",
         "mountain_perf.schemas.matching",
         "mountain_perf.schemas.metrics",
         "mountain_perf.schemas.outing",
@@ -72,6 +74,7 @@ def test_contracts_import_only_the_named_contracts() -> None:
     }
     assert imported["mountain_perf.schemas.clock"] <= {"CLOCKS", "Clock"}
     assert imported["mountain_perf.schemas.common"] <= {"SourceRef"}
+    assert imported["mountain_perf.schemas.curve"] == {"SUPPORT_THRESHOLD_RANGE_MIN"}
     assert imported["mountain_perf.schemas.matching"] <= {
         "Coverage",
         "SensitivityConfiguration",

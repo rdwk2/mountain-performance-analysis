@@ -18,6 +18,7 @@ Python pur : ni ``analyse/`` ni ``backtest/``.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
@@ -658,6 +659,29 @@ def origin_document(result: OriginEstimate, corpus: CurveCorpus) -> dict[str, ob
             _activity_line(inspection, fates) for inspection in result.inspections
         ],
     }
+
+
+def origin_absence_document(result: OriginEstimate, corpus: CurveCorpus) -> bytes:
+    """Le document d'une courbe absente à l'origine (OG-2) : l'athlète, l'issue, sa
+    raison, le seuil des diagnostics et la section ``origin`` d'un compagnon
+    (:func:`origin_document`) ; les paramètres et la sélection sont au document de règle
+    de l'exécution."""
+    if result.estimate is not None:
+        raise ContractError("result : une courbe n'est pas une absence.")
+    if corpus.athlete_ref != result.athlete_ref:
+        raise ContractError(
+            f"corpus : celui de {corpus.athlete_ref!r}, la règle a été rendue pour "
+            f"{result.athlete_ref!r}."
+        )
+    document = {
+        "athlete_ref": result.athlete_ref,
+        "outcome": result.outcome.value,
+        "absence_reason": result.absence_reason,
+        "support_threshold_min": result.support_threshold_min,
+        "origin": origin_document(result, corpus),
+    }
+    text = json.dumps(document, ensure_ascii=False, indent=2, allow_nan=False) + "\n"
+    return text.encode("utf-8")
 
 
 def origin_companion(

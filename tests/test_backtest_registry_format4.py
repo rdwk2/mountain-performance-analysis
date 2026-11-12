@@ -306,13 +306,13 @@ IFF = (
 
 def test_versions() -> None:
     """Précision de D14 (M4d-2) : le format écrit, les formats relus, le premier
-    format des fourchettes et leur place parmi les documents (avant-dernière, la
-    sensibilité du format 5 après elles, M4d-3)."""
+    format des fourchettes et leur place parmi les documents (sixième, la sensibilité
+    du format 5 après elles, M4d-3, puis les types du format 6, OG-2)."""
     assert REGISTRY_FORMAT_VERSION == 5
     assert REGISTRY_READABLE_FORMATS == (1, 2, 3, 4, 5)
     assert BANDS_FIRST_FORMAT == 4
     assert DOCUMENT_FIRST_FORMAT[OutingBands] == 4
-    assert DOCUMENT_TYPES[-2] is OutingBands
+    assert DOCUMENT_TYPES[5] is OutingBands
     assert tuple(DOCUMENT_FIRST_FORMAT) == DOCUMENT_TYPES
 
 

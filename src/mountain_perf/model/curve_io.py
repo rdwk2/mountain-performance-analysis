@@ -35,6 +35,7 @@ from mountain_perf.schemas import (
     Sport,
 )
 from mountain_perf.units import kmh_to_ms
+from mountain_perf.validation import ContractError
 
 DEFAULT_SUPPORT_THRESHOLD_MIN: Final = 10.0
 """Le seuil de support par défaut, en minutes (``0009`` D2)."""
@@ -720,6 +721,29 @@ def _meta_text(
         "estimation": dict(estimation),
     }
     return json.dumps(document, ensure_ascii=False, indent=2, allow_nan=False) + "\n"
+
+
+def freeze_companion(companion: bytes) -> bytes:
+    """Le compagnon figé d'une courbe à l'origine (OG-2) : les octets de
+    :func:`curve_documents` sans la clé ``generated_at`` ni la clé ``commit`` de la
+    section ``estimation`` ; le reste à l'octet. :func:`read_curve_documents` le relit
+    avec ``generated_at`` donné à part."""
+    document = json.loads(companion.decode("utf-8"))
+    estimation = document.get("estimation") if isinstance(document, dict) else None
+    if (
+        not isinstance(document, dict)
+        or "generated_at" not in document
+        or not isinstance(estimation, dict)
+        or "commit" not in estimation
+    ):
+        raise ContractError(
+            "companion : un compagnon de curve_documents attendu, avec "
+            "« generated_at » et « estimation.commit »."
+        )
+    del document["generated_at"]
+    del estimation["commit"]
+    text = json.dumps(document, ensure_ascii=False, indent=2, allow_nan=False) + "\n"
+    return text.encode("utf-8")
 
 
 @dataclass(frozen=True)

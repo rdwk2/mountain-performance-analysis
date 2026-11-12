@@ -21,11 +21,14 @@ from mountain_perf.backtest import (
 )
 from mountain_perf.schemas import (
     REGISTRY_FORMAT_VERSION,
+    AbsentCurve,
     Admission,
     CalibratedScenarioScores,
+    FrozenCurve,
     OutingBands,
     OutingObservation,
     RepeatabilityReference,
+    RollingRule,
     ScenarioScores,
     SensitivityOutcome,
 )
@@ -51,7 +54,8 @@ def test_document_types_are_exact() -> None:
     """D14 : observations, scores avec leurs prévisions, références D8 ; depuis le
     format 2, scores calés (M4c-2) ; depuis le format 3, document d'admission
     (M4c-3) ; depuis le format 4, fourchettes (M4d-2) ; depuis le format 5,
-    document de sensibilité (M4d-3)."""
+    document de sensibilité (M4d-3) ; depuis le format 6, document de règle, courbe
+    figée, courbe absente (OG-2)."""
     assert (
         OutingObservation,
         ScenarioScores,
@@ -60,6 +64,9 @@ def test_document_types_are_exact() -> None:
         Admission,
         OutingBands,
         SensitivityOutcome,
+        RollingRule,
+        FrozenCurve,
+        AbsentCurve,
     ) == DOCUMENT_TYPES
 
 

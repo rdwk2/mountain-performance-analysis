@@ -15,6 +15,8 @@ dans ``mountain_perf.backtest.registry``.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import math
 import re
 from collections.abc import Hashable, Iterable, Mapping
@@ -32,6 +34,7 @@ from mountain_perf.schemas.calibration import (
 )
 from mountain_perf.schemas.clock import CLOCKS, Clock
 from mountain_perf.schemas.common import SourceRef
+from mountain_perf.schemas.curve import SUPPORT_THRESHOLD_RANGE_MIN
 from mountain_perf.schemas.matching import Coverage, SensitivityConfiguration
 from mountain_perf.schemas.metrics import (
     WEIGHT_SUM_TOLERANCE,
@@ -985,6 +988,196 @@ class SensitivityDeclaration:
                     "frozen porte une entrée par configuration, dans l'ordre des "
                     "configurations."
                 )
+
+
+_BIN_VALUES = ("somme", "médiane")
+"""Les deux textes de ``BinValue`` (``estimation/curve.py``), écrits ici sans importer
+``estimation/`` (OG-2)."""
+
+
+@dataclass(frozen=True)
+class RollingRule:
+    """Le document de règle d'une exécution glissante (OG-2, ``0010`` précision OG-2,
+    point 2) : tout ce qui détermine ``κ_j`` hors de l'origine.
+
+    Champs
+    ------
+    - ``athlete_ref`` — sans unité — l'athlète du manifeste et du corpus.
+    - ``commit`` — sans unité — le commit du code qui applique la règle.
+    - ``window_days`` — jours — la fenêtre ``W`` ; ``None`` : tout le passé.
+    - ``source_activity_types`` — sans unité — les types de la source sélectionnés.
+    - ``min_duration_s``, ``max_duration_s`` — secondes — les durées de la sélection.
+    - ``max_elapsed_s`` — secondes — le plafond depuis le départ.
+    - ``hr_center_bpm`` — battements par minute — le centre de la bande de FC.
+    - ``value`` — sans unité — la valeur des tranches (« somme », « médiane »).
+    - ``parameters`` — unités de chaque paramètre — les paramètres effectifs de
+      l'estimation, défauts compris.
+    - ``profile_parameters`` — unités de chaque paramètre — ceux du profil.
+    - ``diagnostic_support_threshold_min`` — minutes — le seuil des diagnostics.
+
+    Invariants
+    ----------
+    - textes non vides ; ``window_days >= 1`` ou ``None`` ;
+    - types non vides, triés, distincts ;
+    - ``value`` dans les valeurs de ``BinValue`` ;
+    - durées finies et ``>= 0`` ; le seuil dans ``SUPPORT_THRESHOLD_RANGE_MIN``.
+
+    Producteur
+    ----------
+    ``prepare_rolling`` (``mountain_perf.backtest.rolling``).
+
+    Consommateurs
+    -------------
+    La DÉCLARATION glissante (son empreinte) ; l'accord du registre (condition R et
+    condition 2).
+
+    Non promis
+    ----------
+    Ni ``s``, ni le repère, ni le seuil de lecture, ni la tolérance, ni la plateforme :
+    ils sont à la DÉCLARATION, les documents de règle d'une commande étant égaux hors
+    ``W``.
+    """
+
+    athlete_ref: str
+    commit: str
+    window_days: int | None
+    source_activity_types: tuple[str, ...]
+    min_duration_s: float | None
+    max_duration_s: float | None
+    max_elapsed_s: float | None
+    hr_center_bpm: float | None
+    value: str
+    parameters: Mapping[str, float]
+    profile_parameters: Mapping[str, float]
+    diagnostic_support_threshold_min: float
+
+    def __post_init__(self) -> None:
+        for name in ("athlete_ref", "commit", "value"):
+            require_non_empty(getattr(self, name), name)
+        if self.window_days is not None and self.window_days < 1:
+            raise ContractError(
+                f"window_days doit valoir au moins 1, reçu {self.window_days}."
+            )
+        require_immutable_sequence(self.source_activity_types, "source_activity_types")
+        if not self.source_activity_types:
+            raise ContractError("source_activity_types ne doit pas être vide.")
+        for text in self.source_activity_types:
+            require_non_empty(text, "source_activity_types")
+        if list(self.source_activity_types) != sorted(set(self.source_activity_types)):
+            raise ContractError(
+                "source_activity_types : des types triés et distincts attendus."
+            )
+        if self.value not in _BIN_VALUES:
+            raise ContractError(
+                f"value : l'une de {list(_BIN_VALUES)} attendue, reçu {self.value!r}."
+            )
+        for name in ("min_duration_s", "max_duration_s", "max_elapsed_s"):
+            duration: float | None = getattr(self, name)
+            if duration is not None:
+                require_finite(duration, name)
+                if duration < 0:
+                    raise ContractError(f"{name} doit être >= 0, reçu {duration}.")
+        threshold = self.diagnostic_support_threshold_min
+        require_finite(threshold, "diagnostic_support_threshold_min")
+        low, high = SUPPORT_THRESHOLD_RANGE_MIN
+        if not low <= threshold <= high:
+            raise ContractError(
+                f"diagnostic_support_threshold_min doit être dans [{low} ; {high}], "
+                f"reçu {threshold}."
+            )
+        object.__setattr__(self, "parameters", MappingProxyType(dict(self.parameters)))
+        object.__setattr__(
+            self,
+            "profile_parameters",
+            MappingProxyType(dict(self.profile_parameters)),
+        )
+
+
+@dataclass(frozen=True)
+class FrozenCurve:
+    """La courbe figée d'une performance (OG-2, ``0010`` précision OG-2, point 3) : les
+    octets du CSV de ``mperf curve --at`` et du compagnon sans instant d'estimation ni
+    commit, en textes UTF-8.
+
+    Champs
+    ------
+    - ``csv`` — sans unité — le texte du CSV.
+    - ``companion`` — sans unité — le texte du compagnon figé.
+
+    Propriété calculée (jamais stockée) : ``csv_sha256``, l'empreinte des octets UTF-8
+    du CSV — « la même courbe » se dit par elle.
+
+    Invariants
+    ----------
+    - textes non vides ;
+    - ``companion`` est un objet JSON sans clé ``generated_at``.
+
+    Producteur
+    ----------
+    ``prepare_rolling`` (``mountain_perf.backtest.rolling``).
+
+    Consommateurs
+    -------------
+    La DÉCLARATION glissante (son empreinte) ; le RÉSULTAT (qui le publie) ; l'accord.
+
+    Non promis
+    ----------
+    Le contrat ne relit pas le CSV : l'accord le fait (condition 5 bis).
+    """
+
+    csv: str
+    companion: str
+
+    def __post_init__(self) -> None:
+        require_non_empty(self.csv, "csv")
+        require_non_empty(self.companion, "companion")
+        try:
+            document = json.loads(self.companion)
+        except ValueError as error:
+            raise ContractError("companion : un objet JSON attendu.") from error
+        if not isinstance(document, dict):
+            raise ContractError("companion : un objet JSON attendu.")
+        if "generated_at" in document:
+            raise ContractError(
+                "companion : un compagnon figé ne porte pas la clé « generated_at »."
+            )
+
+    @property
+    def csv_sha256(self) -> str:
+        """L'empreinte ``sha256`` des octets UTF-8 du CSV."""
+        return hashlib.sha256(self.csv.encode("utf-8")).hexdigest()
+
+
+@dataclass(frozen=True)
+class AbsentCurve:
+    """La courbe absente d'une performance (OG-2, ``0010`` précision OG-2, point 3) :
+    le document d'``origin_absence_document``, en texte UTF-8.
+
+    Champs
+    ------
+    - ``document`` — sans unité — le texte du document d'absence.
+
+    Invariants
+    ----------
+    ``document`` non vide.
+
+    Producteur
+    ----------
+    ``prepare_rolling`` (``mountain_perf.backtest.rolling``).
+
+    Consommateurs
+    -------------
+    La DÉCLARATION glissante (son empreinte) ; le RÉSULTAT ; l'accord.
+
+    Non promis
+    ----------
+    Le contrat ne relit pas le document : l'accord le fait.
+    """
+
+    document: str
+
+    def __post_init__(self) -> None:
+        require_non_empty(self.document, "document")
 
 
 @dataclass(frozen=True)

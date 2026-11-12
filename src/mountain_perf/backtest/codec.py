@@ -26,11 +26,14 @@ from mountain_perf.codec import (
 )
 from mountain_perf.schemas import (
     REGISTRY_FORMAT_VERSION,
+    AbsentCurve,
     Admission,
     CalibratedScenarioScores,
+    FrozenCurve,
     OutingBands,
     OutingObservation,
     RepeatabilityReference,
+    RollingRule,
     ScenarioScores,
     SensitivityOutcome,
 )
@@ -58,6 +61,9 @@ DOCUMENT_TYPES: tuple[type, ...] = (
     Admission,
     OutingBands,
     SensitivityOutcome,
+    RollingRule,
+    FrozenCurve,
+    AbsentCurve,
 )
 """Les contrats que le registre range en documents, nommés par leur empreinte
 (``0010`` D14) : l'observation d'une sortie, les scores d'un scénario (prévision
@@ -65,7 +71,8 @@ comprise), la référence D8 d'un parcours ; depuis le format 2, les scores cal�
 modèle dans un scénario (prévision non calée et calages compris, M4c-2) ; depuis le
 format 3, le document d'admission d'une expérience (M4c-3) ; depuis le format 4, les
 fourchettes d'une sortie (M4d-2) ; depuis le format 5, le document de sensibilité
-(M4d-3)."""
+(M4d-3) ; depuis le format 6, le document de règle, la courbe figée et la courbe
+absente du mode glissant (OG-2)."""
 
 DOCUMENT_FIRST_FORMAT: Mapping[type, int] = types.MappingProxyType(
     {
@@ -76,6 +83,9 @@ DOCUMENT_FIRST_FORMAT: Mapping[type, int] = types.MappingProxyType(
         Admission: 3,
         OutingBands: 4,
         SensitivityOutcome: 5,
+        RollingRule: 6,
+        FrozenCurve: 6,
+        AbsentCurve: 6,
     }
 )
 """Le premier format du registre qui connaît chaque type de document (précision de

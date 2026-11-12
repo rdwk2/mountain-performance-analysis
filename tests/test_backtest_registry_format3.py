@@ -72,6 +72,7 @@ from mountain_perf.schemas import (
     CLOCKS,
     REGISTRY_FORMAT_VERSION,
     REGISTRY_READABLE_FORMATS,
+    AbsentCurve,
     Admission,
     CalibratedOutingScores,
     CalibratedScenarioScores,
@@ -80,6 +81,7 @@ from mountain_perf.schemas import (
     Declaration,
     ExperimentDeclaration,
     ExperimentMetric,
+    FrozenCurve,
     ModelKind,
     ModelResult,
     OutingBands,
@@ -88,6 +90,7 @@ from mountain_perf.schemas import (
     RegistryEvent,
     RepeatabilityRecord,
     RepeatabilityReference,
+    RollingRule,
     ScenarioScores,
     SensitivityOutcome,
 )
@@ -237,8 +240,9 @@ def _journal(root: Path, change: Callable[[dict[str, Any]], None]) -> None:
 
 def test_versions() -> None:
     """Le format écrit, les formats relus, le premier format de l'admission ; le
-    document d'admission, premier format 3, antépénultième type de document (puis
-    les fourchettes du format 4, M4d-2, et la sensibilité du format 5, M4d-3)."""
+    document d'admission, premier format 3, cinquième type de document (puis les
+    fourchettes du format 4, M4d-2, la sensibilité du format 5, M4d-3, et les types
+    du format 6, OG-2)."""
     assert REGISTRY_FORMAT_VERSION == 5
     assert REGISTRY_READABLE_FORMATS == (1, 2, 3, 4, 5)
     assert ADMISSION_FIRST_FORMAT == 3
@@ -250,8 +254,11 @@ def test_versions() -> None:
         Admission: 3,
         OutingBands: 4,
         SensitivityOutcome: 5,
+        RollingRule: 6,
+        FrozenCurve: 6,
+        AbsentCurve: 6,
     }
-    assert DOCUMENT_TYPES[-3] is Admission
+    assert DOCUMENT_TYPES[4] is Admission
     assert DOCUMENT_FIRST_FORMAT[Admission] == ADMISSION_FIRST_FORMAT
 
 

@@ -69,6 +69,7 @@ from mountain_perf.schemas import (
     BAND_MODELS,
     REGISTRY_FORMAT_VERSION,
     REGISTRY_READABLE_FORMATS,
+    AbsentCurve,
     Admission,
     CalibratedOutingScores,
     CalibratedScenarioScores,
@@ -76,6 +77,7 @@ from mountain_perf.schemas import (
     DeclaredModel,
     DeclaredPerformance,
     Exclusion,
+    FrozenCurve,
     ModelBand,
     ModelKind,
     ModelResult,
@@ -87,6 +89,7 @@ from mountain_perf.schemas import (
     RegistryEvent,
     RepeatabilityReference,
     Result,
+    RollingRule,
     ScenarioScores,
     SensitivityOutcome,
     Unavailability,
@@ -389,6 +392,9 @@ def test_versions() -> None:
         Admission: 3,
         OutingBands: 4,
         SensitivityOutcome: 5,
+        RollingRule: 6,
+        FrozenCurve: 6,
+        AbsentCurve: 6,
     }
     assert tuple(DOCUMENT_FIRST_FORMAT) == DOCUMENT_TYPES
 
