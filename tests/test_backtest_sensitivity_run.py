@@ -205,12 +205,12 @@ def failed(
 
 def test_events_of_the_backtest_sensitivity(world: BacktestSensitivity) -> None:
     """Précision de D14 (M4d-3) : la DÉCLARATION de sensibilité (3) puis son RÉSULTAT
-    (4), au format 5, après la centrale (1, 2) ; elle nomme la centrale, son RÉSULTAT
+    (4), au format 6, après la centrale (1, 2) ; elle nomme la centrale, son RÉSULTAT
     et les empreintes de leurs lignes ; le registre se vérifie ; le sceau est
     l'empreinte de la dernière ligne ; la sensibilité compte à part."""
     log = verify_registry(world.registry)
     assert [e.kind for e in log.events] == [D, R, D, R]
-    assert [e.format_version for e in log.events] == [5, 5, 5, 5]
+    assert [e.format_version for e in log.events] == [6, 6, 6, 6]
     central, answer, declared, result = log.events
     assert (world.central.declaration_event, world.central.result_event) == (
         central,
@@ -364,7 +364,7 @@ def test_events_of_an_experiment_sensitivity(
     l'effet."""
     log = verify_registry(experiment.registry)
     assert [e.kind for e in log.events] == [D, R, D, R]
-    assert [e.format_version for e in log.events] == [5, 5, 5, 5]
+    assert [e.format_version for e in log.events] == [6, 6, 6, 6]
     assert experiment.central.answer_event == log.events[1]
     assert experiment.run.answer_event == log.events[3]
     sensitivity = _declaration(log.events[2]).sensitivity
@@ -1121,4 +1121,4 @@ def test_document_in_memory_is_the_stored_one(world: BacktestSensitivity) -> Non
     assert result is not None
     assert result.sensitivity is not None
     data = (world.registry / DOCUMENTS_DIR / f"{result.sensitivity}.json").read_bytes()
-    assert decode_document(data, SensitivityOutcome, 5) == world.run.evaluation.outcome
+    assert decode_document(data, SensitivityOutcome, 6) == world.run.evaluation.outcome
