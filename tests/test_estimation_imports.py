@@ -6,6 +6,7 @@ imports dans les fonctions compris."""
 from __future__ import annotations
 
 import ast
+import sys
 from pathlib import Path
 
 import mountain_perf
@@ -75,3 +76,23 @@ def test_the_rule_reads_no_clock_no_file_no_environment() -> None:
                 else None
             )
             assert name not in forbidden_names, (path.name, name)
+
+
+def test_the_decision_imports_the_standard_library_and_validation_only() -> None:
+    """OG-2, § 6.1, choix C1 : ``estimation/decision.py`` « n'importe que la
+    bibliothèque standard et ``mountain_perf.validation`` » ; le registre, qui
+    l'importe, ne charge donc rien d'autre de l'estimation (constat C-8 de la relecture
+    C du bloc 1)."""
+    for module in _modules(ESTIMATION / "decision.py"):
+        top = module.split(".")[0]
+        assert top in sys.stdlib_module_names or (
+            module == "mountain_perf.validation"
+            or module.startswith("mountain_perf.validation.")
+        ), module
+
+
+def test_the_package_init_imports_nothing() -> None:
+    """OG-2, choix C1 : ``estimation/__init__.py`` n'importe rien ; importer
+    ``mountain_perf.estimation.decision`` ne charge pas ``origin``, ``curve`` ni
+    ``intervals``."""
+    assert _modules(ESTIMATION / "__init__.py") == set()
