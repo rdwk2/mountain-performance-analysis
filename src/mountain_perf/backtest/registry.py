@@ -1030,15 +1030,19 @@ _CONDITION = "(0010, précision OG-2, condition {})"
 
 def _moment(text: object, where: str) -> datetime | None:
     """Un instant écrit au compagnon (``isoformat`` en UTC), ``None`` pour ``null`` ;
-    un texte illisible : ``RegistryError``."""
+    un texte illisible, ou un instant sans fuseau (que ``astimezone`` lirait à l'heure
+    de la machine qui relit) : ``RegistryError``."""
     if text is None:
         return None
     if not isinstance(text, str):
         raise RegistryError(f"{where}instant illisible {text!r}")
     try:
-        return datetime.fromisoformat(text).astimezone(UTC)
+        moment = datetime.fromisoformat(text)
     except ValueError:
         raise RegistryError(f"{where}instant illisible {text!r}") from None
+    if moment.tzinfo is None:
+        raise RegistryError(f"{where}instant sans fuseau {text!r}")
+    return moment.astimezone(UTC)
 
 
 def _decision_of(
@@ -1145,7 +1149,12 @@ def _agree_rolling_documents(
     window: OriginWindow = (
         ALL_PAST if rolling.window_days is None else rolling.window_days
     )
-    v0 = next(m for m in declaration.models if m.kind is ModelKind.V0_RAW)
+    v0 = next((m for m in declaration.models if m.kind is ModelKind.V0_RAW), None)
+    if v0 is None:
+        raise RegistryError(
+            f"{prefix}la DÉCLARATION glissante ne déclare pas v0 brut, dont le seuil "
+            f"de lecture relit le support {_CONDITION.format('5 bis')}"
+        )
     assert v0.parameters is not None  # v0 brut porte ses paramètres
     reading = v0.parameters["curve_min_support_min"]
     digests: dict[str, str] = {}
@@ -1167,7 +1176,11 @@ def _agree_rolling_documents(
                 document_prefix,
                 format_version,
             )
-        except (KeyError, TypeError, AttributeError, IndexError) as error:
+        except RegistryError:
+            raise
+        except (KeyError, TypeError, AttributeError, IndexError, ValueError) as error:
+            # ValueError : un JSON illisible (JSONDecodeError), un CSV figé qui n'est
+            # pas une courbe (CurveError).
             raise RegistryError(
                 f"{where}document de courbe mal formé ({error!r}) "
                 f"{_CONDITION.format(1)}"
