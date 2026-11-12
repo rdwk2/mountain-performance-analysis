@@ -159,6 +159,20 @@ def test_the_synthetic_rows_are_valid(tables: Tables) -> None:
             {"moving_heart_rate_coverage": 2.0},
             "moving_heart_rate_coverage doit être dans [0.0, 1.0]",
         ),
+        # La montée de ``a2`` n'a pas de FC : chaque couverture neuve hors de [0 ; 1]
+        # vient avec sa FC, pour que seul cet invariant soit violé (AN3-1a).
+        *(
+            (
+                {f"{prefix}_bpm": 140.0, f"{prefix}_coverage": 2.0},
+                f"{prefix}_coverage doit être dans [0.0, 1.0]",
+            )
+            for prefix in (
+                "lagged_moving_heart_rate",
+                "unlagged_moving_heart_rate",
+                "lagged_second_half_heart_rate",
+                "lagged_elapsed_heart_rate",
+            )
+        ),
         (
             {"moving_mean_temperature_c": -60.1},
             "moving_mean_temperature_c doit être dans [-60.0, 80.0]",
@@ -173,6 +187,25 @@ def test_climb_row_refusals(
     climb: ClimbRow, changes: dict[str, Any], message: str
 ) -> None:
     _refused(climb, message, **changes)
+
+
+LAGGED_HEART_RATES = (
+    "lagged_moving_heart_rate",
+    "unlagged_moving_heart_rate",
+    "lagged_second_half_heart_rate",
+    "lagged_elapsed_heart_rate",
+)
+"""Les quatre paires de la FC décalée (AN3-1a)."""
+
+
+@pytest.mark.parametrize("prefix", LAGGED_HEART_RATES)
+def test_a_heart_rate_without_coverage_is_refused(climb: ClimbRow, prefix: str) -> None:
+    """Une FC sans couverture, ou une couverture sans FC, est refusée."""
+    message = f"{prefix}_bpm doit être absente si et seulement si {prefix}_coverage"
+    _refused(climb, message, **{f"{prefix}_bpm": 140.0, f"{prefix}_coverage": 0.0})
+    _refused(climb, message, **{f"{prefix}_bpm": None, f"{prefix}_coverage": 0.5})
+    valid: dict[str, Any] = {f"{prefix}_bpm": 140.0, f"{prefix}_coverage": 0.5}
+    dataclasses.replace(climb, **valid)
 
 
 def test_climb_row_offsets_are_ordered_from_zero(climb: ClimbRow) -> None:

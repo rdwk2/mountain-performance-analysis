@@ -16,6 +16,34 @@ Backtest (à partir de M4) : métrique avant → après.
 
 ---
 
+### 2026-11-12 · AN3-1a — La FC décalée des montées
+Premier sous-jalon d'AN3 (Q2, l'efficience en montée). L'outil de FC du moteur devient
+commun : `HeartRateSeries.integral` rend l'intégrale exacte de la FC interpolée et la
+durée couverte d'une fenêtre rognée à la série, par les opérations de `mean`, dans le
+même ordre (`0017`, note d'AN3-1a sous P5.1) ; `mean`, `heart_rate_series` et
+`activity_intervals` ne changent pas. `analyse/heart_rate.py` (neuf, Python pur) en tire
+la FC d'une montée sur un support : les intervalles M (θc) de la montée, chacun décalé
+de `HR_LAG_S` = 60 s ; leur seconde moitié, coupée exactement ; la fenêtre écoulée. La
+moyenne divise l'intégrale sommée par la durée couverte sommée ; la couverture est
+bornée à 1, et la moyenne n'a de valeur que si la couverture ne vaut pas 0. `montees`
+gagne huit colonnes à la fin (quatre FC et leurs couvertures), sans seuil de couverture
+(`0014`, précisions d'AN3-1a) ; un `montees.parquet` plus ancien, avec une montée, ne se
+relit pas. Les trois colonnes de FC d'AN1-2 restent. README, ROADMAP, `CLAUDE.md`
+suivent (annexe D) ; trois lignes au `BACKLOG` (la dérive cardiaque ; une FC infinie
+ou indéfinie sur des instants sous-normaux ; le docstring du module `intervals.py`).
+Contre-épreuves : seize fautes jouées, toutes tuées (worktrees parallèles sur le `.venv`
+du dépôt). Vérifications allégées, décision de rdw, écart à la règle 2 : avant chacun
+des commits 1 à 3, `ruff`, `mypy` et la suite ciblée du brief (§ 11) ; avant le commit
+4, une passe complète avec tous les extras, verte. Après la relecture et un balayage
+mutmut de la conception, des tests de plus (`moving_pieces` seule, les deux FC
+décalées distinguées, un témoin fixe pour l'intégrale, une fenêtre au bout de la
+série, le gel de `ClimbHeartRate`) et `second_half` qui ne rend plus de morceau nul ;
+`main` (OG-2) reçu par une fusion ; sans passe locale, décision de rdw : N = 11321
+tests (collectés ; passe complète par la CI).
+Branche `an3/fc-decalee`.
+
+---
+
 ### 2026-11-12 · OG-2 — L'origine glissante : le backtest glissant
 `mperf backtest --rolling` juge chaque performance `j` avec `κ_j`, la courbe que la règle
 à l'origine (`0020`) rend à son origine sur une fenêtre déclarée (`0010`, précision OG-2).

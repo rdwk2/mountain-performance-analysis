@@ -371,3 +371,8 @@ Garmin ; `docs/decisions/0019`, section AN2-3) et la dernière figure de Q1 (la 
 Une question, ou deux très proches, par jalon, numéroté à son ouverture. Ordre prévu :
 Q2, Q3, Q4 ; les suivantes se choisissent à l'ouverture de chaque jalon. Chaque
 question a son plan d'analyse, relu avant le code (charte).
+
+**AN3 — Q2** (l'efficience en montée). Premier sous-jalon, AN3-1a : la FC de chaque
+montée, décalée de 60 s, mesurée par l'outil de FC du moteur rendu commun (`0014`,
+précisions d'AN3-1a). Suivent l'inférence, la commande `mperf q2`, le contrôle réel,
+puis la page.

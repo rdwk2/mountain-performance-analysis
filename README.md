@@ -516,7 +516,9 @@ restent hors du dépôt ([`docs/analyse/CHARTE.md`](docs/analyse/CHARTE.md), § 
   ascensionnelle (le gain pris en mouvement divisé par le temps en mouvement, avec sa
   variante et son enveloppe), sa pente, son régime (côte, intermédiaire, montée longue,
   ski de randonnée, ski de randonnée court, autre sport), ses strates de pente et
-  d'altitude, ses drapeaux et sa stabilité ;
+  d'altitude, ses drapeaux et sa stabilité, et sa FC moyenne décalée de 60 s (celle de
+  l'outil de FC du moteur), sur son temps en mouvement et ses variantes, avec la part
+  que la FC en couvre ;
 - `variantes.parquet`, une ligne par montée de chaque variante déclarée de la
   définition (celles que la stabilité recalcule) : ses bornes, son gain, son gain pris
   en mouvement et son temps en mouvement, son régime, ses strates et ses drapeaux sous
@@ -798,7 +800,8 @@ puis `http://localhost:8501` dans le navigateur.
   journalières, avec leurs vues (AN2-1) ; `mperf tables` en tire la table `jours`, avec
   les normales de six mesures, et lit le journal de l'athlète (AN2-2) ; l'interface la
   montre (la page « récupération »), avec la dernière figure de Q1 (AN2-3). AN2 est
-  livrée.
+  livrée. AN3 (Q2, l'efficience en montée) est commencée : la FC décalée de chaque
+  montée (AN3-1a).
 
 Le détail :
 

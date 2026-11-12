@@ -227,7 +227,8 @@ src/mountain_perf/     le code de la bibliothèque
   estimation/          estimation de la courbe personnelle depuis `interim/` (M6b,
                        `0017`) ; Python pur, n'importe ni `analyse/` ni `backtest/`
     intervals.py       les intervalles d'une activité : grille du profil, temps
-                       M/S/U sous θc, plafond, FC décalée
+                       M/S/U sous θc, plafond, FC décalée ; l'intégrale de la FC d'une
+                       fenêtre, commune avec la piste analyse (AN3-1a)
     curve.py           tranches, valeurs (a) et (b), niveau, forme, comptes ; lignes
                        du fichier et document du compagnon
     origin.py          la règle à l'origine : fins, corpus, sélection, issue, compagnon
@@ -320,10 +321,13 @@ src/mountain_perf/     le code de la bibliothèque
                        normales ; seuils days.*, DayDefinition (AN2-2)
     recovery.py        la vue de la page récupération : marques, suites de la normale,
                        étendue, rubans, activité, légende ; Python pur (AN2-3)
+    heart_rate.py      la FC d'une montée : support en mouvement, seconde moitié,
+                       fenêtres décalées, par l'intégrale de la FC du moteur ; Python
+                       pur (AN3-1a)
     tables.py          interim/activities/ → lignes des tables activites et montees,
                        provenance (AN1-2b) ; table variantes (AN1-2c) ; interim/days/
                        et journal.csv → table jours, son résumé, la provenance
-                       étendue (AN2-2)
+                       étendue (AN2-2) ; la FC décalée des montées (AN3-1a)
     parquet.py         écriture et relecture des tables en Parquet (AN1-2b) ; trois
                        tables, mises en place par échange de dossier (AN1-2c) ; quatre
                        tables, dates et instants facultatifs, refus des tables d'avant

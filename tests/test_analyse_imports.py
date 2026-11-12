@@ -61,6 +61,12 @@ def test_analyse_reads_the_common_clocks() -> None:
     assert "mountain_perf.series" in imports
 
 
+def test_the_climb_heart_rate_reads_the_engine_window() -> None:
+    """La FC d'une montée se mesure par l'outil de FC du moteur (AN3-1a, ``0017``,
+    P5.1)."""
+    assert "mountain_perf.estimation.intervals" in _imports(ANALYSE / "heart_rate.py")
+
+
 def test_only_the_parquet_module_imports_pyarrow() -> None:
     importers = sorted(
         path.relative_to(SOURCE).as_posix()
@@ -164,6 +170,7 @@ EXTRAS = ("pyarrow", "plotly", "fitdecode", "mountain_perf.ingest.fit")
     ("module", "forbidden"),
     [
         ("mountain_perf.analyse.tables", (*EXTRAS, "mountain_perf.backtest")),
+        ("mountain_perf.analyse.heart_rate", (*EXTRAS, "mountain_perf.backtest")),
         ("mountain_perf.analyse.journal", (*EXTRAS, "mountain_perf.backtest")),
         ("mountain_perf.analyse.normals", (*EXTRAS, "mountain_perf.backtest")),
         ("mountain_perf.analyse.days", (*EXTRAS, "mountain_perf.backtest")),

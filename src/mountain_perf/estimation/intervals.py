@@ -208,6 +208,41 @@ class HeartRateSeries:
             return None
         return integral / covered
 
+    def integral(self, low: float, high: float) -> tuple[float, float]:
+        """L'intégrale exacte de la FC interpolée (battements, bpm·s) et la durée
+        couverte (secondes) de la fenêtre ``[low ; high]`` (temps de la trace),
+        **rognée à la série** : ``[max(low, t0) ; min(high, tN)]``, ``t0`` et ``tN`` le
+        premier et le dernier instant. Seuls les pas reliés comptent, un pas coupé par
+        la fenêtre pour sa partie dedans (``0017``, P5.1).
+
+        ``(0.0, 0.0)`` si la fenêtre rognée est vide ou de longueur nulle : jamais
+        ``None``, jamais d'exception pour une fenêtre hors de la série. Les
+        opérations sont celles de :meth:`mean`, dans le même ordre : pour une fenêtre
+        dans la série, sa moyenne, quand elle en a une, vaut exactement l'intégrale
+        divisée par la durée couverte.
+        """
+        t = self.time_s
+        lo, hi = max(low, t[0]), min(high, t[-1])
+        if hi <= lo:
+            return 0.0, 0.0
+        first = bisect_right(t, lo) - 1
+        last = max(first, bisect_left(t, hi) - 1)
+        if first == last:
+            return self._piece(first, lo, hi)
+        head_integral, head_covered = self._piece(first, lo, t[first + 1])
+        tail_integral, tail_covered = self._piece(last, t[last], hi)
+        integral = (
+            head_integral
+            + (self.integral_bpm_s[last] - self.integral_bpm_s[first + 1])
+            + tail_integral
+        )
+        covered = (
+            head_covered
+            + (self.covered_s[last] - self.covered_s[first + 1])
+            + tail_covered
+        )
+        return integral, covered
+
 
 def heart_rate_series(
     recording: ActivityRecording, offset_s: float

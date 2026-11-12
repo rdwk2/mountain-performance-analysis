@@ -211,6 +211,14 @@ def climb(
         second_half_mean_heart_rate_bpm=155.0,
         external_heart_rate_sensor=False,
         moving_mean_temperature_c=15.0,
+        lagged_moving_heart_rate_bpm=152.0,
+        lagged_moving_heart_rate_coverage=1.0,
+        unlagged_moving_heart_rate_bpm=150.0,
+        unlagged_moving_heart_rate_coverage=1.0,
+        lagged_second_half_heart_rate_bpm=157.0,
+        lagged_second_half_heart_rate_coverage=1.0,
+        lagged_elapsed_heart_rate_bpm=151.0,
+        lagged_elapsed_heart_rate_coverage=1.0,
     )
     return dataclasses.replace(row, **changes)
 
