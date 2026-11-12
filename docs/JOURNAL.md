@@ -29,12 +29,17 @@ bornée à 1, et la moyenne n'a de valeur que si la couverture ne vaut pas 0. `m
 gagne huit colonnes à la fin (quatre FC et leurs couvertures), sans seuil de couverture
 (`0014`, précisions d'AN3-1a) ; un `montees.parquet` plus ancien, avec une montée, ne se
 relit pas. Les trois colonnes de FC d'AN1-2 restent. README, ROADMAP, `CLAUDE.md`
-suivent (annexe D) ; deux lignes au `BACKLOG` (la dérive cardiaque ; une somme de FC
-infinies de signes opposés, sur des instants sous-normaux, que `math.fsum` refuse).
+suivent (annexe D) ; trois lignes au `BACKLOG` (la dérive cardiaque ; une FC infinie
+ou indéfinie sur des instants sous-normaux ; le docstring du module `intervals.py`).
 Contre-épreuves : seize fautes jouées, toutes tuées (worktrees parallèles sur le `.venv`
 du dépôt). Vérifications allégées, décision de rdw, écart à la règle 2 : avant chacun
 des commits 1 à 3, `ruff`, `mypy` et la suite ciblée du brief (§ 11) ; avant le commit
-4, une passe complète avec tous les extras : N = 10977 tests (réussis et sautés).
+4, une passe complète avec tous les extras, verte. Après la relecture et un balayage
+mutmut de la conception, des tests de plus (`moving_pieces` seule, les deux FC
+décalées distinguées, un témoin fixe pour l'intégrale, une fenêtre au bout de la
+série, le gel de `ClimbHeartRate`) et `second_half` qui ne rend plus de morceau nul ;
+`main` (OG-2) reçu par une fusion ; sans passe locale, décision de rdw : N = 11321
+tests (collectés ; passe complète par la CI).
 Branche `an3/fc-decalee`.
 
 ---
