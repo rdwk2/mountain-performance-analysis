@@ -33,11 +33,11 @@ pages de la piste importent `analyse` dans leurs fonctions seulement, et les cl�
 d'`ui/` les listent (`0016`, section AN2-3) ; `just ui` demande l'extra `analyse`. Le
 README, `CLAUDE.md`, la charte (§ 13 : la relecture bornée si les correctifs changent
 `src/`), la ROADMAP (AN2 finie) suivent ; deux lignes neuves au `BACKLOG`.
-`just check` avec tous les extras : 10900 tests ; branche `an2/pages`.
+`just check` avec tous les extras : 10950 tests ; branche `an2/pages`.
 Relectures : le brief et le plan de Code, avant le code ; la PR, par une relecture
-profonde, un balayage `mutmut` de sa portée et le tri de ses survivants. Correctifs : un
-lot de tests (la vue et les graphiques en formes écrites, les règles qu'aucun test ne
-tenait) et ces lignes, sans changement de `src/`.
+profonde, un balayage `mutmut` de sa portée et le tri de ses survivants. Correctifs :
+deux lots de tests (la vue et les graphiques en formes écrites, les règles qu'aucun test
+ne tenait) et ces lignes, sans changement de `src/`.
 
 ---
 
