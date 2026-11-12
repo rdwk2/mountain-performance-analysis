@@ -23,8 +23,7 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from enum import StrEnum
 from types import MappingProxyType
-from typing import Final, Literal, Protocol
-from zoneinfo import ZoneInfo
+from typing import Final, Protocol
 
 from mountain_perf.estimation.curve import (
     SUPPORT_THRESHOLD_MIN,
@@ -36,6 +35,19 @@ from mountain_perf.estimation.curve import (
     curve_provenance,
     estimate_curve_outcome,
     estimation_document,
+)
+from mountain_perf.estimation.decision import ALL_PAST as ALL_PAST
+from mountain_perf.estimation.decision import PARIS as PARIS
+from mountain_perf.estimation.decision import OriginWindow as OriginWindow
+from mountain_perf.estimation.decision import TemporalDecision as TemporalDecision
+from mountain_perf.estimation.decision import check_origin as check_origin
+from mountain_perf.estimation.decision import check_window as check_window
+from mountain_perf.estimation.decision import (
+    decide_on_index,
+    decide_on_safe_end,
+)
+from mountain_perf.estimation.decision import (
+    window_lower_bound as window_lower_bound,
 )
 from mountain_perf.estimation.intervals import (
     ActivityIntervals,
@@ -55,14 +67,10 @@ from mountain_perf.schemas import (
 )
 from mountain_perf.validation import (
     ContractError,
-    require_aware,
     require_finite,
     require_in_range,
     require_non_empty,
 )
-
-PARIS: Final = ZoneInfo("Europe/Paris")
-"""Le fuseau des origines et des bornes de la fenêtre (``0010`` D0, D2.5)."""
 
 _HEXADECIMAL: Final = frozenset("0123456789abcdef")
 _SHA256_LENGTH: Final = 64
@@ -222,12 +230,6 @@ class CurveCorpus:
         )
 
 
-ALL_PAST: Final = "all"
-"""La fenêtre « tout le passé », sans date fictive."""
-
-type OriginWindow = int | Literal["all"]
-"""Une fenêtre : un nombre entier de jours civils, au moins 1, ou :data:`ALL_PAST`."""
-
 DEFAULT_WINDOW_DAYS: Final = 56
 """La fenêtre par défaut, en jours : un choix d'usage, pas un résultat du backtest."""
 
@@ -240,56 +242,6 @@ NO_CANDIDATE: Final = (
     "la fenêtre."
 )
 """La raison d'une absence sans candidate."""
-
-
-def check_origin(origin: datetime) -> datetime:
-    """``origin`` en UTC, après contrôle : un instant à fuseau, minuit à Paris
-    (``ContractError`` sinon)."""
-    require_aware(origin, "origin")
-    local = origin.astimezone(PARIS)
-    if (local.hour, local.minute, local.second, local.microsecond) != (0, 0, 0, 0):
-        raise ContractError(
-            f"origin : 00:00 à Paris attendu, reçu {local.isoformat()} à Paris."
-        )
-    return origin.astimezone(UTC)
-
-
-def check_window(window: object) -> None:
-    """``window`` : un ``int`` d'au moins 1, non booléen, ou la chaîne ``"all"``
-    (``ContractError`` sinon)."""
-    if window == ALL_PAST:
-        return
-    if not isinstance(window, int) or isinstance(window, bool) or window < 1:
-        raise ContractError(
-            "window : un nombre entier de jours, au moins 1, ou 'all' ; reçu "
-            f"{window!r}."
-        )
-
-
-def window_lower_bound(origin: datetime, window: OriginWindow) -> datetime | None:
-    """La borne basse de la fenêtre, en UTC : 00:00 à Paris du jour civil de l'origine
-    moins ``window`` jours (pas ``window`` × 24 h : la fenêtre traverse les changements
-    d'heure) ; ``None`` pour :data:`ALL_PAST`, sans contrôler l'origine."""
-    check_window(window)
-    if isinstance(window, str):
-        return None
-    moment = check_origin(origin)
-    try:
-        day = moment.astimezone(PARIS).date() - timedelta(days=window)
-        return datetime(day.year, day.month, day.day, tzinfo=PARIS).astimezone(UTC)
-    except OverflowError as error:
-        raise ContractError(
-            f"window : {window} jours sortent du calendrier depuis l'origine."
-        ) from error
-
-
-class TemporalDecision(StrEnum):
-    """Ce que la règle décide d'une activité inspectée."""
-
-    CANDIDATE = "candidate"
-    AFTER_ORIGIN = "finie à l'origine ou après"
-    BEFORE_WINDOW = "finie avant la fenêtre"
-    UNKNOWN_END = "fin inconnue"
 
 
 @dataclass(frozen=True)
@@ -318,12 +270,9 @@ def _inspect(
     """La décision de la règle sur ``entry``. L'index décide seul quand sa fin suffit :
     ces décisions ne dépendent pas des enregistrements chargés en plus."""
     from_index = activity_end(entry, None)
-    index_end = from_index.index_end
-    if index_end is not None:
-        if index_end >= origin:
-            return Inspection(from_index, TemporalDecision.AFTER_ORIGIN, None)
-        if lower_bound is not None and index_end < lower_bound:
-            return Inspection(from_index, TemporalDecision.BEFORE_WINDOW, None)
+    on_index = decide_on_index(from_index.index_end, origin, lower_bound)
+    if on_index is not None:
+        return Inspection(from_index, on_index, None)
     recording = corpus.recordings.get(entry.activity_ref)
     if recording is None:
         raise ContractError(
@@ -331,16 +280,9 @@ def _inspect(
         )
     end = activity_end(entry, recording)
     digest = corpus.recording_sha256[entry.activity_ref]
-    safe_end = end.safe_end
-    if safe_end is None:
-        decision = TemporalDecision.UNKNOWN_END
-    elif safe_end >= origin:
-        decision = TemporalDecision.AFTER_ORIGIN
-    elif lower_bound is not None and safe_end < lower_bound:
-        decision = TemporalDecision.BEFORE_WINDOW
-    else:
-        decision = TemporalDecision.CANDIDATE
-    return Inspection(end, decision, digest)
+    return Inspection(
+        end, decide_on_safe_end(end.safe_end, origin, lower_bound), digest
+    )
 
 
 def select_at_origin(

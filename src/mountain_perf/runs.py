@@ -20,6 +20,7 @@ from mountain_perf.backtest.passages import observe_passages
 from mountain_perf.backtest.scoring import report_clocks, v0_scores
 from mountain_perf.backtest.segments import match_trace
 from mountain_perf.clocks import clock_partition
+from mountain_perf.estimation.decision import decide_on_index
 from mountain_perf.estimation.origin import (
     CurveCorpus,
     OriginWindow,
@@ -218,7 +219,8 @@ def load_curve_corpus(
     ``folder`` : l'index, puis, dans son ordre, l'enregistrement de chaque entrée des
     types choisis qui en a un, **sauf** si l'index la fait finir (départ + écoulé) à
     l'origine ou après, ou avant la borne basse ; une entrée sans écoulé est lue. Ce
-    sont exactement les décisions que ``select_at_origin`` prend sur l'index seul.
+    sont exactement les décisions que ``select_at_origin`` prend sur l'index seul :
+    ``decide_on_index``, écrite une fois (OG-2, ``estimation/decision.py``).
 
     Un document qui ne se relit pas (une ``ValueError`` : ``CodecError``,
     ``ContractError``) devient une ``CurveError`` qui le nomme et dit de relancer
@@ -238,12 +240,13 @@ def load_curve_corpus(
     for entry in index.entries:
         if not entry.has_recording or entry.source_activity_type not in activity_types:
             continue
-        if entry.elapsed_duration_s is not None:
-            index_end = entry.start_time + timedelta(seconds=entry.elapsed_duration_s)
-            if index_end >= moment:
-                continue
-            if lower_bound is not None and index_end < lower_bound:
-                continue
+        index_end = (
+            None
+            if entry.elapsed_duration_s is None
+            else entry.start_time + timedelta(seconds=entry.elapsed_duration_s)
+        )
+        if decide_on_index(index_end, moment, lower_bound) is not None:
+            continue
         ref = entry.activity_ref
         try:
             recordings[ref], digests[ref] = read_recording_with_sha256(folder, ref)
