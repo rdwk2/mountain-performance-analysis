@@ -239,6 +239,34 @@ def member_totals(
     return t_total, math.fsum(valid)
 
 
+def calibration_terms(
+    population: CalibrationPopulation,
+    model: ModelKind,
+    scenario: Scenario,
+    clock_index: int,
+    members: Mapping[date, Sequence[OutingScores]],
+) -> tuple[tuple[date, float, float | None], ...]:
+    """Les termes du calage (OG-2, E6) : les ``(jour, T_c, P_c)`` des membres de la
+    population effective ``C_j^eff``, dans l'ordre de ``population.members``, ceux de
+    :func:`member_totals` — ``P_c`` absent pour une projection invalide. Ce sont
+    exactement les termes dont :func:`calibrate` fait ``β`` ; ``model`` n'y entre que
+    par les préconditions de ``calibrate``, qui l'appelle.
+
+    Précondition (``ValueError``) : une entrée de ``members`` pour chaque membre."""
+    del model  # les termes ne dépendent que des scores de la source
+    terms: list[tuple[date, float, float | None]] = []
+    for day in population.members:
+        if day not in members:
+            raise ValueError(
+                f"calibration_terms : aucune entrée pour le membre {day.isoformat()}."
+            )
+        totals = member_totals(members[day], scenario, clock_index)
+        if isinstance(totals, Unavailability):
+            continue
+        terms.append((day, totals[0], totals[1]))
+    return tuple(terms)
+
+
 def calibrate(
     population: CalibrationPopulation,
     model: ModelKind,
@@ -278,21 +306,21 @@ def calibrate(
     if missing:
         listed = ", ".join(day.isoformat() for day in missing)
         raise ValueError(f"calibrate : aucune entrée pour les membres [{listed}].")
-    effective: list[date] = []
+    terms = calibration_terms(population, model, scenario, clock_index, members)
+    effective = [day for day, _, _ in terms]
     withdrawals: list[CalibrationWithdrawal] = []
-    logs: list[float] = []
-    model_error = False
     for day in population.members:
-        totals = member_totals(members[day], scenario, clock_index)
-        if isinstance(totals, Unavailability):
-            withdrawals.append(CalibrationWithdrawal(day, totals))
+        if day in effective:
             continue
-        effective.append(day)
-        t_total, p_total = totals
-        if p_total is None:
-            model_error = True
-        else:
-            logs.append(math.log(t_total / p_total))
+        totals = member_totals(members[day], scenario, clock_index)
+        assert isinstance(totals, Unavailability)  # calibration_terms l'a écarté
+        withdrawals.append(CalibrationWithdrawal(day, totals))
+    model_error = any(p_total is None for _, _, p_total in terms)
+    logs = [
+        math.log(t_total / p_total)
+        for _, t_total, p_total in terms
+        if p_total is not None
+    ]
     unavailability = None
     if not effective:
         unavailability = Unavailability.NOT_CALIBRATED

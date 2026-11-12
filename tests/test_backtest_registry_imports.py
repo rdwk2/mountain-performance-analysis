@@ -170,7 +170,8 @@ def test_no_module_imports_codec_or_registry_but_the_backtest_package() -> None:
     ``cli.py``, qui lit le nombre d'événements avant tout écrit (§ 6.0 du brief
     M4b-5) — et, depuis M4c-3, l'expérience, qui écrit au registre et calcule
     l'empreinte des documents D8 qu'elle fige (décision E6) — et, depuis M4d-3, la
-    sensibilité, de même. Depuis AN1-0, les noms
+    sensibilité, de même — et, depuis OG-2, le mode glissant, qui fige ses documents par
+    leur empreinte et écrit au registre. Depuis AN1-0, les noms
     que ``backtest/codec.py`` réexporte du codec commun comptent comme les siens."""
     defined = (
         _defined_names(ast.parse(CODEC_MODULE.read_text(encoding="utf-8")))
@@ -197,6 +198,8 @@ def test_no_module_imports_codec_or_registry_but_the_backtest_package() -> None:
         ("backtest/experiment.py", "mountain_perf.backtest.codec"),
         ("backtest/experiment.py", "mountain_perf.backtest.registry"),
         ("backtest/registry.py", "mountain_perf.backtest.codec"),
+        ("backtest/rolling.py", "mountain_perf.backtest.codec"),
+        ("backtest/rolling.py", "mountain_perf.backtest.registry"),
         ("backtest/sensitivity_run.py", "mountain_perf.backtest.codec"),
         ("backtest/sensitivity_run.py", "mountain_perf.backtest.registry"),
         ("cli.py", "mountain_perf.backtest.registry"),

@@ -2683,6 +2683,115 @@ def _run_backtest(args: argparse.Namespace) -> int:
     return _run_sensitivity(run, registry, data)
 
 
+ROLLING_WINDOWS_ERROR = (
+    "--rolling : une liste de fenêtres attendue (des jours ≥ 1 ou all, distincts), "
+    "reçu {text!r}."
+)
+"""Le refus d'une liste de fenêtres mal formée (OG-2, D-OG2-3)."""
+
+ROLLING_SENSITIVITY_ERROR = (
+    "la sensibilité de D13 n'existe pas en mode glissant : hors du jalon (0010 D13, "
+    "précision OG-2)."
+)
+"""Le refus de ``--sensitivity`` avec ``--rolling`` (D-OG2-8)."""
+
+ROLLING_OPTIONS = (
+    ("covered_threshold", "--covered-threshold"),
+    ("coverage_tolerance", "--coverage-tolerance"),
+    ("beyond_marker", "--beyond-marker"),
+    ("rule_support_threshold", "--rule-support-threshold"),
+)
+"""Les quatre options du mode glissant ; les deux premières, obligatoires avec
+``--rolling`` (D-OG2-4)."""
+
+RESULT_RECORDED = "{label}{number} enregistré ; dernière ligne sha256 {seal}"
+"""La ligne d'un RÉSULTAT ajouté par la commande glissante."""
+
+
+def _rolling_windows(text: str) -> tuple[OriginWindow, ...]:
+    """La liste de ``--rolling`` : des entiers ``>= 1`` ou ``all``, séparés par des
+    virgules, distincts, dans l'ordre donné (D-OG2-3)."""
+    windows: list[OriginWindow] = []
+    for item in text.split(","):
+        if item == ALL_PAST:
+            window: OriginWindow = ALL_PAST
+        elif re.fullmatch(CURVE_WINDOW_PATTERN, item):
+            window = int(item)
+        else:
+            raise argparse.ArgumentTypeError(ROLLING_WINDOWS_ERROR.format(text=text))
+        if window in windows:
+            raise argparse.ArgumentTypeError(ROLLING_WINDOWS_ERROR.format(text=text))
+        windows.append(window)
+    return tuple(windows)
+
+
+def _run_rolling(args: argparse.Namespace) -> int:
+    """``mperf backtest --rolling`` (OG-2, ``0010`` précision OG-2), dans cet ordre :
+    ``MPA_DATA_DIR`` ; l'état git du paquet exécuté, un arbre modifié refusé ; la
+    préparation (un manifeste, un index, un corpus, un cache ; les courbes figées ; une
+    DÉCLARATION par fenêtre), sans rien écrire ; puis, fenêtre par fenêtre, la
+    DÉCLARATION annoncée dès son ajout, le calcul, le RÉSULTAT annoncé."""
+    from mountain_perf.backtest.rolling import (
+        DEFAULT_BEYOND_MARKER,
+        RollingSettings,
+        prepare_rolling,
+        run_rolling,
+    )
+    from mountain_perf.ingest.interim import InterimError, read_recording_with_sha256
+    from mountain_perf.model.curve_io import DEFAULT_SUPPORT_THRESHOLD_MIN
+
+    data = data_dir()
+    state = git_state(Path(mountain_perf.__file__).resolve().parent)
+    if state.modified:
+        print(MODIFIED_TREE_ERROR, file=sys.stderr)
+        return 1
+    settings = RollingSettings(
+        covered_threshold=args.covered_threshold,
+        beyond_marker=(
+            DEFAULT_BEYOND_MARKER if args.beyond_marker is None else args.beyond_marker
+        ),
+        rule_support_threshold_min=(
+            DEFAULT_SUPPORT_THRESHOLD_MIN
+            if args.rule_support_threshold is None
+            else args.rule_support_threshold
+        ),
+        coverage_tolerance_s=args.coverage_tolerance,
+    )
+    try:
+        preparation = prepare_rolling(
+            args.manifest,
+            data,
+            args.rolling,
+            settings,
+            commit=state.commit,
+            tree_modified=False,
+            prepared_at=_now(),
+            read_recording=lambda ref: read_recording_with_sha256(data, ref),
+        )
+    except InterimError as error:
+        print(f"Erreur : {error}", file=sys.stderr)
+        return 1
+
+    def announce(event: RegistryEvent, seal: str) -> None:
+        line = DECLARATION_RECORDED.format(
+            label=f"{'déclaration':<13}", number=event.number, seal=seal
+        )
+        print(line, flush=True)
+
+    for window_run in run_rolling(
+        preparation, data / REGISTRY_DIR, on_declaration=announce
+    ):
+        print(
+            RESULT_RECORDED.format(
+                label=f"{'résultat':<13}",
+                number=window_run.result_event.number,
+                seal=window_run.seal,
+            ),
+            flush=True,
+        )
+    return 0
+
+
 def _write_report(data: Path, name: str, text: str) -> None:
     """Un rapport écrit sous ``MPA_DATA_DIR``, jamais réécrit : un rapport interrompu
     pendant son écriture ne garde pas son nom."""
@@ -3448,12 +3557,51 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="Exécution enregistrée du backtest des cinq modèles et rapport D15",
     )
     backtest_parser.add_argument("manifest", type=Path, metavar="manifeste.json")
-    # --curve est exigé, mais pas par argparse (code 1, comme mperf project).
-    backtest_parser.add_argument(
+    # --curve ou --rolling : l'un des deux, exigé, mais pas par argparse (code 1, comme
+    # mperf project) ; les deux ensemble, l'erreur d'argparse (OG-2, D-OG2-3).
+    mode = backtest_parser.add_mutually_exclusive_group()
+    mode.add_argument(
         "--curve",
         type=Path,
         metavar="courbe.csv",
         help="Courbe allure↔pente, entrée déclarée de l'exécution (0010 D2.6)",
+    )
+    mode.add_argument(
+        "--rolling",
+        type=_rolling_windows,
+        metavar="W[,W…]",
+        help=(
+            "Le backtest glissant (OG-2) : les fenêtres, en jours ou all, une "
+            "DÉCLARATION par fenêtre"
+        ),
+    )
+    backtest_parser.add_argument(
+        "--covered-threshold",
+        dest="covered_threshold",
+        type=float,
+        metavar="S",
+        help="Avec --rolling, obligatoire : la part hors support d'une couverte (s)",
+    )
+    backtest_parser.add_argument(
+        "--coverage-tolerance",
+        dest="coverage_tolerance",
+        type=float,
+        metavar="SECONDES",
+        help="Avec --rolling, obligatoire : la tolérance de la correspondance",
+    )
+    backtest_parser.add_argument(
+        "--beyond-marker",
+        dest="beyond_marker",
+        type=float,
+        metavar="PART",
+        help="Avec --rolling : le repère (défaut 0,5)",
+    )
+    backtest_parser.add_argument(
+        "--rule-support-threshold",
+        dest="rule_support_threshold",
+        type=float,
+        metavar="MIN",
+        help="Avec --rolling : le seuil des diagnostics de la règle (défaut 10)",
     )
     backtest_parser.add_argument(
         "--sensitivity",
@@ -3603,7 +3751,17 @@ def main(argv: Sequence[str] | None = None) -> int:
             file=sys.stderr,
         )
         return 1
-    if args.command == "backtest" and args.curve is None:
+    if args.command == "backtest" and args.rolling is None:
+        for name, option in ROLLING_OPTIONS:
+            if getattr(args, name) is not None:
+                backtest_parser.error(f"{option} n'existe qu'avec --rolling.")
+    if args.command == "backtest" and args.rolling is not None:
+        for name, option in ROLLING_OPTIONS[:2]:
+            if getattr(args, name) is None:
+                backtest_parser.error(f"--rolling demande {option}.")
+        if args.sensitivity:
+            backtest_parser.error(ROLLING_SENSITIVITY_ERROR)
+    if args.command == "backtest" and args.curve is None and args.rolling is None:
         print(backtest_parser.format_usage(), file=sys.stderr, end="")
         print(BACKTEST_CURVE_ERROR, file=sys.stderr)
         return 1
@@ -3617,6 +3775,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "curve":
             return _run_curve(args)
         if args.command == "backtest":
+            if args.rolling is not None:
+                return _run_rolling(args)
             return _run_backtest(args)
         if args.command == "project":
             _run_project(args)
