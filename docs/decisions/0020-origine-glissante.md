@@ -174,6 +174,17 @@ jamais les lignes en mémoire : le CSV porte des km/h, la lecture les redivise, 
 peut différer d'un ulp de la vitesse estimée. Une page qui projetterait depuis la mémoire
 n'afficherait pas au bit ce que `mperf curve --at` puis `mperf project` donnent.
 
+## Précision OG-2 — la décision écrite une fois (2026-11-12)
+
+*Aucune décision de la règle ne change ; aucun octet écrit par `mperf curve` ne change.*
+
+La décision de la règle sur des instants (F : sur la fin de l'index, puis sur la fin sûre) et la
+borne basse de la fenêtre vivent dans `estimation/decision.py`, écrites une fois : la règle
+(`estimation/origin.py`), le chargement du corpus (`runs.py`) et l'accord du registre au format 6
+(`backtest/registry.py`) les appellent. Le backtest glissant (`0010`, précision OG-2) appelle la
+règle sans la recoder, avec un corpus pour toutes ses origines et un cache des intervalles le temps
+d'une exécution, et projette chaque courbe relue de ses octets canoniques.
+
 ## Conséquences
 
 **Ce que ça rend facile.** Une courbe par origine, sans recoder la règle ; un score hors

@@ -16,6 +16,26 @@ Backtest (à partir de M4) : métrique avant → après.
 
 ---
 
+### 2026-11-12 · OG-2 — L'origine glissante : le backtest glissant
+`mperf backtest --rolling` juge chaque performance `j` avec `κ_j`, la courbe que la règle
+à l'origine (`0020`) rend à son origine sur une fenêtre déclarée (`0010`, précision OG-2).
+Dix commits. La décision de F et la borne basse écrites une fois
+(`estimation/decision.py`), que la règle, le corpus et l'accord appellent. La part hors
+support sur la portion déclarée (`model/engine.py`). Les `activity_refs` du manifeste et
+leurs trois contrôles (`backtest/correspondence.py`). Le document de règle, la courbe
+figée et la courbe absente. La DÉCLARATION et le RÉSULTAT au format 6, les formats 1 à 5
+relus et réécrits à l'octet. L'accord du format 6, sans réestimer aucune courbe. La
+commande, en un processus, avec un corpus et un cache des intervalles
+(`backtest/rolling.py`). Le calage (a), le réservoir (a), D7.4 et `q_usage` avec `κ_j`,
+le statut « sans courbe ». Le rapport D15 de chaque fenêtre et le rapport de comparaison
+(IC95 de Student, `backtest/student_t.py`). Les documents, la recette
+`just backtest-rolling` et le hook. Le mode glissant existe ; aucune exécution réelle
+encore : elles sont à rdw, puis OG-3. 205 tests neufs (`tests/test_og2_*.py`, cinq cas
+du hook) ; les contre-épreuves et leur table sont dans la description de la PR. Branche
+`og2/backtest-glissant`.
+
+---
+
 ### 2026-11-11 · AN2-3 — Les pages « récupération » et « Q1 »
 `just ui` montre deux pages de plus, celles de la piste analyse. « Récupération » lit la
 table `jours` sans rien calculer (`0019`, section AN2-3) : les six mesures, chacune

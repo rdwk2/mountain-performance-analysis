@@ -123,6 +123,7 @@ just fmt        # formatage
 just dictionary # régénère docs/DICTIONNAIRE_DONNEES.md depuis les docstrings
 just backtest courbe.csv  # backtest enregistré des cinq modèles, rapport D15 (M4b-5, M4c-2) ; MPA_DATA_DIR/reference/
 just backtest courbe.csv --sensitivity  # puis la sensibilité D13, enregistrée, rapport sensibilite-<n>.txt (M4d-3)
+just backtest-rolling 28,56,all --covered-threshold … --coverage-tolerance …  # le backtest glissant (OG-2), lancé par l'humain
 just ingest     # raw/garmin/ → interim/activities/ et interim/days/, extra ingest (AN1-1, AN2-0, AN2-1) ; MPA_DATA_DIR
 just process    # raw/ → interim/ → processed/ : ingest, puis mperf tables, extras ingest et analyse (AN1-2b)
 just q1         # processed/ → resultats/Q1/<date>_<empreinte>/ : la figure de Q1, extra analyse (AN1-2c)
@@ -231,6 +232,7 @@ src/mountain_perf/     le code de la bibliothèque
                        du fichier et document du compagnon
     origin.py          la règle à l'origine : fins, corpus, sélection, issue, compagnon
                        (OG-1)
+    decision.py        la décision de F et la borne basse, écrites une fois (OG-2)
   backtest/            évaluation contre des performances réelles (M4)
     calendar.py        jour civil à Paris, origine o_j, disponibilité (M4a)
     manifest.py        load_manifest, ManifestReadResult, ManifestError (M4a)
@@ -274,6 +276,9 @@ src/mountain_perf/     le code de la bibliothèque
                        descriptive, retraits, cumuls, fonctions pures (M4d-1)
     bands.py           fourchettes D11 : réservoir, résidus, quantiles, bornes, score
                        d'intervalle, couverture, médiane, fonctions pures (M4d-2)
+    correspondence.py  activity_refs : les trois contrôles de correspondance (OG-2)
+    rolling.py         le backtest glissant : préparation, figement, parts, évaluation (OG-2)
+    student_t.py       la table des quantiles de Student, recopiée (OG-2)
   ingest/              ingestion Garmin, `raw/` → `interim/` (piste analyse, AN1-1 ;
                        M6b) ; seul `fit.py` importe l'extra `ingest` (`0011`, `0013`)
     types.py           SOURCE_TYPE_SPORTS : types de la source → Sport
