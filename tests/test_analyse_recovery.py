@@ -26,6 +26,7 @@ from fixtures.recovery_world import (
 from mountain_perf.analyse.normals import NormalMeasure
 from mountain_perf.analyse.recovery import (
     ABSENCE_LABELS,
+    EDGE_PADDING,
     EXPERT_LEGEND,
     FAMILIES,
     JOURNAL_LABELS,
@@ -1027,3 +1028,103 @@ def test_the_view_texts_are_those_of_the_annex(base: Tables) -> None:
     assert nights == {"absente", "partielle", "complète"}
     rests = {p["FC de repos"] for p in _panel(whole, HRV).points}
     assert rests == {"absente", "provisoire", "valide"}
+
+
+def _sleep_without_normal(refusal: AdmissionRefusal) -> list[DayRow]:
+    """Le monde où le sommeil n'a, sur toute la table, ni valeur admise ni normale :
+    chaque valeur présente est refusée pour ``refusal``."""
+    changes: dict[int, dict[str, Any]] = {}
+    for i, row in enumerate(world_rows()):
+        update: dict[str, Any] = {
+            "measured_sleep_normal_s": None,
+            "measured_sleep_range_low_s": None,
+            "measured_sleep_range_high_s": None,
+            "measured_sleep_dispersion_s": None,
+            "measured_sleep_normal_absence": NormalAbsence.NO_ADMITTED_DAY,
+            "measured_sleep_admitted_days": 0,
+            "measured_sleep_normal_straddles": False,
+        }
+        if row.measured_sleep_s is not None:
+            update.update(measured_sleep_admitted=False, measured_sleep_refusal=refusal)
+        changes[i] = update
+    return _replaced(changes)
+
+
+def test_the_two_fallbacks_of_the_extent_are_in_hours(base: Tables) -> None:
+    """V5, V6 : sans valeur admise ni plage, l'étendue vient des refusées autres que
+    ``invalid_value``, à défaut de toutes les refusées, en heures pour le sommeil ;
+    dans le dernier repli, rien n'est posé au bord."""
+    for refusal in (AdmissionRefusal.SHORT_NIGHT, AdmissionRefusal.INVALID_VALUE):
+        rows = _sleep_without_normal(refusal)
+        hours = [
+            row.measured_sleep_s / 3600
+            for row in rows
+            if row.measured_sleep_s is not None
+        ]
+        assert len(hours) > 100
+        lowest, highest = min(hours), max(hours)
+        width = highest - lowest
+        assert width > 0
+        expected = (lowest - EDGE_PADDING * width, highest + EDGE_PADDING * width)
+        sleep = _panel(_view(base, rows=rows, everything=True), SLEEP)
+        assert sleep.normal_lines == ()
+        assert sleep.domain == pytest.approx(expected, rel=1e-12)
+        assert all(point["marque"] != "plein" for point in sleep.points)
+        assert all(point["hors"] is None for point in sleep.points)
+
+
+def test_a_garmin_day_with_the_bounds_and_without_the_mean(base: Tables) -> None:
+    """V17 : un jour qui a les deux bornes sans la moyenne garde son enregistrement,
+    sans suite de la moyenne ; il coupe la suite de la moyenne."""
+    world = world_rows()
+    for i in (99, 100, 101):
+        assert world[i].hrv_weekly_avg_ms is not None
+        assert world[i].hrv_baseline_balanced_low_ms == 49.0
+        assert world[i].hrv_baseline_balanced_upper_ms == 64.0
+    rows = _replaced({100: {"hrv_weekly_avg_ms": None}})
+    days = {_index(day["midi"]): day for day in _view(base, rows=rows).garmin_hrv}
+    before, after = days[99]["suite_moyenne"], days[101]["suite_moyenne"]
+    assert before is not None
+    assert after == f"m{int(before[1:]) + 1}"
+    assert days[99]["suite_bornes"] == days[101]["suite_bornes"] is not None
+    assert days[100] == {
+        "midi": "2000-04-12T12:00:00Z",
+        "moyenne": None,
+        "bas": 49.0,
+        "haut": 64.0,
+        "suite_moyenne": None,
+        "suite_bornes": days[99]["suite_bornes"],
+        "Jour": "12/04/2000",
+        "Moyenne de la semaine": "—",
+        "Bornes": "49 à 64 ms",
+    }
+
+
+def test_an_isolated_normal_does_not_end_the_runs_after_it(base: Tables) -> None:
+    """V8, V10 : une normale seule dans son segment va dans ``isolated`` ; la suite
+    d'un segment suivant, après des jours sans normale, va entière dans
+    ``normal_lines``."""
+    world = world_rows()
+    kept = {100: 50, **{i: 51 for i in range(104, 110)}}
+    changes: dict[int, dict[str, Any]] = {}
+    for i in range(len(world) - RECENT_DAYS, len(world)):
+        if i in kept:
+            assert world[i].hrv_normal_ms is not None
+            changes[i] = {"hrv_segment": kept[i], "hrv_normal_straddles": False}
+        else:
+            changes[i] = {
+                "hrv_normal_ms": None,
+                "hrv_range_low_ms": None,
+                "hrv_range_high_ms": None,
+                "hrv_log_median": None,
+                "hrv_log_dispersion": None,
+                "hrv_normal_absence": NormalAbsence.NO_ADMITTED_DAY,
+                "hrv_admitted_days": 0,
+                "hrv_normal_straddles": False,
+            }
+    hrv = _panel(_view(base, rows=_replaced(changes)), HRV)
+    assert [record["midi"] for record in hrv.isolated] == [_noon(100)]
+    assert [line["midi"] for line in hrv.normal_lines] == [
+        _noon(i) for i in range(104, 110)
+    ]
+    assert len({line["suite"] for line in hrv.normal_lines}) == 1
