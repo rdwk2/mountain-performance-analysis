@@ -35,6 +35,7 @@ from mountain_perf.backtest.execution import (
     OutingRun,
     TracedOuting,
     _score,
+    baseline_runs,
     failure_reason,
     outing_outcomes,
     prepare_manifest,
@@ -84,6 +85,7 @@ from mountain_perf.model.curve_io import (
 from mountain_perf.model.engine import portion_out_of_support_time_share
 from mountain_perf.runs import load_curve_corpus
 from mountain_perf.schemas import (
+    CALIBRATED_MODELS,
     CLOCKS,
     AbsentCurve,
     ActivityRecording,
@@ -99,6 +101,7 @@ from mountain_perf.schemas import (
     FrozenCurve,
     ModelKind,
     OutingBands,
+    OutingObservation,
     OutingOutcome,
     OutingScores,
     ParameterSet,
@@ -113,6 +116,7 @@ from mountain_perf.schemas import (
     ShareScope,
     ShareUnavailability,
     Sport,
+    Unavailability,
 )
 from mountain_perf.validation import ContractError
 
@@ -123,10 +127,6 @@ sans option (OG-2 n'expose aucun réglage de la règle)."""
 DEFAULT_BEYOND_MARKER = 0.5
 """Le repère par défaut (D-OG2-4) : une performance est au-delà si sa part hors
 support le dépasse strictement."""
-
-NO_CURVE_REASON = "performance sans courbe"
-"""Le motif des sorties d'une performance sans courbe, qu'aucun modèle ne score
-encore (OG-2, commit 7 ; les baselines les scorent au commit 8)."""
 
 RecordingReader = Callable[[str], tuple[ActivityRecording, str]]
 """Le lecteur d'un enregistrement d'``interim/`` et de son empreinte, par référence ;
@@ -549,19 +549,33 @@ def prepare_rolling(
 
 
 @dataclass(frozen=True)
+class NoCurveRun:
+    """Une sortie tracée d'une performance sans courbe (§ 6.8 (d)) : son observation
+    et les scores non calés des trois baselines, ``q_usage`` « sans courbe » ; v0 brut
+    et le comparateur ne la scorent pas (choix C12)."""
+
+    traced: TracedOuting
+    observation: OutingObservation
+    baselines: tuple[tuple[ModelKind, OutingScores], ...]
+
+
+@dataclass(frozen=True)
 class RollingEvaluation:
     """Le calcul d'une fenêtre, avant son RÉSULTAT : sa fenêtre préparée, sa
-    DÉCLARATION, les sorties scorées et non scorées, les références D8, le calage de
-    chaque performance (``None`` pour une performance sans courbe), les fourchettes, et
-    les documents des termes du calage, un par performance."""
+    DÉCLARATION, les sorties scorées avec ``κ_j`` et celles des performances sans
+    courbe, les sorties non scorées, les références D8, la population ``C_j`` et le
+    calage de chaque performance (celui des seules baselines sans courbe), les
+    fourchettes, et les
+    documents des termes du calage, un par performance (absent sans courbe)."""
 
     window: RollingWindow
     declaration_event: RegistryEvent
     outings: tuple[OutingRun, ...]
+    no_curve: tuple[NoCurveRun, ...]
     unscored: tuple[Exclusion, ...]
     references: tuple[tuple[str, RepeatabilityReference], ...]
     populations: tuple[CalibrationPopulation, ...]
-    calibration: tuple[CalibratedPerformance | None, ...]
+    calibration: tuple[CalibratedPerformance, ...]
     bands: tuple[OutingBands, ...]
     terms: tuple[CalibrationTerms | None, ...]
 
@@ -576,6 +590,21 @@ class RollingWindowRun:
     seal: str
 
 
+def member_curve(window: RollingWindow, j: int, c: int) -> CurveReadResult:
+    """La courbe avec laquelle on projette le membre ``c`` dans le réservoir des
+    fourchettes de la performance ``j`` (§ 6.8 (b), « la prévision du membre ») : **le
+    seul point de choix**. Le réservoir (a) rend ``κ_j`` ; le réservoir (b) rendrait la
+    courbe de ``c``. Le calage (a) ne passe pas par ici : il projette toujours avec
+    ``κ_j``."""
+    del c  # réservoir (a) : la courbe de j, pour tout membre
+    curve = window.curves[j].curve
+    assert curve is not None  # j a le statut curve
+    return curve
+
+
+_TERM_SCENARIOS = tuple(Scenario)
+
+
 def _terms(
     performance: Performance,
     performances: Sequence[Performance],
@@ -585,6 +614,7 @@ def _terms(
     """Le document des termes du calage du comparateur d'une performance (E6) : pour
     chaque scénario de ses scores calés et chaque horloge, les ``(T_c, P_c)`` de
     ``calibration_terms``, sur les scores de v0 brut des membres."""
+    del performance
     population = calibrated.population
     by_day = {p.civil_date: p for p in performances}
     members = {
@@ -605,7 +635,6 @@ def _terms(
         scenarios.append(Scenario.CONTROL)
         if comparator[0].usage is not None:
             scenarios.append(Scenario.USAGE)
-    order = tuple(Scenario)
     sets = tuple(
         ScenarioClockTerms(
             scenario,
@@ -617,10 +646,16 @@ def _terms(
                 )
             ),
         )
-        for scenario in sorted(scenarios, key=order.index)
+        for scenario in sorted(scenarios, key=_TERM_SCENARIOS.index)
         for i, clock in enumerate(CLOCKS)
     )
     return CalibrationTerms(ModelKind.V0_RECALIBRATED, sets)
+
+
+BASELINE_CALIBRATED = tuple(
+    model for model in CALIBRATED_MODELS if model is not ModelKind.V0_RECALIBRATED
+)
+"""Les modèles calés d'une performance sans courbe : les trois baselines (§ 6.8 (d))."""
 
 
 def evaluate_rolling(
@@ -630,70 +665,126 @@ def evaluate_rolling(
     traced: tuple[TracedOuting, ...],
     untraced: tuple[Exclusion, ...],
 ) -> RollingEvaluation:
-    """Le calcul d'une fenêtre, sans rien écrire (§ 6.8 (a)) : pour chaque performance
-    ``j`` au statut ``curve``, les scores non calés **avec ``κ_j``** de ses sorties et
-    de celles des membres de ``C_j`` (``_score``), puis ``calibrate_performances`` et
-    ``evaluation_bands`` sur ces seuls scores ; la ligne de ``j`` seule est gardée. Une
-    performance sans courbe n'est pas scorée ici (ses sorties, au motif
-    ``NO_CURVE_REASON``)."""
+    """Le calcul d'une fenêtre, sans rien écrire (§ 6.8). Pour chaque performance ``j``,
+    dans l'ordre :
+
+    - au statut ``curve`` : les scores non calés **avec ``κ_j``** de ses sorties et de
+      celles des membres de ``C_j`` (``_score``) ; ``calibrate_performances`` sur
+      **toutes** les performances (les exclusions de ``C_j`` en dépendent) et ces seuls
+      scores — le calage (a) ; les fourchettes sur les scores du réservoir, dont
+      chaque membre est projeté avec ``member_curve(j, c)`` — le réservoir (a), et sur
+      le calage de ces scores ; les termes du calage ; la ligne de ``j`` seule est
+      gardée ;
+    - sans courbe : ses sorties et celles de ses membres scorées par les seules
+      baselines (``baseline_runs``, ``q_usage`` « sans courbe »), le calage des
+      baselines, ni fourchettes ni termes.
+
+    Les prévisions sont datées de ``declared``."""
     performances = preparation.common.performances
+    at = declared.recorded_at
     by_outing = {item.outing.outing_id: item for item in traced}
     by_day = {p.civil_date: p for p in performances}
-    runs: list[OutingRun] = []
-    unscored = list(untraced)
+    index_of = {p.civil_date: k for k, p in enumerate(performances)}
     populations = tuple(calibration_population(p, performances) for p in performances)
-    calibration: list[CalibratedPerformance | None] = []
+    runs: list[OutingRun] = []
+    no_curve: list[NoCurveRun] = []
+    calibration: list[CalibratedPerformance] = []
     bands: list[OutingBands] = []
     terms: list[CalibrationTerms | None] = []
-    observations = {}
-    for performance, population, curve in zip(
-        performances, populations, window.curves, strict=True
+    observations: dict[str, OutingObservation] = {}
+    memo: dict[tuple[int, str], OutingRun] = {}
+    baselines_memo: dict[str, tuple[OutingObservation, Any]] = {}
+
+    def score(curve: CurveReadResult, outing_id: str) -> OutingRun:
+        key = (id(curve), outing_id)
+        if key not in memo:
+            memo[key] = _score(curve, by_outing[outing_id], at)
+        return memo[key]
+
+    def baselines_of(outing_id: str) -> tuple[OutingObservation, Any]:
+        if outing_id not in baselines_memo:
+            baselines_memo[outing_id] = baseline_runs(
+                by_outing[outing_id], at, base_unavailability=Unavailability.NO_CURVE
+            )
+        return baselines_memo[outing_id]
+
+    for j, (performance, population) in enumerate(
+        zip(performances, populations, strict=True)
     ):
-        if curve.curve is None:
+        members = [index_of[day] for day in population.members]
+        useful = [
+            (k, outing.outing_id)
+            for k in (j, *members)
+            for outing in performances[k].outings
+            if outing.outing_id in by_outing
+        ]
+        own = {outing.outing_id for outing in performance.outings}
+        kappa = window.curves[j].curve
+        if kappa is None:
+            unscaled = {
+                outing_id: dict(baselines_of(outing_id)[1]) for _, outing_id in useful
+            }
+            calibrated = calibrate_performances(
+                performances,
+                unscaled,
+                models=BASELINE_CALIBRATED,
+                base_unavailability=Unavailability.NO_CURVE,
+            )
             for outing in performance.outings:
                 if outing.outing_id in by_outing:
-                    unscored.append(Exclusion(outing.outing_id, NO_CURVE_REASON))
-            calibration.append(None)
+                    observation, scores = baselines_of(outing.outing_id)
+                    no_curve.append(
+                        NoCurveRun(by_outing[outing.outing_id], observation, scores)
+                    )
+                    observations[outing.outing_id] = observation
+            calibration.append(calibrated[j])
             terms.append(None)
             continue
-        kappa = curve.curve
-        useful = [*performance.outings]
-        for day in population.members:
-            useful.extend(by_day[day].outings)
-        scored: dict[str, OutingRun] = {}
-        for outing in useful:
-            item = by_outing.get(outing.outing_id)
-            if item is not None and outing.outing_id not in scored:
-                scored[outing.outing_id] = _score(kappa, item, declared.recorded_at)
+        scored = {outing_id: score(kappa, outing_id) for _, outing_id in useful}
         unscaled = {
             outing_id: {ModelKind.V0_RAW: run.scores, **dict(run.baselines)}
             for outing_id, run in scored.items()
         }
         calibrated = calibrate_performances(performances, unscaled)
+        reservoir_runs = {
+            outing_id: (
+                scored[outing_id]
+                if k == j
+                else score(member_curve(window, j, k), outing_id)
+            )
+            for k, outing_id in useful
+        }
+        if all(reservoir_runs[i] is scored[i] for i in scored):
+            reservoir, reservoir_calibration = unscaled, calibrated
+        else:
+            reservoir = {
+                outing_id: {ModelKind.V0_RAW: run.scores, **dict(run.baselines)}
+                for outing_id, run in reservoir_runs.items()
+            }
+            reservoir_calibration = calibrate_performances(performances, reservoir)
         estimation = kappa.curve.estimation
         window_bands = evaluation_bands(
             performances,
-            unscaled,
-            calibrated,
+            reservoir,
+            reservoir_calibration,
             (estimation.date_from, estimation.date_to),
         )
-        index = performances.index(performance)
-        own = calibrated[index]
-        ids = {outing.outing_id for outing in performance.outings}
         for outing in performance.outings:
             run = scored.get(outing.outing_id)
             if run is not None:
                 runs.append(run)
                 observations[outing.outing_id] = run.scores.observation
-        bands.extend(entry for entry in window_bands if entry.outing_id in ids)
-        calibration.append(own)
-        terms.append(_terms(performance, performances, own, unscaled))
+        bands.extend(entry for entry in window_bands if entry.outing_id in own)
+        calibration.append(calibrated[j])
+        terms.append(_terms(performance, performances, calibrated[j], unscaled))
     references = repeatability_references(performances, observations)
+    del by_day
     return RollingEvaluation(
         window,
         declared,
         tuple(runs),
-        tuple(unscored),
+        tuple(no_curve),
+        tuple(untraced),
         references,
         populations,
         tuple(calibration),
@@ -703,9 +794,46 @@ def evaluate_rolling(
 
 
 def _outcomes(evaluation: RollingEvaluation) -> tuple[OutingOutcome, ...]:
-    """Ce que le RÉSULTAT porte de chaque sortie scorée, dans l'ordre des sorties."""
-    calibrated = tuple(item for item in evaluation.calibration if item is not None)
-    return outing_outcomes(evaluation.outings, calibrated, evaluation.bands)
+    """Ce que le RÉSULTAT porte de chaque sortie scorée, dans l'ordre des performances
+    et de leurs sorties : avec une courbe, v0 brut et les quatre modèles calés
+    (``outing_outcomes``) ; sans courbe, les trois baselines calées seules."""
+    with_curve = {
+        outcome.outing_id: outcome
+        for outcome in outing_outcomes(
+            evaluation.outings,
+            tuple(
+                item
+                for item, term in zip(
+                    evaluation.calibration, evaluation.terms, strict=True
+                )
+                if term is not None
+            ),
+            evaluation.bands,
+        )
+    }
+    calibrated = {
+        (entry.outing_id, entry.control.model): entry
+        for performance in evaluation.calibration
+        for entry in performance.outings
+    }
+    without = {
+        run.traced.outing.outing_id: OutingOutcome(
+            run.traced.outing.outing_id,
+            run.traced.match.coverage,
+            tuple(
+                (model, calibrated[(run.traced.outing.outing_id, model)])
+                for model in BASELINE_CALIBRATED
+            ),
+        )
+        for run in evaluation.no_curve
+    }
+    ordered: list[OutingOutcome] = []
+    for performance in evaluation.window.declaration.performances:
+        for outing in performance.performance.outings:
+            found = with_curve.get(outing.outing_id) or without.get(outing.outing_id)
+            if found is not None:
+                ordered.append(found)
+    return tuple(ordered)
 
 
 def run_rolling(

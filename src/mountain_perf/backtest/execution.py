@@ -44,7 +44,7 @@ from mountain_perf.backtest.registry import (
     line_hash,
 )
 from mountain_perf.backtest.repeatability import repeatability_reference
-from mountain_perf.backtest.scoring import realized_profile, v0_scores
+from mountain_perf.backtest.scoring import observe_outing, realized_profile, v0_scores
 from mountain_perf.backtest.segments import match_trace
 from mountain_perf.backtest.series import TraceSeries, build_series
 from mountain_perf.gitstate import GitFailure, GitStateError
@@ -95,6 +95,7 @@ from mountain_perf.schemas import (
     RouteProfile,
     SourceRef,
     Sport,
+    Unavailability,
 )
 from mountain_perf.validation import ContractError
 
@@ -603,6 +604,34 @@ def _score(
         traced.passages,
         scores,
         baselines,
+    )
+
+
+def baseline_runs(
+    traced: TracedOuting,
+    generated_at: datetime,
+    *,
+    base_unavailability: Unavailability | None = None,
+) -> tuple[OutingObservation, tuple[tuple[ModelKind, OutingScores], ...]]:
+    """L'observation d'une sortie tracée et les scores **non calés** des trois
+    baselines, sans courbe (OG-2, § 6.8 (d)) : ceux de ``_score``, de base
+    ``base_unavailability`` au lieu de la prévision d'usage de v0 brut — « sans
+    courbe », jamais le dénominateur de repli de la baseline elle-même."""
+    observation = observe_outing(traced.match, traced.passages, traced.partition)
+    realized = realized_profile(traced.trace)
+    return observation, tuple(
+        (
+            kind,
+            baseline_scores(
+                observation,
+                traced.usage,
+                realized,
+                kind,
+                generated_at=generated_at,
+                base_unavailability=base_unavailability,
+            ),
+        )
+        for kind in BASELINES
     )
 
 

@@ -90,25 +90,55 @@ def _world(monkeypatch: pytest.MonkeyPatch) -> None:
     fix_world(monkeypatch)
 
 
+READ_AT = datetime(2026, 10, 4, 12, 15, tzinfo=UTC)
+"""L'instant de lecture des fichiers du monde, figé par :func:`freeze_reads`."""
+
+
+class _FrozenNow(datetime):
+    """``datetime`` dont ``now`` rend :data:`READ_AT` : l'horloge des lecteurs."""
+
+    @classmethod
+    def now(cls, tz: Any = None) -> datetime:  # type: ignore[override]
+        return READ_AT if tz is None else READ_AT.astimezone(tz)
+
+
+def freeze_reads(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Fige l'instant de lecture que les lecteurs écrivent dans leurs sources (GPX,
+    trace, manifeste, courbe) : deux exécutions des mêmes fichiers donnent alors les
+    mêmes documents, octet pour octet."""
+    from mountain_perf.backtest import manifest as manifest_module
+    from mountain_perf.gpx import reader, trace_reader
+    from mountain_perf.model import curve_io
+
+    for module in (reader, trace_reader, manifest_module, curve_io):
+        monkeypatch.setattr(module, "datetime", _FrozenNow)
+
+
 def activities(
     first: date = FIRST_DAY,
     last: date = LAST_DAY,
     *,
     extra: Sequence[tuple[IndexedActivity, ActivityRecording]] = (),
+    scale: float = 1.0,
+    per_day: int = 1,
+    later: float = 1.1,
 ) -> list[tuple[IndexedActivity, ActivityRecording]]:
-    """Un trail par jour de ``first`` à ``last`` (06:00 UTC), et ``extra``."""
+    """``per_day`` trails par jour de ``first`` à ``last`` (le premier à 06:00 UTC, puis
+    toutes les deux heures), leurs temps multipliés par ``scale``, et ``extra``."""
     pairs = []
     day = first
     while day <= last:
-        seconds = 3600.0 if day < FORM_CHANGE else 3960.0
-        pairs.append(
-            activity_pair(
-                f"t{day.isoformat()}",
-                datetime(day.year, day.month, day.day, 6, tzinfo=UTC),
-                index_elapsed_s=None,
-                recording_s=seconds,
+        seconds = 3600.0 * (1.0 if day < FORM_CHANGE else later) * scale
+        for k in range(per_day):
+            suffix = "" if k == 0 else f"-{k}"
+            pairs.append(
+                activity_pair(
+                    f"t{day.isoformat()}{suffix}",
+                    datetime(day.year, day.month, day.day, 6 + 2 * k, tzinfo=UTC),
+                    index_elapsed_s=None,
+                    recording_s=seconds,
+                )
             )
-        )
         day += timedelta(days=1)
     return [*pairs, *extra]
 

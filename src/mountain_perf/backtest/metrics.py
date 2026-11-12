@@ -579,6 +579,7 @@ def usage_target(
     *,
     weights: Sequence[float] | None = None,
     arrival_anchor_gap_m: float | None = None,
+    base_unavailability: Unavailability | None = None,
 ) -> UsageTarget:
     """La cible d'usage d'une performance (``0010`` D7.4 ; brief M4b-1, § 6.9,
     choix 9 et choix 5 et 6 de rdw).
@@ -595,6 +596,15 @@ def usage_target(
     nulle de leurs poids → ``insufficient_support`` ; puis le drapeau. Passage
     comparable : disponible et ``T_k > 0``. L'écart d'une arrivée ancrée est publié
     tel quel.
+
+    ``base_unavailability`` (OG-2) : le motif d'une base ``P^(0)`` absente — « sans
+    courbe », en mode glissant, pour une performance sans courbe, jamais un
+    dénominateur de repli. ``q_usage`` porte alors ce motif après celui de
+    l'observation et avant ``model_error`` ; le préfixe, après ses deux
+    ``insufficient_support`` et avant ``model_error``. Les poids publiés d'une cible
+    « sans courbe » restent ceux de ``base_projected_s`` (la baseline elle-même, que
+    donne l'appelant) : le contrat d'``UsageTarget`` exige des poids hors
+    ``model_error``, et rien ne les lit.
 
     Préconditions (``ValueError``) : ``K`` non vide ; mêmes longueurs ;
     ``observed_s[k]`` présent si et seulement si ``unavailability[k]`` est absent ;
@@ -631,6 +641,8 @@ def usage_target(
     first = next((motif for motif in unavailability if motif is not None), None)
     if first is not None:
         usage = MetricValue(None, first, available)
+    elif base_unavailability is not None:
+        usage = MetricValue(None, base_unavailability, available)
     elif outputs is None or base is None or published is None:
         usage = MetricValue(None, _MODEL_ERROR, available)
     else:
@@ -649,6 +661,8 @@ def usage_target(
         prefix = MetricValue(None, _INSUFFICIENT, 0)
     elif weight_sum == 0:
         prefix = MetricValue(None, _INSUFFICIENT, available)
+    elif base_unavailability is not None:
+        prefix = MetricValue(None, base_unavailability, available)
     elif outputs is None or base is None or published is None or weight_sum is None:
         prefix = MetricValue(None, _MODEL_ERROR, available)
     else:
