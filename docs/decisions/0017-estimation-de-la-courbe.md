@@ -168,6 +168,10 @@ Les règles ci-dessous, numérotées comme dans le code (« `0017`, P2.4 »).
   interpolée sur les pas reliés (10 s au plus), un pas coupé par la fenêtre comptant
   pour sa partie dedans, divisée par la durée couverte ; indéfinie sous 80 % de
   couverture.
+  *Note d'AN3-1a (piste analyse) : l'intégrale et la durée couverte d'une fenêtre se
+  lisent aussi seules (`HeartRateSeries.integral`, la fenêtre rognée à la série), pour
+  la FC décalée des montées (`0014`, précisions d'AN3-1a) ; la fenêtre d'un intervalle
+  et sa moyenne ne changent pas.*
 - **P5.2 — sélection.** Un filtre par intervalle, bande fermée de 10 bpm, aux pentes de
   −5 % ou plus seulement ; les descentes plus raides sont gardées sans filtre :
   « observations de descente non filtrées ».

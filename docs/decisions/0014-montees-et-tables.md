@@ -381,3 +381,36 @@ besoin.
    des provenances différentes (`MIXED_PROVENANCE`). Aucune des quatre tables :
    `FileNotFoundError` (`NO_TABLES`). Le résumé de `jours` (`DaySummary`) ne s'écrit
    pas : des tables relues n'en ont pas (`day_summary` vaut `None`).
+
+## Précisions d'AN3-1a
+
+*Ajoutées par la PR AN3-1a, la première d'AN3 (Q2).*
+
+8. **La FC décalée d'une montée.** Huit colonnes neuves, à la fin de `montees` : la FC
+   moyenne de quatre supports, et la part de chaque support que la FC couvre. Les
+   quatre supports, dans le temps de la trace :
+   - les intervalles en mouvement (M, sous θc) de la montée, ceux de sa VAM, chacun
+     décalé de `HR_LAG_S` = 60 s (`lagged_moving_heart_rate_bpm`, `…_coverage`) ;
+   - les mêmes, sans décalage (`unlagged_moving_heart_rate_bpm`, `…_coverage`) ;
+   - la seconde moitié du temps M, décalée (`lagged_second_half_heart_rate_bpm`,
+     `…_coverage`) : l'intervalle qui contient le milieu du temps M est coupé à cet
+     instant ;
+   - la fenêtre écoulée de la montée, de sa borne de départ à sa borne d'arrivée,
+     décalée (`lagged_elapsed_heart_rate_bpm`, `…_coverage`).
+
+   Sur chaque morceau décalé, l'intégrale exacte de la FC interpolée et la durée
+   couverte viennent de l'outil du moteur (`HeartRateSeries.integral`,
+   `estimation/intervals.py` ; `0017`, P5.1), la fenêtre rognée à la série de FC. La
+   moyenne est l'intégrale sommée divisée par la durée couverte sommée ; la couverture
+   est la durée couverte sommée divisée par la durée du support, bornée à 1. La moyenne
+   a une valeur si et seulement si la couverture ne vaut pas 0 : une durée couverte
+   nulle, ou trop petite pour qu'elle s'écrive en fraction du support, n'en donne
+   pas. Aucun seuil de couverture n'est appliqué dans la table : la question qui lit
+   ces colonnes déclare le sien. Les trois colonnes de FC d'AN1-2
+   (`moving_mean_heart_rate_bpm`, `moving_heart_rate_coverage`,
+   `second_half_mean_heart_rate_bpm`) ne changent pas :
+   elles prennent la FC au départ de chaque intervalle, sans décalage, et leur seconde
+   moitié garde des intervalles entiers.
+9. **La relecture.** Un `montees.parquet` écrit avant AN3-1a n'a pas ces colonnes : dès
+   qu'il a une montée, il ne se relit pas (`UNREADABLE_TABLE`, « relancer just
+   process »).

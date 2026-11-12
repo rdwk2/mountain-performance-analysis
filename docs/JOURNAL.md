@@ -16,6 +16,29 @@ Backtest (à partir de M4) : métrique avant → après.
 
 ---
 
+### 2026-11-12 · AN3-1a — La FC décalée des montées
+Premier sous-jalon d'AN3 (Q2, l'efficience en montée). L'outil de FC du moteur devient
+commun : `HeartRateSeries.integral` rend l'intégrale exacte de la FC interpolée et la
+durée couverte d'une fenêtre rognée à la série, par les opérations de `mean`, dans le
+même ordre (`0017`, note d'AN3-1a sous P5.1) ; `mean`, `heart_rate_series` et
+`activity_intervals` ne changent pas. `analyse/heart_rate.py` (neuf, Python pur) en tire
+la FC d'une montée sur un support : les intervalles M (θc) de la montée, chacun décalé
+de `HR_LAG_S` = 60 s ; leur seconde moitié, coupée exactement ; la fenêtre écoulée. La
+moyenne divise l'intégrale sommée par la durée couverte sommée ; la couverture est
+bornée à 1, et la moyenne n'a de valeur que si la couverture ne vaut pas 0. `montees`
+gagne huit colonnes à la fin (quatre FC et leurs couvertures), sans seuil de couverture
+(`0014`, précisions d'AN3-1a) ; un `montees.parquet` plus ancien, avec une montée, ne se
+relit pas. Les trois colonnes de FC d'AN1-2 restent. README, ROADMAP, `CLAUDE.md`
+suivent (annexe D) ; deux lignes au `BACKLOG` (la dérive cardiaque ; une somme de FC
+infinies de signes opposés, sur des instants sous-normaux, que `math.fsum` refuse).
+Contre-épreuves : seize fautes jouées, toutes tuées (worktrees parallèles sur le `.venv`
+du dépôt). Vérifications allégées, décision de rdw, écart à la règle 2 : avant chacun
+des commits 1 à 3, `ruff`, `mypy` et la suite ciblée du brief (§ 11) ; avant le commit
+4, une passe complète avec tous les extras : N = 10977 tests (réussis et sautés).
+Branche `an3/fc-decalee`.
+
+---
+
 ### 2026-11-11 · AN2-3 — Les pages « récupération » et « Q1 »
 `just ui` montre deux pages de plus, celles de la piste analyse. « Récupération » lit la
 table `jours` sans rien calculer (`0019`, section AN2-3) : les six mesures, chacune
