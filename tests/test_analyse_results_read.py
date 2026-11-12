@@ -256,3 +256,81 @@ def test_a_folder_with_only_the_temporary_prefix_is_read(tmp_path: Path) -> None
 def test_a_provenance_without_tables_is_unreadable(tmp_path: Path) -> None:
     _write(tmp_path, "2000-01-09_aaaaaaaaaaaa", raw=b'{"genere_le": "2000-01-09"}')
     assert stored_results(tmp_path) == ((), 1)
+
+
+# Correctifs de la PR AN2-3, lot 1 : les règles qu'aucun test ne tenait.
+
+JANUARY_2026_NS = 1_767_225_600_000_000_000
+"""Le 1er janvier 2026 à minuit UTC, en nanosecondes."""
+
+
+def test_the_latest_of_two_current_results(
+    tmp_path: Path, current: ProcessedProvenance
+) -> None:
+    """L5 : parmi deux résultats aux tables actuelles, le plus récent."""
+    _write(tmp_path, "2000-01-02_aaaaaaaaaaaa", tables=_json(current))
+    _write(tmp_path, "2000-01-05_bbbbbbbbbbbb", tables=_json(current))
+    latest = latest_result(tmp_path, current)
+    assert latest is not None
+    assert latest.result.folder.name == "2000-01-05_bbbbbbbbbbbb"
+    assert latest.match is TablesMatch.SAME
+
+
+def test_the_whole_date_is_the_prefix_of_the_name(tmp_path: Path) -> None:
+    """L3 : un dossier daté du 5 dont ``genere_le`` vaut le 6 est illisible ; un nom
+    qui porte deux « _ » après la date, ``genere_le`` étant cette date, est lisible."""
+    other_day = tmp_path / "jour"
+    _write(other_day, "2000-01-05_aaaaaaaaaaaa", generated="2000-01-06")
+    assert stored_results(other_day) == ((), 1)
+    two_parts = tmp_path / "deux"
+    _write(two_parts, "2000-01-05_aaaaaa_bbbbbb", generated="2000-01-05")
+    results, unreadable = stored_results(two_parts)
+    assert [result.folder.name for result in results] == ["2000-01-05_aaaaaa_bbbbbb"]
+    assert unreadable == 0
+
+
+def test_two_unreadable_folders_count_two(tmp_path: Path) -> None:
+    """L3 : chaque dossier illisible compte."""
+    _write(tmp_path, "2000-01-05_aaaaaaaaaaaa", generated="2030-01-05")
+    _write(tmp_path, "2000-01-06_bbbbbbbbbbbb", raw=b"{")
+    assert stored_results(tmp_path) == ((), 2)
+
+
+def test_the_tie_is_decided_by_the_nanoseconds(
+    tmp_path: Path, current: ProcessedProvenance
+) -> None:
+    """L5 : au même ``genere_le``, le ``provenance.json`` écrit le plus tard gagne,
+    par ``st_mtime_ns`` : deux instants de 2026 distincts en nanosecondes, au même
+    ``st_mtime``, le plus tardif portant le nom le plus petit."""
+    earlier = (
+        _write(tmp_path, "2000-01-05_ffffffffffff", written_ns=JANUARY_2026_NS)
+        / PROVENANCE_FILE
+    )
+    later = (
+        _write(tmp_path, "2000-01-05_000000000000", written_ns=JANUARY_2026_NS + 100)
+        / PROVENANCE_FILE
+    )
+    assert earlier.stat().st_mtime == later.stat().st_mtime
+    assert earlier.stat().st_mtime_ns < later.stat().st_mtime_ns
+    latest = latest_result(tmp_path, current)
+    assert latest is not None
+    assert latest.result.folder.name == "2000-01-05_000000000000"
+
+
+def test_the_figure_is_read_as_utf8(
+    tmp_path: Path, current: ProcessedProvenance, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """L8 : la figure se lit en UTF-8 même quand l'encodage par défaut de la machine
+    ne l'est pas : ``Path.read_text`` sans encodage y lit du cp1252."""
+    _write(tmp_path, "2000-01-02_aaaaaaaaaaaa", figure="<p>Récupération — été</p>")
+    latest = latest_result(tmp_path, current)
+    assert latest is not None
+    read_text = Path.read_text
+
+    def cp1252_by_default(
+        self: Path, encoding: str | None = None, errors: str | None = None
+    ) -> str:
+        return read_text(self, encoding=encoding or "cp1252", errors=errors)
+
+    monkeypatch.setattr(Path, "read_text", cp1252_by_default)
+    assert read_figure(latest.result) == "<p>Récupération — été</p>"

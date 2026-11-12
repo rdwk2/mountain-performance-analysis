@@ -34,3 +34,21 @@ def test_a_table_that_does_not_read_gives_no_key(tmp_path: Path, base: Tables) -
     days = tmp_path / PROCESSED_DIR / DAYS_FILE
     days.write_bytes(days.read_bytes()[:100])
     assert tables_key(tmp_path) is None
+
+
+def test_the_key_reads_no_row(
+    tmp_path: Path, base: Tables, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """P1 : la clé se lit dans les seules métadonnées ; ``read_table``, qui lirait les
+    lignes, n'est jamais appelé (correctifs de la PR AN2-3, lot 1)."""
+    write_world(tmp_path, world_tables(base))
+    pq = pytest.importorskip("pyarrow.parquet")
+    calls: list[object] = []
+
+    def recorded(*args: object, **kwargs: object) -> object:
+        calls.append((args, kwargs))
+        raise OSError("read_table ne doit pas servir à la clé")
+
+    monkeypatch.setattr(pq, "read_table", recorded)
+    assert tables_key(tmp_path) is not None
+    assert calls == []

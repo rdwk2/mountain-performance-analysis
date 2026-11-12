@@ -462,6 +462,7 @@ def test_empty_activity_and_garmin_charts_say_so(base: Tables) -> None:
             f"{prefix}-axe-vide",
             f"{prefix}-vide",
         ]
+    assert _sentence(charts[-2]) == "Aucune activité sur la période"
 
 
 def _sentence(chart: Mapping[str, Any]) -> str | None:
@@ -753,3 +754,148 @@ def test_the_page_writes_nothing_under_the_data_dir(base: Tables) -> None:
     q1 = _app(_q1)
     assert not q1.exception
     assert _files(data_dir()) == before
+
+
+# Correctifs de la PR AN2-3, lot 1 : les règles qu'aucun test ne tenait.
+
+CHARTS_FILE = Path(__file__).parent / "fixtures" / "recovery_charts.json"
+
+
+def test_the_whole_charts_are_their_written_form(base: Tables) -> None:
+    """Les graphiques entiers : pour la vue de toute la table du monde inventé, et
+    pour la vue d'une table sans ligne, ``page_specs(view)`` puis
+    ``garmin_spec(view)``, données comprises, chacun comparé entier à sa forme écrite
+    dans ``fixtures/recovery_charts.json`` (ils sont déjà des dictionnaires JSON : la
+    conversion se borne à l'aller-retour JSON). Une table sans ligne n'appelle aucun
+    graphique dans la page : sa forme se tire de ces fonctions.
+
+    Le fichier a été tiré une fois du code de la PR AN2-3 (tête ``7cebef4``), par un
+    script hors du dépôt, puis relu contre U1 à U13 de l'annexe A et le § 7 du brief
+    avant d'être figé. Un écart futur se relit contre l'annexe A avant de toucher au
+    fichier : le fichier ne se retire pas pour faire passer le test."""
+    written = json.loads(CHARTS_FILE.read_text(encoding="utf-8"))
+    whole = _view(base, everything=True)
+    nothing = _view(base, everything=True, rows=())
+    for key, view in (("toute", whole), ("vide", nothing)):
+        charts = json.loads(json.dumps(_charts(view), ensure_ascii=False))
+        assert len(charts) == len(written[key]), key
+        for chart, form in zip(charts, written[key], strict=True):
+            assert chart == form, (key, form["title"]["text"])
+
+
+def test_the_q1_page_reads_the_tables_through_the_cache(
+    base: Tables, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Q2 : la page « Q1 » lit la provenance actuelle par le cache des tables."""
+    tables = _written(base)
+    _result("2000-01-05_ffffffffffff", _as_json(tables))
+    reads: list[Path] = []
+    read = parquet.read_tables
+
+    def counted(folder: Path) -> Tables:
+        reads.append(folder)
+        return read(folder)
+
+    monkeypatch.setattr(parquet, "read_tables", counted)
+    at = _app(_q1)
+    at.run()
+    assert not at.exception
+    assert len(reads) == 1
+
+
+def test_the_cache_keeps_one_entry(
+    base: Tables, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """U14 : le cache garde une seule entrée (``max_entries`` vaut 1) : les tables
+    d'un dossier, puis d'un autre, puis du premier, se lisent trois fois."""
+    from mountain_perf.ui.recuperation import cached_tables
+
+    first, second = data_dir() / "premieres", data_dir() / "secondes"
+    tables = _written(base, first)
+    write_world(second, _other(tables))
+    reads: list[Path] = []
+    read = parquet.read_tables
+
+    def counted(folder: Path) -> Tables:
+        reads.append(folder)
+        return read(folder)
+
+    monkeypatch.setattr(parquet, "read_tables", counted)
+    cached_tables(first)
+    cached_tables(first)
+    assert reads == [first]
+    cached_tables(second)
+    cached_tables(first)
+    assert reads == [first, second, first]
+
+
+def test_the_pages_write_nothing_in_an_empty_data_dir() -> None:
+    """U16, sur un dossier de données vide (ni ``processed/``, ni ``resultats/``) :
+    les deux pages ouvertes, rien n'y apparaît."""
+    assert not any(data_dir().iterdir())
+    before = _files(data_dir())
+    at = _app(_recovery)
+    assert not at.exception
+    q1 = _app(_q1)
+    assert not q1.exception
+    assert _files(data_dir()) == before
+    assert not (data_dir() / RESULTS_DIR).exists()
+
+
+def test_the_recovery_page_says_what_the_annex_says(base: Tables) -> None:
+    """U15 : le titre, le choix de la période, les légendes, en toutes lettres."""
+    _written(base)
+    at = _app(_recovery)
+    assert not at.exception
+    assert [title.value for title in at.title] == ["Récupération"]
+    radio = at.radio(key="recuperation.periode")
+    assert radio.label == "Période"
+    assert radio.options == ["8 dernières semaines", "Toute la table"]
+    assert radio.proto.horizontal is True
+    captions = [caption.value for caption in at.caption]
+    assert captions == [
+        "Données au 21/05/2000 à 21 h 15 (heure de Paris). Exploratoire : aucune "
+        "alerte, aucun verdict.",
+        "Du 27/03/2000 au 21/05/2000.",
+        "Mesures : point plein, admis dans la normale ; point creux, valeur écartée "
+        "(la raison au survol) ; triangle, valeur écartée hors de l'échelle, posée au "
+        "bord ; trait gris en pied, pas de valeur. Normale : trait plein, en pointillé "
+        "quand sa fenêtre mêle l'avant et l'après d'une rupture (trait vertical) ou "
+        "d'un jour incertain (fond gris) ; un repère et un trait vertical seuls : une "
+        "normale isolée (un seul jour de son segment sur la période).",
+        "Charge : point plein, la somme des charges selon Garmin ; point creux, une "
+        "charge minorée (des activités du jour sont sans charge) ; trait gris en "
+        "pied, aucune activité du jour n'en a.",
+        "Plage habituelle : médiane ± 1 écart robuste des jours valides parmi les 28 "
+        "précédents (n jours : au survol). Environ un jour ordinaire sur trois en "
+        "sort. Ce n'est pas un intervalle de confiance ; en sortir n'est pas une "
+        "alerte.",
+        "La normale suit un changement durable en deux semaines environ. Aucune bande "
+        "simultanée n'est calculée : ne pas y lire une tendance.",
+    ]
+
+
+def test_the_q1_page_title_frame_and_unknown_warning(
+    base: Tables, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Q1, Q6 : le titre « Q1 » ; le cadre de la figure (le texte de ``figure.html``,
+    hauteur 1100, défilement) ; la phrase de ``MATCH_TEXTS["unknown"]`` en toutes
+    lettres. La hauteur ne se lit pas dans l'arbre d'``AppTest`` : l'appel à
+    ``components.html`` est enregistré."""
+    import streamlit.components.v1 as components
+
+    _result("2000-01-05_ffffffffffff", {"commit": "autre"})
+    frames: list[tuple[tuple[object, ...], dict[str, object]]] = []
+
+    def recorded(*args: object, **kwargs: object) -> None:
+        frames.append((args, kwargs))
+
+    monkeypatch.setattr(components, "html", recorded)
+    at = _app(_q1)
+    assert not at.exception
+    assert [title.value for title in at.title] == ["Q1"]
+    assert [warning.value for warning in at.warning] == [
+        "Comparaison impossible : les tables actuelles ne se relisent pas. La figure "
+        "est celle du dernier just q1."
+    ]
+    assert frames == [(("<p>figure</p>",), {"height": 1100, "scrolling": True})]

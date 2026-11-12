@@ -4,9 +4,12 @@ inventé de ``fixtures.recovery_world``. Python pur : ces tests tournent sans ex
 from __future__ import annotations
 
 import dataclasses
+import enum
+import json
 from collections import Counter
 from collections.abc import Mapping, Sequence
 from datetime import date
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -35,7 +38,9 @@ from mountain_perf.analyse.recovery import (
     MeasureLabel,
     MeasurePanel,
     RecoveryView,
+    _number,
     data_at,
+    legend,
     recovery_view,
 )
 from mountain_perf.analyse.tables import Tables
@@ -658,3 +663,367 @@ def test_the_display_labels_are_exact() -> None:
         ("ski_touring_elapsed_s", "Ski de randonnée"),
         ("other_elapsed_s", "Autres"),
     )
+
+
+# Correctifs de la PR AN2-3, lot 1 : les règles qu'aucun test ne tenait.
+
+VIEW_FILE = Path(__file__).parent / "fixtures" / "recovery_view.json"
+
+
+def _jsonable(value: object) -> object:
+    """La règle de conversion de la forme écrite : une dataclass en objet (ses champs,
+    dans leur ordre), une ``date`` en texte ISO, un tuple ou une liste en liste, un
+    dictionnaire en objet (clés et ordre gardés), une énumération par sa valeur."""
+    if dataclasses.is_dataclass(value) and not isinstance(value, type):
+        return {
+            f.name: _jsonable(getattr(value, f.name)) for f in dataclasses.fields(value)
+        }
+    if isinstance(value, enum.Enum):
+        return value.value
+    if isinstance(value, date):
+        return value.isoformat()
+    if isinstance(value, tuple | list):
+        return [_jsonable(item) for item in value]
+    if isinstance(value, Mapping):
+        return {str(key): _jsonable(item) for key, item in value.items()}
+    return value
+
+
+def _as_written(value: object) -> object:
+    return json.loads(json.dumps(_jsonable(value), ensure_ascii=False))
+
+
+def test_the_whole_view_is_its_written_form(base: Tables) -> None:
+    """La vue entière du monde inventé, sous deux appels : sans l'argument
+    ``everything`` (la période récente, par la valeur par défaut), puis ``everything``
+    vrai ; chacune, convertie par :func:`_jsonable`, est comparée entière à sa forme
+    écrite dans ``fixtures/recovery_view.json``.
+
+    Le fichier a été tiré une fois du code de la PR AN2-3 (tête ``7cebef4``), par un
+    script hors du dépôt qui applique la même conversion, puis relu contre l'annexe A
+    (A.1, ses paragraphes sur les dates et les nombres affichés) avant d'être figé. Un
+    écart futur se relit contre l'annexe A avant de toucher au fichier : le fichier ne
+    se retire pas pour faire passer le test."""
+    written = json.loads(VIEW_FILE.read_text(encoding="utf-8"))
+    tables = world_tables(base)
+    recent = recovery_view(tables.days, tables.provenance)
+    whole = recovery_view(tables.days, tables.provenance, everything=True)
+    assert _as_written(recent) == written["recente"]
+    assert _as_written(whole) == written["toute"]
+
+
+def test_the_sleep_extent_is_in_hours(base: Tables) -> None:
+    """V5 : l'étendue du sommeil est au facteur d'affichage (des heures), plage
+    comprise."""
+    rows = world_rows()[-RECENT_DAYS:]
+    hours = [
+        row.measured_sleep_s / 3600
+        for row in rows
+        if row.measured_sleep_admitted and row.measured_sleep_s is not None
+    ]
+    for row in rows:
+        low, high = row.measured_sleep_range_low_s, row.measured_sleep_range_high_s
+        if low is not None and high is not None:
+            hours += [low / 3600, high / 3600]
+    lowest, highest = min(hours), max(hours)
+    expected = (
+        lowest - 0.05 * (highest - lowest),
+        highest + 0.05 * (highest - lowest),
+    )
+    domain = _panel(_view(base), SLEEP).domain
+    assert domain == pytest.approx(expected, rel=1e-12)
+    assert domain is not None
+    assert 4.0 < domain[0] < domain[1] < 11.0
+
+
+def test_a_refused_value_on_the_upper_edge_stays_inside(base: Tables) -> None:
+    """V6 : une valeur refusée égale à la borne haute du domaine reste dedans."""
+    domain = _panel(_view(base), HRV).domain
+    assert domain is not None
+    assert not world_rows()[112].hrv_admitted
+    view = _view(base, rows=_replaced({112: {"hrv_last_night_avg_ms": domain[1]}}))
+    point = _point(view, HRV, 112)
+    assert point["hors"] is None
+    assert point["y"] == domain[1]
+    assert _panel(view, HRV).domain == domain
+
+
+def test_a_repeated_day_and_two_rows_upside_down_are_refused(base: Tables) -> None:
+    """V1 : un jour en double, puis deux lignes à l'envers, lèvent ``ValueError``."""
+    rows = list(world_rows())
+    repeated = [*rows[:51], rows[50], *rows[51:]]
+    swapped = [*rows[:50], rows[51], rows[50], *rows[52:]]
+    for case in (repeated, swapped):
+        tables = world_tables(base, rows=case)
+        with pytest.raises(ValueError, match="pas consécutives"):
+            recovery_view(tables.days, tables.provenance)
+
+
+def test_a_last_one_day_run_after_a_longer_one_is_not_isolated(base: Tables) -> None:
+    """V10 : la dernière suite d'un segment n'a qu'un jour (son ``straddles`` change),
+    après une suite plus longue du même segment : ce jour reste dans
+    ``normal_lines``."""
+    rows = _replaced({139: {"hrv_normal_straddles": True}})
+    assert rows[139].hrv_segment == rows[138].hrv_segment
+    hrv = _panel(_view(base, rows=rows), HRV)
+    assert hrv.isolated == ()
+    assert _noon(139) in {line["midi"] for line in hrv.normal_lines}
+
+
+def test_the_ribbons_at_the_edges_of_the_period_and_at_the_same_start(
+    base: Tables,
+) -> None:
+    """V13 : une suite qui finit au premier jour de la période, une qui commence au
+    dernier ; une suite d'un type entièrement avant la période, puis une autre du même
+    type dedans ; deux rubans au même ``debut``, triés par la valeur du type."""
+    illness, injury = JournalEventType.ILLNESS, JournalEventType.INJURY
+    changes: dict[int, dict[str, Any]] = {
+        **{i: {"journal_types": (illness,)} for i in range(80, 85)},
+        **{
+            i: {"journal_types": (JournalEventType.TRAVEL,)}
+            for i in (60, 61, 62, 90, 91)
+        },
+        **{i: {"journal_types": (injury, illness)} for i in (95, 96)},
+        139: {"journal_types": (JournalEventType.RACE,)},
+    }
+    view = _view(base, rows=changed_world(changes, journal=False))
+    assert [
+        (r["type"], _index(r["debut"]), _index(r["fin"])) for r in view.ribbons
+    ] == [
+        ("maladie", 84, 85),
+        ("deplacement", 90, 92),
+        ("blessure", 95, 97),
+        ("maladie", 95, 97),
+        ("course", 139, 140),
+    ]
+
+
+def test_a_one_second_duration_is_kept(base: Tables) -> None:
+    """V15 : une famille à une seconde donne son enregistrement."""
+    rows = _replaced({132: {"foot_elapsed_s": 1.0}})
+    durations = [
+        d
+        for d in _view(base, rows=rows).durations
+        if _index(d["debut"]) == 132 and d["famille"] == "À pied"
+    ]
+    assert len(durations) == 1
+    assert durations[0]["Durée"] == "0,00 h"
+    assert durations[0]["heures"] == 1 / 3600
+
+
+def test_the_four_counts_of_the_load_tooltip(base: Tables) -> None:
+    """V16 : les quatre comptes du survol de la charge, quatre nombres différents."""
+    rows = _replaced(
+        {
+            131: {
+                "activity_count": 4,
+                "activities_without_load": 1,
+                "other_activity_count": 2,
+                "activities_without_elapsed": 3,
+            }
+        }
+    )
+    (load,) = [x for x in _view(base, rows=rows).loads if _index(x["midi"]) == 131]
+    assert load["Activités"] == 4
+    assert load["Sans charge"] == 1
+    assert load["Autres activités"] == 2
+    assert load["Sans durée"] == 3
+
+
+def test_the_legend_sentences_in_full(base: Tables) -> None:
+    """V20 : les deux phrases en toutes lettres, w différent de 28 puis égal à 28 ; un
+    paramètre absent de la provenance vaut 0."""
+    no_trend = "Aucune bande simultanée n'est calculée : ne pas y lire une tendance."
+    tail = (
+        "pour la HRV, en log. Paramètres hors des valeurs par défaut : la part des "
+        "jours qui en sortent n'est pas dite. Ce n'est pas un intervalle de "
+        "confiance ; en sortir n'est pas une alerte."
+    )
+    thirty = _view(
+        base,
+        parameters={
+            "normal.window_days": 30.0,
+            "normal.range_k": 2.0,
+            "normal.mad_factor": 1.0,
+        },
+    ).legend
+    assert thirty == (
+        "Plage habituelle : médiane ± 2,00 écart robuste des jours valides parmi les "
+        "30 précédents (n jours : au survol) ; écart robuste : 1,0000 × MAD, au moins "
+        "la résolution de la mesure ; " + tail,
+        no_trend,
+    )
+    twenty_eight = _view(base, parameters={"normal.range_k": 1.5}).legend
+    assert twenty_eight == (
+        "Plage habituelle : médiane ± 1,50 écart robuste des jours valides parmi les "
+        "28 précédents (n jours : au survol) ; écart robuste : 1,4826 × MAD, au moins "
+        "la résolution de la mesure ; " + tail,
+        "La normale suit un changement durable en deux semaines environ. " + no_trend,
+    )
+    without_k = dataclasses.replace(
+        base.provenance,
+        parameters=tuple(
+            (name, value)
+            for name, value in base.provenance.parameters
+            if name != "normal.range_k"
+        ),
+    )
+    assert legend(without_k)[0].startswith("Plage habituelle : médiane ± 0,00 écart")
+
+
+def test_a_negative_number_is_written_with_the_minus_sign() -> None:
+    """A.1, « Les nombres affichés » : aucune colonne affichée par la vue n'est
+    négative ; le signe moins se lit donc sur la fonction de formatage du module."""
+    assert _number(-1.25, 1, "ms") == "−1,2 ms"
+    assert _number(-3.0, 0) == "−3"
+
+
+def test_a_night_without_flag_is_its_label_alone(base: Tables) -> None:
+    """V7 : une nuit sans drapeau (ni courte ni décalée, tous deux connus)."""
+    rows = _replaced({130: {"night_shifted": False, "night_shifted_absence": None}})
+    assert rows[130].night_short is False
+    assert _point(_view(base, rows=rows), HRV, 130)["Nuit"] == "complète"
+
+
+def test_the_view_is_pure_and_the_same_twice(base: Tables) -> None:
+    """V21, V22 : la vue ne modifie pas les lignes reçues et ne dépend que de ses
+    arguments."""
+    tables = world_tables(base)
+    rows = list(tables.days)
+    copy = list(rows)
+    first = recovery_view(rows, tables.provenance)
+    assert rows == copy
+    second = recovery_view(rows, tables.provenance)
+    assert rows == copy
+    assert first == second
+    assert first == recovery_view(tuple(copy), tables.provenance)
+
+
+def test_the_records_have_no_other_key(base: Tables) -> None:
+    """A.1 : pour chaque sorte d'enregistrement, ses clés et aucune autre."""
+    view = _view(base, everything=True)
+    normal = {"midi", "normale", "bas", "haut", "suite", "pointille", "trait"}
+    expected: list[tuple[str, Sequence[Mapping[str, Any]], set[str]]] = [
+        (
+            "point",
+            [p for panel in view.panels for p in panel.points],
+            {
+                "midi",
+                "marque",
+                "y",
+                "hors",
+                "Jour",
+                "Valeur",
+                "Admission",
+                "Nuit",
+                "FC de repos",
+                "Normale",
+                "Plage",
+                "Jours admis",
+            },
+        ),
+        ("suite", [x for p in view.panels for x in p.normal_lines], normal),
+        ("isolée", [x for p in view.panels for x in p.isolated], normal),
+        ("rupture", [x for p in view.panels for x in p.ruptures], {"debut", "Rupture"}),
+        ("incertain", view.uncertain, {"debut", "fin"}),
+        ("ruban", view.ribbons, {"type", "Type", "debut", "fin", "Période"}),
+        (
+            "durée",
+            view.durations,
+            {"debut", "fin", "famille", "ordre", "heures", "Jour", "Durée"},
+        ),
+        (
+            "charge",
+            view.loads,
+            {
+                "midi",
+                "charge",
+                "marque",
+                "Jour",
+                "Charge",
+                "Activités",
+                "Sans charge",
+                "Autres activités",
+                "Sans durée",
+            },
+        ),
+        (
+            "garmin",
+            view.garmin_hrv,
+            {
+                "midi",
+                "moyenne",
+                "bas",
+                "haut",
+                "suite_moyenne",
+                "suite_bornes",
+                "Jour",
+                "Moyenne de la semaine",
+                "Bornes",
+            },
+        ),
+    ]
+    for kind, records, keys in expected:
+        assert records, kind
+        for record in records:
+            assert set(record) == keys, kind
+
+
+def test_the_view_texts_are_those_of_the_annex(base: Tables) -> None:
+    """A.7 : les textes que rend la vue, recopiés de l'annexe, comparés à la vue,
+    jamais aux constantes du module."""
+    whole = _view(base, everything=True)
+    assert whole.legend == (
+        "Plage habituelle : médiane ± 1 écart robuste des jours valides parmi les 28 "
+        "précédents (n jours : au survol). Environ un jour ordinaire sur trois en "
+        "sort. Ce n'est pas un intervalle de confiance ; en sortir n'est pas une "
+        "alerte.",
+        "La normale suit un changement durable en deux semaines environ. Aucune bande "
+        "simultanée n'est calculée : ne pas y lire une tendance.",
+    )
+    outside = _view(base, parameters={"normal.window_days": 30.0}).legend
+    assert outside[-1] == (
+        "Aucune bande simultanée n'est calculée : ne pas y lire une tendance."
+    )
+    assert [panel.title for panel in whole.panels] == [
+        "HRV de la nuit (ms)",
+        "FC de repos (bpm)",
+        "Sommeil mesuré (h)",
+        "Stress de la nuit",
+        "Respiration de la nuit (resp./min)",
+        "SpO2 de la nuit (%)",
+    ]
+    admissions = {p["Admission"] for p in _panel(whole, HRV).points}
+    assert admissions == {
+        "admise",
+        "refusée : pas de données ce jour",
+        "refusée : pas de valeur",
+        "refusée : valeur invalide",
+        "refusée : nuit incomplète",
+        "refusée : nuit courte",
+        "refusée : nuit décalée",
+        "refusée : maladie (journal)",
+        "refusée : blessure (journal)",
+        "refusée : séjour en altitude (journal)",
+    }
+    normals = {p["Normale"] for p in _panel(whole, SPO2).points}
+    assert {
+        "absente : aucun jour admis dans la fenêtre",
+        "absente : trop peu de jours admis dans la fenêtre",
+    } <= normals
+    assert {r["Type"] for r in whole.ribbons} == {
+        "Maladie",
+        "Blessure",
+        "Course",
+        "Séjour en altitude",
+    }
+    assert {d["famille"] for d in whole.durations} == {
+        "À pied",
+        "VTT",
+        "Ski de randonnée",
+        "Autres",
+    }
+    nights = {p["Nuit"].split(" (")[0] for p in _panel(whole, HRV).points}
+    assert nights == {"absente", "partielle", "complète"}
+    rests = {p["FC de repos"] for p in _panel(whole, HRV).points}
+    assert rests == {"absente", "provisoire", "valide"}
