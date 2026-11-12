@@ -390,9 +390,26 @@ just backtest courbe.csv --sensitivity
 
 | Option de `mperf backtest` | Rôle | Défaut |
 |---|---|---|
-| `--curve courbe.csv` | courbe allure↔pente, **obligatoire** : une entrée déclarée de l'exécution | — |
+| `--curve courbe.csv` | courbe allure↔pente : une entrée déclarée de l'exécution ; `--curve` ou `--rolling`, l'un des deux | — |
+| `--rolling W[,W…]` | le backtest glissant (`0010`, précision OG-2) : les fenêtres, en jours ou `all`, distinctes ; une DÉCLARATION par fenêtre, en un processus, et un rapport `comparaison-<n>.txt` dès deux fenêtres | — |
+| `--covered-threshold S` | avec `--rolling`, obligatoire : une performance est couverte si sa part hors support est au plus `S` | — |
+| `--coverage-tolerance SECONDES` | avec `--rolling`, obligatoire : la tolérance de la correspondance des `activity_refs` | — |
+| `--beyond-marker PART` | avec `--rolling` : au-delà du repère, une part hors support plus grande que `PART` | 0.5 |
+| `--rule-support-threshold MIN` | avec `--rolling` : le seuil de support des diagnostics de la règle à l'origine (`0020`) ; la lecture de chaque courbe garde le paramètre `curve_min_support_min` de v0 | 10 |
 | `--descent-threshold F` | seuil des descentes roulantes et raides (diagnostic de `0010` D6), dans [0.60 ; 1] | 0.80 |
 | `--sensitivity` | puis la sensibilité de `0010` D13, enregistrée, et son rapport `sensibilite-<n>.txt` | absente |
+
+`just backtest-rolling <fenêtres> <options>` lance `mperf backtest --rolling` sur le
+même manifeste, sans courbe déclarée : chaque performance est jugée avec la courbe
+que la règle à l'origine ([`0020`](docs/decisions/0020-origine-glissante.md))
+rend à son origine sur la fenêtre, lue dans `MPA_DATA_DIR/interim/activities/`
+(`0010`, précision OG-2). Une DÉCLARATION et un rapport par fenêtre ; dès deux
+fenêtres, le rapport `comparaison-<n>.txt`, qui n'est pas un événement du registre.
+Le manifeste déclare, par sortie, ses `activity_refs`.
+
+```bash
+just backtest-rolling 28,56,all --covered-threshold 0.1 --coverage-tolerance 60
+```
 
 ### `just ingest` — l'ingestion des exports Garmin
 
@@ -772,7 +789,8 @@ puis `http://localhost:8501` dans le navigateur.
   hors le figement pour confirmation de D10.7), calculée par la bibliothèque — sa commande
   viendra avec le premier effet, au M6a ; enfin la sensibilité (`0010` D13,
   `just backtest courbe.csv --sensitivity`). L'origine glissante est commencée : OG-1
-  livrée, la règle à l'origine et `just curve --at` (`0020`).
+  livrée, la règle à l'origine et `just curve --at` (`0020`) ; OG-2 livrée, le backtest
+  glissant (`just backtest-rolling`, `0010`).
 - **Piste analyse** : cadrage livré (AN0 : charte, questions, décisions 0011 à 0013) ;
   AN1 (activités et montées) livré : son codec commun, l'ingestion des activités
   (`just ingest`), les horloges du moteur rendues communes (le temps de mouvement),

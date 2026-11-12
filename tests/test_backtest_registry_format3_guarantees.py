@@ -64,6 +64,10 @@ def test_agree_admission_iff_experiment_before_pre_format_3(tmp_path: Path) -> N
         data["format_version"] = 2
         data["declaration"]["experiment"].pop("reference_documents")
         data["declaration"].pop("sensitivity")
+        data["declaration"].pop("rolling")
+        for declared in data["declaration"]["performances"]:
+            for outing in declared["performance"]["outings"]:
+                outing.pop("activity_refs")
 
     _journal(root, at_format_2)
     with pytest.raises(RegistryError, match=re.escape(AGREEMENT)):
@@ -120,6 +124,10 @@ def test_format_2_experiment_carrying_null_reference_documents(tmp_path: Path) -
         data["format_version"] = 2
         data["declaration"]["experiment"]["reference_documents"] = None
         data["declaration"].pop("sensitivity")
+        data["declaration"].pop("rolling")
+        for declared in data["declaration"]["performances"]:
+            for outing in declared["performance"]["outings"]:
+                outing.pop("activity_refs")
 
     _journal(root, at_format_2_null)
     with pytest.raises(
@@ -181,7 +189,7 @@ def test_real_shapes_then_a_format_3_backtest(tmp_path: Path) -> None:
         recorded_at=at(6),
     )
     log = verify_registry(root)
-    assert [e.format_version for e in log.events] == [2, 2, 2, 2, 2, 5, 5]
+    assert [e.format_version for e in log.events] == [2, 2, 2, 2, 2, 6, 6]
     after = (root / EVENTS_FILE).read_bytes()
     assert after.startswith(before)
     lines = after.split(b"\n")

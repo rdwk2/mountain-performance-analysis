@@ -64,7 +64,7 @@ def _shape() -> tuple[int, str]:
 
 
 def test_shape_of_the_stored_contracts() -> None:
-    """D14 : 74 contrats stockés, et leur empreinte de forme d'aujourd'hui — le format
+    """D14 : 83 contrats stockés, et leur empreinte de forme d'aujourd'hui — le format
     2 ajoute ``CalibratedScenarioScores``, ``CalibratedClockScores``,
     ``ModelCalibration`` et ``CalibrationWithdrawal`` (M4c-2) ; le format 3, le
     document d'admission, ``Admission``, et ses huit contrats
@@ -80,9 +80,16 @@ def test_shape_of_the_stored_contracts() -> None:
     ``SensitivityDeclaration``, et ses trois contrats (``PairReferences``,
     ``ConfigurationReferences``, ``SensitivityConfiguration``), ``PairResult``, et
     trois champs, ``Declaration.sensitivity``, ``Result.pairs`` et
-    ``Result.sensitivity`` (M4d-3) ; les 44 du format 1 gardent leur forme, ces six
-    champs mis à part (``test_backtest_registry_format2.py``)."""
+    ``Result.sensitivity`` (M4d-3) ; le format 6 (OG-2), ``RollingDeclaration``,
+    ``RollingPerformance``, ``RollingResult``, ``RollingRule``, ``FrozenCurve``,
+    ``AbsentCurve``, ``CalibrationTerms``, ``ScenarioClockTerms``,
+    ``CalibrationTerm``, les trois énumérations ``CurveStatus``, ``ShareScope`` et
+    ``ShareUnavailability``, les champs ``Outing.activity_refs``,
+    ``Declaration.rolling`` et ``Result.rolling``, la valeur
+    ``Unavailability.NO_CURVE``, et les trois champs de courbe de la DÉCLARATION
+    devenus facultatifs ; les 44 du format 1 gardent leur forme, ces champs, cette
+    valeur et ces annotations mis à part (``test_backtest_registry_format2.py``)."""
     assert _shape() == (
-        74,
-        "bd1cc8c992904ee3cdf63c9dacfdd99c52066b339fa451bb72d87479583995db",
+        83,
+        "eb0dfc56e6d403d6c7a010e21c591707191ef87fe457824441eec33029e88acb",
     )

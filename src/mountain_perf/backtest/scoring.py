@@ -432,6 +432,7 @@ def _clock_scores(
     forecast: ModelForecast,
     base: ModelForecast | None,
     clock_index: int,
+    base_unavailability: Unavailability | None = None,
 ) -> ClockScores:
     """Les scores d'une prévision sous la seule horloge ``CLOCKS[clock_index]`` : le
     corps de la boucle de :func:`score_scenario`, inchangé (brief M4c-1, § 6.3).
@@ -461,6 +462,7 @@ def _clock_scores(
             _observed_times(observation.targets, i),
             target_motifs,
             arrival_anchor_gap_m=observation.arrival_anchor_gap_m,
+            base_unavailability=base_unavailability,
         )
     return ClockScores(clock, support, diagnostic, errors, target)
 
@@ -471,6 +473,7 @@ def clock_scores(
     clock_index: int,
     *,
     base: ModelForecast | None = None,
+    base_unavailability: Unavailability | None = None,
 ) -> ClockScores:
     """Les scores d'une prévision sous la seule horloge ``CLOCKS[clock_index]``,
     identiques au bit à ``score_scenario(observation, forecast, base=base)
@@ -485,7 +488,7 @@ def clock_scores(
         raise ValueError(
             f"clock_scores : clock_index {clock_index} hors de [0 ; {len(CLOCKS)}[."
         )
-    return _clock_scores(observation, forecast, base, clock_index)
+    return _clock_scores(observation, forecast, base, clock_index, base_unavailability)
 
 
 def score_scenario(
@@ -493,6 +496,7 @@ def score_scenario(
     forecast: ModelForecast,
     *,
     base: ModelForecast | None = None,
+    base_unavailability: Unavailability | None = None,
 ) -> ScenarioScores:
     """Les scores d'une prévision sous les onze horloges, et ses enveloppes (``0010``
     D5.4, D5.5, D7 ; brief M4b-2, § 6.5).
@@ -502,8 +506,9 @@ def score_scenario(
     de D5.5 si et seulement si le motif vectoriel du support est ``zero_time``
     (choix 8) ; en usage, ``passage_errors`` sur les points de ``C_k`` et
     ``usage_target`` sur ``K``, de base ``base`` — la prévision elle-même si elle est
-    absente (choix 10). Puis l'enveloppe du support et celle de chaque classe
-    (choix 9).
+    absente (choix 10) ; ``base_unavailability`` (OG-2) : le motif d'une base
+    absente, « sans courbe », que ``q_usage`` porte (``usage_target``). Puis
+    l'enveloppe du support et celle de chaque classe (choix 9).
 
     Préconditions (``ValueError``) : ``len(segment_s) == len(segments)`` ; en usage,
     ``len(point_s) == len(error_points)``, ``len(target_s) == len(targets)``, et une
@@ -513,7 +518,10 @@ def score_scenario(
     _require_forecast(observation, forecast, base)
     segments = observation.segments
     classes = tuple(segment.regime_class for segment in segments)
-    clocks = [_clock_scores(observation, forecast, base, i) for i in range(len(CLOCKS))]
+    clocks = [
+        _clock_scores(observation, forecast, base, i, base_unavailability)
+        for i in range(len(CLOCKS))
+    ]
     return ScenarioScores(
         scenario=forecast.scenario,
         forecast=forecast,

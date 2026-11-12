@@ -202,7 +202,8 @@ score devenant une prévision hors échantillon. La même règle sert l'usage.
   fonctions pures, la lecture depuis les octets), avant OG-UI et OG-2 ;
 - **OG-UI** : les pages à l'origine et `mperf project course.gpx --at D`, en parallèle de
   la passe experte 2 (le backtest glissant) ;
-- **OG-2** : le backtest glissant (structurante : `0010`) ;
+- **OG-2** : le backtest glissant (`mperf backtest --rolling`), le registre au format
+  6, les rapports (structurante : `0010`) ;
 - les trois exécutions réelles, par rdw (28 jours, 56 jours, tout le passé) ;
 - **OG-3** : le `JOURNAL`.
 
@@ -211,7 +212,8 @@ les mêmes performances, sans qu'aucune fenêtre soit choisie après coup, et le
 l'interface donnent la courbe à l'origine d'une date.
 
 **État** : OG-1 livrée (PR #41) : la règle à l'origine et `mperf curve --at` (`0020`) ;
-OG-1b livrée : les coutures (`0020`, précision OG-1b).
+OG-1b livrée : les coutures (`0020`, précision OG-1b) ; OG-2 livrée : le backtest
+glissant (`0010`, précision OG-2).
 
 ---
 

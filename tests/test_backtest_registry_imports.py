@@ -50,7 +50,8 @@ def test_contracts_import_only_the_named_contracts() -> None:
     ``CALIBRATED_KINDS`` — les modèles de D9.1 et le candidat — depuis M4c-3, à la
     place de ``CALIBRATED_MODELS`` ; ``OutingBands`` depuis M4d-2
     (``OutingOutcome``) ; ``SensitivityConfiguration`` depuis M4d-3
-    (``SensitivityDeclaration``)."""
+    (``SensitivityDeclaration``) ; ``SUPPORT_THRESHOLD_RANGE_MIN`` depuis OG-2
+    (``RollingRule``)."""
     imported = _imports(SCHEMAS_MODULE)
     assert _project(SCHEMAS_MODULE) <= {
         "mountain_perf.validation",
@@ -58,6 +59,7 @@ def test_contracts_import_only_the_named_contracts() -> None:
         "mountain_perf.schemas.calibration",
         "mountain_perf.schemas.clock",
         "mountain_perf.schemas.common",
+        "mountain_perf.schemas.curve",
         "mountain_perf.schemas.matching",
         "mountain_perf.schemas.metrics",
         "mountain_perf.schemas.outing",
@@ -72,6 +74,7 @@ def test_contracts_import_only_the_named_contracts() -> None:
     }
     assert imported["mountain_perf.schemas.clock"] <= {"CLOCKS", "Clock"}
     assert imported["mountain_perf.schemas.common"] <= {"SourceRef"}
+    assert imported["mountain_perf.schemas.curve"] == {"SUPPORT_THRESHOLD_RANGE_MIN"}
     assert imported["mountain_perf.schemas.matching"] <= {
         "Coverage",
         "SensitivityConfiguration",
@@ -108,6 +111,9 @@ def test_codec_imports_schemas_and_the_common_codec_only() -> None:
 
 
 def test_registry_imports_the_named_modules_only() -> None:
+    """Depuis OG-2, l'accord du format 6 redérive la décision de la règle et la borne
+    basse (``estimation/decision.py``), relit le verdict de support sur les octets du
+    CSV figé (``curve_csv_support``) et recalcule ``β`` (``math``)."""
     imported = _imports(REGISTRY_MODULE)
     assert _project(REGISTRY_MODULE) <= {
         "mountain_perf.schemas",
@@ -115,7 +121,16 @@ def test_registry_imports_the_named_modules_only() -> None:
         "mountain_perf.backtest.codec",
         "mountain_perf.backtest.calendar",
         "mountain_perf.backtest.sensitivity",
+        "mountain_perf.estimation.decision",
         "mountain_perf.model.curve_io",
+    }
+    assert imported["mountain_perf.estimation.decision"] == {
+        "ALL_PAST",
+        "OriginWindow",
+        "TemporalDecision",
+        "decide_on_index",
+        "decide_on_safe_end",
+        "window_lower_bound",
     }
     assert imported["mountain_perf.backtest.calendar"] == {"origin"}
     assert imported["mountain_perf.backtest.sensitivity"] == {
@@ -126,6 +141,7 @@ def test_registry_imports_the_named_modules_only() -> None:
     assert imported["mountain_perf.model.curve_io"] <= {
         "META_SUFFIX",
         "CurveReadResult",
+        "curve_csv_support",
     }
     assert _outside(REGISTRY_MODULE) <= {
         "collections",
@@ -134,6 +150,7 @@ def test_registry_imports_the_named_modules_only() -> None:
         "dataclasses",
         "datetime",
         "json",
+        "math",
         "os",
         "pathlib",
         "typing",
@@ -153,7 +170,8 @@ def test_no_module_imports_codec_or_registry_but_the_backtest_package() -> None:
     ``cli.py``, qui lit le nombre d'événements avant tout écrit (§ 6.0 du brief
     M4b-5) — et, depuis M4c-3, l'expérience, qui écrit au registre et calcule
     l'empreinte des documents D8 qu'elle fige (décision E6) — et, depuis M4d-3, la
-    sensibilité, de même. Depuis AN1-0, les noms
+    sensibilité, de même — et, depuis OG-2, le mode glissant, qui fige ses documents par
+    leur empreinte et écrit au registre. Depuis AN1-0, les noms
     que ``backtest/codec.py`` réexporte du codec commun comptent comme les siens."""
     defined = (
         _defined_names(ast.parse(CODEC_MODULE.read_text(encoding="utf-8")))
@@ -180,6 +198,8 @@ def test_no_module_imports_codec_or_registry_but_the_backtest_package() -> None:
         ("backtest/experiment.py", "mountain_perf.backtest.codec"),
         ("backtest/experiment.py", "mountain_perf.backtest.registry"),
         ("backtest/registry.py", "mountain_perf.backtest.codec"),
+        ("backtest/rolling.py", "mountain_perf.backtest.codec"),
+        ("backtest/rolling.py", "mountain_perf.backtest.registry"),
         ("backtest/sensitivity_run.py", "mountain_perf.backtest.codec"),
         ("backtest/sensitivity_run.py", "mountain_perf.backtest.registry"),
         ("cli.py", "mountain_perf.backtest.registry"),

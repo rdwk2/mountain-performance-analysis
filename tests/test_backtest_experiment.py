@@ -709,8 +709,8 @@ def test_result_of_the_experiment(identity: tuple[Path, ExperimentRun]) -> None:
     log = read_registry(registry)
     assert verify_registry(registry) == log
     assert [(e.kind, e.format_version) for e in log.events] == [
-        (EventKind.DECLARATION, 5),
-        (EventKind.RESULT, 5),
+        (EventKind.DECLARATION, 6),
+        (EventKind.RESULT, 6),
     ]
     assert log.events == (run.declaration_event, run.answer_event)
     assert log.events[0].declaration == run.preparation.declaration

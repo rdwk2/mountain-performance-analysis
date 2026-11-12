@@ -511,12 +511,13 @@ def _replaced(
 
 def test_versions() -> None:
     """Précision de D14 (M4d-3) : le format écrit, les formats relus, le premier format
-    de la sensibilité, et son document, dernier des types de documents."""
-    assert REGISTRY_FORMAT_VERSION == 5
-    assert REGISTRY_READABLE_FORMATS == (1, 2, 3, 4, 5)
+    de la sensibilité, et son document, septième des types de documents (les types du
+    format 6 après lui, OG-2)."""
+    assert REGISTRY_FORMAT_VERSION == 6
+    assert REGISTRY_READABLE_FORMATS == (1, 2, 3, 4, 5, 6)
     assert SENSITIVITY_FIRST_FORMAT == 5
     assert DOCUMENT_FIRST_FORMAT[SensitivityOutcome] == 5
-    assert DOCUMENT_TYPES[-1] is SensitivityOutcome
+    assert DOCUMENT_TYPES[6] is SensitivityOutcome
 
 
 def test_sensitivity_document_at_format_5() -> None:
@@ -614,7 +615,7 @@ def test_sensitivity_follows_an_old_registry(tmp_path: Path, version: int) -> No
     append_declaration(root, _sensitivity_of(root, 3, 4), recorded_at=at(4))
     _answer(root, 5, minutes=5)
     log = verify_registry(root)
-    assert [e.format_version for e in log.events] == [version] * 2 + [5] * 4
+    assert [e.format_version for e in log.events] == [version] * 2 + [6] * 4
     assert (root / EVENTS_FILE).read_bytes().startswith(before)
     trials = count_trials(log)
     assert (trials.declarations, trials.without_effect, trials.sensitivities) == (

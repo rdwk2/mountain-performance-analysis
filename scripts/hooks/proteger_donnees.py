@@ -13,10 +13,11 @@ Lu sur l'entrée standard : l'appel d'outil en JSON (``tool_name``, ``tool_input
 - une commande (``Bash``, ``PowerShell``, ``Monitor``) qui nomme ce dossier, sa
   variable, ou une commande qui écrit dans les données (``mperf ingest``,
   ``mperf backtest``, ``mperf tables``, ``mperf q1``, ``mperf curve``, ``just ingest``,
-  ``just backtest``, ``just process``, ``just q1``, ``just curve``, ``just ui``, options
-  de ``just`` comprises, et ``python -m mountain_perf.cli`` suivi de ``ingest``,
-  ``backtest``, ``tables``, ``process``, ``q1`` ou ``curve`` ; sans casse, ``mperf.exe``
-  et ``just.exe`` compris, sous-commande entre guillemets comprise ; une recette
+  ``just backtest``, ``just backtest-rolling``, ``just process``, ``just q1``,
+  ``just curve``, ``just ui``, options de ``just`` comprises, et ``python -m
+  mountain_perf.cli`` suivi de ``ingest``, ``backtest``, ``tables``, ``process``,
+  ``q1`` ou ``curve`` ; sans casse, ``mperf.exe`` et ``just.exe`` compris,
+  sous-commande entre guillemets comprise ; une recette
   ``ui-…``, ``process-…``, ``q1-…`` ou ``curve-…`` est une autre recette, et l'option
   ``--curve`` de ``mperf project`` ou ``mperf match`` n'est pas une sous-commande) ;
 - une commande qui lance l'interface (M5, ``0016``), qui lit et écrit les données :
@@ -79,7 +80,8 @@ SHELL_TOOLS = {"Bash", "PowerShell", "Monitor"}
 WRITING_COMMANDS = re.compile(
     r"\b(?:mperf|just|mountain_perf\.cli)(?:\.exe)?[\"']?"
     r"(?:\s+-\S+(?:\s+[^\s-]\S*)?)*"
-    r"\s+[\"']?(?:ingest|backtest|tables|process|q1|curve|ui)(?![\w-])",
+    r"\s+[\"']?(?:ingest|backtest-rolling|backtest|tables|process|q1|curve|ui)"
+    r"(?![\w-])",
     re.IGNORECASE,
 )
 INTERFACE_COMMANDS = re.compile(

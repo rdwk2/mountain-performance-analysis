@@ -6,6 +6,7 @@ imports dans les fonctions compris."""
 from __future__ import annotations
 
 import ast
+import sys
 from pathlib import Path
 
 import mountain_perf
@@ -32,10 +33,11 @@ def _modules(path: Path) -> set[str]:
     }
 
 
-def test_the_package_has_four_modules() -> None:
+def test_the_package_has_five_modules() -> None:
     assert sorted(p.name for p in ESTIMATION.glob("*.py")) == [
         "__init__.py",
         "curve.py",
+        "decision.py",
         "intervals.py",
         "origin.py",
     ]
@@ -49,10 +51,10 @@ def test_estimation_imports_neither_analyse_nor_backtest_nor_an_extra() -> None:
 
 
 def test_the_rule_reads_no_clock_no_file_no_environment() -> None:
-    """Le noyau de la règle à l'origine (OG-1) est déterministe : ``origin.py``
-    n'importe ni le système, ni la configuration, ni git, ni le lecteur d'``interim/``,
-    et n'appelle ni l'horloge, ni l'environnement, ni ``open``."""
-    path = ESTIMATION / "origin.py"
+    """Le noyau de la règle à l'origine (OG-1) est déterministe : ``origin.py``, et
+    ``decision.py`` où vit sa décision sur des instants (OG-2), n'importent ni le
+    système, ni la configuration, ni git, ni le lecteur d'``interim/``, et n'appellent
+    ni l'horloge, ni l'environnement, ni ``open``."""
     forbidden_modules = {
         "os",
         "pathlib",
@@ -62,14 +64,35 @@ def test_the_rule_reads_no_clock_no_file_no_environment() -> None:
         "mountain_perf.gitstate",
         "mountain_perf.ingest.interim",
     }
-    assert not _modules(path) & forbidden_modules
     forbidden_names = {"now", "today", "utcnow", "getenv", "environ", "open"}
-    for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
-        name = (
-            node.attr
-            if isinstance(node, ast.Attribute)
-            else node.id
-            if isinstance(node, ast.Name)
-            else None
-        )
-        assert name not in forbidden_names, name
+    for path in (ESTIMATION / "origin.py", ESTIMATION / "decision.py"):
+        assert not _modules(path) & forbidden_modules, path.name
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            name = (
+                node.attr
+                if isinstance(node, ast.Attribute)
+                else node.id
+                if isinstance(node, ast.Name)
+                else None
+            )
+            assert name not in forbidden_names, (path.name, name)
+
+
+def test_the_decision_imports_the_standard_library_and_validation_only() -> None:
+    """OG-2, § 6.1, choix C1 : ``estimation/decision.py`` « n'importe que la
+    bibliothèque standard et ``mountain_perf.validation`` » ; le registre, qui
+    l'importe, ne charge donc rien d'autre de l'estimation (constat C-8 de la relecture
+    C du bloc 1)."""
+    for module in _modules(ESTIMATION / "decision.py"):
+        top = module.split(".")[0]
+        assert top in sys.stdlib_module_names or (
+            module == "mountain_perf.validation"
+            or module.startswith("mountain_perf.validation.")
+        ), module
+
+
+def test_the_package_init_imports_nothing() -> None:
+    """OG-2, choix C1 : ``estimation/__init__.py`` n'importe rien ; importer
+    ``mountain_perf.estimation.decision`` ne charge pas ``origin``, ``curve`` ni
+    ``intervals``."""
+    assert _modules(ESTIMATION / "__init__.py") == set()

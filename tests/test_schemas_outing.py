@@ -71,7 +71,7 @@ def test_every_member_is_described(enum: Any, descriptions: Any) -> None:
     assert all(text.strip() for text in descriptions.values())
 
 
-def test_unavailability_lists_the_twelve_statuses_of_0010_d0() -> None:
+def test_unavailability_lists_the_thirteen_statuses_of_0010_d0() -> None:
     french = [text.split(" — ")[0] for text in UNAVAILABILITY_DESCRIPTIONS.values()]
     assert french == [
         "absent",
@@ -83,6 +83,7 @@ def test_unavailability_lists_the_twelve_statuses_of_0010_d0() -> None:
         "temps nul",
         "référence non identifiée",
         "non-convergence",
+        "sans courbe",
         "erreur du modèle",
         "non calé",
         "jour multi-sorties",

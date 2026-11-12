@@ -121,6 +121,7 @@ def baseline_scores(
     *,
     base: ModelForecast | None = None,
     generated_at: datetime | None = None,
+    base_unavailability: Unavailability | None = None,
 ) -> OutingScores:
     """Les scores **non calés** d'une baseline sur une sortie, par la chaîne de v0
     brut (``0010`` D9.1 et sa précision, D3).
@@ -133,7 +134,8 @@ def baseline_scores(
     vide, par les fonctions de M4b-1 (D7.1). ``base`` ne sert qu'à l'usage : la
     prévision d'usage de v0 brut, dénominateur de ``q_usage`` au rapport (D7.4 ;
     décision 13) ; absente, la prévision elle-même. ``generated_at`` absent :
-    maintenant, en UTC.
+    maintenant, en UTC. ``base_unavailability`` (OG-2) : sans courbe, le motif que
+    ``q_usage`` porte, jamais le dénominateur de repli de la baseline elle-même.
 
     Préconditions (``ValueError``) : ``baseline`` est l'une de ``BASELINES`` ; en
     usage, ``reference`` a la longueur ``L`` de l'observation (un autre tracé sinon),
@@ -149,7 +151,11 @@ def baseline_scores(
     return score_outing(
         observation,
         score_scenario(observation, control),
-        None if usage is None else score_scenario(observation, usage, base=base),
+        None
+        if usage is None
+        else score_scenario(
+            observation, usage, base=base, base_unavailability=base_unavailability
+        ),
     )
 
 
@@ -239,6 +245,34 @@ def member_totals(
     return t_total, math.fsum(valid)
 
 
+def calibration_terms(
+    population: CalibrationPopulation,
+    model: ModelKind,
+    scenario: Scenario,
+    clock_index: int,
+    members: Mapping[date, Sequence[OutingScores]],
+) -> tuple[tuple[date, float, float | None], ...]:
+    """Les termes du calage (OG-2, E6) : les ``(jour, T_c, P_c)`` des membres de la
+    population effective ``C_j^eff``, dans l'ordre de ``population.members``, ceux de
+    :func:`member_totals` — ``P_c`` absent pour une projection invalide. Ce sont
+    exactement les termes dont :func:`calibrate` fait ``β`` ; ``model`` n'y entre que
+    par les préconditions de ``calibrate``, qui l'appelle.
+
+    Précondition (``ValueError``) : une entrée de ``members`` pour chaque membre."""
+    del model  # les termes ne dépendent que des scores de la source
+    terms: list[tuple[date, float, float | None]] = []
+    for day in population.members:
+        if day not in members:
+            raise ValueError(
+                f"calibration_terms : aucune entrée pour le membre {day.isoformat()}."
+            )
+        totals = member_totals(members[day], scenario, clock_index)
+        if isinstance(totals, Unavailability):
+            continue
+        terms.append((day, totals[0], totals[1]))
+    return tuple(terms)
+
+
 def calibrate(
     population: CalibrationPopulation,
     model: ModelKind,
@@ -278,21 +312,21 @@ def calibrate(
     if missing:
         listed = ", ".join(day.isoformat() for day in missing)
         raise ValueError(f"calibrate : aucune entrée pour les membres [{listed}].")
-    effective: list[date] = []
+    terms = calibration_terms(population, model, scenario, clock_index, members)
+    effective = [day for day, _, _ in terms]
     withdrawals: list[CalibrationWithdrawal] = []
-    logs: list[float] = []
-    model_error = False
     for day in population.members:
-        totals = member_totals(members[day], scenario, clock_index)
-        if isinstance(totals, Unavailability):
-            withdrawals.append(CalibrationWithdrawal(day, totals))
+        if day in effective:
             continue
-        effective.append(day)
-        t_total, p_total = totals
-        if p_total is None:
-            model_error = True
-        else:
-            logs.append(math.log(t_total / p_total))
+        totals = member_totals(members[day], scenario, clock_index)
+        assert isinstance(totals, Unavailability)  # calibration_terms l'a écarté
+        withdrawals.append(CalibrationWithdrawal(day, totals))
+    model_error = any(p_total is None for _, _, p_total in terms)
+    logs = [
+        math.log(t_total / p_total)
+        for _, t_total, p_total in terms
+        if p_total is not None
+    ]
     unavailability = None
     if not effective:
         unavailability = Unavailability.NOT_CALIBRATED
@@ -378,13 +412,15 @@ def calibrated_scores(
     calibrations: Sequence[ModelCalibration],
     *,
     base: ModelForecast | None = None,
+    base_unavailability: Unavailability | None = None,
 ) -> CalibratedScenarioScores:
     """Les scores calés d'un modèle sur une sortie, dans un scénario (``0010`` D9.2,
     D7 ; décisions 8 et 13) : sous chaque horloge calée, les scores
     (``clock_scores``) de la prévision calée de ce calage ; pas de scores sous une
     horloge non calée ou en erreur. ``forecast`` est la prévision **non calée** ;
     ``base``, en usage, la prévision d'usage de v0 brut (dénominateur de ``q_usage``,
-    D7.4). Aucune enveloppe (D5.4 ; décision 8).
+    D7.4) ; ``base_unavailability`` (OG-2), le motif d'une base absente (sans
+    courbe). Aucune enveloppe (D5.4 ; décision 8).
 
     Préconditions (``ValueError``) : les horloges des calages sont ``CLOCKS``, dans
     l'ordre ; un seul modèle ; puis, calage par calage, le scénario de ``forecast``,
@@ -407,7 +443,11 @@ def calibrated_scores(
         scores = None
         if calibration.unavailability is None:
             scores = clock_scores(
-                observation, calibrated_forecast(forecast, calibration), i, base=base
+                observation,
+                calibrated_forecast(forecast, calibration),
+                i,
+                base=base,
+                base_unavailability=base_unavailability,
             )
         entries.append(CalibratedClockScores(calibration, scores))
     return CalibratedScenarioScores(
@@ -462,6 +502,7 @@ def calibrate_performances(
     scores: Mapping[str, Mapping[ModelKind, OutingScores]],
     *,
     models: tuple[ModelKind, ...] = CALIBRATED_MODELS,
+    base_unavailability: Unavailability | None = None,
 ) -> tuple[CalibratedPerformance, ...]:
     """Le calage de chaque performance et les scores calés de ses sorties scorées,
     dans l'ordre reçu (``0010`` D9.2 ; D7.4).
@@ -481,10 +522,12 @@ def calibrate_performances(
     prévision d'usage de v0 brut (D7.4 au rapport) : l'admission recalcule ses
     ``q_usage`` sur la prévision calée de (0) (M4c-3).
 
-    Préconditions (``ValueError``) : chaque sortie de ``scores`` porte v0 brut et la
-    source de chaque modèle de ``models`` ; puis celles de ``calibration_population``.
+    Préconditions (``ValueError``) : chaque sortie de ``scores`` porte la source de
+    chaque modèle de ``models`` — v0 brut si v0 + effort recalé en est (OG-2 : une
+    performance sans courbe cale ses seules baselines, sans v0 brut, et passe
+    ``base_unavailability``) ; puis celles de ``calibration_population``.
     """
-    required = list(dict.fromkeys((ModelKind.V0_RAW, *map(_source, models))))
+    required = list(dict.fromkeys(map(_source, models)))
     for outing_id, by_model in scores.items():
         absent = [model for model in required if model not in by_model]
         if absent:
@@ -502,8 +545,8 @@ def calibrate_performances(
             if outing.outing_id not in scores:
                 continue
             unscaled_by_model = scores[outing.outing_id]
-            v0_usage = unscaled_by_model[ModelKind.V0_RAW].usage
-            base = None if v0_usage is None else v0_usage.forecast
+            v0 = unscaled_by_model.get(ModelKind.V0_RAW)
+            base = None if v0 is None or v0.usage is None else v0.usage.forecast
             for model in models:
                 unscaled = unscaled_by_model[_source(model)]
                 observation = unscaled.observation
@@ -521,6 +564,7 @@ def calibrate_performances(
                             cache, population, model, Scenario.USAGE, by_day, scores
                         ),
                         base=base,
+                        base_unavailability=base_unavailability,
                     )
                 outings.append(
                     CalibratedOutingScores(

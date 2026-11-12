@@ -149,7 +149,8 @@ def test_only_the_backtest_package_imports_the_calibration() -> None:
     ``backtest/__init__.py`` et, depuis M4c-2, l'exécution — depuis M4c-3, la règle
     d'admission (``calibrated_forecast``) et l'expérience
     (``calibrate_performances``) ; depuis M4d-2, les fourchettes (``member_totals``,
-    ``calibrated_forecast``)."""
+    ``calibrated_forecast``) ; depuis OG-2, le mode glissant
+    (``calibrate_performances``, ``calibration_population``, ``calibration_terms``)."""
     defined = _defined_names(ast.parse(CALIBRATION.read_text(encoding="utf-8")))
     importers = []
     for path in sorted(SOURCE.rglob("*.py")):
@@ -169,4 +170,5 @@ def test_only_the_backtest_package_imports_the_calibration() -> None:
         "backtest/drift.py",
         "backtest/execution.py",
         "backtest/experiment.py",
+        "backtest/rolling.py",
     ]

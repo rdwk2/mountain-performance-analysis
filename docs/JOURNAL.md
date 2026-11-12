@@ -39,6 +39,38 @@ Branche `an3/fc-decalee`.
 
 ---
 
+### 2026-11-12 · OG-2 — L'origine glissante : le backtest glissant
+`mperf backtest --rolling` juge chaque performance `j` avec `κ_j`, la courbe que la règle
+à l'origine (`0020`) rend à son origine sur une fenêtre déclarée (`0010`, précision OG-2).
+Douze commits, puis cinq de correctifs. La décision de F et la borne basse écrites une fois
+(`estimation/decision.py`), que la règle, le corpus et l'accord appellent. La part hors
+support sur la portion déclarée (`model/engine.py`). Les `activity_refs` du manifeste et
+leurs trois contrôles (`backtest/correspondence.py`). Le document de règle, la courbe
+figée et la courbe absente. La DÉCLARATION et le RÉSULTAT au format 6, les formats 1 à 5
+relus et réécrits à l'octet. L'accord du format 6, sans réestimer aucune courbe. La
+commande, en un processus, avec un corpus et un cache des intervalles
+(`backtest/rolling.py`). Le calage (a), le réservoir (a), D7.4 et `q_usage` avec `κ_j`,
+le statut « sans courbe ». Le rapport D15 de chaque fenêtre et le rapport de comparaison
+(IC95 de Student, `backtest/student_t.py`). Les documents, la recette
+`just backtest-rolling` et le hook. Le mode glissant existe ; aucune exécution réelle
+encore : elles sont à rdw, puis OG-3. 205 tests neufs (`tests/test_og2_*.py`, cinq cas
+du hook) ; les contre-épreuves et leur table sont dans la description de la PR. Branche
+`og2/backtest-glissant`.
+Relectures : le brief et le plan de Code, avant le code ; la PR, par deux relectures
+profondes (une par bloc), un balayage `mutmut` de sa portée et le tri de ses survivants.
+Correctifs : la condition 7 lit les termes du comparateur seul (le contrat des termes
+refuse un autre modèle) et, sur un jour à plusieurs sorties, chaque scénario présent sur
+l'une d'elles, chaque calage contre ses termes ; la commande glissante annonce chaque
+RÉSULTAT et écrit son rapport avant la fenêtre suivante (un ÉCHEC au `W` k garde les
+rapports des précédents), et le rapport D15 glissant porte les lignes du registre et du
+rapport ; l'accord refuse un instant sans fuseau, un document de courbe mal formé et une
+DÉCLARATION glissante sans v0 brut, chacun par une `RegistryError` ; puis les tests des
+garanties que la suite ne tenait pas. Le cas B2 du § 6.8 (« à 10⁻¹⁵ près ») est tenu à
+10⁻¹⁴ : l'écart mesuré vaut 1,5·10⁻¹⁵ sur une valeur proche de 0,035, du bruit d'arrondi
+(accordé par la conception).
+
+---
+
 ### 2026-11-11 · AN2-3 — Les pages « récupération » et « Q1 »
 `just ui` montre deux pages de plus, celles de la piste analyse. « Récupération » lit la
 table `jours` sans rien calculer (`0019`, section AN2-3) : les six mesures, chacune

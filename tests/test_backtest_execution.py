@@ -330,6 +330,7 @@ def test_declaration_of_the_world(tmp_path: Path) -> None:
     meta_path = COURBE.with_name("courbe_synthetique.meta.json")
     assert declaration.curve_ref == f"courbe_synthetique.csv#{csv_hash[:12]}"
     curve, meta = declaration.curve, declaration.curve_metadata
+    assert curve is not None and meta is not None  # noqa: PT018
     assert (curve.source.identifier, curve.source.content_hash) == (
         "courbe_synthetique.csv",
         csv_hash,
