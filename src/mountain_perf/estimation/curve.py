@@ -918,6 +918,40 @@ def curve_file_rows(estimate: CurveEstimate) -> tuple[CurveFileRow, ...]:
     )
 
 
+def curve_provenance(
+    estimate: CurveEstimate,
+    selection: CurveSelection,
+    parameters: ParameterSet,
+    *,
+    date_from: date,
+    date_to: date,
+    estimator: str,
+    generated_at: datetime,
+    athlete_ref: str,
+    support_threshold_min: float,
+) -> CurveProvenance:
+    """La provenance d'une courbe estimée, celle des deux modes de ``mperf curve``, une
+    plage ou une origine (OG-1b) : sans filtre de FC (``selection.hr_center_bpm``
+    ``None``), ni largeur ni décalage."""
+    filtered = selection.hr_center_bpm is not None
+    return CurveProvenance(
+        activity_count=len(estimate.activity_refs),
+        hr_center_bpm=selection.hr_center_bpm,
+        hr_width_bpm=parameters["hr_width_bpm"] if filtered else None,
+        date_from=date_from,
+        date_to=date_to,
+        source_activity_types=selection.source_activity_types,
+        min_duration_s=selection.min_duration_s,
+        estimator=estimator,
+        generated_at=generated_at,
+        athlete_ref=athlete_ref,
+        max_duration_s=selection.max_duration_s,
+        max_elapsed_s=selection.max_elapsed_s,
+        hr_lag_s=parameters["hr_lag_s"] if filtered else None,
+        diagnostic_support_threshold_min=support_threshold_min,
+    )
+
+
 def estimation_document(
     estimate: CurveEstimate,
     selection: CurveSelection,

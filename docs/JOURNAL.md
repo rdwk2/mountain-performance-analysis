@@ -41,6 +41,24 @@ tenait) et ces lignes, sans changement de `src/`.
 
 ---
 
+### 2026-11-11 · OG-1b — L'origine glissante : les coutures de la règle
+Trois coutures publiques, pour qu'OG-UI et OG-2 appellent la règle d'OG-1 sans la recoder
+(`0020`, précision OG-1b). Le fournisseur des intervalles : `estimate_at_origin(…,
+intervals_of=None)` appelle, une fois par candidate et avec les paramètres de la règle, la
+fonction qu'on lui donne, ou `activity_intervals` ; un cache s'y posera. Le compagnon en
+fonctions pures : `origin_companion` rend la provenance et le document d'estimation d'une
+courbe à l'origine, `curve_provenance` la provenance des deux modes de la commande,
+`curve_documents` les octets du CSV et du compagnon, que `write_curve` écrit. La lecture
+depuis les octets : `read_curve_documents`, que `read_curve` appelle, l'instant de
+l'estimation venant du compagnon ou de l'appelant, jamais des deux. Aucun comportement ne
+change, à une exception près : une erreur d'ouverture du compagnon autre que son absence
+remonte désormais avant une erreur du CSV. 34 tests neufs, dans
+`tests/test_og1b_coutures.py` ; les contre-épreuves et leur table sont dans la description
+de la PR. Le code dans `src/mountain_perf/estimation/origin.py`, `estimation/curve.py`,
+`model/curve_io.py`, `cli.py` ; la décision dans `docs/decisions/0020` (précision OG-1b).
+
+---
+
 ### 2026-11-10 · OG-1 — L'origine glissante : la règle à l'origine
 PR #41. La règle d'estimation à l'origine (`0020`, `estimation/origin.py`) : la courbe à
 l'origine ne lit que ce qui a fini avant l'origine, 00:00 à Paris de D − 7 ; une activité
