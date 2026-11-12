@@ -612,8 +612,10 @@ def _terms(
     unscaled: Mapping[str, Mapping[ModelKind, OutingScores]],
 ) -> CalibrationTerms:
     """Le document des termes du calage du comparateur d'une performance (E6) : pour
-    chaque scénario de ses scores calés et chaque horloge, les ``(T_c, P_c)`` de
-    ``calibration_terms``, sur les scores de v0 brut des membres."""
+    chaque scénario présent sur **l'une quelconque** des sorties scorées par le
+    comparateur (l'usage d'un jour multi-sorties peut manquer à la première et non à
+    une suivante) et chaque horloge, les ``(T_c, P_c)`` de ``calibration_terms``, sur
+    les scores de v0 brut des membres."""
     del performance
     population = calibrated.population
     by_day = {p.civil_date: p for p in performances}
@@ -633,7 +635,7 @@ def _terms(
     scenarios = []
     if comparator:
         scenarios.append(Scenario.CONTROL)
-        if comparator[0].usage is not None:
+        if any(entry.usage is not None for entry in comparator):
             scenarios.append(Scenario.USAGE)
     sets = tuple(
         ScenarioClockTerms(

@@ -1528,8 +1528,8 @@ class CalibrationTerms:
 
     Invariants
     ----------
-    ``sets`` est un tuple ; paires ``(scenario, clock)`` distinctes, dans l'ordre des
-    scénarios puis de ``CLOCKS``.
+    ``model`` est ``ModelKind.V0_RECALIBRATED`` ; ``sets`` est un tuple ; paires
+    ``(scenario, clock)`` distinctes, dans l'ordre des scénarios puis de ``CLOCKS``.
 
     Producteur
     ----------
@@ -1548,6 +1548,11 @@ class CalibrationTerms:
     sets: tuple[ScenarioClockTerms, ...]
 
     def __post_init__(self) -> None:
+        if self.model is not ModelKind.V0_RECALIBRATED:
+            raise ContractError(
+                "le document des termes porte le comparateur, v0 + effort recalé, "
+                f"reçu {self.model}."
+            )
         require_immutable_sequence(self.sets, "sets")
         scenarios = tuple(Scenario)
         keys = [

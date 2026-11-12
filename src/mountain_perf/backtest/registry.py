@@ -1358,9 +1358,11 @@ def _agree_calibration_terms(
     format_version: int,
 ) -> None:
     """La condition 7 (OG-2, E6) : pour une performance ``curve`` dont une sortie est
-    scorée, pour chaque ``(scénario, horloge)`` du comparateur, les jours des termes
-    sont la population de son calage ; un ``P_c`` absent ⟺ ``erreur du modèle`` ; vide
-    ⟺ ``non calé`` ; calé : ``β`` égal à ``fsum(ln(T_c / P_c)) / n`` à
+    scorée par le comparateur (v0 + effort recalé, le seul modèle que le contrat des
+    termes admet), pour chaque ``(scénario, horloge)`` présent sur **l'une quelconque**
+    de ses sorties scorées, et pour le calage de **chacune** : les jours des termes sont
+    la population du calage ; un ``P_c`` absent ⟺ ``erreur du modèle`` ; vide ⟺ ``non
+    calé`` ; calé : ``β`` égal à ``fsum(ln(T_c / P_c)) / n`` à
     ``METRIC_RELATIVE_TOLERANCE`` près (``τ·max(1, |β|)``, comme ``ModelCalibration``
     revérifie ``exp(β)`` : ``math.log`` n'est pas correctement arrondi)."""
     for declared, sha in zip(
@@ -1376,18 +1378,19 @@ def _agree_calibration_terms(
             item
             for outing in declared.performance.outings
             for item in calibrated.get(outing.outing_id, [])
-            if item.control.model is document.model
+            if item.control.model is ModelKind.V0_RECALIBRATED
         ]
         if not scores:
             continue
-        by_key: dict[tuple[Scenario, Clock], ModelCalibration] = {}
-        for item in scores[:1]:
+        by_key: dict[tuple[Scenario, Clock], list[ModelCalibration]] = {}
+        for item in scores:
             for scenario_scores in (item.control, item.usage):
                 if scenario_scores is None:
                     continue
                 for clock_scores in scenario_scores.clocks:
                     calibration = clock_scores.calibration
-                    by_key[(calibration.scenario, calibration.clock)] = calibration
+                    key = (calibration.scenario, calibration.clock)
+                    by_key.setdefault(key, []).append(calibration)
         keys = [(terms.scenario, terms.clock) for terms in document.sets]
         present = [s for s in Scenario if any(k[0] is s for k in by_key)]
         wanted = [(s, c) for s in present for c in declaration.clocks]
@@ -1397,8 +1400,8 @@ def _agree_calibration_terms(
                 f"comparateur {_CONDITION.format(7)}"
             )
         for terms in document.sets:
-            calibration = by_key[(terms.scenario, terms.clock)]
-            _check_terms(calibration, terms, where)
+            for calibration in by_key[(terms.scenario, terms.clock)]:
+                _check_terms(calibration, terms, where)
 
 
 def _check_terms(
