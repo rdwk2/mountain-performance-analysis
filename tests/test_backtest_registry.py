@@ -82,7 +82,20 @@ def journal_lines(root: Path) -> list[bytes]:
 
 
 def line_bytes(event: RegistryEvent) -> bytes:
-    return canonical_bytes(encode_contract(event))
+    """La ligne canonique d'un événement ; avant le format 6, sans ``activity_refs``
+    aux sorties de la DÉCLARATION ni ``rolling`` (OG-2), comme le registre l'écrit."""
+    data = encode_contract(event)
+    if event.format_version < 6 and isinstance(data, dict):
+        declaration = data.get("declaration")
+        if isinstance(declaration, dict):
+            declaration.pop("rolling")
+            for declared in declaration["performances"]:
+                for outing in declared["performance"]["outings"]:
+                    outing.pop("activity_refs")
+        result = data.get("result")
+        if isinstance(result, dict):
+            result.pop("rolling")
+    return canonical_bytes(data)
 
 
 def read_line(line: bytes) -> RegistryEvent:

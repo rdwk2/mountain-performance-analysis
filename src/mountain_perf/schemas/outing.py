@@ -212,7 +212,9 @@ class Unavailability(StrEnum):
 
     Invariants
     ----------
-    Énumération fermée : les douze statuts de ``0010`` D0, ni plus ni moins.
+    Énumération fermée : les treize statuts de ``0010`` D0, ni plus ni moins — les
+    douze du protocole, et « sans courbe », qui n'existe qu'en mode glissant (OG-2,
+    ``0010`` précision OG-2, point 5).
 
     Producteur
     ----------
@@ -238,6 +240,7 @@ class Unavailability(StrEnum):
     ZERO_TIME = "zero_time"
     UNIDENTIFIED_REFERENCE = "unidentified_reference"
     NON_CONVERGENCE = "non_convergence"
+    NO_CURVE = "no_curve"
     MODEL_ERROR = "model_error"
     NOT_CALIBRATED = "not_calibrated"
     MULTI_OUTING_DAY = "multi_outing_day"
@@ -267,6 +270,10 @@ UNAVAILABILITY_DESCRIPTIONS: Mapping[Unavailability, str] = MappingProxyType(
         ),
         Unavailability.NON_CONVERGENCE: (
             "non-convergence — limite d'itérations atteinte."
+        ),
+        Unavailability.NO_CURVE: (
+            "sans courbe — la règle n'a pas rendu de courbe à l'origine, ou la courbe "
+            "n'a aucune tranche au seuil de lecture (OG-2)."
         ),
         Unavailability.MODEL_ERROR: (
             "erreur du modèle — sortie de modèle nulle, négative, non finie ou "
@@ -381,6 +388,9 @@ class Outing:
     - ``dataset`` — sans unité — jeu déclaré.
     - ``label`` — sans unité — course ou entraînement ; ``None`` si absent.
     - ``external_records`` — sans unité — relevés externes de la sortie.
+    - ``activity_refs`` — sans unité — les activités d'``interim/`` qui ont enregistré
+      la sortie, déclarées par l'humain (OG-2) ; vide : aucune correspondance
+      déclarée.
 
     Propriété calculée (jamais stockée) : ``elapsed_s``.
 
@@ -395,7 +405,8 @@ class Outing:
     - ``route_id`` et ``variant`` sont ``None`` ou non vides ;
     - ``declared_portion_m`` est ``None`` ou un tuple ``(a, b)`` fini avec
       ``0 <= a < b`` ;
-    - chaque relevé externe porte l'``athlete_ref`` de la sortie.
+    - chaque relevé externe porte l'``athlete_ref`` de la sortie ;
+    - ``activity_refs`` est un tuple de textes non vides, distincts (OG-2).
 
     Producteur
     ----------
@@ -434,10 +445,18 @@ class Outing:
     dataset: DataSet | None = None
     label: OutingLabel | None = None
     external_records: tuple[ReferencePerformance, ...] = ()
+    activity_refs: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         require_non_empty(self.outing_id, "outing_id")
         require_non_empty(self.athlete_ref, "athlete_ref")
+        require_immutable_sequence(self.activity_refs, "activity_refs")
+        seen: set[str] = set()
+        for ref in self.activity_refs:
+            require_non_empty(ref, "activity_refs")
+            if ref in seen:
+                raise ContractError(f"activity_refs : {ref} en double.")
+            seen.add(ref)
         for name in ("start_time", "end_time"):
             instant: datetime = getattr(self, name)
             require_aware(instant, name)

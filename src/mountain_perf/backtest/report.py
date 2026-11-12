@@ -26,17 +26,21 @@ from mountain_perf.backtest.metrics import (
 )
 from mountain_perf.backtest.scoring import report_clocks
 from mountain_perf.backtest.segments import REGIME_GRADE_THRESHOLD, fine_overlaps
+from mountain_perf.backtest.student_t import student_t_quantile
 from mountain_perf.schemas import (
     CALIBRATED_MODELS,
     CLOCKS,
     AdmittedSegment,
     Availability,
     CalibratedOutingScores,
+    CalibratedPerformance,
     CalibrationPopulation,
     Clock,
     ClockScores,
     ConfigurationOutcome,
+    CurveStatus,
     DataSet,
+    Declaration,
     MatchResult,
     MetricValue,
     ModelBand,
@@ -45,14 +49,18 @@ from mountain_perf.schemas import (
     OutingDrift,
     OutingObservation,
     OutingScores,
+    PaceCurve,
     ParameterSpec,
+    Performance,
     PerformanceComparison,
     RegimeClass,
     RepeatabilityReference,
+    RollingDeclaration,
     RouteProfile,
     Scenario,
     ScenarioScores,
     SensitivityMetric,
+    ShareUnavailability,
     Unavailability,
 )
 
@@ -210,6 +218,9 @@ class ScoredPerformance:
     calibrated: tuple[tuple[ModelKind, CalibratedOutingScores], ...] = ()
     population: CalibrationPopulation | None = None
     bands: OutingBands | None = None
+    missing_models: tuple[tuple[ModelKind, str], ...] = ()
+    """Un motif par modèle (OG-2) : sans courbe, v0 brut et le comparateur n'ont pas de
+    scores, au motif ``no_curve``, quand les baselines en ont."""
 
 
 def scored_performances(
@@ -312,13 +323,22 @@ def role_clock_scores(
     rôle au-delà des horloges du rapport, ``insufficient_support`` ; pour un modèle
     calé, une horloge non calée, la valeur de son statut (``not_calibrated``,
     ``model_error``). L'horloge du rôle se lit parmi les onze (``CLOCKS``) ; un modèle
-    calé se lit sur ses scores calés, v0 brut sur les siens."""
+    calé se lit sur ses scores calés, v0 brut sur les siens. En mode glissant (OG-2),
+    le motif propre d'un modèle (``missing_models`` : « sans courbe ») passe juste
+    après celui de la performance."""
     scores = entry.scores
-    if entry.missing is not None or scores is None:
-        return entry.missing if entry.missing is not None else NOT_SCORED
+    if entry.missing is not None:
+        return entry.missing
+    motif = dict(entry.missing_models).get(model)
+    if motif is not None:
+        return motif
+    if scores is None and not entry.calibrated:
+        return NOT_SCORED
     index = _ROLE_INDEX[role]
     usage = scenario is Scenario.USAGE
     if model is ModelKind.V0_RAW:
+        if scores is None:
+            return NOT_SCORED
         raw = scores.usage if usage else scores.control
         if raw is None:
             return NO_REFERENCE
@@ -1046,3 +1066,389 @@ def drift_under(
         multi_outing=performance.is_multi_outing,
         outing_id=outing_id,
     )
+
+
+# ---------------------------------------------------------------------------
+# Le mode glissant (OG-2, 0010 précision OG-2, point 13)
+# ---------------------------------------------------------------------------
+
+
+def rolling_scored_performances(
+    declaration: Declaration,
+    outings: Sequence[OutingRun],
+    no_curve: Sequence[tuple[str, MatchResult]],
+    calibration: Sequence[CalibratedPerformance],
+    bands: Sequence[OutingBands],
+) -> tuple[ScoredPerformance, ...]:
+    """Une entrée par performance d'une DÉCLARATION glissante, comme
+    ``scored_performances`` (OG-2) : une performance ``curve``, ses scores et ses quatre
+    modèles calés ; une performance sans courbe, les scores calés de ses trois
+    baselines, et pour v0 brut et le comparateur le motif ``no_curve`` (choix C12) —
+    les agrégats
+    les comptent parmi les manquantes à ce motif. ``no_curve`` : la sortie et son
+    appariement, pour chaque sortie scorée sans courbe ; ``calibration`` : le calage de
+    chaque performance, dans l'ordre."""
+    scored = {run.outing.outing_id: run for run in outings}
+    matches = dict(no_curve)
+    populations = {p.population.civil_date: p.population for p in calibration}
+    calibrated = {
+        (entry.outing_id, entry.control.model): entry
+        for performance in calibration
+        for entry in performance.outings
+    }
+    by_outing = {entry.outing_id: entry for entry in bands}
+    entries: list[ScoredPerformance] = []
+    for declared in declaration.performances:
+        performance = declared.performance
+        present = {o.dataset for o in performance.outings}
+        datasets = tuple(dataset for dataset in DataSet if dataset in present)
+        routes = tuple(
+            sorted(
+                {
+                    o.route_id
+                    for o in performance.outings
+                    if o.dataset is DataSet.REPEATABILITY and o.route_id is not None
+                }
+            )
+        )
+        day = performance.civil_date
+        population = populations[day]
+        if performance.is_multi_outing:
+            entries.append(
+                ScoredPerformance(
+                    day,
+                    datasets,
+                    routes,
+                    None,
+                    (),
+                    Unavailability.MULTI_OUTING_DAY.value,
+                    population=population,
+                )
+            )
+            continue
+        outing_id = performance.outings[0].outing_id
+        run = scored.get(outing_id)
+        if run is not None:
+            models = tuple(
+                (model, calibrated[(outing_id, model)]) for model in CALIBRATED_MODELS
+            )
+            entries.append(
+                ScoredPerformance(
+                    day,
+                    datasets,
+                    routes,
+                    run.scores,
+                    report_clocks(run.match),
+                    None,
+                    models,
+                    population,
+                    by_outing.get(outing_id),
+                )
+            )
+            continue
+        match = matches.get(outing_id)
+        if match is None:
+            entries.append(
+                ScoredPerformance(
+                    day, datasets, routes, None, (), NOT_SCORED, population=population
+                )
+            )
+            continue
+        baselines = tuple(
+            (model, calibrated[(outing_id, model)])
+            for model in CALIBRATED_MODELS
+            if (outing_id, model) in calibrated
+        )
+        entries.append(
+            ScoredPerformance(
+                day,
+                datasets,
+                routes,
+                None,
+                report_clocks(match),
+                None,
+                baselines,
+                population,
+                None,
+                (
+                    (ModelKind.V0_RAW, Unavailability.NO_CURVE.value),
+                    (ModelKind.V0_RECALIBRATED, Unavailability.NO_CURVE.value),
+                ),
+            )
+        )
+    return tuple(entries)
+
+
+def is_covered(share: float, covered_threshold: float) -> bool:
+    """Couverte ⟺ part ``<= s``, frontière incluse (``0010`` précision OG-2,
+    point 9)."""
+    return share <= covered_threshold
+
+
+def is_beyond(share: float, beyond_marker: float) -> bool:
+    """Au-delà du repère ⟺ part ``>`` repère, frontière exclue (précision OG-2,
+    point 9)."""
+    return share > beyond_marker
+
+
+@dataclass(frozen=True)
+class WindowSets:
+    """Les ensembles d'une fenêtre, fixés par sa DÉCLARATION (OG-2, PG12) : les jours
+    couverts, au-delà du repère, à part indisponible (par motif) et sans courbe (par
+    motif)."""
+
+    covered: tuple[date, ...]
+    beyond: tuple[date, ...]
+    unavailable: tuple[tuple[str, int], ...]
+    no_curve: tuple[tuple[str, int], ...]
+
+
+def window_sets(days: Sequence[date], declaration: RollingDeclaration) -> WindowSets:
+    """Les ensembles d'une fenêtre (§ 6.9 (a) 3), lus des parts de sa DÉCLARATION :
+    couverte, part ``<= s`` ; au-delà, part ``>`` repère ; les parts indisponibles et
+    les performances sans courbe comptées par motif, dans l'ordre des énumérations."""
+    covered: list[date] = []
+    beyond: list[date] = []
+    unavailable: Counter[str] = Counter()
+    statuses: Counter[str] = Counter()
+    for day, entry in zip(days, declaration.performances, strict=True):
+        if entry.status is not CurveStatus.CURVE:
+            statuses[entry.status.value] += 1
+        share = entry.out_of_support_share
+        if share is None:
+            assert entry.share_unavailability is not None  # contrat
+            unavailable[entry.share_unavailability.value] += 1
+            continue
+        if is_covered(share, declaration.covered_threshold):
+            covered.append(day)
+        if is_beyond(share, declaration.beyond_marker):
+            beyond.append(day)
+    return WindowSets(
+        tuple(covered),
+        tuple(beyond),
+        tuple(
+            (reason.value, unavailable[reason.value])
+            for reason in ShareUnavailability
+            if unavailable[reason.value]
+        ),
+        tuple(
+            (status.value, statuses[status.value])
+            for status in CurveStatus
+            if statuses[status.value]
+        ),
+    )
+
+
+@dataclass(frozen=True)
+class CommandSets:
+    """Les ensembles de la comparaison des fenêtres (§ 6.9 (b) 2), calculés depuis les
+    DÉCLARATIONS, jamais déduits (le support n'est pas monotone en ``W``) : le commun
+    (statut ``curve`` sous chaque fenêtre), les couvertes sous toutes, et pour chaque
+    fenêtre, dans l'ordre, ses jours au-delà du repère."""
+
+    common: tuple[date, ...]
+    covered_under_all: tuple[date, ...]
+    beyond: tuple[tuple[date, ...], ...]
+
+
+def command_sets(
+    days: Sequence[date], declarations: Sequence[RollingDeclaration]
+) -> CommandSets:
+    """Les ensembles de la commande (§ 6.9 (b) 2)."""
+    common = [
+        day
+        for k, day in enumerate(days)
+        if all(d.performances[k].status is CurveStatus.CURVE for d in declarations)
+    ]
+    sets = [window_sets(days, declaration) for declaration in declarations]
+    covered = [day for day in days if all(day in s.covered for s in sets)]
+    return CommandSets(tuple(common), tuple(covered), tuple(s.beyond for s in sets))
+
+
+def pair_beyond(
+    days: Sequence[date],
+    declarations: Sequence[RollingDeclaration],
+    window: int,
+    other: int,
+) -> tuple[date, ...]:
+    """Les jours au-delà du repère sous la fenêtre ``window`` lus dans sa paire avec
+    ``other`` (§ 6.9 (b) 4) : ceux qui ont une courbe sous ``other`` ; une performance
+    sans courbe sous ``other`` sort de ``n``."""
+    found = window_sets(days, declarations[window]).beyond
+    return tuple(
+        day
+        for day in found
+        if declarations[other].performances[days.index(day)].status is CurveStatus.CURVE
+    )
+
+
+MDE_SPREAD = 0.0253
+"""L'écart-type des différences de ``|L|`` mesuré chez rdw (56 − 28 jours, n = 11),
+de l'issue probable (§ 6.9 (b) 3)."""
+
+
+def minimum_detectable_effect(n: int) -> float | None:
+    """Le plus petit écart de ``|L|`` détectable à 80 % par un test t apparié
+    bilatéral à 5 % (§ 6.9 (b) 3) : ``(t₀,₉₇₅(n−1) + t₀,₈₀(n−1)) × 0,0253 / √n`` ;
+    ``None`` pour ``n < 2``."""
+    if n < 2:
+        return None
+    spread = student_t_quantile(0.975, n - 1) + student_t_quantile(0.8, n - 1)
+    return spread * MDE_SPREAD / math.sqrt(n)
+
+
+@dataclass(frozen=True)
+class PairedDifference:
+    """Une différence appariée entre deux fenêtres (§ 6.9 (b) 4) : l'effectif, la
+    moyenne des différences ``W_k − W_i``, l'IC95 de Student (``None`` pour ``n < 2``),
+    et les signes : ``W_k`` meilleur, ``W_i`` meilleur, égalité (« meilleur » : la plus
+    petite valeur absolue)."""
+
+    count: int
+    mean: float | None
+    interval: tuple[float, float] | None
+    later_better: int
+    earlier_better: int
+    ties: int
+
+
+def paired_difference(pairs: Sequence[tuple[float, float]]) -> PairedDifference:
+    """Les différences appariées de couples ``(valeur sous W_i, valeur sous W_k)``
+    (D-OG2-9) : ``d = x_k − x_i`` ; la moyenne ``fsum(d) / n`` ; l'IC95 ``moyenne ±
+    t₀,₉₇₅(n−1) × s / √n``, ``s`` l'écart-type des différences (``n − 1`` au
+    dénominateur) ; les signes comptés sur les valeurs absolues."""
+    differences = [later - earlier for earlier, later in pairs]
+    n = len(differences)
+    later_better = sum(1 for e, k in pairs if abs(k) < abs(e))
+    earlier_better = sum(1 for e, k in pairs if abs(e) < abs(k))
+    ties = n - later_better - earlier_better
+    if n == 0:
+        return PairedDifference(0, None, None, 0, 0, 0)
+    mean = math.fsum(differences) / n
+    if n < 2:
+        return PairedDifference(n, mean, None, later_better, earlier_better, ties)
+    variance = math.fsum((d - mean) ** 2 for d in differences) / (n - 1)
+    half = student_t_quantile(0.975, n - 1) * math.sqrt(variance) / math.sqrt(n)
+    return PairedDifference(
+        n, mean, (mean - half, mean + half), later_better, earlier_better, ties
+    )
+
+
+def common_usage_target(
+    forecast_s: Sequence[float], observed_s: Sequence[float], base_s: Sequence[float]
+) -> float:
+    """``q_usage`` à dénominateur commun (D-P6, option 1 ; § 6.9 (b) 4) : aux poids par
+    défaut de D7.4 pris sur la base, ``fsum(|P_k − T_k|) / fsum(P⁰_k)``, ``P⁰`` la
+    prévision d'usage de v0 brut sous tout le passé."""
+    return math.fsum(
+        abs(p - t) for p, t in zip(forecast_s, observed_s, strict=True)
+    ) / math.fsum(base_s)
+
+
+def usage_elements(scores: OutingScores) -> tuple[tuple[float, ...], tuple[float, ...]]:
+    """Les cumuls prévus et observés des éléments de ``K`` sous l'écoulé, en usage
+    (D7.4) ; ``ValueError`` sans usage, ou si un élément manque."""
+    usage = scores.usage
+    if usage is None:
+        raise ValueError("usage_elements : la sortie n'a pas d'usage.")
+    forecast = usage.forecast.target_s
+    observed = [target.times_s for target in scores.observation.targets]
+    if any(p is None for p in forecast) or any(t is None for t in observed):
+        raise ValueError("usage_elements : un élément de K manque.")
+    return (
+        tuple(p for p in forecast if p is not None),
+        tuple(t[0] for t in observed if t is not None),
+    )
+
+
+@dataclass(frozen=True)
+class Contributors:
+    """La ligne de calage glissante d'une performance (§ 6.9 (a) 5) : ``k / n``
+    contributeurs parmi les membres de ``C_j^eff``, la moyenne des ``ln(T_c / P_c)``
+    sur les contributeurs et sur les autres (``None`` pour un ensemble vide) ; ou
+    indisponible, avec les sorties des membres sans correspondance."""
+
+    contributors: int
+    members: int
+    contributing_mean: float | None
+    other_mean: float | None
+    unmatched: tuple[str, ...]
+
+
+def contributor_means(
+    terms: Sequence[tuple[date, float, float | None]],
+    member_outings: Sequence[tuple[date, Sequence[tuple[str, tuple[str, ...]]]]],
+    contributing_refs: frozenset[str],
+) -> Contributors:
+    """Les contributeurs d'une performance (§ 6.9 (a) 5, D-P8) : un membre de
+    ``C_j^eff`` est contributeur si l'une des ``activity_refs`` de ses sorties est une
+    ligne ``"contributes": true`` du compagnon de ``κ_j`` (``contributing_refs``) ; les
+    moyennes, sur les termes du calage. Indisponible si une sortie d'un membre n'a pas
+    d'``activity_refs`` — jamais calculé sur les seuls membres renseignés.
+    ``member_outings`` : pour chaque jour de membre, ses sorties ``(identifiant,
+    activity_refs)``."""
+    effective = {day for day, _, _ in terms}
+    unmatched = tuple(
+        outing_id
+        for day, outings in member_outings
+        if day in effective
+        for outing_id, refs in outings
+        if not refs
+    )
+    if unmatched:
+        return Contributors(0, len(terms), None, None, unmatched)
+    contributing_days = {
+        day
+        for day, outings in member_outings
+        if any(set(refs) & contributing_refs for _, refs in outings)
+    }
+    inside = [
+        math.log(t / p)
+        for day, t, p in terms
+        if p is not None and day in contributing_days
+    ]
+    outside = [
+        math.log(t / p)
+        for day, t, p in terms
+        if p is not None and day not in contributing_days
+    ]
+    return Contributors(
+        sum(1 for day, _, _ in terms if day in contributing_days),
+        len(terms),
+        math.fsum(inside) / len(inside) if inside else None,
+        math.fsum(outside) / len(outside) if outside else None,
+        (),
+    )
+
+
+def rolling_outing_drift(
+    outing: OutingRun,
+    performance: Performance,
+    calibrated: CalibratedPerformance,
+    curve: PaceCurve,
+) -> OutingDrift | None:
+    """La dérive d'une sortie scorée en mode glissant (OG-2, D12) : celle de
+    ``outing_drift_report``, avec ``κ_j`` pour courbe ; ``None`` sans usage."""
+    return outing_drift(
+        outing.scores,
+        outing.passages,
+        outing.profile,
+        report_clocks(outing.match),
+        calibrated,
+        curve,
+        multi_outing=performance.is_multi_outing,
+        outing_id=outing.outing.outing_id,
+    )
+
+
+def comparison_conclusion(
+    intervals: Sequence[tuple[float, float] | None],
+) -> bool | None:
+    """La conclusion permise de la comparaison des fenêtres (§ 6.9 (b) 5), sur les IC95
+    de ``|L|`` des couvertes sous toutes : ``True`` si au moins un est calculé et
+    qu'aucun n'exclut 0 ; ``None`` si aucun n'est calculé ; ``False`` sinon (aucune
+    phrase)."""
+    computed = [interval for interval in intervals if interval is not None]
+    if not computed:
+        return None
+    return all(low <= 0 <= high for low, high in computed)

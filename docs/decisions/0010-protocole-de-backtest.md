@@ -1505,6 +1505,93 @@ validation du détecteur d'arrêts ; effort de course sur courses seulement ;
 agrégation des jours à plusieurs sorties au premier cas réel ; limites connues
 listées ci-dessous (Conséquences).
 
+## Précision OG-2 — le mode glissant (2026-11-12)
+
+*Sur le cadrage de l'origine glissante (Q4, Q9 ; décisions de rdw du 2026-11-01 au 2026-11-08),
+l'arbitrage de la passe experte 2 (D-P4 à D-P8, 2026-11-11) et les décisions de rdw du 2026-11-11.
+Le mode « courbe déclarée » ne change pas.*
+
+1. **Deux modes.** « Courbe déclarée » : une courbe pour toutes les performances (D2.6).
+   « Origine glissante » (`mperf backtest --rolling`) : la performance `j` est jugée avec `κ_j`, la
+   courbe que la règle à l'origine (`0020`) rend à `o_j` sur la fenêtre `W`. Une commande, un
+   processus (un manifeste, un index, un corpus) ; une DÉCLARATION par `W`, qui nomme les fenêtres
+   de la commande ; un rapport de comparaison, qui n'est pas un événement du registre.
+2. **La règle déclarée.** Un document de règle, d'empreinte propre : l'athlète, le commit, `W`, la
+   sélection, tous les paramètres effectifs de l'estimation et du profil (défauts compris), le seuil
+   des diagnostics. L'athlète du manifeste est celui du corpus ; une courbe d'un autre athlète est
+   refusée.
+3. **Les courbes, figées avant la DÉCLARATION** : le CSV et le compagnon sans instant d'estimation ni
+   commit ; une courbe absente a un document à part. « La même courbe » se dit par l'empreinte du
+   CSV. La DÉCLARATION les cite par empreinte ; le RÉSULTAT les publie.
+4. **Ce qui lit la courbe lit `κ_j`** : la prévision de v0 brut de `j` ; le calage (a) de D9.2 (les
+   `P_c` des membres projetés avec `κ_j`) ; le réservoir (a) de D11 (la source avec `κ_j`, l'effort de
+   chaque membre calé avec `κ_j` sur `C_c^eff`) ; `P⁽⁰⁾` de D7.4, pour les cinq modèles ; D12 ; D3.
+   La ligne de `j` est celle de l'exécution « courbe déclarée » avec le fichier de `κ_j`, aux mêmes
+   modèles déclarés, au bit. Sous
+   le calage (a), le niveau du comparateur ne dépend pas de la fenêtre : les fenêtres se comparent
+   sur v0 brut.
+5. **Sans courbe** (D0) : un statut de plus, deux motifs — la règle n'a pas rendu de courbe, ou la
+   courbe n'a aucune tranche au seuil de lecture. Ses places : D7.1, avant « erreur du modèle » ;
+   D7.4, `q_usage` des cinq modèles, jamais de dénominateur de repli (les poids publiés d'une cible « sans courbe »
+   restent ceux de la baseline elle-même ; rien ne les lit) ; D9.2, la population publiée,
+   `β` « sans courbe » (v0 brut et le comparateur ne scorent pas la performance) ; D10.2 : non
+   évaluable, juste après « sans scénario d'usage » ; D11 : pas de fourchettes ; D12, D3 :
+   indisponibles ; D15 : compté par motif. Les baselines gardent
+   `L`, `E_R`, `D_R`, `C_k` et leur calage.
+6. **D9.3** : la courbe glissante est la règle d'estimation de la base, pas un effet ; elle lit
+   toutes les sorties de l'athlète finies avant `o_j`. « Sur `C_j` seulement » vise les paramètres
+   propres d'un effet.
+7. **D2.2, D2.3, D2.5** : la courbe de `j` ne lit que des activités finies avant `o_j` sous la
+   convention de la fin sûre (`0020`), reconstituée du corpus figé ; rien ne dit que les octets lus
+   existaient à `o_j`. Le jeu de répétabilité se définit par le manifeste seul. L'âge de la courbe
+   cède la place à sa fenêtre et à ses dates.
+8. **La disponibilité** (D2.6, D10.7) : la courbe de `j` est disponible à `data_available_at`
+   (avant `o_j`) ; la règle, à l'instant de la DÉCLARATION qui l'a figée, et seulement pour une
+   exécution qui applique le même document de règle, commit compris ; sans figement nommé, aucune
+   performance n'entre en confirmation. `recorded_at` est fourni par l'appelant : l'instant du
+   figement n'est borné que par l'événement qui le précède.
+9. **La part hors support** : la part du temps prévu par v0 brut avec `κ_j`, au seuil de lecture,
+   sur la portion déclarée du profil de référence (sans référence : sur la trace, en contrôle) ;
+   calculée avant la DÉCLARATION et écrite avec `s` et le repère. Couverte : part ≤ `s` ; au-delà du
+   repère : part > repère (50 % par défaut). Les ensembles sont fixés avant tout score ; `s` et le
+   repère n'ont d'effet ni sur les scores ni sur l'accord.
+10. **La correspondance** (D2.6) : par sortie du manifeste, une liste `activity_refs` déclarée par
+    l'humain ; une activité n'appartient qu'à une sortie. Trois contrôles avant tout écrit, chacun un
+    refus : chaque activité recouvre la sortie ; ensemble, elles la couvrent point par point, à la
+    tolérance déclarée près ; à chaque `o_j`, la fin du manifeste et la plus tardive des fins sûres
+    sont du même côté. Sans correspondance, les diagnostics qui en dépendent sont indisponibles.
+11. **D10, D13** : une expérience d'admission et une sensibilité sont refusées en mode glissant,
+    dans le contrat, jusqu'à une décision.
+12. **D14, le format 6.** La DÉCLARATION gagne le mode glissant ; `curve_ref`, `curve` et
+    `curve_metadata` deviennent facultatifs selon le mode : **le format 6 change ce contrat**, par
+    exception à Q4.7 (un champ qui mentirait en mode glissant coûterait plus cher qu'une exception) ;
+    les lignes des formats 1 à 5 se relisent et se réécrivent à l'octet. Le RÉSULTAT publie le
+    document de règle, les courbes figées et, par performance, les termes du calage. L'accord
+    vérifie, sans réestimer aucune courbe : les documents sont ceux de la DÉCLARATION ; la règle, la
+    fenêtre, la borne basse (recalculée), les paramètres et le seuil des diagnostics de chaque
+    compagnon ; chaque ligne d'activité, sa méthode et sa décision, redérivée par la règle F ; les
+    candidates, les retenues, les contributrices et les dates ; les comptes ; une seule empreinte
+    d'index et une empreinte par enregistrement ; le verdict relu sur le CSV figé ; les prévisions
+    de chaque performance nomment sa courbe ; `β = fsum(ln(T_c / P_c)) / n` à 1e−12 près ; « sans
+    courbe » seulement en mode glissant. Il ne vérifie pas : que les octets lus viennent d'exports
+    disponibles avant `o_j` ; que les lignes de l'index sont celles de l'index ; une candidate omise
+    avec ses comptes ; l'historique ; les champs descriptifs du compagnon (ses dates, son niveau, ses
+    durées en mouvement) ; l'étiquette d'athlète d'un corpus ; l'authenticité d'un
+    producteur malveillant.
+13. **D15.** Par `W`, une ligne par performance (sa fenêtre, ses sorties lues, leurs heures en
+    mouvement, le support lu, la part hors support, le niveau p50, l'historique à pied) ; les
+    ensembles et leurs agrégats, à part ; v0 brut et le comparateur côte à côte sur les couvertes ;
+    la ligne de calage avec les contributeurs et deux moyennes partielles. Le rapport de comparaison
+    lit les `W` d'abord sur v0 brut : sur les couvertes sous tous, le commun, et au-delà du repère
+    sous chacun ; toutes les paires, en différences appariées (IC95 de Student, sans correction ;
+    signes comptés) ; `q_usage` à dénominateur commun (v0 brut sous tout le passé) ; l'issue probable,
+    écrite avant. 56 jours est un choix d'usage (rdw, 2026-11-01), pas un résultat de ce backtest.
+    Sur le banc multi-athlète, tout le passé fait mieux que 56 jours toutes performances confondues
+    (|L| −0,089, IC95 −0,130 ; −0,055, sans 0) ; l'avantage disparaît à support égal (+0,002, IC95
+    −0,010 ; +0,015, qui contient 0).
+    *Hypothèse, non mesurée* : à support bon, le calage (a) ajouterait de l'erreur aux longues
+    fenêtres, par des membres plus anciens que la fenêtre (E15 de la passe experte 2).
+
 ## Pourquoi
 
 **Des segments plutôt que des cumulés.** Un cumulé est une somme : une erreur au

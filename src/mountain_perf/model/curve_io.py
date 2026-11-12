@@ -35,6 +35,7 @@ from mountain_perf.schemas import (
     Sport,
 )
 from mountain_perf.units import kmh_to_ms
+from mountain_perf.validation import ContractError
 
 DEFAULT_SUPPORT_THRESHOLD_MIN: Final = 10.0
 """Le seuil de support par défaut, en minutes (``0009`` D2)."""
@@ -696,6 +697,23 @@ def check_curve_rows(rows: Sequence[CurveFileRow], threshold_min: float) -> str 
     return None
 
 
+def curve_csv_support(csv: bytes, threshold_min: float) -> tuple[int, str | None]:
+    """Le nombre de tranches d'un CSV de courbe, et le message d'un support impossible
+    au seuil ``threshold_min`` (minutes), ``None`` si le support existe (OG-2) : les
+    étapes de :func:`check_curve_rows` (``_read_bins``, ``_select_support``), sur des
+    octets."""
+    try:
+        text = csv.decode("utf-8")
+    except UnicodeDecodeError as error:
+        raise CurveError("csv : fichier illisible en UTF-8.") from error
+    bins = _read_bins(text)
+    try:
+        _select_support(bins, threshold_min)
+    except CurveError as error:
+        return len(bins), str(error)
+    return len(bins), None
+
+
 def _meta_text(
     sport: Sport, provenance: CurveProvenance, estimation: Mapping[str, object]
 ) -> str:
@@ -720,6 +738,29 @@ def _meta_text(
         "estimation": dict(estimation),
     }
     return json.dumps(document, ensure_ascii=False, indent=2, allow_nan=False) + "\n"
+
+
+def freeze_companion(companion: bytes) -> bytes:
+    """Le compagnon figé d'une courbe à l'origine (OG-2) : les octets de
+    :func:`curve_documents` sans la clé ``generated_at`` ni la clé ``commit`` de la
+    section ``estimation`` ; le reste à l'octet. :func:`read_curve_documents` le relit
+    avec ``generated_at`` donné à part."""
+    document = json.loads(companion.decode("utf-8"))
+    estimation = document.get("estimation") if isinstance(document, dict) else None
+    if (
+        not isinstance(document, dict)
+        or "generated_at" not in document
+        or not isinstance(estimation, dict)
+        or "commit" not in estimation
+    ):
+        raise ContractError(
+            "companion : un compagnon de curve_documents attendu, avec "
+            "« generated_at » et « estimation.commit »."
+        )
+    del document["generated_at"]
+    del estimation["commit"]
+    text = json.dumps(document, ensure_ascii=False, indent=2, allow_nan=False) + "\n"
+    return text.encode("utf-8")
 
 
 @dataclass(frozen=True)

@@ -18,7 +18,9 @@ absent. Ce n'est pas non plus un modèle validé : la mesure de son erreur est l
 
 from __future__ import annotations
 
+import math
 from bisect import bisect_right
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from itertools import accumulate
@@ -282,6 +284,64 @@ def projected_timeline(
     return ProjectedTimeline(
         tuple(profile.distance_m),
         tuple(model.pace_s_per_m(g) / effort for g in profile.grade),
+    )
+
+
+def portion_out_of_support_share(
+    timeline: ProjectedTimeline,
+    extrapolated: Sequence[bool],
+    portion_m: tuple[float, float] | None,
+) -> float:
+    """La part du temps projeté passée hors du support sur une portion ``(a, b)`` du
+    profil, ``None`` : tout le profil (OG-2). Chaque intervalle de la grille coupé à la
+    portion compte ``(fin − début) × allure`` ; la part est la somme exacte
+    (``math.fsum``) des intervalles hors support sur celle de tous : elle ne dépasse
+    jamais 1 ; sans portion, elle vaut le champ ``out_of_support_time_share`` de
+    :func:`project_with_diagnostics` à ``METRIC_RELATIVE_TOLERANCE`` près."""
+    intervals = len(timeline.grid_m) - 1
+    if len(extrapolated) != intervals:
+        raise ContractError(
+            f"extrapolated : une valeur par intervalle attendue ({intervals}), reçu "
+            f"{len(extrapolated)}."
+        )
+    length_m = timeline.length_m
+    if portion_m is None:
+        start_m, end_m = 0.0, length_m
+    else:
+        start_m, end_m = portion_m
+        if not 0 <= start_m < end_m <= length_m:
+            raise ContractError(
+                f"portion_m : (a, b) avec 0 <= a < b <= {length_m} attendu, reçu "
+                f"({start_m}, {end_m})."
+            )
+    grid_m, pace = timeline.grid_m, timeline.pace_s_per_m
+    terms: list[float] = []
+    outside: list[float] = []
+    for i in range(intervals):
+        low = max(grid_m[i], start_m)
+        high = min(grid_m[i + 1], end_m)
+        if high > low:
+            term = (high - low) * pace[i]
+            terms.append(term)
+            if extrapolated[i]:
+                outside.append(term)
+    return _share(math.fsum(outside), math.fsum(terms))
+
+
+def portion_out_of_support_time_share(
+    profile: RouteProfile,
+    curve: PaceCurve,
+    parameters: ParameterSet,
+    portion_m: tuple[float, float] | None,
+) -> float:
+    """La part de :func:`portion_out_of_support_share` pour la projection de ``curve``
+    sur ``profile`` (OG-2) : la chronologie de :func:`projected_timeline`, hors support
+    selon la courbe (ses bords en font partie)."""
+    model = PaceModel(curve)
+    return portion_out_of_support_share(
+        projected_timeline(profile, curve, parameters),
+        tuple(model.is_extrapolated(g) for g in profile.grade),
+        portion_m,
     )
 
 

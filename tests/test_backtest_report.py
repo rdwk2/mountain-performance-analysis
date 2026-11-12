@@ -151,6 +151,7 @@ def test_missing_order() -> None:
         "zero_time",
         "unidentified_reference",
         "non_convergence",
+        "no_curve",
         "model_error",
         "not_calibrated",
         "multi_outing_day",

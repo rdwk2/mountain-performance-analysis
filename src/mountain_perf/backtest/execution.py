@@ -44,7 +44,7 @@ from mountain_perf.backtest.registry import (
     line_hash,
 )
 from mountain_perf.backtest.repeatability import repeatability_reference
-from mountain_perf.backtest.scoring import realized_profile, v0_scores
+from mountain_perf.backtest.scoring import observe_outing, realized_profile, v0_scores
 from mountain_perf.backtest.segments import match_trace
 from mountain_perf.backtest.series import TraceSeries, build_series
 from mountain_perf.gitstate import GitFailure, GitStateError
@@ -95,6 +95,7 @@ from mountain_perf.schemas import (
     RouteProfile,
     SourceRef,
     Sport,
+    Unavailability,
 )
 from mountain_perf.validation import ContractError
 
@@ -327,23 +328,24 @@ def _exclusions(
     return tuple(exclusions)
 
 
-def prepare_backtest(
-    manifest_path: Path,
-    curve_path: Path,
-    *,
-    commit: str,
-    tree_modified: bool,
-    retrieved_at: datetime | None = None,
-) -> Preparation:
-    """Lit, contrôle et déclare, **sans rien écrire** (``0010`` D14, D0, D2.1, D2.5,
-    D2.6, D8 ; précisions de M4b-5) : le manifeste et la courbe (leurs erreurs
-    remontent telles quelles) ; les domaines, la rétention et les performances ; le
-    jeu de répétabilité (parcours, référence, une seule par parcours) ; les exclusions
-    et leurs motifs ; les deux fichiers de la courbe, lus à ``retrieved_at`` ; la
-    DÉCLARATION des cinq modèles (``MODELS``), des onze horloges et de l'appariement
-    par défaut."""
-    read = load_manifest(manifest_path)
-    curve = read_curve(curve_path, ParameterSet(PROJECTION_PARAMETER_SPECS))
+@dataclass(frozen=True)
+class ManifestPreparation:
+    """Ce que le manifeste lu donne à une exécution, avant toute courbe (OG-2 : commun
+    à ``prepare_backtest`` et au mode glissant) : la rétention, les domaines, les
+    performances et les exclusions."""
+
+    manifest: ManifestReadResult
+    decisions: tuple[RetentionDecision, ...]
+    domains: tuple[OutingDomain, ...]
+    performances: tuple[Performance, ...]
+    exclusions: tuple[Exclusion, ...]
+
+
+def prepare_manifest(read: ManifestReadResult) -> ManifestPreparation:
+    """Les étapes de ``prepare_backtest`` qui suivent la lecture du manifeste et de la
+    courbe, **à partir du manifeste lu** (OG-2, une aide commune) : les domaines, la
+    rétention et les performances ; le jeu de répétabilité (parcours, référence, une
+    seule par parcours) ; les exclusions et leurs motifs."""
     domains = outing_domains(read)
     by_id = {domain.outing_id: domain for domain in domains}
     decisions = retain_outings(read.outings)
@@ -357,6 +359,27 @@ def prepare_backtest(
     performances = group_performances(decisions, in_domain_ids)
     _repeatability_references(performances)
     exclusions = _exclusions(read, decisions, by_id, in_domain_ids)
+    return ManifestPreparation(read, decisions, domains, performances, exclusions)
+
+
+def prepare_backtest(
+    manifest_path: Path,
+    curve_path: Path,
+    *,
+    commit: str,
+    tree_modified: bool,
+    retrieved_at: datetime | None = None,
+) -> Preparation:
+    """Lit, contrôle et déclare, **sans rien écrire** (``0010`` D14, D0, D2.1, D2.5,
+    D2.6, D8 ; précisions de M4b-5) : le manifeste et la courbe (leurs erreurs
+    remontent telles quelles) ; les domaines, la rétention et les performances ; le
+    jeu de répétabilité (parcours, référence, une seule par parcours) ; les exclusions
+    et leurs motifs (``prepare_manifest``, OG-2) ; les deux fichiers de la courbe, lus
+    à ``retrieved_at`` ; la DÉCLARATION des cinq modèles (``MODELS``), des onze
+    horloges et de l'appariement par défaut."""
+    read = load_manifest(manifest_path)
+    curve = read_curve(curve_path, ParameterSet(PROJECTION_PARAMETER_SPECS))
+    common = prepare_manifest(read)
     csv, meta = curve_artifacts(curve_path, curve, retrieved_at=retrieved_at)
     declaration = Declaration(
         commit=commit,
@@ -369,12 +392,14 @@ def prepare_backtest(
         curve=csv,
         curve_metadata=meta,
         manifest=read.source,
-        performances=tuple(declared_performance(p) for p in performances),
-        exclusions=exclusions,
+        performances=tuple(declared_performance(p) for p in common.performances),
+        exclusions=common.exclusions,
         models=MODELS,
         experiment=None,
     )
-    return Preparation(read, curve, decisions, domains, performances, declaration)
+    return Preparation(
+        read, curve, common.decisions, common.domains, common.performances, declaration
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -465,6 +490,39 @@ class TracedOuting:
     passages: PassageMatchResult
 
 
+def reference_profile(
+    read: ManifestReadResult,
+    outing: Outing,
+    profiles: dict[Path, tuple[RouteProfile, ReferenceGeometry]],
+) -> tuple[RouteProfile, ReferenceGeometry]:
+    """Le tracé de la référence d'une sortie, la première moitié de ``trace_outing``
+    (OG-2 : la part hors support le lit aussi) : son fichier lu une fois par chemin,
+    ``profiles`` servant de mémoire. Précondition : la sortie a une référence."""
+    reference = outing.reference
+    assert reference is not None  # précondition
+    path = read.artifact_paths[reference.artifact.source.content_hash]
+    if path not in profiles:
+        route = read_gpx(path).route
+        profiles[path] = (
+            build_profile(route, ParameterSet(PROFILE_PARAMETER_SPECS)),
+            reference_geometry(route),
+        )
+    return profiles[path]
+
+
+def trace_profile(
+    outing: Outing, trace: RecordedTrace
+) -> tuple[RouteProfile, ReferenceGeometry]:
+    """La grille sur la trace enregistrée d'une sortie sans référence, la première
+    moitié de ``trace_outing`` (OG-2 : la part hors support, en contrôle, la lit
+    aussi)."""
+    route = trace_route(trace, outing.traces[0].source.identifier)
+    return (
+        build_profile(route, ParameterSet(PROFILE_PARAMETER_SPECS)),
+        reference_geometry(route),
+    )
+
+
 def trace_outing(
     read: ManifestReadResult,
     outing: Outing,
@@ -479,22 +537,12 @@ def trace_outing(
     l'expérience (M4c-3). L'appariement est ``matching``, ou celui par défaut
     (``MATCHING_PARAMETER_SPECS``) ; la sensibilité y passe celui de chaque paire
     ``(Δ, ε)`` (``0010`` D13 ; M4d-3)."""
-    reference = outing.reference
     usage: RouteProfile | None = None
-    if reference is not None:
-        path = read.artifact_paths[reference.artifact.source.content_hash]
-        if path not in profiles:
-            route = read_gpx(path).route
-            profiles[path] = (
-                build_profile(route, ParameterSet(PROFILE_PARAMETER_SPECS)),
-                reference_geometry(route),
-            )
-        profile, geometry = profiles[path]
+    if outing.reference is not None:
+        profile, geometry = reference_profile(read, outing, profiles)
         usage = profile
     else:
-        route = trace_route(trace, outing.traces[0].source.identifier)
-        profile = build_profile(route, ParameterSet(PROFILE_PARAMETER_SPECS))
-        geometry = reference_geometry(route)
+        profile, geometry = trace_profile(outing, trace)
     series = build_series(trace)
     partition = clock_partition(trace, series)
     match = match_trace(
@@ -559,6 +607,34 @@ def _score(
     )
 
 
+def baseline_runs(
+    traced: TracedOuting,
+    generated_at: datetime,
+    *,
+    base_unavailability: Unavailability | None = None,
+) -> tuple[OutingObservation, tuple[tuple[ModelKind, OutingScores], ...]]:
+    """L'observation d'une sortie tracée et les scores **non calés** des trois
+    baselines, sans courbe (OG-2, § 6.8 (d)) : ceux de ``_score``, de base
+    ``base_unavailability`` au lieu de la prévision d'usage de v0 brut — « sans
+    courbe », jamais le dénominateur de repli de la baseline elle-même."""
+    observation = observe_outing(traced.match, traced.passages, traced.partition)
+    realized = realized_profile(traced.trace)
+    return observation, tuple(
+        (
+            kind,
+            baseline_scores(
+                observation,
+                traced.usage,
+                realized,
+                kind,
+                generated_at=generated_at,
+                base_unavailability=base_unavailability,
+            ),
+        )
+        for kind in BASELINES
+    )
+
+
 def repeatability_references(
     performances: tuple[Performance, ...],
     observations: Mapping[str, OutingObservation],
@@ -599,13 +675,14 @@ def repeatability_references(
 
 
 def trace_outings(
-    preparation: Preparation,
+    preparation: Preparation | ManifestPreparation,
     profiles: dict[Path, tuple[RouteProfile, ReferenceGeometry]],
     matching: ParameterSet,
 ) -> tuple[tuple[TracedOuting, ...], tuple[Exclusion, ...]]:
     """Chaque sortie déclarée, dans l'ordre des performances : tracée sous
     l'appariement ``matching`` (``trace_outing``, ``profiles`` servant de mémoire), ou
-    écartée au motif du refus du manifeste, ou « sortie non tracée ». Partagée par
+    écartée au motif du refus du manifeste, ou « sortie non tracée » ; le mode glissant
+    (OG-2) y passe sa préparation commune. Partagée par
     ``just backtest`` et la sensibilité, qui y passe chaque paire ``(Δ, ε)``
     (M4d-3)."""
     read = preparation.manifest

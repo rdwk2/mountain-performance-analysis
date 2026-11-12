@@ -77,6 +77,7 @@ _OUTING_KEYS = frozenset(
         "dataset",
         "label",
         "external_records",
+        "activity_refs",
     }
 )
 _ARTIFACT_KEYS = frozenset({"file", "sha256"})
@@ -237,6 +238,7 @@ class _Reader:
         self._traces: dict[str, RecordedTrace] = {}
         self._refused: list[RefusedEntry] = []
         self._refused_records: list[RefusedEntry] = []
+        self._activity_owners: dict[str, str] = {}
 
     def read(self, document: Any) -> ManifestReadResult:
         where = "manifeste"
@@ -300,6 +302,7 @@ class _Reader:
         }
         reference = self._reference(data.get("reference"), where)
         records = self._records(data.get("external_records", []), where, outing_id)
+        activity_refs = self._activity_refs(data.get("activity_refs", []), where)
 
         trace: RecordedTrace | None = None
         if traces:
@@ -368,9 +371,12 @@ class _Reader:
                     else None
                 ),
                 external_records=records,
+                activity_refs=activity_refs,
             )
         except ContractError as error:
             raise _error(where, _contract_key(error), f"{error}") from error
+        for ref in activity_refs:
+            self._activity_owners[ref] = outing_id
         for file in (*traces, *duplicates, *(reference[1:] if reference else ())):
             self._paths.setdefault(file.content_hash, file.path)
         if trace is not None:
@@ -508,6 +514,27 @@ class _Reader:
             )
         except ContractError as error:
             raise _error(where, key, f"{error}") from error
+
+    def _activity_refs(self, value: Any, where: str) -> tuple[str, ...]:
+        """Les activités d'``interim/`` déclarées par la sortie (OG-2, ``0010`` D2.6) :
+        des textes non vides, deux à deux distincts, qu'aucune sortie précédente du
+        manifeste n'a déjà déclarés (une activité n'appartient qu'à une sortie)."""
+        key = "activity_refs"
+        refs: list[str] = []
+        for item in _list(value, where, key):
+            ref = _text(item, where, key)
+            if ref in refs:
+                raise _error(where, key, f"activity_refs : {ref} déclarée deux fois.")
+            owner = self._activity_owners.get(ref)
+            if owner is not None:
+                raise _error(
+                    where,
+                    key,
+                    f"activity_refs : {ref} est déjà déclarée par la sortie {owner}. "
+                    "Une activité n'appartient qu'à une sortie.",
+                )
+            refs.append(ref)
+        return tuple(refs)
 
     def _optional_text(self, value: Any, where: str, key: str) -> str | None:
         return None if value is None else _text(value, where, key)
