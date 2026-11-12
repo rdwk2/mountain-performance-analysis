@@ -5,9 +5,12 @@ Aucun calcul ici (règle 7 de ``CLAUDE.md``) : la commande lit des fichiers, app
 manquerait dans ``src/``.
 """
 
+from __future__ import annotations
+
 import argparse
 import contextlib
 import csv
+import dataclasses
 import io
 import math
 import os
@@ -15,9 +18,10 @@ import re
 import sys
 from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from pathlib import Path
-from typing import TextIO
+from typing import Any, Protocol, TextIO
 
 import mountain_perf
 from mountain_perf.backtest import (
@@ -62,7 +66,6 @@ from mountain_perf.backtest import (
     geometry_diagnostic,
     git_state,
     origins_before_curve,
-    outing_bands_report,
     outing_drift_report,
     prepare_backtest,
     report_clocks,
@@ -76,7 +79,30 @@ from mountain_perf.backtest import (
     third_clock_is_elapsed,
 )
 from mountain_perf.backtest.calendar import origin as civil_origin
-from mountain_perf.backtest.registry import RegistryError, read_registry
+from mountain_perf.backtest.manifest import ManifestReadResult
+from mountain_perf.backtest.registry import RegistryError, line_hash, read_registry
+from mountain_perf.backtest.report import (
+    Contributors,
+    PairedDifference,
+    command_sets,
+    common_usage_target,
+    comparison_conclusion,
+    contributor_means,
+    minimum_detectable_effect,
+    pair_beyond,
+    paired_difference,
+    performance_values,
+    rolling_outing_drift,
+    rolling_scored_performances,
+    usage_elements,
+    window_sets,
+)
+from mountain_perf.backtest.rolling import (
+    RollingCurve,
+    RollingEvaluation,
+    RollingWindowRun,
+    reading_threshold,
+)
 from mountain_perf.config import ConfigError, data_dir
 from mountain_perf.estimation.origin import (
     ALL_PAST,
@@ -106,7 +132,9 @@ from mountain_perf.model import (
 )
 from mountain_perf.model.export import write_passages_csv
 from mountain_perf.outing_views import (
-    METRIC_UNAVAILABILITY_LABELS,
+    METRIC_UNAVAILABILITY_LABELS as SCORE_UNAVAILABILITY_LABELS,
+)
+from mountain_perf.outing_views import (
     POINT_STATUS_LABELS,
     clock_label,
     point_name,
@@ -123,11 +151,14 @@ from mountain_perf.schemas import (
     CALIBRATED_MODELS,
     CENTRAL_CONVENTION_INDEX,
     CLOCKS,
+    CURVE_STATUS_DESCRIPTIONS,
     DRIFT_IDENTIFICATION_THRESHOLD,
     DRIFT_WEAK_SEPARATION,
+    SHARE_UNAVAILABILITY_DESCRIPTIONS,
     AdmittedTotals,
     Availability,
     CalibratedOutingScores,
+    CalibratedPerformance,
     CalibratedScenarioScores,
     CalibrationPopulation,
     Clock,
@@ -135,16 +166,21 @@ from mountain_perf.schemas import (
     ClockScores,
     ClockTotals,
     ConfigurationOutcome,
+    CurveStatus,
     DataSet,
+    Declaration,
     DriftDiagnostic,
     DriftFit,
     EpisodeOutcome,
+    Exclusion,
     LogRatioEnvelope,
     MatchResult,
     MetricValue,
     ModelBand,
     ModelCalibration,
     ModelKind,
+    OutingBands,
+    OutingDrift,
     OutingLabel,
     OutingObservation,
     OutingScores,
@@ -152,6 +188,7 @@ from mountain_perf.schemas import (
     PassageMatchResult,
     PassageRole,
     PassageStatus,
+    Performance,
     PointStatus,
     PopulationExclusionReason,
     RecordedTrace,
@@ -166,6 +203,8 @@ from mountain_perf.schemas import (
     SegmentExclusion,
     SensitivityConfiguration,
     SensitivityMetric,
+    ShareScope,
+    ShareUnavailability,
     StopEpisode,
     SupportComponent,
     SupportMetrics,
@@ -843,6 +882,13 @@ OUTING_LABEL_LABELS: Mapping[OutingLabel, str] = {
 }
 """Libellés d'affichage des étiquettes d'une sortie."""
 
+METRIC_UNAVAILABILITY_LABELS: Mapping[Unavailability, str] = {
+    **SCORE_UNAVAILABILITY_LABELS,
+    Unavailability.NO_CURVE: "sans courbe",
+}
+"""Les libellés des valeurs indisponibles des scores (``outing_views``), et le
+motif ``no_curve`` d'une performance sans courbe en mode glissant (OG-2, C12)."""
+
 MISSING_LABELS: Mapping[str, str] = {
     Unavailability.ABSENT.value: "absent",
     Unavailability.AMBIGUOUS.value: "ambigu",
@@ -1141,7 +1187,7 @@ def _aggregate_lines(rows: Sequence[AggregateRow], *, with_missing: bool) -> lis
     return lines
 
 
-def _performance_lines(run: BacktestRun | BacktestEvaluation) -> list[str]:
+def _performance_lines(run: _Run) -> list[str]:
     """Le tableau ``performances`` : une ligne par sortie déclarée, colonnes de
     largeur fixe (§ 6.3 du brief M4b-5)."""
     scored = {outing.outing.outing_id: outing for outing in run.outings}
@@ -1184,9 +1230,7 @@ def _performance_lines(run: BacktestRun | BacktestEvaluation) -> list[str]:
     return lines
 
 
-def _comparison_lines(
-    run: BacktestRun | BacktestEvaluation, entries: Sequence[ScoredPerformance]
-) -> list[str]:
+def _comparison_lines(run: _Run, entries: Sequence[ScoredPerformance]) -> list[str]:
     """La référence de répétabilité dans la synthèse : par parcours, ses ``F`` sous
     l'écoulé à côté des cinq modèles sur ses jours (précision de D15, M4c-2) ; la
     colonne de ``F`` a une largeur par parcours. Sans parcours de répétabilité, aucune
@@ -1765,9 +1809,7 @@ def _subclass_count(count: int, subclass: DescentSubclass, under: bool) -> str:
     return text
 
 
-def _descent_lines(
-    run: BacktestRun | BacktestEvaluation, threshold: float
-) -> list[str]:
+def _descent_lines(run: _Run, threshold: float) -> list[str]:
     """Les sous-classes de descente de chaque sortie scorée, puis leur total
     (précision de D6, M4b-5 ; diagnostic, ni cible ni garde-fou)."""
     lines = [
@@ -1828,7 +1870,7 @@ def _descent_lines(
     return lines
 
 
-def _geometry_lines(run: BacktestRun | BacktestEvaluation) -> list[str]:
+def _geometry_lines(run: _Run) -> list[str]:
     """Le diagnostic de géométrie de chaque sortie scorée (précision de D3, M4b-5) :
     ``G`` et ses quatre classes, ou « sans référence »."""
     lines = [
@@ -1858,11 +1900,11 @@ def _geometry_lines(run: BacktestRun | BacktestEvaluation) -> list[str]:
     return lines
 
 
-def _detail_lines(
-    run: BacktestRun | BacktestEvaluation, outing: OutingRun
-) -> list[str]:
+def _detail_lines(run: _Run, outing: OutingRun) -> list[str]:
     """Le détail d'une sortie scorée : son en-tête, puis les sections 1 à 13 de
-    ``mperf match --curve``, écrites par leurs fonctions (au caractère près)."""
+    ``mperf match --curve``, écrites par leurs fonctions (au caractère près). En mode
+    glissant (OG-2), la fenêtre de ``κ_j`` à la place de l'âge de la courbe, et ``κ_j``
+    dans la section de v0 brut."""
     preparation = run.preparation
     declared = next(
         p
@@ -1875,19 +1917,31 @@ def _detail_lines(
     label = (
         "sans étiquette" if entry.label is None else OUTING_LABEL_LABELS[entry.label]
     )
-    curve = preparation.declaration.curve
-    assert curve is not None  # mode « courbe déclarée » : le contrat la garantit
-    available_at = curve.available_at
     origin = declared.origin
-    at_day = curve_age_days(available_at, performance.civil_date)
-    at_origin = curve_age_days(available_at, civil_date(origin))
-    lines = [
+    head = (
         f"{'performance':<13}{performance.civil_date.isoformat()} — "
         f"{entry.outing_id} ; parcours {entry.route_id or '—'} ; jeu {dataset} ; "
-        f"{label}",
-        f"{_INDENT}origine o_j {origin.astimezone(PARIS):%Y-%m-%d %H:%M} (Paris) ; "
-        f"âge de la courbe {_age(at_day)} jours au jour J, {_age(at_origin)} à o_j",
-    ]
+        f"{label}"
+    )
+    if isinstance(run, _RollingRun):
+        index = preparation.declaration.performances.index(declared)
+        kappa = run.curves[index].curve
+        assert kappa is not None  # une sortie scorée par v0 a une courbe
+        reading = kappa
+        lines = [head, f"{_INDENT}{_window_text(run.curves[index], origin)}"]
+    else:
+        assert isinstance(run, BacktestRun | BacktestEvaluation)
+        reading = run.preparation.curve
+        curve = preparation.declaration.curve
+        assert curve is not None  # mode « courbe déclarée » : le contrat la garantit
+        available_at = curve.available_at
+        at_day = curve_age_days(available_at, performance.civil_date)
+        at_origin = curve_age_days(available_at, civil_date(origin))
+        lines = [
+            head,
+            f"{_INDENT}origine o_j {origin.astimezone(PARIS):%Y-%m-%d %H:%M} (Paris) ; "
+            f"âge de la courbe {_age(at_day)} jours au jour J, {_age(at_origin)} à o_j",
+        ]
     if performance.is_multi_outing:
         lines.append(f"{_INDENT}jour multi-sorties : hors des agrégats (0010 D0)")
     if third_clock_is_elapsed(outing.match):
@@ -1912,7 +1966,7 @@ def _detail_lines(
     )
     _print_passage_report(outing.passages, out=buffer)
     _print_v0_report(
-        preparation.curve,
+        reading,
         outing.scores,
         outing.passages,
         report_clocks(outing.match),
@@ -2034,9 +2088,7 @@ _CALIBRATION_RULES: Mapping[ModelKind, str] = {
 }
 
 
-def _calibrated_detail_lines(
-    run: BacktestRun | BacktestEvaluation, outing: OutingRun
-) -> list[str]:
+def _calibrated_detail_lines(run: _Run, outing: OutingRun) -> list[str]:
     """Après le détail de v0 brut d'une sortie scorée (précision de D15, M4c-2) :
     ``C_j`` de sa performance, puis chaque modèle calé — usage (ou « sans référence »)
     et contrôle, sous les horloges du rapport."""
@@ -2223,7 +2275,12 @@ def _drift_lines(run: BacktestRun | BacktestEvaluation, outing: OutingRun) -> li
     commune aux horloges, et son horizon ; chaque horloge du rapport et chaque modèle
     (``b``, ``rho_u``, rang, ``ddl``, retraits, signe, étendue, mentions) ; le détail de
     v0 brut sous l'écoulé."""
-    drift = outing_drift_report(run, outing)
+    return _drift_text(outing_drift_report(run, outing))
+
+
+def _drift_text(drift: OutingDrift | None) -> list[str]:
+    """Le texte de la rubrique « dérive » d'une sortie (``_drift_lines``) ; le mode
+    glissant (OG-2) y passe la dérive calculée avec ``κ_j``."""
     if drift is None:
         return [f"{'dérive':<13}sans référence : pas de diagnostic (0010 D12, usage)"]
     head = drift.diagnostics[0]
@@ -2339,7 +2396,7 @@ def _band_aggregate_lines(entries: Sequence[ScoredPerformance]) -> list[str]:
 
 
 def _band_model_scores(
-    run: BacktestRun | BacktestEvaluation, outing: OutingRun, model: ModelKind
+    run: _Run, outing: OutingRun, model: ModelKind
 ) -> ClockScores | None:
     """Les scores d'usage sous l'écoulé d'un modèle sur une sortie : ceux de v0 brut, ou
     ceux du modèle calé ; ``None`` sans usage ou sous un calage indisponible."""
@@ -2361,13 +2418,15 @@ def _band_status(band: ModelBand) -> str:
     return MISSING_LABELS[band.unavailability.value]
 
 
-def _band_lines(run: BacktestRun | BacktestEvaluation, outing: OutingRun) -> list[str]:
+def _band_lines(run: _Run, outing: OutingRun, *, rolling: bool = False) -> list[str]:
     """La rubrique « fourchettes » d'une sortie scorée (``0010`` D11 ; M4d-2) : le
     réservoir et ses membres ; pour chaque modèle, ``n`` (dans / hors de la fenêtre),
     son statut, ses résidus, ses quantiles, ``IS_j``, ``IS_j,norm``, la couverture,
     « tous couverts », le ``q_usage`` et le ``max |C_k|`` de la médiane à côté de ceux
-    du modèle ; les éléments de ``K`` de v0 brut."""
-    bands = outing_bands_report(run, outing)
+    du modèle ; les éléments de ``K`` de v0 brut. En mode glissant (OG-2), le titre
+    de la plage devient « plage des départs retenus de κ_j » ; sa règle ne change
+    pas."""
+    bands = next((b for b in run.bands if b.outing_id == outing.outing.outing_id), None)
     if bands is None:
         return [
             f"{'fourchettes':<13}sans référence : pas de fourchette (0010 D11, usage)"
@@ -2376,8 +2435,13 @@ def _band_lines(run: BacktestRun | BacktestEvaluation, outing: OutingRun) -> lis
         f"{'fourchettes':<13}0010 D11, usage, écoulé — {BAND_LABEL} ; quantiles "
         "empiriques aux rangs ⌈n q⌉, q = 0,1, 0,5, 2/3, 0,9, sur n jours",
         f"{_INDENT}réservoir C_j : "
-        f"{_count(len(bands.members), 'membre', 'membres')} ; fenêtre de la courbe du "
-        f"{bands.window_from.isoformat()} au {bands.window_to.isoformat()}"
+        f"{_count(len(bands.members), 'membre', 'membres')} ; "
+        + (
+            "plage des départs retenus de κ_j, du "
+            if rolling
+            else "fenêtre de la courbe du "
+        )
+        + f"{bands.window_from.isoformat()} au {bands.window_to.isoformat()}"
         + (
             " ; jour multi-sorties : diagnostic, hors des agrégats"
             if bands.multi_outing
@@ -2683,6 +2747,757 @@ def _run_backtest(args: argparse.Namespace) -> int:
     return _run_sensitivity(run, registry, data)
 
 
+# ---------------------------------------------------------------------------
+# Le rapport du mode glissant (OG-2, 0010 précision OG-2, point 13)
+# ---------------------------------------------------------------------------
+
+
+class _PreparationView(Protocol):
+    """Ce que les aides du rapport lisent d'une préparation."""
+
+    @property
+    def declaration(self) -> Declaration: ...
+
+    @property
+    def manifest(self) -> ManifestReadResult: ...
+
+    @property
+    def performances(self) -> tuple[Performance, ...]: ...
+
+
+class _Run(Protocol):
+    """Ce que les aides du rapport lisent d'une exécution : celle de la courbe
+    déclarée, ou une fenêtre du mode glissant (OG-2)."""
+
+    @property
+    def preparation(self) -> _PreparationView: ...
+
+    @property
+    def outings(self) -> tuple[OutingRun, ...]: ...
+
+    @property
+    def unscored(self) -> tuple[Exclusion, ...]: ...
+
+    @property
+    def references(self) -> tuple[tuple[str, RepeatabilityReference], ...]: ...
+
+    @property
+    def calibration(self) -> tuple[CalibratedPerformance, ...]: ...
+
+    @property
+    def bands(self) -> tuple[OutingBands, ...]: ...
+
+
+@dataclass(frozen=True)
+class _RollingPreparationView:
+    declaration: Declaration
+    manifest: ManifestReadResult
+    performances: tuple[Performance, ...]
+
+
+@dataclass(frozen=True)
+class _RollingRun:
+    """Une fenêtre du mode glissant vue par le rapport (OG-2) : ce que lisent les aides
+    d'aujourd'hui, et la courbe de chaque performance."""
+
+    preparation: _RollingPreparationView
+    outings: tuple[OutingRun, ...]
+    unscored: tuple[Exclusion, ...]
+    references: tuple[tuple[str, RepeatabilityReference], ...]
+    calibration: tuple[CalibratedPerformance, ...]
+    bands: tuple[OutingBands, ...]
+    evaluation: RollingEvaluation
+    curves: tuple[RollingCurve, ...]
+
+
+def _rolling_view(
+    evaluation: RollingEvaluation, manifest: ManifestReadResult
+) -> _RollingRun:
+    window = evaluation.window
+    declaration = window.declaration
+    unscored = list(evaluation.unscored)
+    return _RollingRun(
+        _RollingPreparationView(
+            declaration,
+            manifest,
+            tuple(item.performance for item in declaration.performances),
+        ),
+        evaluation.outings,
+        tuple(unscored),
+        evaluation.references,
+        evaluation.calibration,
+        evaluation.bands,
+        evaluation,
+        window.curves,
+    )
+
+
+FIFTY_SIX_DAYS = (
+    "56 jours est un choix d'usage (rdw, 2026-11-01), pas un résultat de ce backtest. "
+    "Sur le banc multi-athlète, tout le passé fait mieux que 56 jours toutes "
+    "performances confondues (|L| −0,089, IC95 −0,130 ; −0,055, sans 0) ; l'avantage "
+    "disparaît à support égal (+0,002, IC95 −0,010 ; +0,015, qui contient 0)."
+)
+"""La phrase fixe de 56 jours (D-P5 ; § 6.9 (b) 1)."""
+
+CALIBRATION_A = (
+    "Sous le calage (a), le niveau du comparateur ne dépend pas de la fenêtre ; les "
+    "fenêtres se comparent sur v0 brut."
+)
+"""La phrase fixe du calage (a) (D-P5 ; § 6.9 (a) 1)."""
+
+ROLLING_CURVES = (
+    "Courbes de mperf curve --at, mesurées à l'horloge et à la pente du moteur (0017)."
+)
+
+E15_HYPOTHESIS = (
+    "Hypothèse (E15), non mesurée ici : à support bon, le calage (a) ajouterait de "
+    "l'erreur à 56 et 112 jours (banc), par des membres plus anciens que la fenêtre ; "
+    "elle n'explique pas 28 jours, où le banc ne voit rien d'établi."
+)
+
+MDE_TEXT = (
+    "Plus petit écart de |L| détectable à 80 % (test t apparié bilatéral à 5 %, "
+    "écart-type 0,0253 des différences mesuré chez rdw, 56 − 28 jours, n = 11) : "
+    "{mde:.3f} avec {n} performances couvertes sous tous les W. Le banc mesure, à "
+    "support égal, des écarts de 0,013 au plus."
+)
+
+PAIR_COUNT_WORDS = {1: "une paire lue", 2: "deux paires lues", 3: "trois paires lues"}
+
+TARGET_CLASSES = tuple(r for r in RegimeClass if r is not RegimeClass.MIXED)
+"""Les régimes des cibles de D10.1 : montée, plat, descente (mixte n'est jamais une
+cible, D6)."""
+
+SHARE_SCOPE_LABELS = {ShareScope.USAGE: "usage", ShareScope.CONTROL: "contrôle"}
+
+
+def _window_label(window: int | None) -> str:
+    return "tout le passé" if window is None else f"{window} jours"
+
+
+def _paris_day(moment: datetime) -> str:
+    return moment.astimezone(PARIS).date().isoformat()
+
+
+def _window_text(curve: RollingCurve, origin_at: datetime) -> str:
+    """« fenêtre du {b_j} au {o_j} (Paris) ; {statut} » (§ 6.9 (a) 2)."""
+    lower = curve.estimate.lower_bound
+    start = "début" if lower is None else _paris_day(lower)
+    status = CURVE_STATUS_DESCRIPTIONS[curve.entry.status]
+    return f"fenêtre du {start} au {_paris_day(origin_at)} (Paris) ; {status}"
+
+
+def _rolling_provenance(
+    declaration: Declaration, rule_sha: str, reading: float, threshold: float
+) -> list[str]:
+    rolling = declaration.rolling
+    assert rolling is not None  # appelant
+    return [
+        f"{'courbe':<13}mode glissant, fenêtre {_window_label(rolling.window_days)} ; "
+        f"document de règle sha256 {rule_sha[:8]}… ; s {rolling.covered_threshold:g}, "
+        f"repère {rolling.beyond_marker:g} ; seuils de support {threshold:g} min "
+        f"(règle), {reading:g} min (lecture, paramètre de v0) ; tolérance de "
+        f"correspondance {rolling.coverage_tolerance_s:g} s",
+        f"{_INDENT}{CALIBRATION_A}",
+        f"{_INDENT}{FIFTY_SIX_DAYS}",
+        f"{_INDENT}{ROLLING_CURVES}",
+    ]
+
+
+def _rolling_performance_lines(run: _RollingRun, reading: float) -> list[str]:
+    """Une ligne par performance (§ 6.9 (a) 2) : sa fenêtre et son statut ; sans
+    support à la lecture, les deux verdicts ; avec une courbe, ses sorties lues, leurs
+    heures en mouvement, le support lu (celui de la courbe relue), le niveau p50, la
+    part hors support ; l'historique à pied et l'avertissement du démarrage à froid."""
+    declaration = run.preparation.declaration
+    lines = [f"{'fenêtres':<13}la courbe κ_j de chaque performance (0020)"]
+    for declared, curve in zip(declaration.performances, run.curves, strict=True):
+        text = _window_text(curve, declared.origin)
+        entry = curve.entry
+        companion = curve.companion
+        estimation: dict[str, Any] = (
+            {} if companion is None else companion["estimation"]
+        )
+        threshold = curve.estimate.support_threshold_min
+        if entry.status is CurveStatus.NO_READ_SUPPORT:
+            verdict = "projetable" if estimation["projectable"] else "non projetable"
+            text += (
+                f" ; sans courbe à la lecture ({reading:g} min) ; {verdict} au seuil "
+                f"des diagnostics ({threshold:g} min)"
+            )
+        elif curve.curve is not None and companion is not None:
+            hours = math.fsum(b["moving_total_s"] for b in estimation["bins"]) / 3600
+            low, high = curve.curve.kept_grade_range
+            level = estimation["level"]
+            p50 = "—" if level is None else f"{level['p50']:+.3f}"
+            text += (
+                f" ; {companion['activity_count']} sorties lues, {hours:.1f} h en "
+                f"mouvement ; support lu {low * 100:g} % à {high * 100:g} % ; niveau "
+                f"p50 {p50}"
+            )
+            if entry.out_of_support_share is not None:
+                assert entry.share_scope is not None  # contrat
+                text += (
+                    f" ; part hors support {entry.out_of_support_share:.3f} "
+                    f"({SHARE_SCOPE_LABELS[entry.share_scope]})"
+                )
+        if entry.share_unavailability is not None and entry.status is CurveStatus.CURVE:
+            reason = SHARE_UNAVAILABILITY_DESCRIPTIONS[entry.share_unavailability]
+            text += f" ; part indisponible : {reason.split(' — ')[0]}"
+        history = curve.estimate.history
+        text += f" ; historique à pied : {history.foot_index_finished}"
+        warning = cold_start_warning(history)
+        if warning is not None:
+            text += f" ; {warning}"
+        lines.append(f"{_INDENT}{declared.performance.civil_date.isoformat()} {text}")
+    return lines
+
+
+def _rolling_outing_lines(run: _RollingRun) -> list[str]:
+    """Le tableau ``performances`` (§ 6.3 du brief M4b-5) ; une sortie d'une
+    performance sans courbe le dit (choix C12)."""
+    no_curve = {item.traced.outing.outing_id for item in run.evaluation.no_curve}
+    lines = []
+    for line in _performance_lines(
+        dataclasses.replace(
+            run,
+            unscored=(
+                *run.unscored,
+                *(
+                    Exclusion(
+                        outing_id,
+                        "sans courbe : v0 brut et v0 + effort recalé ne la scorent pas",
+                    )
+                    for outing_id in sorted(no_curve)
+                ),
+            ),
+        )
+    ):
+        lines.append(line)
+    return lines
+
+
+def _rolling_calibration_lines(run: _RollingRun) -> list[str]:
+    """La ligne de calage (précision de D15, M4c-2), puis les contributeurs de chaque
+    performance (§ 6.9 (a) 5) ; sans courbe, « sans courbe » pour v0 et la population
+    publiée."""
+    lines = [
+        f"{'calage':<13}0010 D9.2 sur C_j, calage (a) avec κ_j ; écoulé, usage "
+        "(contrôle sans référence) ; e : effort de v0, a : facteur",
+        (
+            _INDENT
+            + f"{'jour':<12}{'C_j':<5}{'C_j^eff':<9}"
+            + "".join(f"{MODEL_LABELS[model]:<20}" for model in CALIBRATED_MODELS)
+        ).rstrip(),
+    ]
+    declaration = run.preparation.declaration
+    outings_by_day = {
+        d.performance.civil_date: [
+            (o.outing_id, o.activity_refs) for o in d.performance.outings
+        ]
+        for d in declaration.performances
+    }
+    for index, performance in enumerate(run.calibration):
+        population = performance.population
+        day = population.civil_date
+        start = f"{_INDENT}{day.isoformat():<12}{len(population.members):<5}"
+        if not performance.outings:
+            lines.append(f"{start}{'—':<9}{MISSING_LABELS[NOT_SCORED]}")
+            continue
+        first = performance.outings[0].outing_id
+        control = performance.outings[0].usage is None
+        cells = []
+        effective = "—"
+        for model in CALIBRATED_MODELS:
+            entry = next(
+                (
+                    e
+                    for e in performance.outings
+                    if e.outing_id == first and e.control.model is model
+                ),
+                None,
+            )
+            if entry is None:
+                cells.append(MISSING_LABELS[Unavailability.NO_CURVE.value])
+                continue
+            scores = entry.control if control else entry.usage
+            assert scores is not None
+            calibration = scores.clocks[0].calibration
+            effective = str(len(calibration.population))
+            cells.append(_calibration_cell(calibration))
+        line = f"{start}{effective:<9}" + "".join(f"{c:<20}" for c in cells)
+        line = line.rstrip() + (" (contrôle)" if control else "")
+        lines.append(line)
+        terms = run.evaluation.terms[index]
+        curve = run.curves[index]
+        if terms is None or curve.companion is None:
+            continue
+        scenario = Scenario.CONTROL if control else Scenario.USAGE
+        elapsed = next(
+            (t for t in terms.sets if t.scenario is scenario and t.clock == CLOCKS[0]),
+            None,
+        )
+        if elapsed is None or not elapsed.terms:
+            continue
+        lines_of = curve.companion["estimation"]["origin"]["activities"]
+        contributing = frozenset(
+            line_["activity_ref"] for line_ in lines_of if line_["contributes"]
+        )
+        found = contributor_means(
+            [(t.civil_date, t.observed_s, t.forecast_s) for t in elapsed.terms],
+            [(d, outings_by_day.get(d, [])) for d in population.members],
+            contributing,
+        )
+        if found.unmatched:
+            lines.append(
+                f"{_INDENT}  contributeurs : indisponible, sorties sans correspondance "
+                f": {', '.join(found.unmatched)}"
+            )
+            continue
+        lines.append(f"{_INDENT}  {_contributors_text(found)}")
+    return lines
+
+
+def _contributors_text(found: Contributors) -> str:
+    """``contributeurs k/n ; ln(T/P) moyen … sur les contributeurs, … sur les autres``
+    (§ 6.9 (a) 5) ; une moyenne d'un ensemble vide, « — »."""
+
+    def mean(value: float | None) -> str:
+        return "—" if value is None else f"{value:+.3f}"
+
+    return (
+        f"contributeurs {found.contributors}/{found.members} ; ln(T/P) moyen "
+        f"{mean(found.contributing_mean)} sur les contributeurs, "
+        f"{mean(found.other_mean)} sur les autres"
+    )
+
+
+def _rolling_set_lines(
+    run: _RollingRun, entries: Sequence[ScoredPerformance]
+) -> list[str]:
+    """Les ensembles (§ 6.9 (a) 3) et le tableau côte à côte (§ 6.9 (a) 4)."""
+    declaration = run.preparation.declaration
+    rolling = declaration.rolling
+    assert rolling is not None
+    days = [d.performance.civil_date for d in declaration.performances]
+    sets = window_sets(days, rolling)
+
+    def counted(pairs: Sequence[tuple[str, int]], labels: Mapping[Any, str]) -> str:
+        if not pairs:
+            return "aucune"
+        return ", ".join(f"{labels[k]} {n}" for k, n in pairs)
+
+    unavailable = {
+        r.value: SHARE_UNAVAILABILITY_DESCRIPTIONS[r].split(" — ")[0]
+        for r in ShareUnavailability
+    }
+    statuses = {
+        s.value: CURVE_STATUS_DESCRIPTIONS[s].removeprefix("sans courbe : ")
+        for s in CurveStatus
+    }
+    lines = [
+        f"{'ensembles':<13}couvertes (part ≤ s) {len(sets.covered)} ; au-delà du "
+        f"repère (part > repère) {len(sets.beyond)} ; part indisponible : "
+        f"{counted(sets.unavailable, unavailable)} ; sans courbe : "
+        f"{counted(sets.no_curve, statuses)}"
+    ]
+    for title, members in (
+        ("couvertes", sets.covered),
+        ("au-delà du repère", sets.beyond),
+    ):
+        subset = [e for e in entries if e.civil_date in members]
+        lines.append(f"{'ensemble':<13}{title} : {len(subset)} performances")
+        lines += _model_aggregate_lines(subset)
+    covered = [e for e in entries if e.civil_date in sets.covered]
+    lines.append(
+        f"{'côte à côte':<13}couvertes, usage, écoulé : v0 brut et v0 + effort recalé"
+    )
+    shown = (
+        ReportMetric.LEVEL,
+        ReportMetric.ABS_LEVEL,
+        ReportMetric.MAX_ABS_PASSAGE_ERROR,
+        ReportMetric.USAGE_TARGET,
+    )
+    for d, dataset in enumerate(DataSet):
+        lines.append(
+            f"{'':<13}{DATA_SET_LABELS[dataset]:<20}"
+            + "".join(f"{REPORT_METRIC_LABELS[m]:<20}" for m in shown).rstrip()
+        )
+        for model in (ModelKind.V0_RAW, ModelKind.V0_RECALIBRATED):
+            table = {
+                row.metric: row
+                for row in aggregate_table(
+                    covered, Scenario.USAGE, ClockRole.ELAPSED, model
+                )
+                if row.regime_class is None
+            }
+            cells = [
+                _aggregate_cell(table[m].by_set[d], _metric_format(m)) for m in shown
+            ]
+            lines.append(
+                f"{'':<13}{MODEL_LABELS[model]:<20}"
+                + "".join(f"{c:<20}" for c in cells).rstrip()
+            )
+    return lines
+
+
+def _unmatched_line(declaration: Declaration) -> str:
+    """Les sorties sans correspondance, comptées et nommées (§ 6.9 (a) 7)."""
+    names = [
+        o.outing_id
+        for d in declaration.performances
+        for o in d.performance.outings
+        if not o.activity_refs
+    ]
+    return f"{'correspondance':<13}sorties sans correspondance : {len(names)}" + (
+        f" ({', '.join(names)})" if names else ""
+    )
+
+
+def _rolling_summary_parts(
+    run: _RollingRun, rule_sha: str, threshold: float
+) -> tuple[list[str], list[str]]:
+    """La synthèse du rapport D15 d'une fenêtre (§ 6.9 (a)) : ce qui change en mode
+    glissant, et rien d'autre."""
+    declaration = run.preparation.declaration
+    matching = declaration.matching
+    models = ", ".join(MODEL_LABELS[model] for model in REPORT_MODELS)
+    head = [
+        f"{'backtest':<13}cinq modèles ({models}), protocole "
+        f"{declaration.protocol_record} — commit {declaration.commit[:12]} ; "
+        f"Δ {matching['score_step_m']:g} m, ε {matching['lateral_tolerance_m']:g} m, "
+        f"r_c {matching['cluster_radius_m']:g} m",
+    ]
+    read = run.preparation.manifest
+    present = {outing.outing_id for outing in read.outings}
+    others = {entry.outing_id for entry in read.refused} - present
+    performances = declaration.performances
+    reading = reading_threshold()
+    lines = [
+        f"{'manifeste':<13}{read.source.identifier}   "
+        f"sha256 {read.source.content_hash[:8]}… — "
+        f"{_count(len(read.outings) + len(others), 'sortie', 'sorties')}, "
+        f"{_count(len(performances), 'performance', 'performances')}",
+        *_rolling_provenance(
+            declaration, rule_sha, reading, run.curves[0].estimate.support_threshold_min
+        ),
+    ]
+    lines += [
+        f"{'écartée':<13}{exclusion.outing_id} — {exclusion.reason}"
+        for exclusion in declaration.exclusions
+    ]
+    lines += _rolling_outing_lines(run)
+    lines += _rolling_performance_lines(run, reading)
+    lines += _rolling_calibration_lines(run)
+    entries = _rolling_entries(run)
+    lines += _model_aggregate_lines(entries)
+    lines += _rolling_set_lines(run, entries)
+    lines += _comparison_lines(run, entries)
+    lines.append(_unmatched_line(declaration))
+    lines.append(
+        f"{'diagnostics':<13}descentes roulantes et raides au seuil {threshold:.2f} ; "
+        "géométrie usage − contrôle : rapport complet"
+    )
+    return head, lines
+
+
+def _rolling_entries(run: _RollingRun) -> tuple[ScoredPerformance, ...]:
+    return rolling_scored_performances(
+        run.preparation.declaration,
+        run.outings,
+        [
+            (item.traced.outing.outing_id, item.traced.match)
+            for item in run.evaluation.no_curve
+        ],
+        run.calibration,
+        run.bands,
+    )
+
+
+def _rolling_report_body(run: _RollingRun, threshold: float) -> list[str]:
+    """Le corps du rapport complet d'une fenêtre (§ 6.9 (a)) : les tables
+    d'aujourd'hui, une performance sans courbe comptée à ``no_curve`` pour v0 brut et le
+    comparateur ; le détail de chaque sortie scorée avec ``κ_j`` ; celui des sorties
+    sans courbe, ses seules baselines ; la dérive avec ``κ_j``, indisponible sans
+    courbe ; les fourchettes, « plage des départs retenus de κ_j »."""
+    lines: list[str] = []
+    entries = _rolling_entries(run)
+    for model in REPORT_MODELS:
+        for scenario in (Scenario.USAGE, Scenario.CONTROL):
+            for role in ClockRole:
+                lines.append(
+                    f"{'agrégats':<13}{MODEL_LABELS[model]} — "
+                    f"{SCENARIO_LABELS[scenario]}, {CLOCK_ROLE_LABELS[role]}"
+                )
+                table = aggregate_table(entries, scenario, role, model)
+                lines += _aggregate_lines(table, with_missing=True)
+    lines += _band_aggregate_lines(entries)
+    for route_id, reference in run.references:
+        lines += _reference_lines(route_id, reference)
+    lines += _descent_lines(run, threshold)
+    lines += _geometry_lines(run)
+    declaration = run.preparation.declaration
+    for outing in run.outings:
+        index = next(
+            k
+            for k, d in enumerate(declaration.performances)
+            if outing.outing in d.performance.outings
+        )
+        kappa = run.curves[index].curve
+        assert kappa is not None
+        lines += _detail_lines(run, outing)
+        lines += _calibrated_detail_lines(run, outing)
+        lines += _drift_text(
+            rolling_outing_drift(
+                outing,
+                declaration.performances[index].performance,
+                run.calibration[index],
+                kappa.curve,
+            )
+            if outing.scores.usage is not None
+            else None
+        )
+        lines += _band_lines(run, outing, rolling=True)
+    for item in run.evaluation.no_curve:
+        outing_id = item.traced.outing.outing_id
+        lines.append(
+            f"{'performance':<13}{outing_id} — sans courbe : v0 brut et v0 + effort "
+            "recalé ne la scorent pas ; baselines seules, q_usage sans courbe"
+        )
+        clocks = report_clocks(item.traced.match)
+        for performance in run.calibration:
+            for entry in performance.outings:
+                if entry.outing_id == outing_id:
+                    lines += _calibrated_model_lines(entry, clocks)
+        lines.append(f"{'dérive':<13}0010 D12 : indisponible (sans courbe)")
+        lines.append(f"{'fourchettes':<13}sans courbe : pas de fourchette (0010 D11)")
+    lines += [
+        f"{'non scorée':<13}{exclusion.outing_id} — {exclusion.reason}"
+        for exclusion in run.unscored
+    ]
+    lines.append(f"{'légende':<13}{LEGEND[0]}")
+    lines += [f"{_INDENT}{text}" for text in LEGEND[1:]]
+    return lines
+
+
+def _comparison_report(
+    windows: Sequence[RollingWindowRun], manifest: ManifestReadResult
+) -> list[str]:
+    """Le rapport de comparaison des fenêtres (§ 6.9 (b)), dans cet ordre : la
+    provenance ; les ensembles ; l'issue probable, écrite avant les chiffres ; les
+    paires, sur v0 brut, en usage, sous l'écoulé ; la conclusion permise ;
+    l'hypothèse E15 ; les performances sans usage."""
+    declarations = [w.evaluation.window.declaration for w in windows]
+    rollings = []
+    for declaration in declarations:
+        assert declaration.rolling is not None
+        rollings.append(declaration.rolling)
+    first = rollings[0]
+    rule_threshold = (
+        windows[0].evaluation.window.curves[0].estimate.support_threshold_min
+    )
+    labels = [_window_label(r.window_days) for r in rollings]
+    lines = [f"{'comparaison':<13}les fenêtres de la commande, lues sur v0 brut"]
+    for label, window in zip(labels, windows, strict=True):
+        declared = window.evaluation.declaration_event
+        lines.append(
+            f"{_INDENT}fenêtre {label} : déclaration {declared.number} (sha256 "
+            f"{line_hash(declared)[:8]}…), résultat {window.result_event.number} "
+            f"(sha256 {window.seal[:8]}…)"
+        )
+    lines += [
+        f"{_INDENT}commit {declarations[0].commit[:12]} ; index sha256 "
+        f"{first.index_sha256[:8]}… ; s {first.covered_threshold:g}, repère "
+        f"{first.beyond_marker:g} ; seuils de support "
+        f"{rule_threshold:g} min "
+        f"(règle), {reading_threshold():g} min (lecture) ; tolérance "
+        f"{first.coverage_tolerance_s:g} s",
+        f"{_INDENT}plateforme {first.platform}",
+        f"{_INDENT}{CALIBRATION_A}",
+        f"{_INDENT}{FIFTY_SIX_DAYS}",
+    ]
+    days = [d.performance.civil_date for d in declarations[0].performances]
+    sets = command_sets(days, rollings)
+
+    def members(found: Sequence[date]) -> str:
+        return ", ".join(day.isoformat() for day in found) if found else "aucune"
+
+    lines += [
+        f"{'ensembles':<13}commun (courbe sous chaque fenêtre) {len(sets.common)} : "
+        f"{members(sets.common)}",
+        f"{_INDENT}couvertes sous toutes {len(sets.covered_under_all)} : "
+        f"{members(sets.covered_under_all)}",
+        *(
+            f"{_INDENT}au-delà du repère sous {label} {len(found)} : {members(found)}"
+            for label, found in zip(labels, sets.beyond, strict=True)
+        ),
+    ]
+    n = len(sets.covered_under_all)
+    mde = minimum_detectable_effect(n)
+    lines.append(
+        f"{'issue':<13}"
+        + (
+            "Issue probable : indisponible (n < 2)."
+            if mde is None
+            else MDE_TEXT.format(mde=mde, n=n)
+        )
+    )
+    views = [_rolling_view(w.evaluation, manifest) for w in windows]
+    values = []
+    scores = []
+    for view in views:
+        entries = _rolling_entries(view)
+        values.append(
+            {
+                e.civil_date: performance_values(
+                    e, Scenario.USAGE, ClockRole.ELAPSED, ModelKind.V0_RAW
+                )
+                for e in entries
+            }
+        )
+        scores.append({e.civil_date: e.scores for e in entries})
+    all_index = next((k for k, r in enumerate(rollings) if r.window_days is None), None)
+    metrics: list[tuple[str, tuple[ReportMetric, RegimeClass | None]]] = [
+        ("|L|", (ReportMetric.ABS_LEVEL, None)),
+        *(
+            (f"|E_R| {REGIME_CLASS_LABELS[r]}", (ReportMetric.ABS_CLASS_LEVEL, r))
+            for r in TARGET_CLASSES
+        ),
+        *(
+            (f"D_R {REGIME_CLASS_LABELS[r]}", (ReportMetric.CLASS_DISPERSION, r))
+            for r in TARGET_CLASSES
+        ),
+        ("q_usage", (ReportMetric.USAGE_TARGET, None)),
+    ]
+    pairs = [(i, k) for k in range(len(windows)) for i in range(k)]
+    without_all = (
+        set()
+        if all_index is None
+        else {
+            day
+            for day, entry in zip(days, rollings[all_index].performances, strict=True)
+            if entry.status is not CurveStatus.CURVE
+        }
+    )
+    lines.append(
+        f"{'paires':<13}IC95 de Student ; "
+        f"{PAIR_COUNT_WORDS.get(len(pairs), f'{len(pairs)} paires lues')}, sans "
+        "correction de multiplicité."
+    )
+    intervals = []
+    for i, k in pairs:
+        lines.append(f"{'paire':<13}{labels[k]} − {labels[i]}")
+        groups = [
+            ("couvertes sous toutes", sets.covered_under_all),
+            ("commun", sets.common),
+            (f"au-delà sous {labels[i]}", pair_beyond(days, rollings, i, k)),
+            (f"au-delà sous {labels[k]}", pair_beyond(days, rollings, k, i)),
+        ]
+        for title, chosen in groups:
+            lines.append(f"{_INDENT}{title} ({len(chosen)})")
+            for name, key in metrics:
+                couples = [
+                    (values[i][d][key], values[k][d][key])
+                    for d in chosen
+                    if not isinstance(values[i][d][key], str)
+                    and not isinstance(values[k][d][key], str)
+                ]
+                found = paired_difference([(float(a), float(b)) for a, b in couples])
+                if title == "couvertes sous toutes" and name == "|L|":
+                    intervals.append(found.interval)
+                lines.append(f"{_INDENT}  {name} : {_paired_text(found, labels, i, k)}")
+            lines += _common_target_lines(
+                chosen, scores, all_index, without_all, i, k, labels
+            )
+    conclusion = comparison_conclusion(intervals)
+    if conclusion is True:
+        lines.append(
+            f"{'conclusion':<13}Les fenêtres ne se départagent pas sur les couvertes."
+        )
+    elif conclusion is None:
+        lines.append(
+            f"{'conclusion':<13}Pas de conclusion : IC95 indisponibles (n < 2)."
+        )
+    lines.append(f"{'hypothèse':<13}{E15_HYPOTHESIS}")
+    without_usage = sum(
+        1
+        for d in declarations[0].performances
+        if all(o.reference is None for o in d.performance.outings)
+    )
+    lines.append(
+        f"{'sans usage':<13}performances sans usage (hors des comparaisons) : "
+        f"{without_usage}"
+    )
+    return lines
+
+
+def _paired_text(found: PairedDifference, labels: Sequence[str], i: int, k: int) -> str:
+    if found.count == 0 or found.mean is None:
+        return "n 0"
+    interval = (
+        "IC95 : indisponible (n < 2)"
+        if found.interval is None
+        else f"IC95 [{found.interval[0]:+.4f} ; {found.interval[1]:+.4f}]"
+    )
+    return (
+        f"n {found.count}, moyenne {found.mean:+.4f}, {interval} ; signes : "
+        f"{found.later_better} {labels[k]}, {found.earlier_better} {labels[i]}, "
+        f"{found.ties} égalités"
+    )
+
+
+def _common_target_lines(
+    chosen: Sequence[date],
+    scores: Sequence[Mapping[date, OutingScores | None]],
+    all_index: int | None,
+    without_all: set[date],
+    i: int,
+    k: int,
+    labels: Sequence[str],
+) -> list[str]:
+    """``q_usage`` à dénominateur commun (D-P6, option 1 ; § 6.9 (b) 4) : ``P⁽⁰⁾``, la
+    prévision d'usage de v0 brut sous tout le passé."""
+    if all_index is None:
+        return [
+            f"{_INDENT}  q_usage à dénominateur commun : indisponible (tout le passé "
+            "n'est pas exécuté)"
+        ]
+    couples: list[tuple[float, float]] = []
+    missing = 0
+    for day in chosen:
+        if day in without_all:
+            missing += 1
+            continue
+        base_scores = scores[all_index].get(day)
+        earlier, later = scores[i].get(day), scores[k].get(day)
+        if base_scores is None or earlier is None or later is None:
+            continue
+        try:
+            base = usage_elements(base_scores)[0]
+            p_i, t_i = usage_elements(earlier)
+            p_k, t_k = usage_elements(later)
+        except ValueError:
+            continue
+        couples.append(
+            (common_usage_target(p_i, t_i, base), common_usage_target(p_k, t_k, base))
+        )
+    lines = [
+        f"{_INDENT}  q_usage commun : "
+        f"{_paired_text(paired_difference(couples), labels, i, k)}"
+    ]
+    if missing:
+        lines.append(
+            f"{_INDENT}  q_usage commun : indisponible, pas de courbe sous tout le "
+            f"passé ({missing})"
+        )
+    return lines
+
+
+def _rolling_report_name(number: int) -> str:
+    return f"{REPORTS_DIR}/comparaison-{number:04d}.txt"
+
+
 ROLLING_WINDOWS_ERROR = (
     "--rolling : une liste de fenêtres attendue (des jours ≥ 1 ou all, distincts), "
     "reçu {text!r}."
@@ -2740,11 +3555,27 @@ def _run_rolling(args: argparse.Namespace) -> int:
     from mountain_perf.ingest.interim import InterimError, read_recording_with_sha256
     from mountain_perf.model.curve_io import DEFAULT_SUPPORT_THRESHOLD_MIN
 
+    given = {}
+    if args.descent_threshold is not None:
+        given["descent_subclass_threshold"] = args.descent_threshold
+    threshold = ParameterSet(REPORT_PARAMETER_SPECS, given)[
+        "descent_subclass_threshold"
+    ]
     data = data_dir()
     state = git_state(Path(mountain_perf.__file__).resolve().parent)
     if state.modified:
         print(MODIFIED_TREE_ERROR, file=sys.stderr)
         return 1
+    registry = data / REGISTRY_DIR
+    events = len(read_registry(registry).events) if registry.exists() else 0
+    count = len(args.rolling)
+    planned = [_report_name(events + 2 * (k + 1)) for k in range(count)]
+    if count >= 2:
+        planned.append(_rolling_report_name(events + 2 * count))
+    for name in planned:
+        if (data / name).exists():
+            print(REPORT_EXISTS_ERROR.format(name=name), file=sys.stderr)
+            return 1
     settings = RollingSettings(
         covered_threshold=args.covered_threshold,
         beyond_marker=(
@@ -2778,17 +3609,63 @@ def _run_rolling(args: argparse.Namespace) -> int:
         )
         print(line, flush=True)
 
-    for window_run in run_rolling(
-        preparation, data / REGISTRY_DIR, on_declaration=announce
-    ):
+    manifest = preparation.common.manifest
+    computed: list[tuple[list[str], list[str]]] = []
+
+    def compute(evaluation: RollingEvaluation) -> None:
+        view = _rolling_view(evaluation, manifest)
+        declared = evaluation.declaration_event.declaration
+        assert declared is not None
+        assert declared.rolling is not None
+        rule = declared.rolling.rule
+        head, lines = _rolling_summary_parts(view, rule, threshold)
+        computed.append(([*head, *lines], _rolling_report_body(view, threshold)))
+
+    runs = run_rolling(
+        preparation, registry, on_declaration=announce, before_result=compute
+    )
+    for window_run, (summary, body) in zip(runs, computed, strict=True):
+        number = window_run.result_event.number
+        name = _report_name(number)
         print(
             RESULT_RECORDED.format(
-                label=f"{'résultat':<13}",
-                number=window_run.result_event.number,
-                seal=window_run.seal,
+                label=f"{'résultat':<13}", number=number, seal=window_run.seal
             ),
             flush=True,
         )
+        try:
+            _write_report(data, name, _full_report(summary, body))
+        except (Exception, KeyboardInterrupt) as error:
+            print(
+                REPORT_NOT_WRITTEN_ERROR.format(
+                    number=number,
+                    seal=window_run.seal,
+                    name=name,
+                    reason=failure_reason(error),
+                ),
+                file=sys.stderr,
+            )
+            return 1
+        print(f"{'rapport':<13}{name}", flush=True)
+    if len(runs) >= 2:
+        last = runs[-1]
+        name = _rolling_report_name(last.result_event.number)
+        try:
+            _write_report(
+                data, name, "\n".join(_comparison_report(runs, manifest)) + "\n"
+            )
+        except (Exception, KeyboardInterrupt) as error:
+            print(
+                REPORT_NOT_WRITTEN_ERROR.format(
+                    number=last.result_event.number,
+                    seal=last.seal,
+                    name=name,
+                    reason=failure_reason(error),
+                ),
+                file=sys.stderr,
+            )
+            return 1
+        print(f"{'comparaison':<13}{name}", flush=True)
     return 0
 
 

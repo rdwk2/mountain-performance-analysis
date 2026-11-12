@@ -77,7 +77,7 @@ def test_execution_imports_the_named_modules_only() -> None:
 def test_report_imports_the_named_modules_only() -> None:
     """§ 6.0 : le rapport, des fonctions pures — de l'exécution, ``BacktestRun`` et,
     depuis M4c-2, ``BacktestEvaluation``, depuis M4d-1, ``OutingRun`` et la dérive ; ni
-    ``pathlib`` ni registre."""
+    ``pathlib`` ni registre ; depuis OG-2, la table de Student (``student_t``)."""
     imported = _imports(REPORT)
     assert _project(REPORT) <= {
         "mountain_perf.backtest.calendar",
@@ -86,8 +86,10 @@ def test_report_imports_the_named_modules_only() -> None:
         "mountain_perf.backtest.metrics",
         "mountain_perf.backtest.scoring",
         "mountain_perf.backtest.segments",
+        "mountain_perf.backtest.student_t",
         "mountain_perf.schemas",
     }
+    assert imported["mountain_perf.backtest.student_t"] == {"student_t_quantile"}
     assert imported["mountain_perf.backtest.execution"] == {
         "BacktestEvaluation",
         "BacktestRun",
