@@ -204,3 +204,15 @@ def test_a_climb_heart_rate_is_frozen() -> None:
     field = "bpm"
     with pytest.raises(dataclasses.FrozenInstanceError):
         setattr(value, field, 150.0)
+
+
+def test_the_second_half_never_returns_an_empty_piece() -> None:
+    """Ni le morceau coupé, quand le milieu tombe par arrondi sur sa fin, ni un morceau
+    nul donné après la coupe."""
+    assert second_half(
+        (
+            (4095.7296965801265, 4096.729696580127),
+            (4096.729696580127, 4097.729696580127),
+        )
+    ) == ((4096.729696580127, 4097.729696580127),)
+    assert second_half(((0.0, 10.0), (20.0, 30.0), (30.0, 30.0))) == ((20.0, 30.0),)

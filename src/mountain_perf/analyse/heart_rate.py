@@ -72,7 +72,8 @@ def second_half(
     run = 0.0
     for k, (a, b) in enumerate(pieces):
         if run + (b - a) > half:
-            return ((a + (half - run), b), *pieces[k + 1 :])
+            kept = ((a + (half - run), b), *pieces[k + 1 :])
+            return tuple((u, v) for u, v in kept if v - u > 0)
         run += b - a
     return ()
 
