@@ -3523,6 +3523,11 @@ RESULT_RECORDED = "{label}{number} enregistré ; dernière ligne sha256 {seal}"
 """La ligne d'un RÉSULTAT ajouté par la commande glissante."""
 
 
+class _ReportNotWrittenError(Exception):
+    """Le rapport D15 d'une fenêtre glissante non écrit : son message
+    (``REPORT_NOT_WRITTEN_ERROR``) ; la commande s'arrête avant la fenêtre suivante."""
+
+
 def _rolling_windows(text: str) -> tuple[OriginWindow, ...]:
     """La liste de ``--rolling`` : des entiers ``>= 1`` ou ``all``, séparés par des
     virgules, distincts, dans l'ordre donné (D-OG2-3)."""
@@ -3545,7 +3550,9 @@ def _run_rolling(args: argparse.Namespace) -> int:
     ``MPA_DATA_DIR`` ; l'état git du paquet exécuté, un arbre modifié refusé ; la
     préparation (un manifeste, un index, un corpus, un cache ; les courbes figées ; une
     DÉCLARATION par fenêtre), sans rien écrire ; puis, fenêtre par fenêtre, la
-    DÉCLARATION annoncée dès son ajout, le calcul, le RÉSULTAT annoncé."""
+    DÉCLARATION annoncée dès son ajout, le calcul, le RÉSULTAT annoncé et son rapport
+    écrit avant la fenêtre suivante (un ÉCHEC au ``W`` k garde les rapports des
+    ``W`` précédents) ; un rapport non écrit arrête la commande."""
     from mountain_perf.backtest.rolling import (
         DEFAULT_BEYOND_MARKER,
         RollingSettings,
@@ -3610,7 +3617,7 @@ def _run_rolling(args: argparse.Namespace) -> int:
         print(line, flush=True)
 
     manifest = preparation.common.manifest
-    computed: list[tuple[list[str], list[str]]] = []
+    computed: list[tuple[tuple[list[str], list[str]], list[str]]] = []
 
     def compute(evaluation: RollingEvaluation) -> None:
         view = _rolling_view(evaluation, manifest)
@@ -3618,13 +3625,10 @@ def _run_rolling(args: argparse.Namespace) -> int:
         assert declared is not None
         assert declared.rolling is not None
         rule = declared.rolling.rule
-        head, lines = _rolling_summary_parts(view, rule, threshold)
-        computed.append(([*head, *lines], _rolling_report_body(view, threshold)))
+        parts = _rolling_summary_parts(view, rule, threshold)
+        computed.append((parts, _rolling_report_body(view, threshold)))
 
-    runs = run_rolling(
-        preparation, registry, on_declaration=announce, before_result=compute
-    )
-    for window_run, (summary, body) in zip(runs, computed, strict=True):
+    def record(window_run: RollingWindowRun) -> None:
         number = window_run.result_event.number
         name = _report_name(number)
         print(
@@ -3633,20 +3637,38 @@ def _run_rolling(args: argparse.Namespace) -> int:
             ),
             flush=True,
         )
+        parts, body = computed[-1]
+        summary = _summary(
+            parts,
+            window_run.evaluation.declaration_event.number,
+            number,
+            window_run.seal,
+            name,
+        )
         try:
             _write_report(data, name, _full_report(summary, body))
         except (Exception, KeyboardInterrupt) as error:
-            print(
+            raise _ReportNotWrittenError(
                 REPORT_NOT_WRITTEN_ERROR.format(
                     number=number,
                     seal=window_run.seal,
                     name=name,
                     reason=failure_reason(error),
-                ),
-                file=sys.stderr,
-            )
-            return 1
+                )
+            ) from error
         print(f"{'rapport':<13}{name}", flush=True)
+
+    try:
+        runs = run_rolling(
+            preparation,
+            registry,
+            on_declaration=announce,
+            before_result=compute,
+            after_result=record,
+        )
+    except _ReportNotWrittenError as error:
+        print(error, file=sys.stderr)
+        return 1
     if len(runs) >= 2:
         last = runs[-1]
         name = _rolling_report_name(last.result_event.number)

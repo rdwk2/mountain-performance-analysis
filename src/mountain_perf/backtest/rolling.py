@@ -845,13 +845,18 @@ def run_rolling(
     recorded_at: datetime | None = None,
     on_declaration: Callable[[RegistryEvent, str], None] | None = None,
     before_result: Callable[[RollingEvaluation], None] | None = None,
+    after_result: Callable[[RollingWindowRun], None] | None = None,
 ) -> tuple[RollingWindowRun, ...]:
     """L'exécution enregistrée de la commande glissante (§ 6.7 (c)), sur le modèle de
     ``run_backtest`` : pour chaque ``W``, dans l'ordre de la commande, la DÉCLARATION
     (``on_declaration``), le calcul (les sorties tracées une fois pour toutes les
-    fenêtres : l'appariement ne lit pas la courbe), ``before_result`` (le rapport), le
-    RÉSULTAT ; une exception ou une interruption au clavier devient l'ÉCHEC technique
-    de **ce** ``W``, ``BacktestError``, et la commande s'arrête."""
+    fenêtres : l'appariement ne lit pas la courbe), ``before_result`` (le rapport
+    calculé), le RÉSULTAT, puis ``after_result`` (l'annonce du RÉSULTAT et l'écriture
+    de son rapport, avant la fenêtre suivante) ; une exception ou une interruption au
+    clavier avant le RÉSULTAT devient l'ÉCHEC technique de **ce** ``W``,
+    ``BacktestError``, et la commande s'arrête. ``after_result`` est appelé hors de ce
+    cas : le RÉSULTAT est déjà au registre, et son erreur sort telle quelle (les ``W``
+    suivants ne sont pas déclarés)."""
     runs: list[RollingWindowRun] = []
     traced: tuple[tuple[TracedOuting, ...], tuple[Exclusion, ...]] | None = None
     for window in preparation.windows:
@@ -896,5 +901,8 @@ def run_rolling(
                 f"{failure.number} ; dernière ligne sha256 {line_hash(failure)}) : "
                 f"{reason}"
             ) from error
-        runs.append(RollingWindowRun(evaluation, result, line_hash(result)))
+        window_run = RollingWindowRun(evaluation, result, line_hash(result))
+        runs.append(window_run)
+        if after_result is not None:
+            after_result(window_run)
     return tuple(runs)
