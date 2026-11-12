@@ -75,8 +75,9 @@ ou `just process` et `just q1` ; sans lui, les tests qui écrivent du Parquet ou
 la figure se sautent.
 L'interface demande l'extra `tableau` (Streamlit,
 [`0016`](docs/decisions/0016-interface-v0.md)) : `uv sync --locked --extra tableau`, ou
-`just ui` ; sans lui, les tests de l'interface se sautent. Le serveur n'écoute que la
-machine, sans télémétrie (`.streamlit/config.toml`).
+`just ui` ; sans lui, les tests de l'interface se sautent. Ses pages de la piste analyse
+lisent aussi `processed/` et demandent l'extra `analyse` ; `just ui` installe les deux.
+Le serveur n'écoute que la machine, sans télémétrie (`.streamlit/config.toml`).
 `just check` enchaîne trois recettes :
 
 | Recette | Ce qu'elle lance |
@@ -100,8 +101,8 @@ l'ingestion, puis `interim/activities/`, `interim/days/`, `athlete.toml` et `jou
 lus, `processed/` écrit), à la figure
 de Q1 (`just q1` : `processed/` lu, `resultats/Q1/` écrit), à la courbe personnelle
 (`just curve` : `interim/activities/` lu, `reference/` écrit) et à l'interface
-(`just ui` : `routes/`, `sorties/` et `reference/` lus ; `routes/` et `sorties/` écrits
-par l'ajout d'un fichier) ; les autres commandes ne le lisent pas, les tests non plus
+(`just ui` : `routes/`, `sorties/`, `reference/`, `processed/` et `resultats/Q1/` lus ;
+`routes/` et `sorties/` écrits par l'ajout d'un fichier) ; les autres commandes ne le lisent pas, les tests non plus
 ([`tests/conftest.py`](tests/conftest.py) le pose sur un dossier temporaire neuf
 pour chaque test). Pour le renseigner, copier [`.env.example`](.env.example) en
 `.env` ; `just` charge `.env` s'il existe. Sous Windows, écrire le chemin avec des
@@ -700,9 +701,10 @@ détail est dans [`0017`](docs/decisions/0017-estimation-de-la-courbe.md).
 ## Interface : `just ui`
 
 L'interface ([`0016`](docs/decisions/0016-interface-v0.md)) est une appli Streamlit
-locale, sur `MPA_DATA_DIR`, avec l'extra `tableau`. Elle ne calcule rien (règle 7 de
-[`CLAUDE.md`](CLAUDE.md)) : ce qu'elle montre vient des fonctions mêmes de `mperf` et de
-la bibliothèque. Deux pages : « projection » et « sortie ».
+locale, sur `MPA_DATA_DIR`, avec les extras `tableau` et `analyse`. Elle ne calcule rien
+(règle 7 de [`CLAUDE.md`](CLAUDE.md)) : ce qu'elle montre vient des fonctions mêmes de
+`mperf` et de la bibliothèque. Quatre pages : « projection » et « sortie » (M5),
+« récupération » et « Q1 » (la piste analyse, AN2-3).
 
 ```bash
 just ui
@@ -710,7 +712,7 @@ just ui
 
 puis `http://localhost:8501` dans le navigateur.
 
-- **L'ajout d'un fichier** (barre latérale, sur les deux pages) : un GPX téléversé va,
+- **L'ajout d'un fichier** (barre latérale, sur les pages « projection » et « sortie ») : un GPX téléversé va,
   au choix, dans les préparés (`routes/`) ou dans les sorties (`sorties/`, une trace
   horodatée). Il est lu d'abord, comme la page le lira, puis écrit sous son nom, au clic
   seulement ; un fichier de même nom n'est jamais écrasé, et rien n'est supprimé.
@@ -741,6 +743,19 @@ puis `http://localhost:8501` dans le navigateur.
   sortie par v0 brut, à l'effort 1, sans réglage, et rien n'est écrit : pas une erreur
   du modèle, dont le chiffre qui fait foi reste celui du backtest. Le détail (régimes,
   enveloppes, épisodes) : `mperf match --curve`.
+- **La page « récupération »** : la table `jours` de `processed/`, sans rien calculer
+  ([`0019`](docs/decisions/0019-table-jours-et-normales.md), section AN2-3). Les six
+  mesures de la nuit et du repos, chacune contre sa normale et sa plage : un point plein
+  pour une valeur admise dans la normale, un point creux pour une valeur écartée (la
+  raison au survol), un trait gris en pied quand il n'y a pas de valeur ; la normale en
+  pointillé quand sa fenêtre mêle l'avant et l'après d'une rupture ou d'un jour
+  incertain. Puis le journal (`journal.csv`) en rubans, l'activité du jour (durées par
+  famille, charge selon Garmin), et, à part, la HRV selon Garmin. Par défaut les 8
+  dernières semaines, au choix toute la table. Exploratoire : aucune alerte, aucun
+  verdict. Les tables restent en mémoire tant que leur provenance ne change pas.
+- **La page « Q1 »** : la dernière figure écrite par `just q1`, telle quelle, avec sa
+  date, et un avertissement si elle ne vient pas des tables actuelles
+  ([`0015`](docs/decisions/0015-figure-de-q1.md), section AN2-3).
 
 ## État et plan
 
@@ -761,9 +776,11 @@ puis `http://localhost:8501` dans le navigateur.
   (`just ingest`), les horloges du moteur rendues communes (le temps de mouvement),
   les tables de `processed/` et la commande qui régénère `interim/` et `processed/`
   (`just process`), la figure de Q1 (`just q1`). AN2 (données journalières et tableau
-  de bord) commencé : l'ingestion lit plusieurs exports (AN2-0) et les données
+  de bord) : l'ingestion lit plusieurs exports (AN2-0) et les données
   journalières, avec leurs vues (AN2-1) ; `mperf tables` en tire la table `jours`, avec
-  les normales de six mesures, et lit le journal de l'athlète (AN2-2).
+  les normales de six mesures, et lit le journal de l'athlète (AN2-2) ; l'interface la
+  montre (la page « récupération »), avec la dernière figure de Q1 (AN2-3). AN2 est
+  livrée.
 
 Le détail :
 

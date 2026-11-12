@@ -31,6 +31,10 @@ RUNS_BACKTEST_MODULES = (
     "mountain_perf.backtest.segments",
 )
 """Les modules purs de ``backtest/`` que ``runs.py`` peut importer (M5-2)."""
+PISTE_PAGES = ("recuperation.py", "q1.py")
+"""Les pages de la piste analyse (AN2-3), chemins sous ``ui/`` : elles seules peuvent
+importer ``mountain_perf.analyse``, et seulement dans leurs fonctions ;
+``mountain_perf.backtest`` leur reste refusé."""
 
 
 def _imports(path: Path, package: str) -> set[str]:
@@ -165,12 +169,42 @@ def test_the_library_loads_without_streamlit_pandas_or_numpy() -> None:
     assert out.stdout.strip() == "[]"
 
 
+def _refused(path: Path) -> tuple[str, ...]:
+    """Les paquets qu'un module d'``ui/`` ne peut pas importer : ``backtest`` partout,
+    ``analyse`` hors des pages de la piste (``PISTE_PAGES``)."""
+    if path.relative_to(UI).as_posix() in PISTE_PAGES:
+        return ("mountain_perf.backtest",)
+    return ("mountain_perf.backtest", "mountain_perf.analyse")
+
+
 def test_the_interface_imports_neither_backtest_nor_analyse() -> None:
     for path in sorted(UI.rglob("*.py")):
         for module in _source_imports(path):
-            assert not module.startswith(
-                ("mountain_perf.backtest", "mountain_perf.analyse")
-            ), (path.name, module)
+            assert not module.startswith(_refused(path)), (path.name, module)
+
+
+def _all_imports(path: Path) -> set[str]:
+    """Les modules qu'un fichier importe, au premier niveau comme dans ses fonctions,
+    plus ``paquet.nom`` pour chaque ``from paquet import nom``."""
+    found = _imported_modules(
+        ast.parse(path.read_text(encoding="utf-8")), _package(path)
+    )
+    return set(found) | {f"{m}.{name}" for m, names in found.items() for name in names}
+
+
+def _is_analyse(module: str) -> bool:
+    return module == "mountain_perf.analyse" or module.startswith(
+        "mountain_perf.analyse."
+    )
+
+
+def test_the_piste_pages_exist_and_import_analyse_in_functions_only() -> None:
+    for name in PISTE_PAGES:
+        path = UI / name
+        assert path.is_file(), name
+        assert any(_is_analyse(module) for module in _all_imports(path)), name
+        loaded = [module for module in _loaded_imports(path) if _is_analyse(module)]
+        assert not loaded, (name, loaded)
 
 
 def test_new_library_modules_import_neither_ui_backtest_nor_analyse() -> None:
@@ -202,3 +236,16 @@ def test_streamlit_configuration_is_local_and_without_telemetry() -> None:
         "server": {"address": "localhost", "headless": True},
         "browser": {"gatherUsageStats": False},
     }
+
+
+def test_just_ui_runs_with_the_analyse_extra() -> None:
+    """La recette ``ui`` lance l'appli avec les extras ``tableau`` et ``analyse`` : les
+    pages de la piste lisent ``processed/`` (pyarrow) (AN2-3, annexe A.6)."""
+    lines = [
+        line
+        for line in (ROOT / "justfile").read_text(encoding="utf-8").splitlines()
+        if "streamlit run src/mountain_perf/ui/app.py" in line
+    ]
+    assert len(lines) == 1, lines
+    assert "--extra tableau" in lines[0]
+    assert "--extra analyse" in lines[0]

@@ -14,6 +14,11 @@ les mêmes tables, le même code et les mêmes paramètres donnent la même empr
 Le dossier s'écrit d'abord sous un nom temporaire, puis prend son nom : il est complet
 ou absent. CSV et JSON en UTF-8, fins de ligne ``\\n``.
 
+La relecture (AN2-3, la page « Q1 ») : :func:`stored_results` relit les dossiers,
+:func:`latest_result` retient la dernière figure et dit si elle vient des tables
+actuelles, :func:`read_figure` en rend le HTML ; rien de ce qu'écrit
+:func:`write_results` ne change.
+
 Python pur : ce module ne demande aucun extra.
 """
 
@@ -26,7 +31,9 @@ import io
 import json
 import shutil
 from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import date
+from enum import StrEnum
 from pathlib import Path
 
 from mountain_perf.analyse.q1 import (
@@ -35,7 +42,7 @@ from mountain_perf.analyse.q1 import (
     MonthPanel,
     Q1Figure,
 )
-from mountain_perf.schemas.processed import ClimbFlag
+from mountain_perf.schemas.processed import ClimbFlag, ProcessedProvenance
 
 RESULTS_DIR = Path("resultats") / "Q1"
 """Le dossier des résultats de Q1, sous ``MPA_DATA_DIR``."""
@@ -259,3 +266,129 @@ def write_results(
         raise
     temporary.rename(target)
     return target
+
+
+class TablesMatch(StrEnum):
+    """Ce que la figure de Q1 retenue dit des tables actuelles : ``same``, elle en
+    vient ; ``different``, aucun résultat n'en vient ; ``unknown``, les tables
+    actuelles ne se relisent pas."""
+
+    SAME = "same"
+    DIFFERENT = "different"
+    UNKNOWN = "unknown"
+
+
+@dataclass(frozen=True)
+class StoredResult:
+    """Un dossier de résultats de Q1 relu : son chemin, sa date de génération, et la
+    valeur ``tables`` de son ``provenance.json``, telle que relue."""
+
+    folder: Path
+    generated_on: date
+    tables: object
+
+
+@dataclass(frozen=True)
+class LatestResult:
+    """Le résultat retenu par :func:`latest_result`, ce qu'il dit des tables actuelles,
+    et le compte des dossiers illisibles."""
+
+    result: StoredResult
+    match: TablesMatch
+    unreadable: int
+
+
+def _temporary(name: str) -> bool:
+    """Un dossier temporaire de :func:`write_results` : ses deux marques."""
+    return name.startswith(_TEMPORARY_PREFIX) and name.endswith(_TEMPORARY_SUFFIX)
+
+
+def _stored(folder: Path) -> StoredResult | None:
+    """Le dossier relu, ou ``None`` s'il est illisible."""
+    try:
+        document = json.loads((folder / PROVENANCE_FILE).read_bytes().decode("utf-8"))
+    except (OSError, UnicodeDecodeError, ValueError):
+        return None
+    if not isinstance(document, dict) or "tables" not in document:
+        return None
+    written = document.get("genere_le")
+    if not isinstance(written, str):
+        return None
+    try:
+        generated_on = date.fromisoformat(written)
+    except ValueError:
+        return None
+    if generated_on.isoformat() != folder.name.split("_", 1)[0]:
+        return None
+    return StoredResult(folder, generated_on, document["tables"])
+
+
+def stored_results(data_dir: Path) -> tuple[tuple[StoredResult, ...], int]:
+    """Les dossiers de résultats de Q1 sous ``data_dir``, triés par nom, et le compte
+    des illisibles : ``provenance.json`` absent ou qui ne se lit pas (UTF-8, JSON), sans
+    ``tables``, ou dont ``genere_le`` n'est pas une date, écrite ``AAAA-MM-JJ``, qui
+    est le préfixe du nom. Ce qui n'est pas un dossier et les dossiers temporaires de
+    :func:`write_results` sont ignorés, sans être comptés."""
+    root = data_dir / RESULTS_DIR
+    if not root.is_dir():
+        return (), 0
+    folders = sorted(
+        (
+            path
+            for path in root.iterdir()
+            if path.is_dir() and not _temporary(path.name)
+        ),
+        key=lambda path: path.name,
+    )
+    results: list[StoredResult] = []
+    unreadable = 0
+    for folder in folders:
+        stored = _stored(folder)
+        if stored is None:
+            unreadable += 1
+        else:
+            results.append(stored)
+    return tuple(results), unreadable
+
+
+def _written_ns(result: StoredResult) -> int:
+    try:
+        return (result.folder / PROVENANCE_FILE).stat().st_mtime_ns
+    except OSError:
+        return 0
+
+
+def latest_result(
+    data_dir: Path, current: ProcessedProvenance | None
+) -> LatestResult | None:
+    """La dernière figure de Q1 : parmi les résultats des tables actuelles
+    (``current``, écrite comme ``provenance.json`` l'écrit), sinon parmi tous, la
+    ``genere_le`` la plus récente ; à égalité, le ``provenance.json`` écrit le plus
+    tard ; puis le nom le plus grand. ``None`` sans résultat lisible."""
+    results, unreadable = stored_results(data_dir)
+    if not results:
+        return None
+    if current is None:
+        match, candidates = TablesMatch.UNKNOWN, results
+    else:
+        written = json.loads(json.dumps(dataclasses.asdict(current)))
+        same = tuple(result for result in results if result.tables == written)
+        match = TablesMatch.SAME if same else TablesMatch.DIFFERENT
+        candidates = same or results
+    latest = max(
+        candidates,
+        key=lambda result: (
+            result.generated_on,
+            _written_ns(result),
+            result.folder.name,
+        ),
+    )
+    return LatestResult(latest, match, unreadable)
+
+
+def read_figure(result: StoredResult) -> str | None:
+    """Le texte de ``figure.html`` du résultat ; ``None`` s'il ne s'ouvre pas."""
+    try:
+        return (result.folder / FIGURE_FILE).read_text(encoding="utf-8")
+    except OSError:
+        return None

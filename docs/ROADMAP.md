@@ -358,6 +358,11 @@ il lit `journal.csv`, et la provenance des tables porte les empreintes d'`interi
 et du journal (`docs/decisions/0019` ; `0014`, précisions d'AN2-2). Reste le tableau de
 bord (AN2-3).
 
+**Fini** avec la PR AN2-3 : `just ui` montre la table `jours` (la page « récupération » :
+les six mesures contre leur normale, le journal, l'activité du jour, la HRV selon
+Garmin ; `docs/decisions/0019`, section AN2-3) et la dernière figure de Q1 (la page
+« Q1 » ; `0015`, section AN2-3), sans rien calculer.
+
 ---
 
 ### AN3 et suivants — Une question par jalon

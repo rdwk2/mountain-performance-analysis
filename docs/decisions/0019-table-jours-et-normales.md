@@ -488,3 +488,54 @@ et rien n'est écrit.
     (`0018`) ;
   - les seuils `days.*` et les résolutions, quand une autre montre ou un autre athlète
     passera par la table.
+
+## AN2-3 — la page « récupération » (2026-11-11)
+
+- **Ce qu'elle montre** : la table `jours`, sans rien calculer (règle 7 de `CLAUDE.md`) :
+  les six mesures de ce record, chacune contre sa normale, dans l'ordre de `MEASURE_SPECS`,
+  chacune dans son unité sur un axe linéaire (la HRV en ms, le sommeil en heures) ; le journal ; l'activité du jour (les durées par famille, empilées, et
+  la charge selon Garmin) ; puis, à part, la HRV selon Garmin (la moyenne de la semaine
+  et ses bornes), sans la normale ni les couleurs de la piste. La période : par défaut
+  les 8 dernières semaines (les 56 dernières lignes de la table, son dernier jour
+  compris), au choix toute la table. « Données au … » est l'instant d'acquisition à
+  l'heure de Paris, dit comme tel.
+- **Les marques suivent l'admission** : un point plein, une valeur admise
+  (`<p>_admitted`) ; un point creux, une valeur refusée, le motif au survol ; un trait
+  gris en pied du panneau, pas de valeur (`absent_row`, `no_value`). La page ne décide
+  rien : ce qui est plein est exactement ce que la normale a lu. L'étendue d'un panneau
+  est celle des valeurs admises et de la plage sur la période, élargie de 5 % ; une
+  valeur refusée hors de cette étendue se pose au bord, en triangle, sa vraie valeur au
+  survol ; sans valeur admise ni plage, l'étendue vient des valeurs refusées, sans les
+  `invalid_value` s'il en reste d'autres.
+- **La normale et sa plage** : un trait et une bande par suite contiguë de jours de même
+  `<p>_segment` et de même `<p>_normal_straddles` ; aucun trait ne traverse une normale
+  absente. La suite à cheval, en pointillé, reprend le dernier jour de la suite pleine
+  qui la précède et le premier de celle qui la suit, dans le même segment (un point
+  commun). Un segment qui n'a qu'un jour sur la période (une normale isolée) : un trait
+  vertical de la plage, en pointillé s'il est à cheval, et un repère à la normale.
+  Conséquence assumée du point commun : un jour plein seul entre deux suites à cheval
+  n'a pas de trait plein visible. Les ruptures sont des traits verticaux, les jours
+  incertains un fond gris.
+- **Le journal** : un ruban par suite de jours consécutifs qui portent le type (la table
+  ne garde que les types des événements de chaque jour) ; les suites se calculent sur
+  toute la table, puis se rognent à la période, leurs vraies dates au survol. Sans
+  `journal.csv`, aucun ruban, et la page le dit : un jour sans événement n'est pas un
+  jour sans maladie.
+- **L'activité** : la charge absente (des activités, toutes sans charge), un trait en
+  pied ; la charge partielle (`activities_without_load` > 0), un point creux à la somme
+  partielle, dite minorée au survol.
+- **La légende** de l'expert ne vaut que pour `normal.window_days` = 28,
+  `normal.range_k` = 1 et `normal.mad_factor` = 1,4826 ; hors de ces valeurs, la page
+  dit les paramètres, sans la part des jours qui sortent de la plage, et « deux semaines
+  environ » ne vaut que pour une fenêtre de 28 jours. Le nombre de jours d'une normale
+  (`<p>_admitted_days`) est au survol.
+- **Où c'est** : la vue, `analyse/recovery.py` (`recovery_view`), en Python pur, range les
+  lignes en données de figure ; la page, `ui/recuperation.py`, n'écrit que les
+  spécifications Vega-Lite et la mise en page (`0016`, section AN2-3).
+- **Le cache** : la lecture des quatre tables dépasse 1 s sur les données réelles (règle
+  fixée avant la mesure) ; la page les garde en mémoire tant que leur provenance, lue
+  dans les seules métadonnées des fichiers (`analyse.parquet.tables_key`), ne change pas.
+- **Ce qu'elle ne fait pas** : ni normale, ni charge recalculée, ni tendance, ni lissage,
+  ni couleur d'alerte ; ni les composites de Garmin (Training Readiness, score de
+  sommeil, Body Battery), ni la charge aiguë de Training Status (`BACKLOG`) ; elle
+  n'écrit rien.

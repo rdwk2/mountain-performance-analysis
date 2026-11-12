@@ -228,3 +228,23 @@ compris (`ruff`, TID251) ; le calcul (`analyse/q1.py`) et l'écriture des résul
   ni pour ni contre) ; une vue par sport à l'intérieur d'un panneau, si un panneau mêle
   des sports qui ne se comparent pas ; le résumé, si la question passe de la sortie à
   la montée.
+
+## AN2-3 — la page « Q1 » (2026-11-11)
+
+- **Ce qu'elle montre** : la dernière figure écrite par `just q1`, son texte même
+  (`figure.html`, autonome), sans la recalculer, avec sa date (`genere_le`) et son
+  dossier. La page n'importe ni plotly ni pyarrow.
+- **« La dernière »** : parmi les résultats dont la provenance des tables égale celle des
+  tables actuelles, sinon parmi tous, la `genere_le` la plus récente ; à égalité, le
+  `provenance.json` écrit le plus tard, puis le nom du dossier. Deux résultats du même
+  jour se distinguent par leur dossier (`<date>_<empreinte>`), que la page affiche.
+- **La relecture des résultats** (`analyse/results.py`) : la liste de `resultats/Q1/`,
+  sans les dossiers temporaires (`.<nom>.nouveau`) ; un dossier dont `provenance.json`
+  manque, ne se lit pas, n'a pas `genere_le` ou `tables`, ou dont la `genere_le` n'est
+  pas le préfixe du nom, est illisible et compté ; la page dit leur nombre, même sans
+  résultat lisible.
+- **L'avertissement** : la provenance écrite (`tables`) se compare à celle des tables
+  actuelles, telle que `provenance.json` l'écrit ; une autre provenance (un
+  `just process` relancé sur un autre commit, d'autres paramètres, un `journal.csv`
+  retouché) avertit même à données égales, et des tables qui ne se relisent pas donnent
+  « comparaison impossible ». Sans résultat lisible : « lancer just q1 ».

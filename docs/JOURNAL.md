@@ -16,6 +16,31 @@ Backtest (à partir de M4) : métrique avant → après.
 
 ---
 
+### 2026-11-11 · AN2-3 — Les pages « récupération » et « Q1 »
+`just ui` montre deux pages de plus, celles de la piste analyse. « Récupération » lit la
+table `jours` sans rien calculer (`0019`, section AN2-3) : les six mesures, chacune
+contre sa normale et sa plage, leurs marques selon l'admission (plein, creux, trait en
+pied), les valeurs écartées hors de l'échelle posées au bord, les ruptures, les jours
+incertains, la normale à cheval en pointillé ; le journal en rubans ; l'activité du jour
+(durées par famille, charge selon Garmin, absente ou minorée) ; à part, la HRV selon
+Garmin. Par défaut les 8 dernières semaines, au choix toute la table. La vue est en
+Python pur (`analyse/recovery.py`) ; la page n'écrit que les spécifications Vega-Lite,
+un graphique par panneau. Les tables restent en mémoire tant que leur provenance, lue
+dans les métadonnées Parquet (`tables_key`), ne change pas. « Q1 » montre la dernière
+figure écrite par `just q1` et avertit si elle ne vient pas des tables actuelles
+(`0015`, section AN2-3 ; la relecture des résultats dans `analyse/results.py`). Les
+pages de la piste importent `analyse` dans leurs fonctions seulement, et les clôtures
+d'`ui/` les listent (`0016`, section AN2-3) ; `just ui` demande l'extra `analyse`. Le
+README, `CLAUDE.md`, la charte (§ 13 : la relecture bornée si les correctifs changent
+`src/`), la ROADMAP (AN2 finie) suivent ; deux lignes neuves au `BACKLOG`.
+`just check` avec tous les extras : 10950 tests ; branche `an2/pages`.
+Relectures : le brief et le plan de Code, avant le code ; la PR, par une relecture
+profonde, un balayage `mutmut` de sa portée et le tri de ses survivants. Correctifs :
+deux lots de tests (la vue et les graphiques en formes écrites, les règles qu'aucun test
+ne tenait) et ces lignes, sans changement de `src/`.
+
+---
+
 ### 2026-11-11 · OG-1b — L'origine glissante : les coutures de la règle
 Trois coutures publiques, pour qu'OG-UI et OG-2 appellent la règle d'OG-1 sans la recoder
 (`0020`, précision OG-1b). Le fournisseur des intervalles : `estimate_at_origin(…,
