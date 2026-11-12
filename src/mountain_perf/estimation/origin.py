@@ -23,7 +23,7 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from enum import StrEnum
 from types import MappingProxyType
-from typing import Final, Literal
+from typing import Final, Literal, Protocol
 from zoneinfo import ZoneInfo
 
 from mountain_perf.estimation.curve import (
@@ -33,15 +33,22 @@ from mountain_perf.estimation.curve import (
     CurveSelection,
     NoCurve,
     curve_file_rows,
+    curve_provenance,
     estimate_curve_outcome,
+    estimation_document,
 )
-from mountain_perf.estimation.intervals import activity_intervals
+from mountain_perf.estimation.intervals import (
+    ActivityIntervals,
+    TraceRefusal,
+    activity_intervals,
+)
 from mountain_perf.ingest.types import SOURCE_TYPE_SPORTS
 from mountain_perf.model.curve_io import CurveFileRow, check_curve_rows
 from mountain_perf.schemas import (
     SUPPORT_THRESHOLD_RANGE_MIN,
     ActivityIndex,
     ActivityRecording,
+    CurveProvenance,
     IndexedActivity,
     ParameterSet,
     Sport,
@@ -482,6 +489,22 @@ class OriginEstimate:
         )
 
 
+class IntervalsOf(Protocol):
+    """Ce qui rend les intervalles d'un enregistrement, à la signature
+    d'``activity_intervals`` (OG-1b)."""
+
+    def __call__(
+        self,
+        recording: ActivityRecording,
+        profile_parameters: ParameterSet,
+        /,
+        *,
+        hr_lag_s: float,
+        hr_min_coverage: float,
+        max_elapsed_s: float | None,
+    ) -> ActivityIntervals | TraceRefusal: ...
+
+
 def _latest_end(inspections: Iterable[Inspection]) -> datetime | None:
     """La plus tardive des fins sûres de ``inspections`` ; ``None`` sans aucune."""
     ends = [i.end.safe_end for i in inspections if i.end.safe_end is not None]
@@ -498,6 +521,7 @@ def estimate_at_origin(
     profile_parameters: ParameterSet,
     *,
     support_threshold_min: float = SUPPORT_THRESHOLD_MIN,
+    intervals_of: IntervalsOf | None = None,
 ) -> OriginEstimate:
     """La règle à l'origine : **la seule fonction de la règle**. Rend la courbe en
     mémoire et n'écrit rien.
@@ -508,6 +532,11 @@ def estimate_at_origin(
     ``CurveError`` (``0017``, P3.7). Dans cet ordre : les contrôles, la sélection,
     l'historique, les intervalles des candidates, l'estimation au seuil donné, l'issue
     au même seuil.
+
+    ``intervals_of`` (OG-1b) : le fournisseur des intervalles, à la signature
+    d':func:`activity_intervals`, appelé une fois par candidate avec les paramètres de
+    la règle ; ``None`` : :func:`activity_intervals`. Un cache s'y pose (OG-2, OG-UI),
+    avec sa propre clé (``0020``, « Conséquences »).
     """
     if athlete_ref != corpus.athlete_ref:
         raise ContractError(
@@ -562,8 +591,10 @@ def estimate_at_origin(
     if not candidates:
         return absence(NO_CANDIDATE)
     refs = [inspection.end.activity_ref for inspection in candidates]
+    # Le défaut se lit dans le module à l'appel, jamais à la définition (OG-1b, C2).
+    provider = activity_intervals if intervals_of is None else intervals_of
     intervals = [
-        activity_intervals(
+        provider(
             corpus.recordings[ref],
             profile_parameters,
             hr_lag_s=parameters["hr_lag_s"],
@@ -685,3 +716,70 @@ def origin_document(result: OriginEstimate, corpus: CurveCorpus) -> dict[str, ob
             _activity_line(inspection, fates) for inspection in result.inspections
         ],
     }
+
+
+def origin_companion(
+    result: OriginEstimate,
+    corpus: CurveCorpus,
+    selection: CurveSelection,
+    parameters: ParameterSet,
+    profile_parameters: ParameterSet,
+    *,
+    commit: str,
+    generated_at: datetime,
+) -> tuple[CurveProvenance, dict[str, object]]:
+    """La provenance et le document d'estimation d'une courbe à l'origine, ceux que
+    ``mperf curve --at`` écrit (OG-1b) : une fonction pure ; l'appelant donne le commit
+    et l'instant de l'estimation. ``corpus``, ``selection``, ``parameters`` et
+    ``profile_parameters`` sont ceux passés à :func:`estimate_at_origin` ; seul
+    l'athlète se vérifie."""
+    estimate = result.estimate
+    if estimate is None:
+        raise ContractError("result : une absence n'a pas de compagnon.")
+    if corpus.athlete_ref != result.athlete_ref:
+        raise ContractError(
+            f"corpus : celui de {corpus.athlete_ref!r}, la règle a été rendue pour "
+            f"{result.athlete_ref!r}."
+        )
+    days = retained_start_days(result, corpus)
+    assert days is not None  # une tranche estimée a une activité retenue
+    retained = set(estimate.activity_refs)
+    # L'entrée et l'enregistrement d'une activité peuvent venir de deux exports
+    # (0013, précision 16) ; estimation_document les dédoublonne et les trie.
+    exports = [
+        instant
+        for entry in corpus.index.entries
+        if entry.activity_ref in retained
+        for instant in (
+            entry.source.retrieved_at,
+            corpus.recordings[entry.activity_ref].source.retrieved_at,
+        )
+    ]
+    label = f"{result.window} jours" if isinstance(result.window, int) else "all"
+    estimator = (
+        f"mperf curve --at (OG-1) : règle à l'origine, fenêtre {label} ; "
+        "intervalles de la grille du profil, temps M θc, tranches variables, "
+        f"valeur {selection.value.value}"
+    )
+    provenance = curve_provenance(
+        estimate,
+        selection,
+        parameters,
+        date_from=days[0],
+        date_to=days[1],
+        estimator=estimator,
+        generated_at=generated_at,
+        athlete_ref=result.athlete_ref,
+        support_threshold_min=result.support_threshold_min,
+    )
+    document = estimation_document(
+        estimate,
+        selection,
+        parameters,
+        profile_parameters,
+        commit=commit,
+        exports_retrieved_at=exports,
+        support_error=result.support_error,
+        origin=origin_document(result, corpus),
+    )
+    return provenance, document

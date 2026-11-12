@@ -87,8 +87,7 @@ from mountain_perf.estimation.origin import (
     TemporalDecision,
     cold_start_warning,
     estimate_at_origin,
-    origin_document,
-    retained_start_days,
+    origin_companion,
 )
 from mountain_perf.gpx import (
     PROFILE_PARAMETER_SPECS,
@@ -3136,7 +3135,8 @@ def _run_curve(args: argparse.Namespace) -> int:
     7. la provenance — sans filtre de FC, ni largeur ni décalage ; à l'origine,
        l'étendue descriptive des jours de départ des retenues — et le document de
        l'estimation, avec les instants d'acquisition des exports lus, ceux des entrées
-       et ceux des enregistrements des activités retenues ;
+       et ceux des enregistrements des activités retenues ; à l'origine, par
+       :func:`origin_companion` (OG-1b) ;
     8. ``reference/`` créé au besoin, les deux fichiers écrits ; puis le résumé.
 
     ``ConfigError``, ``GitStateError``, ``InterimError``, ``CurveError``,
@@ -3168,6 +3168,7 @@ def _run_curve(args: argparse.Namespace) -> int:
         BinValue,
         CurveSelection,
         curve_file_rows,
+        curve_provenance,
         estimate_curve,
         estimation_document,
         select_candidates,
@@ -3180,7 +3181,7 @@ def _run_curve(args: argparse.Namespace) -> int:
         check_curve_rows,
         write_curve,
     )
-    from mountain_perf.schemas import CurveProvenance, Sport
+    from mountain_perf.schemas import Sport
 
     try:
         folder = data_dir()
@@ -3225,10 +3226,6 @@ def _run_curve(args: argparse.Namespace) -> int:
                 raise CurveError(
                     f"{path.name} existe déjà : une courbe n'est jamais réécrite."
                 )
-        date_from: date
-        date_to: date
-        origin_section: dict[str, object] | None = None
-        value_label = selection.value.value
         if origin_instant is not None:
             window = DEFAULT_WINDOW_DAYS if args.window is None else args.window
             corpus = load_curve_corpus(
@@ -3259,25 +3256,14 @@ def _run_curve(args: argparse.Namespace) -> int:
             estimate = result.estimate
             rows = result.rows
             support_error = result.support_error
-            days = retained_start_days(result, corpus)
-            assert days is not None  # une tranche estimée a une activité retenue
-            date_from, date_to = days
-            origin_section = origin_document(result, corpus)
-            retained_refs = set(estimate.activity_refs)
-            exports = [
-                instant
-                for item in corpus.index.entries
-                if item.activity_ref in retained_refs
-                for instant in (
-                    item.source.retrieved_at,
-                    corpus.recordings[item.activity_ref].source.retrieved_at,
-                )
-            ]
-            label = f"{window} jours" if isinstance(window, int) else window
-            estimator = (
-                f"mperf curve --at (OG-1) : règle à l'origine, fenêtre {label} ; "
-                "intervalles de la grille du profil, temps M θc, tranches variables, "
-                f"valeur {value_label}"
+            provenance, document = origin_companion(
+                result,
+                corpus,
+                selection,
+                parameters,
+                profile,
+                commit=state.commit,
+                generated_at=_now(),
             )
         else:
             # ValueError : CodecError et ContractError en sont, et seuls les modules de
@@ -3323,7 +3309,6 @@ def _run_curve(args: argparse.Namespace) -> int:
             )
             rows = curve_file_rows(estimate)
             support_error = check_curve_rows(rows, support_threshold_min)
-            date_from, date_to = args.date_from, args.date_to
             retained = set(estimate.activity_refs)
             # L'entrée et l'enregistrement d'une activité peuvent venir de deux exports
             # (0013, précision 16) : la courbe est choisie sur l'une, mesurée sur
@@ -3334,37 +3319,29 @@ def _run_curve(args: argparse.Namespace) -> int:
                 if entry.activity_ref in retained
                 for instant in (entry.source.retrieved_at, recorded)
             ]
-            estimator = (
-                "mperf curve (M6b) : intervalles de la grille du profil, temps M θc, "
-                f"tranches variables, valeur {value_label}"
+            provenance = curve_provenance(
+                estimate,
+                selection,
+                parameters,
+                date_from=args.date_from,
+                date_to=args.date_to,
+                estimator=(
+                    "mperf curve (M6b) : intervalles de la grille du profil, temps M "
+                    f"θc, tranches variables, valeur {selection.value.value}"
+                ),
+                generated_at=_now(),
+                athlete_ref=args.athlete,
+                support_threshold_min=support_threshold_min,
             )
-        filtered = selection.hr_center_bpm is not None
-        provenance = CurveProvenance(
-            activity_count=len(estimate.activity_refs),
-            hr_center_bpm=selection.hr_center_bpm,
-            hr_width_bpm=parameters["hr_width_bpm"] if filtered else None,
-            date_from=date_from,
-            date_to=date_to,
-            source_activity_types=selection.source_activity_types,
-            min_duration_s=selection.min_duration_s,
-            estimator=estimator,
-            generated_at=_now(),
-            athlete_ref=args.athlete,
-            max_duration_s=selection.max_duration_s,
-            max_elapsed_s=selection.max_elapsed_s,
-            hr_lag_s=parameters["hr_lag_s"] if filtered else None,
-            diagnostic_support_threshold_min=support_threshold_min,
-        )
-        document = estimation_document(
-            estimate,
-            selection,
-            parameters,
-            profile,
-            commit=state.commit,
-            exports_retrieved_at=exports,
-            support_error=support_error,
-            origin=origin_section,
-        )
+            document = estimation_document(
+                estimate,
+                selection,
+                parameters,
+                profile,
+                commit=state.commit,
+                exports_retrieved_at=exports,
+                support_error=support_error,
+            )
         target.parent.mkdir(parents=True, exist_ok=True)
         write_curve(target, rows, Sport.FOOT, provenance, document)
     except (
