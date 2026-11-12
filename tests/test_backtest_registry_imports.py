@@ -111,6 +111,9 @@ def test_codec_imports_schemas_and_the_common_codec_only() -> None:
 
 
 def test_registry_imports_the_named_modules_only() -> None:
+    """Depuis OG-2, l'accord du format 6 redérive la décision de la règle et la borne
+    basse (``estimation/decision.py``), relit le verdict de support sur les octets du
+    CSV figé (``curve_csv_support``) et recalcule ``β`` (``math``)."""
     imported = _imports(REGISTRY_MODULE)
     assert _project(REGISTRY_MODULE) <= {
         "mountain_perf.schemas",
@@ -118,7 +121,16 @@ def test_registry_imports_the_named_modules_only() -> None:
         "mountain_perf.backtest.codec",
         "mountain_perf.backtest.calendar",
         "mountain_perf.backtest.sensitivity",
+        "mountain_perf.estimation.decision",
         "mountain_perf.model.curve_io",
+    }
+    assert imported["mountain_perf.estimation.decision"] == {
+        "ALL_PAST",
+        "OriginWindow",
+        "TemporalDecision",
+        "decide_on_index",
+        "decide_on_safe_end",
+        "window_lower_bound",
     }
     assert imported["mountain_perf.backtest.calendar"] == {"origin"}
     assert imported["mountain_perf.backtest.sensitivity"] == {
@@ -129,6 +141,7 @@ def test_registry_imports_the_named_modules_only() -> None:
     assert imported["mountain_perf.model.curve_io"] <= {
         "META_SUFFIX",
         "CurveReadResult",
+        "curve_csv_support",
     }
     assert _outside(REGISTRY_MODULE) <= {
         "collections",
@@ -137,6 +150,7 @@ def test_registry_imports_the_named_modules_only() -> None:
         "dataclasses",
         "datetime",
         "json",
+        "math",
         "os",
         "pathlib",
         "typing",

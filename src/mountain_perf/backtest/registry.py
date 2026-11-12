@@ -19,7 +19,9 @@ telles quelles.
 
 from __future__ import annotations
 
+import dataclasses
 import json
+import math
 import os
 from collections import Counter
 from collections.abc import Callable, Iterator, Mapping
@@ -27,6 +29,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime
 from pathlib import Path
+from typing import Any
 
 from mountain_perf.backtest.calendar import origin
 from mountain_perf.backtest.codec import (
@@ -44,13 +47,22 @@ from mountain_perf.backtest.sensitivity import (
     SENSITIVITY_CLUSTER_RADIUS_M,
     SENSITIVITY_CONFIGURATIONS,
 )
-from mountain_perf.model.curve_io import META_SUFFIX, CurveReadResult
+from mountain_perf.estimation.decision import (
+    ALL_PAST,
+    OriginWindow,
+    TemporalDecision,
+    decide_on_index,
+    decide_on_safe_end,
+    window_lower_bound,
+)
+from mountain_perf.model.curve_io import META_SUFFIX, CurveReadResult, curve_csv_support
 from mountain_perf.schemas import (
     ADMISSION_FIRST_FORMAT,
     BAND_MODELS,
     BANDS_FIRST_FORMAT,
     CALIBRATED_KINDS,
     CLOCKS,
+    METRIC_RELATIVE_TOLERANCE,
     REGISTRY_FORMAT_VERSION,
     ROLLING_FIRST_FORMAT,
     SENSITIVITY_FIRST_FORMAT,
@@ -61,6 +73,8 @@ from mountain_perf.schemas import (
     CalibratedOutingScores,
     CalibratedScenarioScores,
     CalibrationTerms,
+    Clock,
+    CurveStatus,
     DataSet,
     Declaration,
     DeclaredModel,
@@ -71,6 +85,7 @@ from mountain_perf.schemas import (
     ExperimentTrials,
     Failure,
     FrozenCurve,
+    ModelCalibration,
     ModelKind,
     ModelResult,
     Outing,
@@ -86,14 +101,18 @@ from mountain_perf.schemas import (
     RepeatabilityRecord,
     RepeatabilityReference,
     Result,
+    RollingDeclaration,
+    RollingPerformance,
     RollingResult,
     RollingRule,
     Scenario,
+    ScenarioClockTerms,
     ScenarioScores,
     SensitivityConfiguration,
     SensitivityOutcome,
     SourceRef,
     TrialCounts,
+    Unavailability,
 )
 from mountain_perf.validation import ContractError
 
@@ -506,7 +525,11 @@ def _agree(
     une paire par paire déclarée, dans l'ordre, chacune accordée comme le RÉSULTAT
     d'une exécution, et un document de sensibilité ; il ne cite pas de document
     d'admission (les admissions des configurations sont dans le document de
-    sensibilité)."""
+    sensibilité). Au format 6 (OG-2) : un RÉSULTAT glissant répond à une DÉCLARATION
+    glissante et publie les documents qu'elle a figés (``_agree_rolling``) ; sans
+    courbe, v0 brut et v0 + effort recalé ne scorent pas les sorties d'une performance,
+    qui ne citent pas de fourchettes."""
+    _agree_rolling(declaration, result, prefix)
     sensitivity = declaration.sensitivity
     if sensitivity is None:
         if result.sensitivity is not None:
@@ -533,6 +556,45 @@ def _agree(
         _agree_outings(
             declaration, _pair_view(pair), _pair_prefix(prefix, pair), format_version
         )
+
+
+def _agree_rolling(declaration: Declaration, result: Result, prefix: str) -> None:
+    """Les conditions 1 et 2 de l'accord glissant sans documents (OG-2, ``0010``
+    précision OG-2, point 12) : un RÉSULTAT glissant répond à une DÉCLARATION
+    glissante ;
+    il publie le document de règle et les documents de courbe que la DÉCLARATION a
+    figés, dans l'ordre, et un document des termes du calage si et seulement si la
+    performance a le statut ``curve``."""
+    rolling, published = declaration.rolling, result.rolling
+    if (rolling is None) != (published is None):
+        raise RegistryError(
+            f"{prefix}un RÉSULTAT glissant répond à une DÉCLARATION glissante (OG-2)"
+        )
+    if rolling is None or published is None:
+        return
+    documents = tuple(p.document for p in rolling.performances)
+    terms = tuple(sha is not None for sha in published.calibration_terms)
+    curves = tuple(p.status is CurveStatus.CURVE for p in rolling.performances)
+    if (published.rule, published.curves, terms) != (rolling.rule, documents, curves):
+        raise RegistryError(
+            f"{prefix}le RÉSULTAT publie les documents que la DÉCLARATION a figés, "
+            "dans l'ordre (OG-2)"
+        )
+
+
+def _outing_statuses(declaration: Declaration) -> dict[str, CurveStatus]:
+    """Le statut de la courbe de chaque sortie déclarée d'une DÉCLARATION glissante,
+    celui de sa performance (OG-2) ; vide en mode « courbe déclarée »."""
+    rolling = declaration.rolling
+    if rolling is None:
+        return {}
+    return {
+        outing.outing_id: entry.status
+        for declared, entry in zip(
+            declaration.performances, rolling.performances, strict=True
+        )
+        for outing in declared.performance.outings
+    }
 
 
 def _pair_view(pair: PairResult) -> Result:
@@ -563,6 +625,7 @@ def _agree_outings(
                 "avec un motif"
             )
     kinds = {model.kind for model in declaration.models}
+    statuses = _outing_statuses(declaration)
     for scored in result.outings:
         outing = outings[scored.outing_id]
         if not outing.traces:
@@ -580,13 +643,23 @@ def _agree_outings(
                     "si et seulement si la sortie a une référence (D3)"
                 )
         present = {model.model for model in scored.models}
-        absent = [
-            model.kind for model in declaration.models if model.kind not in present
+        with_curve = statuses.get(scored.outing_id, CurveStatus.CURVE)
+        expected = [
+            model.kind
+            for model in declaration.models
+            if with_curve is CurveStatus.CURVE or model.kind not in CURVE_MODELS
         ]
+        absent = [kind for kind in expected if kind not in present]
         if absent:
             raise RegistryError(
                 f"{prefix}{scored.outing_id!r}, une sortie scorée l'est par chaque "
                 f"modèle déclaré (D0, D9.2) ; absent : {', '.join(absent)}"
+            )
+        if with_curve is not CurveStatus.CURVE and present & CURVE_MODELS:
+            raise RegistryError(
+                f"{prefix}{scored.outing_id!r}, une sortie scorée l'est par chaque "
+                "modèle déclaré (D0, D9.2) : sans courbe, v0 brut et v0 + effort "
+                "recalé ne la scorent pas (OG-2)"
             )
     route_ids = declaration.route_ids
     for record in result.references:
@@ -741,9 +814,18 @@ def _agree_bands(
     du rapport (``BAND_MODELS``) et qu'elle ne porte pas d'expérience."""
     kinds = {model.kind for model in declaration.models}
     expected = declaration.experiment is None and set(BAND_MODELS) <= kinds
+    statuses = _outing_statuses(declaration)
     for scored in result.outings:
         wanted = expected and outings[scored.outing_id].reference is not None
-        if (scored.bands is not None) != wanted:
+        status = statuses.get(scored.outing_id, CurveStatus.CURVE)
+        if (scored.bands is not None) != (wanted and status is CurveStatus.CURVE):
+            if status is not CurveStatus.CURVE:
+                raise RegistryError(
+                    f"{prefix}{scored.outing_id!r}, une sortie scorée cite ses "
+                    "fourchettes si et seulement si elle a une référence, que les cinq "
+                    "modèles du rapport sont déclarés, qu'il n'y a pas d'expérience et "
+                    "que sa performance a le statut curve (OG-2)"
+                )
             raise RegistryError(
                 f"{prefix}{scored.outing_id!r}, une sortie scorée cite ses "
                 "fourchettes si et seulement si elle a une référence, que les cinq "
@@ -899,9 +981,25 @@ def _agree_documents(
     document de sensibilité (``_check_sensitivity``)."""
     sensitivity = declaration.sensitivity
     if sensitivity is None:
-        _agree_outing_documents(
+        rolling = declaration.rolling
+        if rolling is not None:
+            _agree_rolling_documents(
+                declaration, rolling, read, prefix, document_prefix, format_version
+            )
+        calibrated = _agree_outing_documents(
             declaration, result, read, prefix, document_prefix, format_version
         )
+        if rolling is not None and result.rolling is not None:
+            _agree_calibration_terms(
+                declaration,
+                rolling,
+                result.rolling,
+                calibrated,
+                read,
+                prefix,
+                document_prefix,
+                format_version,
+            )
         _agree_admission_document(
             declaration, result, read, prefix, document_prefix, format_version
         )
@@ -924,6 +1022,420 @@ def _agree_documents(
         read, result.sensitivity, SensitivityOutcome, document_prefix, format_version
     )
     _check_sensitivity(declaration, outcome, prefix)
+
+
+_CONDITION = "(0010, précision OG-2, condition {})"
+"""La fin des messages de l'accord glissant : la condition en défaut."""
+
+
+def _moment(text: object, where: str) -> datetime | None:
+    """Un instant écrit au compagnon (``isoformat`` en UTC), ``None`` pour ``null`` ;
+    un texte illisible : ``RegistryError``."""
+    if text is None:
+        return None
+    if not isinstance(text, str):
+        raise RegistryError(f"{where}instant illisible {text!r}")
+    try:
+        return datetime.fromisoformat(text).astimezone(UTC)
+    except ValueError:
+        raise RegistryError(f"{where}instant illisible {text!r}") from None
+
+
+def _decision_of(
+    line: Mapping[str, Any], origin_at: datetime, lower: datetime | None, where: str
+) -> tuple[TemporalDecision, datetime | None]:
+    """La condition 3 bis (OG-2, choix C8) : ce que la méthode d'une ligne exige qu'elle
+    écrive, et la décision redérivée par la règle F (``estimation/decision.py``) ; rend
+    aussi sa fin sûre **effective** (``safe_end``, ou ``index_end`` d'une ligne
+    « index seul »). Un écart : ``RegistryError``."""
+    method = line["method"]
+    index_end = _moment(line["index_end"], where)
+    recording_start = _moment(line["recording_start"], where)
+    recording_end = _moment(line["recording_end"], where)
+    safe_end = _moment(line["safe_end"], where)
+    digest = line["recording_sha256"]
+    condition = _CONDITION.format("3 bis")
+
+    def require(ok: bool, what: str) -> None:
+        if not ok:
+            raise RegistryError(f"{where}{what} {condition}")
+
+    if method == "index seul":
+        require(index_end is not None, f"méthode {method!r} sans index_end")
+        require(
+            recording_end is None and safe_end is None,
+            f"méthode {method!r} : recording_end et safe_end à null attendus",
+        )
+        on_index = decide_on_index(index_end, origin_at, lower)
+        if digest is None:
+            require(
+                recording_start is None,
+                f"méthode {method!r} sans enregistrement lu : recording_start à "
+                "null attendu",
+            )
+            require(on_index is not None, "l'index seul ne décide pas cette ligne")
+            assert on_index is not None
+            return on_index, index_end
+        require(recording_start is not None, "enregistrement lu sans recording_start")
+        require(on_index is None, "l'index seul décide cette ligne")
+        return decide_on_safe_end(index_end, origin_at, lower), index_end
+    if method == "index et enregistrement":
+        require(
+            index_end is not None and recording_end is not None and digest is not None,
+            f"méthode {method!r} : index_end, recording_end et recording_sha256 "
+            "attendus",
+        )
+        assert index_end is not None
+        assert recording_end is not None
+        require(
+            safe_end == max(index_end, recording_end),
+            "safe_end n'est pas la plus tardive des deux fins",
+        )
+        require(
+            decide_on_index(index_end, origin_at, lower) is None,
+            "l'index seul décide cette ligne",
+        )
+        return decide_on_safe_end(safe_end, origin_at, lower), safe_end
+    if method == "fin inférée":
+        require(
+            index_end is None and recording_end is not None and digest is not None,
+            f"méthode {method!r} : index_end à null, recording_end et "
+            "recording_sha256 attendus",
+        )
+        require(safe_end == recording_end, "safe_end n'est pas recording_end")
+        return decide_on_safe_end(safe_end, origin_at, lower), safe_end
+    if method == "fin inconnue":
+        require(
+            index_end is None
+            and recording_end is None
+            and safe_end is None
+            and digest is not None,
+            f"méthode {method!r} : index_end, recording_end et safe_end à null, "
+            "recording_sha256 attendu",
+        )
+        return TemporalDecision.UNKNOWN_END, None
+    raise RegistryError(f"{where}méthode inconnue {method!r} {condition}")
+
+
+def _agree_rolling_documents(
+    declaration: Declaration,
+    rolling: RollingDeclaration,
+    read: Callable[[str], bytes],
+    prefix: str,
+    document_prefix: str,
+    format_version: int,
+) -> None:
+    """L'accord des documents d'une DÉCLARATION glissante (OG-2, ``0010`` précision
+    OG-2, point 12), sans réestimer aucune courbe : la règle (R) ; pour chaque
+    performance, son document (1), ce que la DÉCLARATION fixe (2), la borne basse
+    recalculée (2 bis), chaque ligne d'activité, sa méthode et sa décision redérivée
+    par la règle F (3 bis), les candidates, les retenues, les contributrices et les
+    dates (3, 3 quater), les comptes (3 ter), l'empreinte de l'index et celle de chaque
+    enregistrement (4), le verdict relu sur le CSV figé (5 bis)."""
+    rule = _decoded(read, rolling.rule, RollingRule, document_prefix, format_version)
+    if (rule.athlete_ref, rule.commit, rule.window_days) != (
+        declaration.athlete_ref,
+        declaration.commit,
+        rolling.window_days,
+    ):
+        raise RegistryError(
+            f"{prefix}le document de règle ne porte pas l'athlète, le commit et la "
+            f"fenêtre de la DÉCLARATION {_CONDITION.format('R')}"
+        )
+    window: OriginWindow = (
+        ALL_PAST if rolling.window_days is None else rolling.window_days
+    )
+    v0 = next(m for m in declaration.models if m.kind is ModelKind.V0_RAW)
+    assert v0.parameters is not None  # v0 brut porte ses paramètres
+    reading = v0.parameters["curve_min_support_min"]
+    digests: dict[str, str] = {}
+    for declared, entry in zip(
+        declaration.performances, rolling.performances, strict=True
+    ):
+        where = f"{prefix}performance {declared.performance.civil_date.isoformat()} : "
+        try:
+            _agree_curve_document(
+                rule,
+                rolling,
+                entry,
+                declared.origin,
+                window,
+                reading,
+                digests,
+                read,
+                where,
+                document_prefix,
+                format_version,
+            )
+        except (KeyError, TypeError, AttributeError, IndexError) as error:
+            raise RegistryError(
+                f"{where}document de courbe mal formé ({error!r}) "
+                f"{_CONDITION.format(1)}"
+            ) from error
+
+
+def _agree_curve_document(
+    rule: RollingRule,
+    rolling: RollingDeclaration,
+    entry: RollingPerformance,
+    origin_at: datetime,
+    window: OriginWindow,
+    reading: float,
+    digests: dict[str, str],
+    read: Callable[[str], bytes],
+    where: str,
+    document_prefix: str,
+    format_version: int,
+) -> None:
+    """Les conditions 1 à 5 bis pour une performance (``_agree_rolling_documents``)."""
+    frozen: FrozenCurve | None = None
+    estimation: dict[str, Any] | None = None
+    if entry.status is CurveStatus.ABSENT:
+        absent = _decoded(
+            read, entry.document, AbsentCurve, document_prefix, format_version
+        )
+        document: dict[str, Any] = json.loads(absent.document)
+        section: dict[str, Any] = document["origin"]
+        fixed: tuple[object, ...] = (
+            document["athlete_ref"],
+            document["support_threshold_min"],
+        )
+        expected: tuple[object, ...] = (
+            rule.athlete_ref,
+            rule.diagnostic_support_threshold_min,
+        )
+    else:
+        frozen = _decoded(
+            read, entry.document, FrozenCurve, document_prefix, format_version
+        )
+        document = json.loads(frozen.companion)
+        estimation = document["estimation"]
+        assert estimation is not None
+        if frozen.csv_sha256 != entry.curve_sha256 or "commit" in estimation:
+            raise RegistryError(
+                f"{where}la courbe figée n'est pas celle que la DÉCLARATION nomme, ou "
+                f"porte un commit {_CONDITION.format(1)}"
+            )
+        section = estimation["origin"]
+        fixed = (
+            document["athlete_ref"],
+            document["diagnostic_support_threshold_min"],
+            sorted(document["source_activity_types"]),
+            document["min_duration_s"],
+            document["max_duration_s"],
+            document["max_elapsed_s"],
+            document["hr_center_bpm"],
+            estimation["parameters"],
+            estimation["profile_parameters"],
+            estimation["value"],
+            estimation["mode"],
+        )
+        expected = (
+            rule.athlete_ref,
+            rule.diagnostic_support_threshold_min,
+            sorted(rule.source_activity_types),
+            rule.min_duration_s,
+            rule.max_duration_s,
+            rule.max_elapsed_s,
+            rule.hr_center_bpm,
+            dict(rule.parameters),
+            dict(rule.profile_parameters),
+            rule.value,
+            "origine",
+        )
+    if fixed != expected:
+        raise RegistryError(
+            f"{where}le document de courbe ne porte pas ce que fixe la règle "
+            f"{_CONDITION.format(2)}"
+        )
+    if _moment(section["origin"], where) != origin_at or section["window"] != window:
+        raise RegistryError(
+            f"{where}l'origine ou la fenêtre du document de courbe n'est pas celle de "
+            f"la DÉCLARATION {_CONDITION.format(2)}"
+        )
+    lower = window_lower_bound(origin_at, window)
+    if _moment(section["lower_bound"], where) != lower:
+        raise RegistryError(
+            f"{where}la borne basse écrite n'est pas la borne basse recalculée "
+            f"{_CONDITION.format('2 bis')}"
+        )
+    lines: list[dict[str, Any]] = section["activities"]
+    candidates: list[datetime] = []
+    retained: list[datetime] = []
+    candidate_count = retained_count = indexed = 0
+    for line in lines:
+        ref = line["activity_ref"]
+        here = f"{where}ligne {ref} : "
+        decision, effective = _decision_of(line, origin_at, lower, here)
+        if line["decision"] != decision.value:
+            raise RegistryError(
+                f"{here}décision {line['decision']!r}, la règle F redérive "
+                f"{decision.value!r} {_CONDITION.format('3 bis')}"
+            )
+        fate = line["fate"]
+        if fate is not None and decision is not TemporalDecision.CANDIDATE:
+            raise RegistryError(
+                f"{here}une non-candidate n'a pas de sort {_CONDITION.format(3)}"
+            )
+        if line["contributes"] and fate != "retenue":
+            raise RegistryError(
+                f"{here}seule une retenue contribue {_CONDITION.format(3)}"
+            )
+        if decision is TemporalDecision.CANDIDATE:
+            candidate_count += 1
+            assert effective is not None  # une candidate a une fin sûre
+            candidates.append(effective)
+            if fate == "retenue":
+                retained_count += 1
+                retained.append(effective)
+        if (
+            decision in (TemporalDecision.CANDIDATE, TemporalDecision.BEFORE_WINDOW)
+            and line["index_end"] is not None
+        ):
+            indexed += 1
+        digest = line["recording_sha256"]
+        if digest is not None and digests.setdefault(ref, digest) != digest:
+            raise RegistryError(
+                f"{here}une autre empreinte d'enregistrement qu'ailleurs dans "
+                f"l'exécution {_CONDITION.format(4)}"
+            )
+    available = max(candidates, default=None)
+    last = max(retained, default=None)
+    if (
+        _moment(section["data_available_at"], where) != available
+        or _moment(section["last_retained_end"], where) != last
+    ):
+        raise RegistryError(
+            f"{where}data_available_at ou last_retained_end ne sont pas les fins sûres "
+            f"des candidates et des retenues {_CONDITION.format(3)}"
+        )
+    if section["index_sha256"] != rolling.index_sha256:
+        raise RegistryError(
+            f"{where}l'empreinte de l'index n'est pas celle de la DÉCLARATION "
+            f"{_CONDITION.format(4)}"
+        )
+    if frozen is None or estimation is None:
+        return
+    counts = estimation["counts"]
+    history = section["history"]
+    if (
+        counts["candidates"] != candidate_count
+        or counts["retained"] != retained_count
+        or document["activity_count"] != retained_count
+        or history["selected_index_finished"] < indexed
+    ):
+        raise RegistryError(
+            f"{where}les comptes ne sont pas ceux des lignes "
+            f"{_CONDITION.format('3 ter')}"
+        )
+    csv = frozen.csv.encode("utf-8")
+    count, message = curve_csv_support(csv, rule.diagnostic_support_threshold_min)
+    if (
+        count != len(estimation["bins"])
+        or estimation["projectable"] != (message is None)
+        or estimation["support_error"] != message
+    ):
+        raise RegistryError(
+            f"{where}le verdict du compagnon n'est pas celui du CSV figé au seuil des "
+            f"diagnostics {_CONDITION.format('5 bis')}"
+        )
+    unreadable = curve_csv_support(csv, reading)[1] is not None
+    if unreadable != (entry.status is CurveStatus.NO_READ_SUPPORT):
+        raise RegistryError(
+            f"{where}le statut ne dit pas le support relu au seuil de lecture "
+            f"{_CONDITION.format('5 bis')}"
+        )
+
+
+def _agree_calibration_terms(
+    declaration: Declaration,
+    rolling: RollingDeclaration,
+    published: RollingResult,
+    calibrated: Mapping[str, list[CalibratedOutingScores]],
+    read: Callable[[str], bytes],
+    prefix: str,
+    document_prefix: str,
+    format_version: int,
+) -> None:
+    """La condition 7 (OG-2, E6) : pour une performance ``curve`` dont une sortie est
+    scorée, pour chaque ``(scénario, horloge)`` du comparateur, les jours des termes
+    sont la population de son calage ; un ``P_c`` absent ⟺ ``erreur du modèle`` ; vide
+    ⟺ ``non calé`` ; calé : ``β`` égal à ``fsum(ln(T_c / P_c)) / n`` à
+    ``METRIC_RELATIVE_TOLERANCE`` près (``τ·max(1, |β|)``, comme ``ModelCalibration``
+    revérifie ``exp(β)`` : ``math.log`` n'est pas correctement arrondi)."""
+    for declared, sha in zip(
+        declaration.performances, published.calibration_terms, strict=True
+    ):
+        if sha is None:
+            continue
+        where = f"{prefix}performance {declared.performance.civil_date.isoformat()} : "
+        document = _decoded(
+            read, sha, CalibrationTerms, document_prefix, format_version
+        )
+        scores = [
+            item
+            for outing in declared.performance.outings
+            for item in calibrated.get(outing.outing_id, [])
+            if item.control.model is document.model
+        ]
+        if not scores:
+            continue
+        by_key: dict[tuple[Scenario, Clock], ModelCalibration] = {}
+        for item in scores[:1]:
+            for scenario_scores in (item.control, item.usage):
+                if scenario_scores is None:
+                    continue
+                for clock_scores in scenario_scores.clocks:
+                    calibration = clock_scores.calibration
+                    by_key[(calibration.scenario, calibration.clock)] = calibration
+        keys = [(terms.scenario, terms.clock) for terms in document.sets]
+        present = [s for s in Scenario if any(k[0] is s for k in by_key)]
+        wanted = [(s, c) for s in present for c in declaration.clocks]
+        if keys != wanted or not set(keys) <= set(by_key):
+            raise RegistryError(
+                f"{where}les termes du calage ne portent pas les calages du "
+                f"comparateur {_CONDITION.format(7)}"
+            )
+        for terms in document.sets:
+            calibration = by_key[(terms.scenario, terms.clock)]
+            _check_terms(calibration, terms, where)
+
+
+def _check_terms(
+    calibration: ModelCalibration, terms: ScenarioClockTerms, where: str
+) -> None:
+    """La condition 7 pour un calage et ses termes (``_agree_calibration_terms``)."""
+    condition = _CONDITION.format(7)
+    days = tuple(term.civil_date for term in terms.terms)
+    if days != calibration.population:
+        raise RegistryError(
+            f"{where}{terms.scenario}, {terms.clock} : les jours des termes ne sont "
+            f"pas la population du calage {condition}"
+        )
+    missing = any(term.forecast_s is None for term in terms.terms)
+    status = calibration.unavailability
+    if missing != (status is Unavailability.MODEL_ERROR) or (not days) != (
+        status is Unavailability.NOT_CALIBRATED
+    ):
+        raise RegistryError(
+            f"{where}{terms.scenario}, {terms.clock} : les termes ne disent pas le "
+            f"statut du calage {condition}"
+        )
+    if status is not None:
+        return
+    beta = calibration.beta
+    assert beta is not None  # contrat de ModelCalibration
+    logs = [
+        math.log(term.observed_s / term.forecast_s)
+        for term in terms.terms
+        if term.forecast_s is not None
+    ]
+    recomputed = math.fsum(logs) / len(logs)
+    if abs(beta - recomputed) > METRIC_RELATIVE_TOLERANCE * max(1.0, abs(recomputed)):
+        raise RegistryError(
+            f"{where}{terms.scenario}, {terms.clock} : β ({beta!r}) n'est pas "
+            f"fsum(ln(T_c / P_c)) / n ({recomputed!r}) {condition}"
+        )
 
 
 def _check_sensitivity(
@@ -980,21 +1492,45 @@ def _agree_outing_documents(
     prefix: str,
     document_prefix: str,
     format_version: int,
-) -> None:
+) -> dict[str, list[CalibratedOutingScores]]:
     """La partie de ``_agree_documents`` qui porte sur les sorties et les références D8
-    (d'une exécution, ou d'une paire d'une sensibilité, M4d-3)."""
+    (d'une exécution, ou d'une paire d'une sensibilité, M4d-3). Rend les scores calés
+    de chaque sortie scorée (OG-2 : la condition 7 les lit). En mode glissant, une
+    prévision d'un modèle qui projette avec la courbe nomme la courbe de **sa**
+    performance (condition 6) ; hors du mode glissant, aucun document ne porte « sans
+    courbe » (condition 8)."""
     outings = _declared_outings(declaration)
     models = {model.kind: model for model in declaration.models}
+    curve_refs = _curve_refs(declaration)
+    found: dict[str, list[CalibratedOutingScores]] = {}
     for scored in result.outings:
         outing = outings[scored.outing_id]
         calibrated: list[CalibratedOutingScores] = []
+        curve_ref = curve_refs.get(scored.outing_id, declaration.curve_ref)
         for kind, scores in _model_scores(
             scored, read, prefix, document_prefix, format_version
         ):
-            _check_forecasts(declaration, models[kind], outing, scores, prefix)
+            _check_forecasts(
+                declaration, models[kind], outing, scores, prefix, curve_ref
+            )
+            if declaration.rolling is None and _carries_no_curve(scores):
+                raise RegistryError(
+                    f"{prefix}{scored.outing_id!r}, {kind} : « sans courbe » n'existe "
+                    "qu'en mode glissant (OG-2)"
+                )
             if isinstance(scores, CalibratedOutingScores):
                 calibrated.append(scores)
+        found[scored.outing_id] = calibrated
         if scored.bands is not None:
+            if declaration.rolling is None and _carries_no_curve(
+                _decoded(
+                    read, scored.bands, OutingBands, document_prefix, format_version
+                )
+            ):
+                raise RegistryError(
+                    f"{prefix}{scored.outing_id!r}, fourchettes : « sans courbe » "
+                    "n'existe qu'en mode glissant (OG-2)"
+                )
             _check_bands(
                 declaration,
                 scored,
@@ -1014,6 +1550,37 @@ def _agree_outing_documents(
         )
         _check_reference_days(declaration, result, record.route_id, reference, prefix)
         _check_reference_outings(declaration, record.route_id, reference, prefix)
+    return found
+
+
+def _curve_refs(declaration: Declaration) -> dict[str, str | None]:
+    """La courbe que nomme chaque sortie d'une DÉCLARATION glissante, celle de sa
+    performance (OG-2) ; vide en mode « courbe déclarée »."""
+    rolling = declaration.rolling
+    if rolling is None:
+        return {}
+    return {
+        outing.outing_id: entry.curve_ref
+        for declared, entry in zip(
+            declaration.performances, rolling.performances, strict=True
+        )
+        for outing in declared.performance.outings
+    }
+
+
+def _carries_no_curve(value: object) -> bool:
+    """``value`` porte-t-il, à quelque profondeur que ce soit, le statut « sans
+    courbe » (OG-2, condition 8) ?"""
+    if value is Unavailability.NO_CURVE:
+        return True
+    if isinstance(value, tuple):
+        return any(_carries_no_curve(item) for item in value)
+    if dataclasses.is_dataclass(value) and not isinstance(value, type):
+        return any(
+            _carries_no_curve(getattr(value, field.name))
+            for field in dataclasses.fields(value)
+        )
+    return False
 
 
 def _agree_reference_routes(
@@ -1135,7 +1702,12 @@ def _check_forecasts(
     outing: Outing,
     scores: OutingScores | CalibratedOutingScores,
     prefix: str,
+    curve_ref: str | None,
 ) -> None:
+    """Les prévisions d'une sortie recopient la déclaration de leur modèle (D14) ;
+    celles d'un modèle qui projette avec la courbe nomment ``curve_ref`` : la courbe
+    déclarée, ou, en mode glissant, celle de la performance de la sortie (OG-2,
+    condition 6)."""
     for scenario_scores in (scores.control, scores.usage):
         if scenario_scores is None:
             continue
@@ -1146,10 +1718,10 @@ def _check_forecasts(
                 f"{where}version du moteur différente de la déclaration "
                 f"({forecast.engine_version!r}, {model.engine_version!r} déclarée)"
             )
-        if model.kind in CURVE_MODELS and forecast.curve_ref != declaration.curve_ref:
+        if model.kind in CURVE_MODELS and forecast.curve_ref != curve_ref:
             raise RegistryError(
                 f"{where}courbe différente de la déclaration ({forecast.curve_ref!r}, "
-                f"{declaration.curve_ref!r} déclarée)"
+                f"{curve_ref!r} déclarée)"
             )
         if model.estimation_rule is None and forecast.parameters != model.parameters:
             raise RegistryError(f"{where}paramètres différents des paramètres déclarés")

@@ -697,6 +697,23 @@ def check_curve_rows(rows: Sequence[CurveFileRow], threshold_min: float) -> str 
     return None
 
 
+def curve_csv_support(csv: bytes, threshold_min: float) -> tuple[int, str | None]:
+    """Le nombre de tranches d'un CSV de courbe, et le message d'un support impossible
+    au seuil ``threshold_min`` (minutes), ``None`` si le support existe (OG-2) : les
+    étapes de :func:`check_curve_rows` (``_read_bins``, ``_select_support``), sur des
+    octets."""
+    try:
+        text = csv.decode("utf-8")
+    except UnicodeDecodeError as error:
+        raise CurveError("csv : fichier illisible en UTF-8.") from error
+    bins = _read_bins(text)
+    try:
+        _select_support(bins, threshold_min)
+    except CurveError as error:
+        return len(bins), str(error)
+    return len(bins), None
+
+
 def _meta_text(
     sport: Sport, provenance: CurveProvenance, estimation: Mapping[str, object]
 ) -> str:
