@@ -11327,6 +11327,14 @@ porte pas le second. Une valeur non admise reste dans sa colonne.
 | `second_half_mean_heart_rate_bpm` | `float \| None` | — |
 | `external_heart_rate_sensor` | `bool \| None` | — |
 | `moving_mean_temperature_c` | `float \| None` | — |
+| `lagged_moving_heart_rate_bpm` | `float \| None` | — |
+| `lagged_moving_heart_rate_coverage` | `float` | — |
+| `unlagged_moving_heart_rate_bpm` | `float \| None` | — |
+| `unlagged_moving_heart_rate_coverage` | `float` | — |
+| `lagged_second_half_heart_rate_bpm` | `float \| None` | — |
+| `lagged_second_half_heart_rate_coverage` | `float` | — |
+| `lagged_elapsed_heart_rate_bpm` | `float \| None` | — |
+| `lagged_elapsed_heart_rate_coverage` | `float` | — |
 
 Une ligne de la table `montees` : une montée retenue d'une activité.
 
@@ -11430,6 +11438,31 @@ Pour l'aval :
 - `moving_mean_temperature_c` — °C — température du capteur, moyenne de la même
   façon que la FC.
 
+La FC décalée (AN3-1a, `0014`, précisions d'AN3-1a) : sur chaque morceau d'un
+support (temps de la trace), décalé, l'intégrale exacte de la FC interpolée et la
+durée couverte viennent de l'outil du moteur (`HeartRateSeries.integral`,
+`0017` P5.1), la fenêtre rognée à la série de FC ; la moyenne est l'intégrale
+sommée divisée par la durée couverte sommée, sans aucun seuil de couverture ; la
+couverture est la durée couverte sommée divisée par la durée du support, bornée
+à 1. Le décalage est `HR_LAG_S` (60 s, `analyse/heart_rate.py`).
+
+- `lagged_moving_heart_rate_bpm` — battements par minute — FC moyenne des
+  intervalles M (θc) de la montée, ceux de sa VAM, chacun décalé de `HR_LAG_S` ;
+  absente sans durée couverte.
+- `lagged_moving_heart_rate_coverage` — fraction — part de ces intervalles que la
+  FC couvre.
+- `unlagged_moving_heart_rate_bpm` — battements par minute — la même moyenne,
+  sans décalage.
+- `unlagged_moving_heart_rate_coverage` — fraction — sa couverture.
+- `lagged_second_half_heart_rate_bpm` — battements par minute — la même moyenne
+  sur la seconde moitié du temps M, décalée : l'intervalle qui contient le milieu
+  du temps M est coupé exactement à cet instant.
+- `lagged_second_half_heart_rate_coverage` — fraction — sa couverture.
+- `lagged_elapsed_heart_rate_bpm` — battements par minute — FC moyenne de la
+  fenêtre écoulée de la montée, de sa borne de départ à sa borne d'arrivée,
+  décalée de `HR_LAG_S`.
+- `lagged_elapsed_heart_rate_coverage` — fraction — sa couverture.
+
 #### Invariants
 
 - `activity_ref` valide ; `source_activity_type` non vide ; `rank >= 1` ;
@@ -11440,7 +11473,10 @@ Pour l'aval :
   les durées, les pas, les comptes, le D+ et le D− qui précèdent ;
   `moving_mean_temperature_c` dans `TEMPERATURE_RANGE_C` ;
 - fractions dans `[0, 1]`, sauf `outside_moving_gain_fraction`, signée ;
-  `flags` triés, sans doublon.
+  `flags` triés, sans doublon ;
+- les quatre couvertures de la FC décalée (`…_heart_rate_coverage` d'AN3-1a)
+  dans `[0, 1]` ; pour chacune des quatre paires, la FC est absente si et
+  seulement si sa couverture vaut 0.
 
 #### Producteur
 

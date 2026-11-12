@@ -60,6 +60,12 @@ from mountain_perf.analyse.days import (
 from mountain_perf.analyse.days import (
     DaySummary as DaySummary,
 )
+from mountain_perf.analyse.heart_rate import (
+    HR_LAG_S,
+    moving_pieces,
+    second_half,
+    support_heart_rate,
+)
 from mountain_perf.analyse.journal import read_journal
 from mountain_perf.analyse.quality import (
     QUALITY_PARAMETER_SPECS,
@@ -78,6 +84,7 @@ from mountain_perf.analyse.stability import (
     variant_parameters,
 )
 from mountain_perf.codec import CodecError
+from mountain_perf.estimation.intervals import HeartRateSeries, heart_rate_series
 from mountain_perf.gpx.geo import deduplicated_polyline, haversine_m
 from mountain_perf.gpx.profile import (
     PROFILE_PARAMETER_SPECS,
@@ -304,12 +311,15 @@ def _climb_row(
     measure: ClimbMeasure,
     rank: int,
     variants: Sequence[Sequence[ClimbMeasure]],
+    heart_rate: HeartRateSeries | None,
     *,
     barometric: bool,
     drift: bool,
     settings: AthleteSettings,
     definition: Definition,
 ) -> ClimbRow:
+    """La ligne d'une montée ; ``heart_rate``, la série de FC de l'activité dans le
+    temps de la trace (construite une fois par activité), donne la FC décalée."""
     span = measure.span
     offset = track.offset_s
     sport = SOURCE_TYPE_SPORTS.get(entry.source_activity_type)
@@ -336,6 +346,13 @@ def _climb_row(
     mean_hr, coverage = _moving_mean(track, hr, span.start_s, span.end_s)
     half_hr, _ = _moving_mean(track, hr, span.start_s, span.end_s, second_half=True)
     mean_temperature, _ = _moving_mean(track, temperature, span.start_s, span.end_s)
+    moving = moving_pieces(track, span.start_s, span.end_s)
+    lagged = support_heart_rate(heart_rate, moving, HR_LAG_S)
+    unlagged = support_heart_rate(heart_rate, moving, 0.0)
+    lagged_half = support_heart_rate(heart_rate, second_half(moving), HR_LAG_S)
+    lagged_elapsed = support_heart_rate(
+        heart_rate, ((span.start_s, span.end_s),), HR_LAG_S
+    )
     ascent, descent = profile.cumulative_ascent_m, profile.cumulative_descent_m
     device = recording.device
     local = (
@@ -418,6 +435,14 @@ def _climb_row(
         second_half_mean_heart_rate_bpm=half_hr,
         external_heart_rate_sensor=device.external_heart_rate_sensor,
         moving_mean_temperature_c=mean_temperature,
+        lagged_moving_heart_rate_bpm=lagged.bpm,
+        lagged_moving_heart_rate_coverage=lagged.coverage,
+        unlagged_moving_heart_rate_bpm=unlagged.bpm,
+        unlagged_moving_heart_rate_coverage=unlagged.coverage,
+        lagged_second_half_heart_rate_bpm=lagged_half.bpm,
+        lagged_second_half_heart_rate_coverage=lagged_half.coverage,
+        lagged_elapsed_heart_rate_bpm=lagged_elapsed.bpm,
+        lagged_elapsed_heart_rate_coverage=lagged_elapsed.coverage,
     )
 
 
@@ -554,6 +579,7 @@ def _track_summary(
             if measures
             else ()
         )
+        heart_rate = heart_rate_series(recording, track.offset_s) if measures else None
         rows = tuple(
             _climb_row(
                 entry,
@@ -563,6 +589,7 @@ def _track_summary(
                 measure,
                 rank,
                 variants,
+                heart_rate,
                 barometric=barometric,
                 drift=drift,
                 settings=settings,

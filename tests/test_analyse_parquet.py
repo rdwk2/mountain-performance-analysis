@@ -654,6 +654,19 @@ def test_a_mandatory_instant_never_reads_as_absent(
     _unreadable(tmp_path, file)
 
 
+def test_a_climbs_table_without_the_heart_rate_columns_is_unreadable(
+    tmp_path: Path, tables: Tables
+) -> None:
+    """Un ``montees.parquet`` d'avant AN3-1a, avec une montée, ne se relit pas : il
+    manque les colonnes de la FC décalée (``0014``, précisions d'AN3-1a)."""
+    assert tables.climbs
+    write_tables(tmp_path, tables)
+    table = parquet._table(tables.climbs, ClimbRow, tables.provenance)
+    older = table.drop_columns(["lagged_moving_heart_rate_bpm"])
+    parquet._write(older, tmp_path / PROCESSED_DIR / CLIMBS_FILE)
+    _unreadable(tmp_path, CLIMBS_FILE)
+
+
 def test_an_instant_reads_from_its_two_columns(tmp_path: Path, tables: Tables) -> None:
     written = with_rows(tables, (complete_row(),))
     write_tables(tmp_path, written)
@@ -983,6 +996,14 @@ FROZEN_CLIMBS = [
     ("second_half_mean_heart_rate_bpm", "double"),
     ("external_heart_rate_sensor", "bool"),
     ("moving_mean_temperature_c", "double"),
+    ("lagged_moving_heart_rate_bpm", "double"),
+    ("lagged_moving_heart_rate_coverage", "double"),
+    ("unlagged_moving_heart_rate_bpm", "double"),
+    ("unlagged_moving_heart_rate_coverage", "double"),
+    ("lagged_second_half_heart_rate_bpm", "double"),
+    ("lagged_second_half_heart_rate_coverage", "double"),
+    ("lagged_elapsed_heart_rate_bpm", "double"),
+    ("lagged_elapsed_heart_rate_coverage", "double"),
 ]
 FROZEN_VARIANTS = [
     ("activity_ref", "string"),
