@@ -78,8 +78,8 @@ project route *options:
     uv run mperf project "{{env_var('MPA_DATA_DIR')}}/routes/{{route}}" {{options}}
 
 # L'interface (M5, docs/decisions/0016) : une appli Streamlit locale, sur MPA_DATA_DIR
-# (routes/, sorties/, reference/ ; processed/ et resultats/Q1/ pour les pages de la
-# piste), avec les extras tableau et analyse ; à ouvrir sur
+# (routes/, sorties/, reference/, interim/ ; processed/ et resultats/Q1/ pour les
+# pages de la piste), avec les extras tableau et analyse ; à ouvrir sur
 # http://localhost:8501. Serveur local seulement, sans télémétrie :
 # .streamlit/config.toml, lu depuis la racine, où just lance ses recettes.
 ui:

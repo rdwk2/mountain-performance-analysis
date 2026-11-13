@@ -185,6 +185,20 @@ borne basse de la fenêtre vivent dans `estimation/decision.py`, écrites une fo
 règle sans la recoder, avec un corpus pour toutes ses origines et un cache des intervalles le temps
 d'une exécution, et projette chaque courbe relue de ses octets canoniques.
 
+## Précision OG-UI — les pages et la commande (2026-11-13)
+
+*Aucune décision de la règle ne change ; aucun octet écrit par `mperf curve` ne change.*
+
+La règle sert l'usage par les mêmes fonctions que le backtest. Le cache des intervalles vit dans
+la règle (`intervals_cache`, `estimation/origin.py`), et les intervalles des candidates s'obtiennent
+par une seule fonction (`candidate_intervals`), qui refuse les intervalles d'une autre activité :
+derrière un cache, une erreur de clé donnerait sinon une courbe fausse sans bruit.
+`OriginEstimate` porte l'empreinte de l'index de son corpus ; le compagnon et le document d'absence
+refusent un autre corpus. L'origine d'une course au-delà d'aujourd'hui + 7 jours est bornée à
+aujourd'hui (la courbe d'une course dans 7 jours), et c'est dit : ce n'est pas la courbe que le
+backtest prendrait pour cette course. Un dossier de données est celui d'un athlète : les pages et
+`mperf project --at` n'en demandent pas le pseudonyme.
+
 ## Conséquences
 
 **Ce que ça rend facile.** Une courbe par origine, sans recoder la règle ; un score hors

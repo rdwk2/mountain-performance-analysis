@@ -31,8 +31,8 @@ Python. Usage personnel d'abord, projet portfolio ensuite. Le repo est public.
    qui sont minuscules, inventées, et commitées. Claude Code ne lit ni n'écrit rien
    sous `MPA_DATA_DIR` : le hook de `.claude/settings.json` le refuse, et les
    commandes sur les données réelles (`just ingest`, `just process`, `just q1`,
-   `just backtest`, `just curve`, `just ui`, et `streamlit run`, que le hook refuse
-   aussi) sont lancées par l'humain.
+   `just backtest`, `just curve`, `just project`, `mperf project … --at`, `just ui`,
+   et `streamlit run`, que le hook refuse aussi) sont lancées par l'humain.
 
 2. **`just check` doit être vert avant tout commit.**
    Si tu n'arrives pas à le rendre vert, tu t'arrêtes et tu le dis. Tu ne
@@ -130,6 +130,7 @@ just process    # raw/ → interim/ → processed/ : ingest, puis mperf tables, 
 just q1         # processed/ → resultats/Q1/<date>_<empreinte>/ : la figure de Q1, extra analyse (AN1-2c)
 just curve nom --from AAAA-MM-JJ --to AAAA-MM-JJ --athlete x  # une courbe allure↔pente depuis interim/ (M6b-1) ; MPA_DATA_DIR/reference/<nom>.csv
 just curve nom --at AAAA-MM-JJ --athlete x  # la courbe de la règle à l'origine (OG-1)
+just project course.gpx --at AAAA-MM-JJ  # la projection avec la courbe à l'origine d'une course (OG-UI) ; préparé de MPA_DATA_DIR/routes/
 just ui         # l'interface (M5, AN2-3) : appli Streamlit locale sur MPA_DATA_DIR, extras tableau et analyse
 uv run mperf profile tests/fixtures/mini_11.gpx  # compte-rendu GPX (M2), --csv pour la grille
 uv run mperf project tests/fixtures/mini_11.gpx --curve tests/fixtures/courbe_synthetique.csv  # temps de passage (M3)
@@ -160,8 +161,11 @@ src/mountain_perf/     le code de la bibliothèque
   runs.py              enchaînements de `mperf project` et `mperf match`, communs à
                        mperf et à l'interface, et le chargement du corpus de la règle
                        à l'origine ; importe les seuls modules purs de `backtest/`
-                       (M5), `estimation/origin.py` et `ingest/interim.py` (OG-1)
-  reports.py           textes de mperf profile et project, communs (M5)
+                       (M5), `estimation/origin.py` et `ingest/interim.py` (OG-1) ;
+                       les sources de courbe des pages et de `mperf project --at`
+                       (OG-UI)
+  reports.py           textes de mperf profile et project, communs (M5) ; les lignes
+                       de l'origine et les avertissements (OG-UI)
   outing_views.py      ce que la page sortie affiche d'une sortie : tracé suivi,
                        effort effectif, écarts ; libellés communs avec mperf match
                        (M5-2)
@@ -233,7 +237,7 @@ src/mountain_perf/     le code de la bibliothèque
     curve.py           tranches, valeurs (a) et (b), niveau, forme, comptes ; lignes
                        du fichier et document du compagnon
     origin.py          la règle à l'origine : fins, corpus, sélection, issue, compagnon
-                       (OG-1)
+                       (OG-1) ; le cache des intervalles (OG-UI)
     decision.py        la décision de F et la borne basse, écrites une fois (OG-2)
   backtest/            évaluation contre des performances réelles (M4)
     calendar.py        jour civil à Paris, origine o_j, disponibilité (M4a)
@@ -344,9 +348,10 @@ src/mountain_perf/     le code de la bibliothèque
                        extra tableau, seul importeur de streamlit (0016)
     app.py             point d'entrée ; PAGES, une ligne par page
     components.py      dossier des données, ajout d'un fichier, contrôles, l'abscisse
-                       des figures
-    projection.py      la page projection, M5-1
-    sortie.py          la page sortie, M5-2
+                       des figures ; la source de la courbe et le corpus gardé (OG-UI)
+    projection.py      la page projection, M5-1 ; la courbe à l'origine, OG-UI
+    sortie.py          la page sortie, M5-2 ; la courbe à l'origine, OG-UI
+    fenetre.py         la page « La fenêtre », OG-UI
     recuperation.py    la page récupération et le cache des tables, AN2-3 ; importe
                        analyse dans ses fonctions seulement
     q1.py              la page Q1 : la dernière figure de just q1, AN2-3

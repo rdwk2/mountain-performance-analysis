@@ -16,6 +16,21 @@ Backtest (à partir de M4) : métrique avant → après.
 
 ---
 
+### 2026-11-13 · OG-UI — L'origine glissante : les pages à l'origine
+Les pages projection et sortie prennent leur courbe à l'origine (par défaut), sur une plage de
+dates, ou dans un fichier de `reference/` ; `mperf project course.gpx --at D` rend la même
+courbe en commande. 7 commits. La règle garde le cache des intervalles, écrit une fois
+(`estimation/origin.py`), et l'empreinte de son index. Les sources de courbe dans `runs.py` (la
+courbe à l'origine, la plage — celle de `mperf curve --from --to`, mise en commun —, la courbe en
+mémoire), les lignes de l'origine et les avertissements dans `reports.py`. La commande, sa recette
+et le hook. Les contrôles de la source, le corpus gardé par le processus, les deux pages, la page
+« La fenêtre ». Aucune courbe n'est écrite par les pages. Les pages des commandes et le README
+disent les pages et la commande.
+Le rapport du mode glissant : l'issue probable compte les performances des paires ; la ligne de
+calage, D3, D6 et le tableau des performances disent « sans courbe » ; le registre refuse un
+instant hors du domaine des dates. 134 tests neufs ; les contre-épreuves et leur table sont dans la
+description de la PR. Branche `ogui/pages-a-l-origine`.
+
 ### 2026-11-13 · docs — Refonte du README et référence des commandes
 Le README de 58 Ko devient une vitrine (≈ 10,6 Ko) : présentation, figure, Pourquoi,
 interface, installation, premiers pas (un exemple de `mperf project`, rejoué), table des
