@@ -110,7 +110,6 @@ from mountain_perf.estimation.origin import (
     OriginEstimate,
     OriginOutcome,
     OriginWindow,
-    TemporalDecision,
     cold_start_warning,
     estimate_at_origin,
     origin_companion,
@@ -126,7 +125,9 @@ from mountain_perf.gpx import (
     read_gpx,
 )
 from mountain_perf.gpx.trace_reader import TraceError
+from mountain_perf.ingest.interim import InterimError
 from mountain_perf.model import (
+    PROJECTION_PARAMETER_SPECS,
     CurveError,
     CurveReadResult,
 )
@@ -139,12 +140,24 @@ from mountain_perf.outing_views import (
     clock_label,
     point_name,
 )
-from mountain_perf.reports import grid_lines, passage_lines, projection_summary_lines
+from mountain_perf.reports import (
+    curve_warnings,
+    grid_lines,
+    origin_curve_lines,
+    origin_summary_lines,
+    paris_minute,
+    passage_lines,
+    projection_summary_lines,
+)
 from mountain_perf.runs import (
+    FOLDER_ATHLETE,
     check_outing,
+    course_origin,
+    curve_selection,
     load_curve_corpus,
     load_range_corpus,
     match_outing,
+    origin_curve,
     project_route,
     range_companion,
     range_estimate,
@@ -2647,6 +2660,70 @@ def _run_project(args: argparse.Namespace) -> None:
             print(line)
 
 
+def _run_project_at(args: argparse.Namespace) -> int:
+    """``mperf project <fichier.gpx> --at D [--window W]`` (OG-UI) : la projection avec
+    la courbe à l'origine de la course du jour ``D``. Dans cet ordre :
+
+    1. les deux jeux de paramètres, contrôlés ;
+    2. ``MPA_DATA_DIR``, l'instant présent, l'origine de la course (bornée au-delà
+       d'aujourd'hui + 7 jours) et la fenêtre (56 jours par défaut) ;
+    3. le corpus de cette seule origine, puis la courbe à l'origine ;
+    4. une absence : les lignes de l'origine (sur la sortie d'erreur avec ``--csv``),
+       puis l'erreur, code 1 ;
+    5. la projection, avant toute impression : une erreur ici n'a rien imprimé ;
+    6. sans ``--csv`` : les lignes de l'origine, la synthèse, les avertissements, les
+       passages ; avec ``--csv`` : les lignes de l'origine et les avertissements sur
+       la sortie d'erreur, le CSV seul sur la sortie standard.
+
+    La courbe reste en mémoire ; rien n'est écrit.
+    """
+    profile_values = _given(args, _PROFILE_OPTIONS)
+    projection_values = _given(args, _PROJECTION_OPTIONS)
+    ParameterSet(PROFILE_PARAMETER_SPECS, profile_values)
+    ParameterSet(PROJECTION_PARAMETER_SPECS, projection_values)
+    folder = data_dir()
+    moment = _now()
+    course = course_origin(args.at, civil_date(moment))
+    window = DEFAULT_WINDOW_DAYS if args.window is None else args.window
+    corpus = load_curve_corpus(
+        folder,
+        FOLDER_ATHLETE,
+        curve_selection().source_activity_types,
+        course.origin,
+        window,
+    )
+    found = origin_curve(corpus, course, window, generated_at=moment)
+    notes = sys.stderr if args.csv else sys.stdout
+    if found.curve is None:
+        for line in origin_curve_lines(found):
+            print(line, file=notes)
+        print(
+            f"Erreur : aucune courbe à l'origine : {found.result.absence_reason}",
+            file=sys.stderr,
+        )
+        return 1
+    run = project_route(args.path, found.curve, profile_values, projection_values)
+    warnings = [
+        f"avertissement : {warning}"
+        for warning in curve_warnings(
+            found.result.history, run.diagnostics.out_of_support_time_share
+        )
+    ]
+    if args.csv:
+        for line in (*origin_curve_lines(found), *warnings):
+            print(line, file=sys.stderr)
+        write_passages_csv(run.projection, sys.stdout)
+        return 0
+    for line in (
+        *origin_curve_lines(found),
+        *projection_summary_lines(run),
+        *warnings,
+        *passage_lines(run.projection),
+    ):
+        print(line)
+    return 0
+
+
 def _run_match(args: argparse.Namespace) -> None:
     # La courbe est lue avant toute sortie : une erreur de lecture laisse stdout vide.
     match = match_outing(
@@ -4060,11 +4137,6 @@ def _window_argument(text: str) -> OriginWindow:
     return int(text)
 
 
-def _paris(moment: datetime) -> str:
-    """L'instant à Paris, à la minute."""
-    return moment.astimezone(PARIS).strftime("%Y-%m-%d %H:%M")
-
-
 def _curve_mode_error(args: argparse.Namespace) -> str | None:
     """Ce qui ne va pas dans le choix des activités de ``mperf curve`` : une plage de
     dates ou une origine, et ``--window`` seulement avec une origine (OG-1)."""
@@ -4083,35 +4155,12 @@ def _curve_mode_error(args: argparse.Namespace) -> str | None:
 
 
 def _print_origin_summary(result: OriginEstimate, day: date) -> None:
-    """Les lignes de l'origine, avant le résumé de ``mperf curve`` : l'origine et sa
-    fenêtre, les décisions (zéros compris), les dernières fins s'il y a une candidate,
-    l'historique selon l'index, l'avertissement du démarrage à froid s'il y en a un."""
-    window = (
-        "fenêtre tout le passé"
-        if result.lower_bound is None
-        else (
-            f"fenêtre {result.window} jours, fins depuis le "
-            f"{_paris(result.lower_bound)} à Paris"
-        )
-    )
-    print(f"jour {day} : origine {_paris(result.origin)} à Paris ; {window}")
-    decisions = Counter(inspection.decision for inspection in result.inspections)
-    details = ", ".join(f"{d.value} {decisions[d]}" for d in TemporalDecision)
-    print(f"activités inspectées : {len(result.inspections)} ({details})")
-    if result.data_available_at is not None:
-        last = result.last_retained_end
-        print(
-            f"  dernières fins, à Paris : candidate {_paris(result.data_available_at)} "
-            f"; retenue {'aucune' if last is None else _paris(last)}"
-        )
-    history = result.history
-    print(
-        f"historique à l'origine, selon l'index : {history.foot_index_finished} "
-        f"sorties à pied finies ({history.foot_without_index_elapsed} sans écoulé), "
-        f"{history.selected_index_finished} des types choisis "
-        f"({history.selected_without_index_elapsed} sans écoulé)"
-    )
-    warning = cold_start_warning(history)
+    """Les lignes de l'origine, avant le résumé de ``mperf curve`` : celles de
+    :func:`~mountain_perf.reports.origin_summary_lines` (OG-UI), puis l'avertissement
+    du démarrage à froid s'il y en a un."""
+    for line in origin_summary_lines(result, day):
+        print(line)
+    warning = cold_start_warning(result.history)
     if warning is not None:
         print(f"avertissement : {warning}")
 
@@ -4172,8 +4221,8 @@ def _run_curve(args: argparse.Namespace) -> int:
     origin_instant = None if args.at is None else civil_origin(args.at)
     if origin_instant is not None and origin_instant > _now():
         print(
-            f"Erreur : l'origine du jour {args.at} ({_paris(origin_instant)} à Paris) "
-            "est dans le futur : la règle ne lit que le passé.",
+            f"Erreur : l'origine du jour {args.at} ({paris_minute(origin_instant)} à "
+            "Paris) est dans le futur : la règle ne lit que le passé.",
             file=sys.stderr,
         )
         return 1
@@ -4373,10 +4422,30 @@ def main(argv: Sequence[str] | None = None) -> int:
     profile_parser.add_argument(
         "--csv", action="store_true", help="Grille CSV sur stdout"
     )
-    # --curve est exigé, mais pas par argparse : sa sortie d'usage vaut 2, et le
-    # contrat de la commande est de renvoyer 1 sur une erreur d'entrée.
-    project_parser.add_argument(
+    # --curve ou --at est exigé, mais pas par argparse : sa sortie d'usage vaut 2, et
+    # le contrat de la commande est de renvoyer 1 sur une erreur d'entrée ; les deux
+    # ensemble, l'erreur d'argparse (OG-UI).
+    project_curve = project_parser.add_mutually_exclusive_group()
+    project_curve.add_argument(
         "--curve", type=Path, metavar="fichier.csv", help="Courbe allure↔pente"
+    )
+    project_curve.add_argument(
+        "--at",
+        type=date.fromisoformat,
+        metavar="AAAA-MM-JJ",
+        help=(
+            "Jour de la course : la courbe à l'origine, sur les activités finies avant "
+            "00:00 à Paris de ce jour moins 7 jours ; au-delà d'aujourd'hui + 7 jours, "
+            "l'origine est bornée à aujourd'hui (OG-UI ; exclut --curve)"
+        ),
+    )
+    project_parser.add_argument(
+        "--window",
+        type=_window_argument,
+        metavar="JOURS|all",
+        help=(
+            "Fenêtre de la courbe à l'origine, en jours ou all (défaut 56 ; avec --at)"
+        ),
     )
     for option, parameter in _PROJECTION_OPTIONS.items():
         project_parser.add_argument(option, dest=parameter, type=float, metavar="F")
@@ -4592,13 +4661,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="Valeur d'une tranche : (a) somme / somme, (b) médiane des activités",
     )
     args = parser.parse_args(argv)
-    if args.command == "project" and args.curve is None:
+    if args.command == "project" and args.curve is None and args.at is None:
         print(project_parser.format_usage(), file=sys.stderr, end="")
         print(
-            "Erreur : --curve est obligatoire. Une courbe implicite rendrait la "
-            "projection non reproductible.",
+            "Erreur : --curve ou --at est obligatoire. Une courbe implicite "
+            "rendrait la projection non reproductible.",
             file=sys.stderr,
         )
+        return 1
+    if args.command == "project" and args.window is not None and args.at is None:
+        print("Erreur : --window demande --at.", file=sys.stderr)
         return 1
     if args.command == "backtest" and args.rolling is None:
         for name, option in ROLLING_OPTIONS:
@@ -4628,6 +4700,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 return _run_rolling(args)
             return _run_backtest(args)
         if args.command == "project":
+            if args.at is not None:
+                return _run_project_at(args)
             _run_project(args)
         elif args.command == "match":
             # Contrôlé toujours, avant toute sortie (0010 D3 ; § 6.7 du brief M4b-2).
@@ -4648,6 +4722,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         BacktestError,
         ManifestError,
         RegistryError,
+        InterimError,
     ) as error:
         print(f"Erreur : {error}", file=sys.stderr)
         return 1
