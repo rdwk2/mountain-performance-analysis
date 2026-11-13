@@ -36,6 +36,7 @@ from mountain_perf.outing_views import GapRow, Gaps, admitted_spans
 from mountain_perf.runs import OutingCheck, OutingMatch, match_outing
 from mountain_perf.schemas import OutingScores
 from mountain_perf.series import build_series
+from mountain_perf.ui.components import FILE_SOURCE
 
 APP = Path(mountain_perf.__file__).parent / "ui" / "app.py"
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -93,7 +94,9 @@ def _curve(stem: str = "courbe_synthetique") -> Path:
 
 
 def _compare() -> AppTest:
-    at = AppTest.from_function(_page, default_timeout=TIMEOUT_S).run()
+    at = AppTest.from_function(_page, default_timeout=TIMEOUT_S)
+    at.session_state["sortie.source"] = FILE_SOURCE
+    at.run()
     return at.button(key="sortie.comparer").click().run()
 
 

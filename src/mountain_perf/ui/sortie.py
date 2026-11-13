@@ -1,17 +1,21 @@
 """La page « sortie » (M5-2) : une sortie comparée à son préparé par v0 brut à l'effort
 1, le contrôle d'une sortie — ``mperf match --curve`` en interface. Le tracé suivi,
-prévu contre réalisé et l'effort effectif, l'écart cumulé aux points. Tout vient de la
-bibliothèque ; la page met en forme."""
+prévu contre réalisé et l'effort effectif, l'écart cumulé aux points. La courbe à
+l'origine de la sortie (par défaut), sur une plage de dates, ou un fichier de
+``reference/`` (OG-UI). Tout vient de la bibliothèque ; la page met en forme."""
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import streamlit as st
 
 from mountain_perf.data_files import FileKind, list_curves, list_files
+from mountain_perf.estimation.origin import OriginHistory
 from mountain_perf.gpx import GpxError, ProfileError
 from mountain_perf.gpx.trace_reader import TraceError
+from mountain_perf.ingest.interim import InterimError
 from mountain_perf.model import CurveError
 from mountain_perf.outing_views import (
     METRIC_UNAVAILABILITY_LABELS,
@@ -25,9 +29,35 @@ from mountain_perf.outing_views import (
     followed_route,
     gaps,
 )
-from mountain_perf.runs import OutingCheck, OutingMatch, check_outing, match_outing
+from mountain_perf.reports import (
+    curve_warnings,
+    origin_curve_lines,
+    outing_support_lines,
+    range_curve_lines,
+)
+from mountain_perf.runs import (
+    CourseOrigin,
+    CurveBytes,
+    OutingCheck,
+    OutingMatch,
+    check_outing,
+    match_outing,
+    outing_day,
+    outing_support_share,
+    paris_today,
+)
 from mountain_perf.schemas import Clock, RouteProfile
-from mountain_perf.ui.components import DISTANCE_AXIS, data_folder, file_adder
+from mountain_perf.ui.components import (
+    DISTANCE_AXIS,
+    WINDOW_LINK,
+    FileSource,
+    OriginSource,
+    cached_origin_curve,
+    cached_range_curve,
+    curve_source_inputs,
+    data_folder,
+    file_adder,
+)
 from mountain_perf.units import (
     UNDEFINED,
     format_count,
@@ -38,8 +68,8 @@ from mountain_perf.units import (
 from mountain_perf.validation import ContractError
 
 RESULT_KEY = "sortie.resultat"
-"""Le dernier résultat, gardé d'une relance à l'autre avec le trio de fichiers
-comparé."""
+"""Le dernier résultat, gardé d'une relance à l'autre avec le trio comparé (le préparé,
+la trace, la source de la courbe)."""
 
 CLOCK_LEGEND = (
     "Horloges : écoulé, tout le temps ; M θn, le temps en mouvement ; (M+U) θn, en "
@@ -60,6 +90,32 @@ EFFORT_LIMITS = (
 
 def _name(path: Path) -> str:
     return path.name
+
+
+@dataclass(frozen=True)
+class _Shown:
+    """Ce que la page montre en plus avec une courbe à l'origine ou d'une plage
+    (OG-UI) : les lignes de la source suivies de la plage de support et de la part hors
+    support, les avertissements, et, à l'origine, l'origine de la course (``None`` sur
+    une plage). Mise en forme seule : tout vient de la bibliothèque."""
+
+    lines: tuple[str, ...]
+    warnings: tuple[str, ...]
+    course: CourseOrigin | None
+
+
+def _origin_caption(course: CourseOrigin) -> str:
+    """La légende d'une courbe à l'origine, bornée ou non (OG-UI, F1)."""
+    when = (
+        "aujourd'hui : la sortie est datée au-delà d'aujourd'hui + 7 jours"
+        if course.bounded
+        else "7 jours avant la sortie"
+    )
+    return (
+        f"Courbe à l'origine du {course.origin_day:%d/%m/%Y} (00:00 à Paris, {when}) : "
+        "la sortie n'est pas dans sa fenêtre, l'écart est une prévision hors "
+        "échantillon."
+    )
 
 
 def _followed_chart(
@@ -179,8 +235,9 @@ def _gap_table(found: Gaps, clocks: Sequence[Clock]) -> list[dict[str, str]]:
     ]
 
 
-def _show(match: OutingMatch, check: OutingCheck) -> None:
-    """Le résultat gardé : points 7 à 12 du § 6.5 du brief M5-2."""
+def _show(match: OutingMatch, check: OutingCheck, shown: _Shown | None) -> None:
+    """Le résultat gardé : points 7 à 12 du § 6.5 du brief M5-2 ; avec une courbe à
+    l'origine ou d'une plage (OG-UI), sa légende, ses lignes et ses avertissements."""
     curve = match.curve
     assert curve is not None  # check_outing exige la courbe
     if check.in_curve_window:
@@ -194,6 +251,14 @@ def _show(match: OutingMatch, check: OutingCheck) -> None:
         f"Contrôle de la sortie du {check.day:%d/%m/%Y} (jour à Paris du premier "
         "instant de la trace) par v0 brut, à l'effort 1."
     )
+    if shown is not None:
+        if shown.course is not None:
+            st.caption(_origin_caption(shown.course))
+        st.code("\n".join(shown.lines), language=None)
+        for warning in shown.warnings:
+            st.warning(f"Avertissement : {warning}")
+        if shown.course is not None:
+            st.markdown(WINDOW_LINK)
 
     st.subheader("Le tracé suivi")
     followed = followed_route(match.result)
@@ -262,38 +327,78 @@ def outing_page() -> None:
         st.info("Aucune trace dans sorties/ : ajoute un GPX horodaté (barre latérale).")
         return
     curves = list_curves(data)
-    if not curves:
-        st.info("Aucune courbe (CSV et son .meta.json) dans reference/.")
-        return
+    today = paris_today()
 
     with st.sidebar:
         route = st.selectbox("Préparé", routes, format_func=_name, key="sortie.prepare")
         trace = st.selectbox("Trace", traces, format_func=_name, key="sortie.trace")
-        curve = st.selectbox("Courbe", curves, format_func=_name, key="sortie.courbe")
+        source = curve_source_inputs("sortie.", curves, today, with_day=False)
         clicked = st.button("Comparer", key="sortie.comparer")
 
-    chosen = (route, trace, curve)
+    if isinstance(source, FileSource) and source.path is None:
+        st.info("Aucune courbe (CSV et son .meta.json) dans reference/.")
+        return
+
+    chosen = (route, trace, source)
     # Le calcul au clic seulement ; le résultat est gardé pour les relances suivantes.
     if clicked:
         st.session_state.pop(RESULT_KEY, None)
+        shown: _Shown | None = None
         try:
+            curve: Path | CurveBytes
+            lines: tuple[str, ...] = ()
+            course: CourseOrigin | None = None
+            history: OriginHistory | None = None
+            if isinstance(source, OriginSource):
+                # La trace d'abord : son jour donne l'origine (source.day n'est pas lu).
+                day = outing_day(trace)
+                found = cached_origin_curve(data, day, today, source.window)
+                lines = origin_curve_lines(found)
+                course = found.course
+                history = found.result.history
+                if found.curve is None:
+                    st.code("\n".join(lines), language=None)
+                    st.info(
+                        f"Aucune courbe à l'origine : {found.result.absence_reason}"
+                    )
+                    return
+                curve = found.curve
+            elif isinstance(source, FileSource):
+                assert source.path is not None  # contrôlé avant le clic
+                curve = source.path
+            else:
+                ranged = cached_range_curve(data, source.date_from, source.date_to)
+                lines = range_curve_lines(ranged)
+                if ranged.curve is None:
+                    st.code("\n".join(lines), language=None)
+                    st.info(f"Aucune courbe sur la plage : {ranged.absence_reason}")
+                    return
+                curve = ranged.curve
             match = match_outing(route, trace, curve, {})
             check = check_outing(match)
+            if not isinstance(source, FileSource):
+                share = outing_support_share(match)
+                shown = _Shown(
+                    (*lines, *outing_support_lines(match, share)),
+                    curve_warnings(history, share),
+                    course,
+                )
         except (
             GpxError,
             ProfileError,
             TraceError,
             CurveError,
             ContractError,
+            InterimError,
             OSError,
         ) as error:
             st.error(str(error))
             return
-        st.session_state[RESULT_KEY] = (chosen, match, check)
+        st.session_state[RESULT_KEY] = (chosen, match, check, shown)
 
     kept = st.session_state.get(RESULT_KEY)
     if kept is None or kept[0] != chosen:
         st.info("Choisis un préparé, une trace et une courbe, puis « Comparer ».")
         return
-    _, match, check = kept
-    _show(match, check)
+    _, match, check, shown = kept
+    _show(match, check, shown)
