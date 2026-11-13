@@ -320,7 +320,8 @@ src/mountain_perf/     le code de la bibliothèque
                        fonctions pures sur des suites de jours (AN2-2)
     days.py            la ligne de chaque jour : les vues des jours sur une tranche
                        bornée, les validités, l'activité du jour, l'admission, les
-                       normales ; seuils days.*, DayDefinition (AN2-2)
+                       normales ; seuils days.*, DayDefinition (AN2-2) ; la demi-heure
+                       de FC la plus basse du jour (AN3-3a)
     recovery.py        la vue de la page récupération : marques, suites de la normale,
                        étendue, rubans, activité, légende ; Python pur (AN2-3)
     heart_rate.py      la FC d'une montée : support en mouvement, seconde moitié,
@@ -329,7 +330,8 @@ src/mountain_perf/     le code de la bibliothèque
     tables.py          interim/activities/ → lignes des tables activites et montees,
                        provenance (AN1-2b) ; table variantes (AN1-2c) ; interim/days/
                        et journal.csv → table jours, son résumé, la provenance
-                       étendue (AN2-2) ; la FC décalée des montées (AN3-1a)
+                       étendue (AN2-2) ; la FC décalée des montées (AN3-1a) ; les
+                       positions de leurs bornes (AN3-3a)
     parquet.py         écriture et relecture des tables en Parquet (AN1-2b) ; trois
                        tables, mises en place par échange de dossier (AN1-2c) ; quatre
                        tables, dates et instants facultatifs, refus des tables d'avant

@@ -16,6 +16,26 @@ Backtest (à partir de M4) : métrique avant → après.
 
 ---
 
+### 2026-11-13 · AN3-3a — Les positions des montées et la demi-heure de FC la plus basse
+Deux données de `processed/` pour Q2. `montees` gagne, à la fin, la latitude et la
+longitude de chaque montée à ses deux bornes (`start_latitude_deg`, `start_longitude_deg`,
+`end_latitude_deg`, `end_longitude_deg`) : la vue positions et altitude interpolée en temps
+aux bornes, par les mêmes appels que `net_displacement_m`, jamais absentes, dans leurs
+plages. `jours` gagne, à la fin, `lowest_heart_rate_window_midpoint` : le milieu de la
+fenêtre de FC la plus basse du jour, reconstruite depuis la série de FC du document du
+jour par `lowest_heart_rate_window` (`analyse/days.py`, la règle de M10), au décalage de
+`window_start`, sur tout jour qui a une fenêtre ; deux paramètres déclarés neufs,
+`days.lowest_heart_rate_window_s` et `days.lowest_heart_rate_min_point_fraction`. Les
+tables d'avant ne se relisent plus : `just process` après la fusion. Tests T1 à T16 (cas à
+la main, une propriété, le contrat, la relecture) ; les 22 contre-épreuves du brief,
+toutes tuées. Vérifications allégées, décision de rdw, écart à la règle 2 : pas de
+`just check` avant les commits 1 et 2, mais lint, types et la suite ciblée avec l'extra
+`analyse` ; un `just check` complet, avec tous les extras, une fois avant le dernier
+commit (11 470 tests réussis ou sautés). Textes : l'annexe D de la conception (`0014`,
+`0019`, `CLAUDE.md`, README, `ROADMAP`, `process.md`, `CHARTE`). Rangé :
+`src/mountain_perf/analyse/days.py`, `src/mountain_perf/analyse/tables.py`,
+`src/mountain_perf/schemas/processed.py`, `tests/test_analyse_days_lowest_window.py`.
+
 ### 2026-11-13 · AN3-1 — L'inférence de la piste
 Le paquet `analyse/inference/` (`0021`), seul importeur de numpy et de scipy dans `src/`,
 générique (des tableaux et des fonctions, rien sur les montées ni les journées) : MCO et
