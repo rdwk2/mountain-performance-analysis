@@ -2,8 +2,9 @@
 ``0015``) : ``analyse/`` lit les horloges communes, jamais ``mountain_perf.backtest`` ;
 l'état git commun, que ``cli.py`` lit pour elle, n'importe que la bibliothèque
 standard ; pyarrow n'entre que par ``analyse/parquet.py``, plotly que par
-``analyse/plot.py`` ; les tables, la figure et les résultats se calculent sans eux ; le
-moteur n'importe pas ``analyse/``."""
+``analyse/plot.py``, numpy et scipy que par ``analyse/inference/`` (``0021``) ; les
+tables, la figure et les résultats se calculent sans eux ; le moteur n'importe pas
+``analyse/``."""
 
 from __future__ import annotations
 
@@ -85,6 +86,35 @@ def test_only_the_plot_module_imports_plotly() -> None:
     assert importers == ["analyse/plot.py"]
 
 
+INFERENCE = ANALYSE / "inference"
+
+
+def _importers(library: str) -> list[str]:
+    return sorted(
+        path.relative_to(SOURCE).as_posix()
+        for path in SOURCE.rglob("*.py")
+        if any(m == library or m.startswith(f"{library}.") for m in _imports(path))
+    )
+
+
+def test_only_the_inference_package_imports_numpy_and_scipy() -> None:
+    """T40 (AN3-1, ``0021``) : les importeurs de numpy, et ceux de scipy, dans ``src/``
+    existent et sont tous sous ``analyse/inference/`` ; aucun module
+    d'``analyse/inference/`` n'importe ``mountain_perf`` hors du paquet."""
+    for library in ("numpy", "scipy"):
+        importers = _importers(library)
+        assert importers, library
+        assert all(i.startswith("analyse/inference/") for i in importers), importers
+    modules = sorted(INFERENCE.glob("*.py"))
+    assert modules
+    for path in modules:
+        assert all(
+            m == "mountain_perf.analyse.inference"
+            or m.startswith("mountain_perf.analyse.inference.")
+            for m in _package_imports(path)
+        ), path.name
+
+
 def test_the_common_git_state_uses_the_standard_library() -> None:
     """``gitstate.py`` n'importe que la bibliothèque standard : ni le moteur, ni la
     piste."""
@@ -162,7 +192,14 @@ def test_the_days_read_the_views_the_journal_and_the_normals() -> None:
     assert _standard_only(_imports(path))
 
 
-EXTRAS = ("pyarrow", "plotly", "fitdecode", "mountain_perf.ingest.fit")
+EXTRAS = (
+    "pyarrow",
+    "plotly",
+    "numpy",
+    "scipy",
+    "fitdecode",
+    "mountain_perf.ingest.fit",
+)
 """Les extras, et le seul module qui importe fitdecode."""
 
 
