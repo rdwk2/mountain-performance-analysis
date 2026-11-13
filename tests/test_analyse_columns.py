@@ -23,12 +23,14 @@ from fixtures.processed import (
     write_gap_interim,
     write_interim,
     write_one,
+    write_positions_interim,
 )
 from mountain_perf.analyse.athlete import DEFAULT_SETTINGS
 from mountain_perf.analyse.climbs import (
     CLIMB_PARAMETER_SPECS,
     MotionTrack,
     climbs,
+    interpolate,
     motion_track,
     state_time_s,
     track_route,
@@ -48,6 +50,7 @@ from mountain_perf.analyse.stability import (
 )
 from mountain_perf.analyse.tables import Tables, build_tables
 from mountain_perf.estimation.intervals import HeartRateSeries, heart_rate_series
+from mountain_perf.gpx.geo import haversine_m
 from mountain_perf.gpx.profile import (
     PROFILE_PARAMETER_SPECS,
     build_profile_with_diagnostics,
@@ -77,6 +80,13 @@ def walk(tmp_path_factory: pytest.TempPathFactory) -> tuple[Path, Tables]:
 def gap(tmp_path_factory: pytest.TempPathFactory) -> tuple[Path, Tables]:
     folder = tmp_path_factory.mktemp("trou")
     write_gap_interim(folder)
+    return folder, build_tables(folder, DEFAULT_SETTINGS, commit=COMMIT)
+
+
+@pytest.fixture(scope="module")
+def positions(tmp_path_factory: pytest.TempPathFactory) -> tuple[Path, Tables]:
+    folder = tmp_path_factory.mktemp("positions")
+    write_positions_interim(folder)
     return folder, build_tables(folder, DEFAULT_SETTINGS, commit=COMMIT)
 
 
@@ -526,3 +536,62 @@ def test_the_lagged_moving_and_elapsed_heart_rates_differ(
     assert climb.lagged_moving_heart_rate_bpm == pytest.approx(on_moving[0], rel=1e-9)
     assert climb.lagged_elapsed_heart_rate_bpm == pytest.approx(on_elapsed[0], rel=1e-9)
     assert on_elapsed[0] - on_moving[0] >= 1.0
+
+
+def _nearest(times: Sequence[float], at_s: float) -> int:
+    """L'indice de l'instant de ``times`` le plus proche de ``at_s``, à moins de
+    ``1e-6`` s."""
+    i = min(range(len(times)), key=lambda k: abs(times[k] - at_s))
+    assert abs(times[i] - at_s) < 1e-6
+    return i
+
+
+def test_the_climb_positions_are_the_view_at_the_bounds(
+    positions: tuple[Path, Tables], walk: tuple[Path, Tables]
+) -> None:
+    """Les quatre positions d'une montée sont celles de la vue à ses bornes, lues dans
+    le temps de la trace (AN3-3a, ``0014``) ; leur distance est exactement le
+    déplacement net."""
+    folder, tables = positions
+    recording, track = _track(folder, "p1")
+    rows = [c for c in tables.climbs if c.activity_ref == "p1"]
+    # Le monde distingue ce qu'il doit distinguer.
+    assert rows
+    assert track.offset_s >= 10.0
+    for row in rows:
+        assert row.start_latitude_deg != row.end_latitude_deg
+        assert row.start_longitude_deg != row.end_longitude_deg
+        wrong = interpolate(track.time_s, track.latitude_deg, row.start_offset_s)
+        assert abs(wrong - row.start_latitude_deg) > 1e-9
+    position = recording.position
+    assert position is not None
+    for row in rows:
+        for at_s, lat, lon in (
+            (row.start_offset_s, row.start_latitude_deg, row.start_longitude_deg),
+            (row.end_offset_s, row.end_latitude_deg, row.end_longitude_deg),
+        ):
+            i = _nearest(position.time_s, at_s)
+            assert lat == pytest.approx(position.latitude_deg[i], rel=0, abs=1e-12)
+            assert lon == pytest.approx(position.longitude_deg[i], rel=0, abs=1e-12)
+        assert (
+            haversine_m(
+                row.start_latitude_deg,
+                row.start_longitude_deg,
+                row.end_latitude_deg,
+                row.end_longitude_deg,
+            )
+            == row.net_displacement_m
+        )
+    _, walk_tables = walk
+    walk_rows = [c for c in walk_tables.climbs if c.activity_ref == "a1"]
+    assert walk_rows
+    for row in walk_rows:
+        assert (
+            haversine_m(
+                row.start_latitude_deg,
+                row.start_longitude_deg,
+                row.end_latitude_deg,
+                row.end_longitude_deg,
+            )
+            == row.net_displacement_m
+        )

@@ -219,6 +219,10 @@ def climb(
         lagged_second_half_heart_rate_coverage=1.0,
         lagged_elapsed_heart_rate_bpm=151.0,
         lagged_elapsed_heart_rate_coverage=1.0,
+        start_latitude_deg=45.0,
+        start_longitude_deg=6.0,
+        end_latitude_deg=45.01,
+        end_longitude_deg=6.01,
     )
     return dataclasses.replace(row, **changes)
 

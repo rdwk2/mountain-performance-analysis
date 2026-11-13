@@ -76,7 +76,9 @@ d'analyse, relu, et qui doit respecter la charte.*
   `absent`, § 4 bis, point 7) ; la nuit rattachée au jour du réveil (§ 4), les siestes,
   les valeurs du jour selon Garmin, Training Readiness du réveil, Training Status à sa
   date propre, les types du journal (§ 3) et l'activité du jour (la charge selon Garmin,
-  sommée sans être recalculée, et les temps écoulés par famille de sport). Les états, les
+  sommée sans être recalculée, et les temps écoulés par famille de sport), et l'instant
+  du milieu de la demi-heure où la FC de la journée est la plus basse (calculé aussi un
+  jour incomplet). Les états, les
   drapeaux et les statuts viennent des vues des jours (`docs/decisions/0018`), appelées
   avec des seuils déclarés dans `analyse/` (`days.<nom>`), communs à tous les athlètes ;
   une grandeur de la journée d'un jour qui n'est pas complet est absente, ni nulle ni
