@@ -62,7 +62,6 @@ from mountain_perf.estimation.curve import (
 from mountain_perf.estimation.intervals import (
     ActivityIntervals,
     TraceRefusal,
-    activity_intervals,
 )
 from mountain_perf.estimation.origin import (
     ALL_PAST,
@@ -74,6 +73,7 @@ from mountain_perf.estimation.origin import (
     origin_absence_document,
     origin_companion,
 )
+from mountain_perf.estimation.origin import intervals_cache as intervals_cache
 from mountain_perf.gpx import PROFILE_PARAMETER_SPECS
 from mountain_perf.model import PROJECTION_PARAMETER_SPECS, CurveReadResult
 from mountain_perf.model.curve_io import (
@@ -240,46 +240,6 @@ def _rule(
         profile_parameters=dict(profile.values),
         diagnostic_support_threshold_min=threshold,
     )
-
-
-def intervals_cache(
-    corpus: CurveCorpus,
-) -> Callable[..., ActivityIntervals | TraceRefusal]:
-    """Un cache des intervalles en mémoire, le temps d'une préparation (OG-2, PG16) :
-    une table de ``(activity_ref, recording_sha256, paramètres du profil, hr_lag_s,
-    hr_min_coverage, max_elapsed_s)`` vers ce qu'``activity_intervals`` a rendu — la clé
-    de ``0020`` (« Conséquences »), moins ce que le processus fixe."""
-    store: dict[tuple[object, ...], ActivityIntervals | TraceRefusal] = {}
-
-    def cached(
-        recording: ActivityRecording,
-        profile_parameters: ParameterSet,
-        /,
-        *,
-        hr_lag_s: float,
-        hr_min_coverage: float,
-        max_elapsed_s: float | None,
-    ) -> ActivityIntervals | TraceRefusal:
-        ref = recording.activity_ref
-        key = (
-            ref,
-            corpus.recording_sha256.get(ref),
-            tuple(sorted(profile_parameters.values.items())),
-            hr_lag_s,
-            hr_min_coverage,
-            max_elapsed_s,
-        )
-        if key not in store:
-            store[key] = activity_intervals(
-                recording,
-                profile_parameters,
-                hr_lag_s=hr_lag_s,
-                hr_min_coverage=hr_min_coverage,
-                max_elapsed_s=max_elapsed_s,
-            )
-        return store[key]
-
-    return cached
 
 
 def _check_correspondences(
