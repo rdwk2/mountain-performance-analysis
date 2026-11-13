@@ -18,6 +18,7 @@ from streamlit.testing.v1 import AppTest
 
 import mountain_perf
 from mountain_perf.config import data_dir
+from mountain_perf.ui.components import FILE_SOURCE
 
 APP = Path(mountain_perf.__file__).parent / "ui" / "app.py"
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -35,7 +36,9 @@ def _profile_layers() -> list[dict[str, Any]]:
     shutil.copy(ROUTE, routes / ROUTE.name)
     shutil.copy(CURVE, reference / CURVE.name)
     shutil.copy(COMPANION, reference / COMPANION.name)
-    at = AppTest.from_file(APP, default_timeout=TIMEOUT_S).run()
+    at = AppTest.from_file(APP, default_timeout=TIMEOUT_S)
+    at.session_state["source"] = FILE_SOURCE
+    at.run()
     assert not at.exception
     profile = json.loads(at.get("vega_lite_chart")[0].proto.spec)
     layers: list[dict[str, Any]] = profile["layer"]

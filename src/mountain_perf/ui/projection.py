@@ -1,7 +1,8 @@
 """La page « projection » (M5-1) : un préparé et une courbe choisis, les réglages
 générés depuis les specs ; la synthèse de ``mperf project``, le profil, la vitesse
-projetée, le tableau des passages et l'export CSV. Tout vient de la bibliothèque ; la
-page met en forme."""
+projetée, le tableau des passages et l'export CSV. La courbe à l'origine (par défaut),
+sur une plage de dates, ou un fichier de ``reference/`` (OG-UI). Tout vient de la
+bibliothèque ; la page met en forme."""
 
 import io
 from collections.abc import Callable, Sequence
@@ -13,12 +14,14 @@ import streamlit as st
 
 from mountain_perf.controls import changed_values, parameter_controls
 from mountain_perf.data_files import FileKind, list_curves, list_files
+from mountain_perf.estimation.origin import OriginHistory
 from mountain_perf.gpx import (
     PROFILE_PARAMETER_DISPLAYS,
     PROFILE_PARAMETER_SPECS,
     GpxError,
     ProfileError,
 )
+from mountain_perf.ingest.interim import InterimError
 from mountain_perf.model import (
     PROJECTION_PARAMETER_DISPLAYS,
     PROJECTION_PARAMETER_SPECS,
@@ -31,10 +34,21 @@ from mountain_perf.model.views import (
     interval_speeds,
     passage_rows,
 )
-from mountain_perf.reports import projection_summary_lines
-from mountain_perf.runs import project_route
+from mountain_perf.reports import (
+    curve_warnings,
+    origin_curve_lines,
+    projection_summary_lines,
+    range_curve_lines,
+)
+from mountain_perf.runs import CurveBytes, paris_today, project_route
 from mountain_perf.ui.components import (
     DISTANCE_AXIS,
+    WINDOW_LINK,
+    FileSource,
+    OriginSource,
+    cached_origin_curve,
+    cached_range_curve,
+    curve_source_inputs,
     data_folder,
     file_adder,
     parameter_inputs,
@@ -189,9 +203,7 @@ def projection_page() -> None:
         st.info("Aucun préparé dans routes/ : ajoute un GPX (barre latérale).")
         return
     curves = list_curves(data)
-    if not curves:
-        st.info("Aucune courbe (CSV et son .meta.json) dans reference/.")
-        return
+    today = paris_today()
 
     profile_controls = parameter_controls(
         PROFILE_PARAMETER_SPECS, PROFILE_PARAMETER_DISPLAYS
@@ -202,7 +214,7 @@ def projection_page() -> None:
     start: datetime | None = None
     with st.sidebar:
         route = st.selectbox("Préparé", routes, format_func=_name, key="prepare")
-        curve = st.selectbox("Courbe", curves, format_func=_name, key="courbe")
+        source = curve_source_inputs("", curves, today, with_day=True)
         st.subheader("Réglages")
         profile_values = parameter_inputs(profile_controls, "profil")
         projection_values = parameter_inputs(projection_controls, "projection")
@@ -211,18 +223,57 @@ def projection_page() -> None:
             at = st.time_input("Heure", value=time(8, 0), key="depart_heure")
             start = civil_start(day, at)
 
+    lines: tuple[str, ...] = ()
+    history: OriginHistory | None = None
     try:
+        curve: Path | CurveBytes
+        if isinstance(source, FileSource):
+            if source.path is None:
+                st.info("Aucune courbe (CSV et son .meta.json) dans reference/.")
+                return
+            curve = source.path
+        elif isinstance(source, OriginSource):
+            found = cached_origin_curve(data, source.day, today, source.window)
+            lines = origin_curve_lines(found)
+            history = found.result.history
+            if found.curve is None:
+                st.code("\n".join(lines), language=None)
+                st.info(f"Aucune courbe à l'origine : {found.result.absence_reason}")
+                st.markdown(WINDOW_LINK)
+                return
+            curve = found.curve
+        else:
+            ranged = cached_range_curve(data, source.date_from, source.date_to)
+            lines = range_curve_lines(ranged)
+            if ranged.curve is None:
+                st.code("\n".join(lines), language=None)
+                st.info(f"Aucune courbe sur la plage : {ranged.absence_reason}")
+                return
+            curve = ranged.curve
         run = project_route(
             route,
             curve,
             changed_values(profile_controls, profile_values),
             changed_values(projection_controls, projection_values),
         )
-    except (GpxError, ProfileError, CurveError, ContractError) as error:
+    except (
+        GpxError,
+        ProfileError,
+        CurveError,
+        ContractError,
+        InterimError,
+        OSError,
+    ) as error:
         st.error(str(error))
         return
 
-    st.code("\n".join(projection_summary_lines(run)), language=None)
+    st.code("\n".join((*lines, *projection_summary_lines(run))), language=None)
+    if not isinstance(source, FileSource):
+        share = run.diagnostics.out_of_support_time_share
+        for warning in curve_warnings(history, share):
+            st.warning(f"Avertissement : {warning}")
+        if isinstance(source, OriginSource):
+            st.markdown(WINDOW_LINK)
     rows = passage_rows(run.projection, start)
     profile = run.projection.profile
 
