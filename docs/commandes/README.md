@@ -33,11 +33,13 @@ Windows. L'ingestion (`mperf ingest`, qui lit les FIT) demande en plus l'extra `
 (fitdecode, [`0011`](../decisions/0011-bibliotheques-analyse.md)) :
 `uv sync --locked --extra ingest`, ou `just ingest`, qui l'installe de lui-même ; sans
 lui, les tests qui lisent des FIT se sautent. L'écriture des tables de `processed/` en
-Parquet et la figure de Q1 demandent l'extra `analyse` (pyarrow et plotly,
+Parquet, la figure de Q1 et les outils d'inférence de la piste demandent l'extra
+`analyse` (pyarrow, plotly, numpy et scipy,
 [`0014`](../decisions/0014-montees-et-tables.md),
-[`0015`](../decisions/0015-figure-de-q1.md)) : `uv sync --locked --extra analyse`,
-ou `just process` et `just q1` ; sans lui, les tests qui écrivent du Parquet ou rendent
-la figure se sautent.
+[`0015`](../decisions/0015-figure-de-q1.md),
+[`0021`](../decisions/0021-inference-de-la-piste.md)) :
+`uv sync --locked --extra analyse`, ou `just process` et `just q1` ; sans lui, les
+tests qui écrivent du Parquet, rendent la figure ou calculent une inférence se sautent.
 L'interface demande l'extra `tableau` (Streamlit,
 [`0016`](../decisions/0016-interface-v0.md)) : `uv sync --locked --extra tableau`, ou
 `just ui` ; sans lui, les tests de l'interface se sautent. Ses pages de la piste analyse

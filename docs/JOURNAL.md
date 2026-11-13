@@ -16,6 +16,26 @@ Backtest (à partir de M4) : métrique avant → après.
 
 ---
 
+### 2026-11-13 · AN3-1 — L'inférence de la piste
+Le paquet `analyse/inference/` (`0021`), seul importeur de numpy et de scipy dans `src/`,
+générique (des tableaux et des fonctions, rien sur les montées ni les journées) : MCO et
+GLS, REML d'une covariance à trois composantes (profil sur 12 valeurs de `φ`, puis un
+affinement), Student, Holm et Bonferroni, les trois lectures de la charte,
+l'autocorrélation des résidus par classe d'écart, CR2 et le bootstrap sauvage par
+grappes, les bootstraps paramétrique et sauvage des résidus, la bande max-t, Huber, la
+spline cubique naturelle, la simulation de puissance et le seuil calibré. L'extra
+`analyse` gagne numpy 2.5.4 et scipy 1.18.1 ; le groupe `analyse-dev` s'ouvre avec
+scipy-stubs 1.18.1.1 (et optype, numpy-typing-compat) ; `uv.lock` ne gagne que ces
+paquets ; la CI installe le groupe à son étape 2 ; `scipy` entre dans
+`FORBIDDEN_LIBRARIES` du moteur. Tests T1 à T41 sur des cas calculés à la main, des
+propriétés et des simulations de couverture ; les 61 contre-épreuves du brief, toutes
+tuées. Vérifications allégées, décisions de rdw et de la conception, écart à la règle 2 :
+pas de `just check` avant chaque commit, mais lint, types aux deux étapes et tests
+ciblés ; pas de passe complète locale, une vérification ciblée avant le dernier commit,
+la CI et la conception refont les passes complètes. Rangé :
+`src/mountain_perf/analyse/inference/`, `tests/test_analyse_inference_*.py`,
+`docs/decisions/0021-inference-de-la-piste.md`.
+
 ### 2026-11-13 · docs — Refonte du README et référence des commandes
 Le README de 58 Ko devient une vitrine (≈ 10,6 Ko) : présentation, figure, Pourquoi,
 interface, installation, premiers pas (un exemple de `mperf project`, rejoué), table des
