@@ -143,8 +143,11 @@ from mountain_perf.reports import grid_lines, passage_lines, projection_summary_
 from mountain_perf.runs import (
     check_outing,
     load_curve_corpus,
+    load_range_corpus,
     match_outing,
     project_route,
+    range_companion,
+    range_estimate,
 )
 from mountain_perf.schemas import (
     BAND_LABEL,
@@ -4179,14 +4182,10 @@ def _run_curve(args: argparse.Namespace) -> int:
         CURVE_ESTIMATION_PARAMETER_SPECS,
         BinValue,
         CurveSelection,
+        NoCurve,
         curve_file_rows,
-        curve_provenance,
-        estimate_curve,
-        estimation_document,
-        select_candidates,
     )
-    from mountain_perf.estimation.intervals import activity_intervals
-    from mountain_perf.ingest.interim import InterimError, read_index, read_recording
+    from mountain_perf.ingest.interim import InterimError
     from mountain_perf.model.curve_io import (
         CURVE_PARAMETER_SPECS,
         META_SUFFIX,
@@ -4278,81 +4277,32 @@ def _run_curve(args: argparse.Namespace) -> int:
                 generated_at=_now(),
             )
         else:
-            # ValueError : CodecError et ContractError en sont, et seuls les modules de
-            # documents importent le codec commun (tests/test_codec.py).
-            try:
-                index = read_index(folder)
-            except ValueError as error:
-                raise CurveError(
-                    f"index d'interim/ : {error} ; relancer `mperf ingest`."
-                ) from error
-            entries = select_candidates(index, selection)
-            if not entries:
-                raise CurveError(
-                    "aucune activité candidate : aucun enregistrement des types "
-                    "demandés dans la fenêtre."
-                )
-            candidates = []
-            recorded_at = []
-            for entry in entries:
-                try:
-                    recording = read_recording(folder, entry.activity_ref)
-                except ValueError as error:
-                    raise CurveError(
-                        f"activité {entry.activity_ref} : {error} ; relancer `mperf "
-                        "ingest`."
-                    ) from error
-                recorded_at.append(recording.source.retrieved_at)
-                candidates.append(
-                    activity_intervals(
-                        recording,
-                        profile,
-                        hr_lag_s=parameters["hr_lag_s"],
-                        hr_min_coverage=parameters["hr_min_coverage"],
-                        max_elapsed_s=selection.max_elapsed_s,
-                    )
-                )
-            estimate = estimate_curve(
-                candidates,
-                [entry.activity_ref for entry in entries],
+            # La plage, en bibliothèque (OG-UI, C4) : le corpus de ses candidates (sans
+            # candidate, refusé avant toute lecture d'enregistrement), l'estimation de
+            # 0017, la provenance et le document d'estimation.
+            range_corpus = load_range_corpus(folder, args.athlete, selection)
+            entries, outcome = range_estimate(
+                range_corpus,
                 selection,
                 parameters,
+                profile,
                 support_threshold_min=support_threshold_min,
             )
+            if isinstance(outcome, NoCurve):
+                raise CurveError(outcome.reason)
+            estimate = outcome
             rows = curve_file_rows(estimate)
             support_error = check_curve_rows(rows, support_threshold_min)
-            retained = set(estimate.activity_refs)
-            # L'entrée et l'enregistrement d'une activité peuvent venir de deux exports
-            # (0013, précision 16) : la courbe est choisie sur l'une, mesurée sur
-            # l'autre.
-            exports = [
-                instant
-                for entry, recorded in zip(entries, recorded_at, strict=True)
-                if entry.activity_ref in retained
-                for instant in (entry.source.retrieved_at, recorded)
-            ]
-            provenance = curve_provenance(
+            provenance, document = range_companion(
                 estimate,
-                selection,
-                parameters,
-                date_from=args.date_from,
-                date_to=args.date_to,
-                estimator=(
-                    "mperf curve (M6b) : intervalles de la grille du profil, temps M "
-                    f"θc, tranches variables, valeur {selection.value.value}"
-                ),
-                generated_at=_now(),
-                athlete_ref=args.athlete,
-                support_threshold_min=support_threshold_min,
-            )
-            document = estimation_document(
-                estimate,
+                entries,
+                range_corpus,
                 selection,
                 parameters,
                 profile,
                 commit=state.commit,
-                exports_retrieved_at=exports,
-                support_error=support_error,
+                generated_at=_now(),
+                support_threshold_min=support_threshold_min,
             )
         target.parent.mkdir(parents=True, exist_ok=True)
         write_curve(target, rows, Sport.FOOT, provenance, document)

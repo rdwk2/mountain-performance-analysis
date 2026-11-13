@@ -17,7 +17,7 @@ from typing import Any
 
 import pytest
 
-import mountain_perf.estimation.intervals as intervals_module
+import mountain_perf.estimation.origin as origin_module
 from fixtures.processed import COMMIT, write_interim
 from mountain_perf import gitstate
 from mountain_perf.cli import main
@@ -172,7 +172,7 @@ def test_ten_minutes_exactly_count_as_ten_minutes(
             return uniform("a1", 2.0, GRADES, 600.0)
         return TraceRefusal.NO_TRACE
 
-    monkeypatch.setattr(intervals_module, "activity_intervals", crafted)
+    monkeypatch.setattr(origin_module, "activity_intervals", crafted)
     code, out, _ = run(capsys)
     assert code == 0
     assert out.splitlines()[0] == (
