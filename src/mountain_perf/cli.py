@@ -10,7 +10,6 @@ from __future__ import annotations
 import argparse
 import contextlib
 import csv
-import dataclasses
 import io
 import math
 import os
@@ -182,6 +181,7 @@ from mountain_perf.schemas import (
     ClockScores,
     ClockTotals,
     ConfigurationOutcome,
+    Coverage,
     CurveStatus,
     DataSet,
     Declaration,
@@ -1203,9 +1203,13 @@ def _aggregate_lines(rows: Sequence[AggregateRow], *, with_missing: bool) -> lis
     return lines
 
 
-def _performance_lines(run: _Run) -> list[str]:
+def _performance_lines(
+    run: _Run, *, no_curve: Mapping[str, Coverage] | None = None
+) -> list[str]:
     """Le tableau ``performances`` : une ligne par sortie déclarée, colonnes de
-    largeur fixe (§ 6.3 du brief M4b-5)."""
+    largeur fixe (§ 6.3 du brief M4b-5) ; une sortie de ``no_curve`` (mode glissant,
+    OG-UI) a la couverture et le préfixe de son appariement, et « sans courbe » pour
+    ``L v0`` et ``q_usage v0``."""
     scored = {outing.outing.outing_id: outing for outing in run.outings}
     unscored = {exclusion.outing_id: exclusion.reason for exclusion in run.unscored}
     header = (
@@ -1224,6 +1228,15 @@ def _performance_lines(run: _Run) -> list[str]:
             )
             if outing.outing_id in unscored:
                 line = f"{start}non scorée : {unscored[outing.outing_id]}"
+                if performance.is_multi_outing:
+                    line += " (jour multi-sorties)"
+                lines.append(line)
+                continue
+            if no_curve is not None and outing.outing_id in no_curve:
+                covered = no_curve[outing.outing_id]
+                share = _coverage_percent(covered.fraction)
+                prefix = f"{covered.prefix_end_m / 1000:.2f} km"
+                line = f"{start}{share:<12}{prefix:<11}{'sans courbe':<12}sans courbe"
                 if performance.is_multi_outing:
                     line += " (jour multi-sorties)"
                 lines.append(line)
@@ -1825,9 +1838,13 @@ def _subclass_count(count: int, subclass: DescentSubclass, under: bool) -> str:
     return text
 
 
-def _descent_lines(run: _Run, threshold: float) -> list[str]:
+def _descent_lines(
+    run: _Run, threshold: float, *, no_curve: Sequence[str] = ()
+) -> list[str]:
     """Les sous-classes de descente de chaque sortie scorée, puis leur total
-    (précision de D6, M4b-5 ; diagnostic, ni cible ni garde-fou)."""
+    (précision de D6, M4b-5 ; diagnostic, ni cible ni garde-fou) ; une ligne
+    « indisponible » par sortie sans courbe de ``no_curve`` (OG-UI), que le total ne
+    compte pas."""
     lines = [
         f"{'descentes':<13}roulantes et raides au seuil {threshold:.2f} (0010 D6) ; "
         "diagnostic, ni cible ni garde-fou"
@@ -1876,6 +1893,10 @@ def _descent_lines(run: _Run, threshold: float) -> list[str]:
                 _row(f"{label} D_R", [_label(m.dispersion, _plain) for m in by_clock]),
                 _row(f"{label} E_R−L", [_label(m.shape, _log) for m in by_clock]),
             ]
+    lines += [
+        f"{_INDENT}{outing_id} — 0010 D6 : indisponible (sans courbe)"
+        for outing_id in no_curve
+    ]
     lines.append(
         f"{_INDENT}total : "
         + ", ".join(
@@ -1886,32 +1907,32 @@ def _descent_lines(run: _Run, threshold: float) -> list[str]:
     return lines
 
 
-def _geometry_lines(run: _Run) -> list[str]:
+def _geometry_lines(run: _Run, *, no_curve: Sequence[str] = ()) -> list[str]:
     """Le diagnostic de géométrie de chaque sortie scorée (précision de D3, M4b-5) :
-    ``G`` et ses quatre classes, ou « sans référence »."""
+    ``G`` et ses quatre classes, ou « sans référence » ; puis « sans courbe » pour
+    chaque sortie de ``no_curve`` (OG-UI)."""
     lines = [
         f"{'géométrie':<13}usage − contrôle = ln(ΣP_usage / ΣP_contrôle) sur le "
         "support admis (0010 D3), v0 brut"
     ]
     header = ["G", *(REGIME_CLASS_LABELS[regime] for regime in RegimeClass)]
-    rows: list[tuple[str, list[str] | None]] = []
+    rows: list[tuple[str, list[str] | str]] = []
     for outing in run.outings:
         diagnostic = geometry_diagnostic(outing.scores)
         if diagnostic is None:
-            rows.append((outing.outing.outing_id, None))
+            rows.append((outing.outing.outing_id, "sans référence"))
             continue
         values = [diagnostic.total, *diagnostic.classes]
         rows.append((outing.outing.outing_id, [_label(v, _log) for v in values]))
+    rows += [(outing_id, "sans courbe") for outing_id in no_curve]
     names = max([16, *(len(name) + 2 for name, _ in rows)])
-    cells = [*header, *(c for _, row in rows if row is not None for c in row)]
+    cells = [*header, *(c for _, row in rows if isinstance(row, list) for c in row)]
     width = max(20, max(len(c) for c in cells) + 2)
     lines.append(
         (_INDENT + " " * names + "".join(f"{h:<{width}}" for h in header)).rstrip()
     )
     for name, row in rows:
-        shown = (
-            "sans référence" if row is None else "".join(f"{c:<{width}}" for c in row)
-        )
+        shown = row if isinstance(row, str) else "".join(f"{c:<{width}}" for c in row)
         lines.append((_INDENT + f"{name:<{names}}" + shown).rstrip())
     return lines
 
@@ -2939,8 +2960,8 @@ E15_HYPOTHESIS = (
 MDE_TEXT = (
     "Plus petit écart de |L| détectable à 80 % (test t apparié bilatéral à 5 %, "
     "écart-type 0,0253 des différences mesuré chez rdw, 56 − 28 jours, n = 11) : "
-    "{mde:.3f} avec {n} performances couvertes sous tous les W. Le banc mesure, à "
-    "support égal, des écarts de 0,013 au plus."
+    "{mde:.3f} avec {n} performances couvertes sous tous les W et lues en usage (v0 "
+    "brut, écoulé). Le banc mesure, à support égal, des écarts de 0,013 au plus."
 )
 
 PAIR_COUNT_WORDS = {1: "une paire lue", 2: "deux paires lues", 3: "trois paires lues"}
@@ -3036,35 +3057,27 @@ def _rolling_performance_lines(run: _RollingRun, reading: float) -> list[str]:
 
 def _rolling_outing_lines(run: _RollingRun) -> list[str]:
     """Le tableau ``performances`` (§ 6.3 du brief M4b-5) ; une sortie d'une
-    performance sans courbe le dit (choix C12)."""
-    no_curve = {item.traced.outing.outing_id for item in run.evaluation.no_curve}
-    lines = []
-    for line in _performance_lines(
-        dataclasses.replace(
-            run,
-            unscored=(
-                *run.unscored,
-                *(
-                    Exclusion(
-                        outing_id,
-                        "sans courbe : v0 brut et v0 + effort recalé ne la scorent pas",
-                    )
-                    for outing_id in sorted(no_curve)
-                ),
-            ),
-        )
-    ):
-        lines.append(line)
-    return lines
+    performance sans courbe a sa couverture et son préfixe, et « sans courbe » pour v0
+    (OG-UI)."""
+    return _performance_lines(
+        run,
+        no_curve={
+            item.traced.outing.outing_id: item.traced.match.coverage
+            for item in run.evaluation.no_curve
+        },
+    )
 
 
 def _rolling_calibration_lines(run: _RollingRun) -> list[str]:
-    """La ligne de calage (précision de D15, M4c-2), puis les contributeurs de chaque
-    performance (§ 6.9 (a) 5) ; sans courbe, « sans courbe » pour v0 et la population
-    publiée."""
+    """La ligne de calage (précision de D15, M4c-2), celle du mode déclaré plus ce
+    que le mode glissant ajoute (OG-UI) : ``|C_j^eff|`` lu sur le premier modèle calé
+    de la première sortie, les notes « contrôle » et « jour multi-sorties » ; puis les
+    contributeurs de chaque performance (§ 6.9 (a) 5) ; sans courbe, « sans courbe »
+    pour v0 et la population publiée."""
     lines = [
-        f"{'calage':<13}0010 D9.2 sur C_j, calage (a) avec κ_j ; écoulé, usage "
-        "(contrôle sans référence) ; e : effort de v0, a : facteur",
+        f"{'calage':<13}0010 D9.2 sur C_j (entraînements terminés avant o_j) ; écoulé, "
+        "usage (contrôle sans référence) ; e : effort de v0, a : facteur ; calage (a) "
+        "avec κ_j",
         (
             _INDENT
             + f"{'jour':<12}{'C_j':<5}{'C_j^eff':<9}"
@@ -3076,6 +3089,10 @@ def _rolling_calibration_lines(run: _RollingRun) -> list[str]:
         d.performance.civil_date: [
             (o.outing_id, o.activity_refs) for o in d.performance.outings
         ]
+        for d in declaration.performances
+    }
+    multi = {
+        d.performance.civil_date: d.performance.is_multi_outing
         for d in declaration.performances
     }
     for index, performance in enumerate(run.calibration):
@@ -3104,10 +3121,18 @@ def _rolling_calibration_lines(run: _RollingRun) -> list[str]:
             scores = entry.control if control else entry.usage
             assert scores is not None
             calibration = scores.clocks[0].calibration
-            effective = str(len(calibration.population))
+            if effective == "—":
+                effective = str(len(calibration.population))
             cells.append(_calibration_cell(calibration))
         line = f"{start}{effective:<9}" + "".join(f"{c:<20}" for c in cells)
-        line = line.rstrip() + (" (contrôle)" if control else "")
+        line = line.rstrip()
+        notes = []
+        if control:
+            notes.append("contrôle")
+        if multi.get(day, False):
+            notes.append(f"jour multi-sorties, {first}")
+        if notes:
+            line += f" ({' ; '.join(notes)})"
         lines.append(line)
         terms = run.evaluation.terms[index]
         curve = run.curves[index]
@@ -3230,7 +3255,7 @@ def _unmatched_line(declaration: Declaration) -> str:
         for o in d.performance.outings
         if not o.activity_refs
     ]
-    return f"{'correspondance':<13}sorties sans correspondance : {len(names)}" + (
+    return f"{'activités':<13}sorties sans correspondance : {len(names)}" + (
         f" ({', '.join(names)})" if names else ""
     )
 
@@ -3315,8 +3340,9 @@ def _rolling_report_body(run: _RollingRun, threshold: float) -> list[str]:
     lines += _band_aggregate_lines(entries)
     for route_id, reference in run.references:
         lines += _reference_lines(route_id, reference)
-    lines += _descent_lines(run, threshold)
-    lines += _geometry_lines(run)
+    no_curve = sorted(item.traced.outing.outing_id for item in run.evaluation.no_curve)
+    lines += _descent_lines(run, threshold, no_curve=no_curve)
+    lines += _geometry_lines(run, no_curve=no_curve)
     declaration = run.preparation.declaration
     for outing in run.outings:
         index = next(
@@ -3413,16 +3439,6 @@ def _comparison_report(
             for label, found in zip(labels, sets.beyond, strict=True)
         ),
     ]
-    n = len(sets.covered_under_all)
-    mde = minimum_detectable_effect(n)
-    lines.append(
-        f"{'issue':<13}"
-        + (
-            "Issue probable : indisponible (n < 2)."
-            if mde is None
-            else MDE_TEXT.format(mde=mde, n=n)
-        )
-    )
     views = [_rolling_view(w.evaluation, manifest) for w in windows]
     values = []
     scores = []
@@ -3437,6 +3453,23 @@ def _comparison_report(
             }
         )
         scores.append({e.civil_date: e.scores for e in entries})
+    # L'issue ne lit que la disponibilité de |L| sous chaque W, jamais sa valeur
+    # (OG-UI, R1 : le n des paires).
+    level = (ReportMetric.ABS_LEVEL, None)
+    n = sum(
+        1
+        for d in sets.covered_under_all
+        if all(not isinstance(found[d][level], str) for found in values)
+    )
+    mde = minimum_detectable_effect(n)
+    lines.append(
+        f"{'issue':<13}"
+        + (
+            "Issue probable : indisponible (n < 2)."
+            if mde is None
+            else MDE_TEXT.format(mde=mde, n=n)
+        )
+    )
     all_index = next((k for k, r in enumerate(rollings) if r.window_days is None), None)
     metrics: list[tuple[str, tuple[ReportMetric, RegimeClass | None]]] = [
         ("|L|", (ReportMetric.ABS_LEVEL, None)),
