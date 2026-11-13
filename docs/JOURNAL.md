@@ -32,9 +32,14 @@ propriétés et des simulations de couverture ; les 61 contre-épreuves du brief
 tuées. Vérifications allégées, décisions de rdw et de la conception, écart à la règle 2 :
 pas de `just check` avant chaque commit, mais lint, types aux deux étapes et tests
 ciblés ; pas de passe complète locale, une vérification ciblée avant le dernier commit,
-la CI et la conception refont les passes complètes. Rangé :
-`src/mountain_perf/analyse/inference/`, `tests/test_analyse_inference_*.py`,
-`docs/decisions/0021-inference-de-la-piste.md`.
+la CI et la conception refont les passes complètes. Correctifs, après une relecture de
+la PR et un balayage par mutation : `cr2_cov` applique le contrôle de rang commun, les
+scalaires non finis sont refusés, des tests neufs tiennent les garde-fous du quantile,
+une `V` non finie, un point où Cholesky échoue, l'immuabilité des sorties, les seuils de
+rang et de symétrie, la formule des tirages, les drapeaux du REML à leurs bords et les
+refus aux bornes ; la phrase de `0021` sur la couverture de CR2 est corrigée, cinq
+lignes vont au `BACKLOG`. Rangé : `src/mountain_perf/analyse/inference/`,
+`tests/test_analyse_inference_*.py`, `docs/decisions/0021-inference-de-la-piste.md`.
 
 ### 2026-11-13 · docs — Refonte du README et référence des commandes
 Le README de 58 Ko devient une vitrine (≈ 10,6 Ko) : présentation, figure, Pourquoi,

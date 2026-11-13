@@ -89,9 +89,10 @@ résultat de la piste doit se refaire au tirage près.
   estimateur s'ajoute au paquet, avec ses cas et sa contre-épreuve.
 - **Contraignant** : chaque fonction déterministe a des cas calculés à la main ;
   celles qui tirent, une propriété ou une simulation ; chaque estimateur, une propriété
-  ou une simulation ; les méthodes que `0011` range parmi celles « écrites dans la
-  piste » (CR2, bootstrap sauvage par grappes, bande max-t) ont en plus leur simulation
-  de couverture ; une simulation se vérifie contre une formule fermée quand il y en a
+  ou une simulation ; des méthodes que `0011` range parmi celles « écrites dans la
+  piste », le bootstrap sauvage par grappes (studentisé par CR2) et la bande max-t ont
+  en plus leur simulation de couverture, et CR2 a ses cas calculés à la main et sa
+  propriété HC2 ; une simulation se vérifie contre une formule fermée quand il y en a
   une.
 - **À revisiter** : le temps d'un REML (quelques dixièmes de seconde sur quelques
   dizaines de lignes) si une question demande des millions d'ajustements ;
