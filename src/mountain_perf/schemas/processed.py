@@ -24,7 +24,12 @@ from types import MappingProxyType
 from typing import Any
 
 from mountain_perf.schemas.clock import CLOCK_CONVENTIONS
-from mountain_perf.schemas.common import UTC_OFFSET_RANGE_S, Sport
+from mountain_perf.schemas.common import (
+    LATITUDE_RANGE_DEG,
+    LONGITUDE_RANGE_DEG,
+    UTC_OFFSET_RANGE_S,
+    Sport,
+)
 from mountain_perf.schemas.days import NightState, RestingHrStatus, ViewAbsence
 from mountain_perf.schemas.interim import (
     TEMPERATURE_RANGE_C,
@@ -659,6 +664,17 @@ class ClimbRow:
       décalée de ``HR_LAG_S``.
     - ``lagged_elapsed_heart_rate_coverage`` — fraction — sa couverture.
 
+    Les positions des bornes (AN3-3a, ``0014``, précisions d'AN3-3a) : la latitude et
+    la longitude de la vue positions et altitude, interpolées linéairement en temps
+    aux bornes de la montée (dans le temps de la trace) ; ce sont les deux positions
+    dont ``net_displacement_m`` est la distance. Jamais absentes : les bornes d'une
+    montée sont des instants de sa vue.
+
+    - ``start_latitude_deg`` — degrés — latitude à la borne de départ.
+    - ``start_longitude_deg`` — degrés — longitude à la borne de départ.
+    - ``end_latitude_deg`` — degrés — latitude à la borne d'arrivée.
+    - ``end_longitude_deg`` — degrés — longitude à la borne d'arrivée.
+
     Invariants
     ----------
     - ``activity_ref`` valide ; ``source_activity_type`` non vide ; ``rank >= 1`` ;
@@ -672,7 +688,10 @@ class ClimbRow:
       ``flags`` triés, sans doublon ;
     - les quatre couvertures de la FC décalée (``…_heart_rate_coverage`` d'AN3-1a)
       dans ``[0, 1]`` ; pour chacune des quatre paires, la FC est absente si et
-      seulement si sa couverture vaut 0.
+      seulement si sa couverture vaut 0 ;
+    - ``start_latitude_deg`` et ``end_latitude_deg`` dans ``LATITUDE_RANGE_DEG``,
+      ``start_longitude_deg`` et ``end_longitude_deg`` dans ``LONGITUDE_RANGE_DEG``,
+      bornes comprises.
 
     Producteur
     ----------
@@ -680,7 +699,8 @@ class ClimbRow:
 
     Consommateurs
     -------------
-    La figure de Q1 (AN1-2c) ; les questions de la piste qui lisent des montées.
+    La figure de Q1 (AN1-2c) ; Q2 (les groupes de parcours) ; les questions de la
+    piste qui lisent des montées.
 
     Non promis
     ----------
@@ -691,7 +711,11 @@ class ClimbRow:
       définition à l'autre ; que S soit un arrêt réel (le détecteur de ``0010`` n'est
       pas validé) ; la comparabilité entre montres ; une charge ;
     - la définition ne voit ni l'alpinisme, ni la via ferrata, ni l'escalade à
-      l'échelle d'un ressaut.
+      l'échelle d'un ressaut ;
+    - à l'antiméridien, quand le dernier point de la vue est enregistré exactement à
+      ±180, la longitude interpolée en ce point peut sortir de ``[-180, 180]`` d'un
+      arrondi (de l'ordre de 3·10⁻¹⁴) : la ligne lève alors ``ContractError`` par
+      l'invariant de plage, et ``mperf tables`` s'arrête.
     """
 
     activity_ref: str
@@ -763,6 +787,10 @@ class ClimbRow:
     lagged_second_half_heart_rate_coverage: float
     lagged_elapsed_heart_rate_bpm: float | None
     lagged_elapsed_heart_rate_coverage: float
+    start_latitude_deg: float
+    start_longitude_deg: float
+    end_latitude_deg: float
+    end_longitude_deg: float
 
     def __post_init__(self) -> None:
         require_activity_ref(self.activity_ref)
@@ -822,6 +850,10 @@ class ClimbRow:
                 *TEMPERATURE_RANGE_C,
                 "moving_mean_temperature_c",
             )
+        for name in ("start_latitude_deg", "end_latitude_deg"):
+            require_in_range(getattr(self, name), *LATITUDE_RANGE_DEG, name)
+        for name in ("start_longitude_deg", "end_longitude_deg"):
+            require_in_range(getattr(self, name), *LONGITUDE_RANGE_DEG, name)
         if list(self.flags) != sorted(set(self.flags)):
             raise ContractError("flags doit être trié, sans doublon.")
 

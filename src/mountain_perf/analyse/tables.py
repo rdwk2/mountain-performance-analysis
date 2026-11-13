@@ -443,6 +443,12 @@ def _climb_row(
         lagged_second_half_heart_rate_coverage=lagged_half.coverage,
         lagged_elapsed_heart_rate_bpm=lagged_elapsed.bpm,
         lagged_elapsed_heart_rate_coverage=lagged_elapsed.coverage,
+        start_latitude_deg=interpolate(track.time_s, track.latitude_deg, span.start_s),
+        start_longitude_deg=interpolate(
+            track.time_s, track.longitude_deg, span.start_s
+        ),
+        end_latitude_deg=interpolate(track.time_s, track.latitude_deg, span.end_s),
+        end_longitude_deg=interpolate(track.time_s, track.longitude_deg, span.end_s),
     )
 
 

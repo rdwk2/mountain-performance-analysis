@@ -667,6 +667,19 @@ def test_a_climbs_table_without_the_heart_rate_columns_is_unreadable(
     _unreadable(tmp_path, CLIMBS_FILE)
 
 
+def test_a_climbs_table_without_the_positions_is_unreadable(
+    tmp_path: Path, tables: Tables
+) -> None:
+    """Un ``montees.parquet`` d'avant AN3-3a, avec une montée, ne se relit pas : il
+    manque les positions des bornes (``0014``, précisions d'AN3-3a)."""
+    assert tables.climbs
+    write_tables(tmp_path, tables)
+    table = parquet._table(tables.climbs, ClimbRow, tables.provenance)
+    older = table.drop_columns(["start_latitude_deg"])
+    parquet._write(older, tmp_path / PROCESSED_DIR / CLIMBS_FILE)
+    _unreadable(tmp_path, CLIMBS_FILE)
+
+
 def test_an_instant_reads_from_its_two_columns(tmp_path: Path, tables: Tables) -> None:
     written = with_rows(tables, (complete_row(),))
     write_tables(tmp_path, written)
@@ -1004,6 +1017,10 @@ FROZEN_CLIMBS = [
     ("lagged_second_half_heart_rate_coverage", "double"),
     ("lagged_elapsed_heart_rate_bpm", "double"),
     ("lagged_elapsed_heart_rate_coverage", "double"),
+    ("start_latitude_deg", "double"),
+    ("start_longitude_deg", "double"),
+    ("end_latitude_deg", "double"),
+    ("end_longitude_deg", "double"),
 ]
 FROZEN_VARIANTS = [
     ("activity_ref", "string"),
