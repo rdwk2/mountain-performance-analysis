@@ -4,7 +4,7 @@ brief M5-1) : ``project_route``, ``grid_lines``, ``projection_summary_lines``,
 
 Le test du câblage dit que la commande et la page montrent le même texte, pas que ce
 texte est juste : depuis M5-1 la commande imprime ces fonctions. L'oracle du texte reste
-ce qui l'écrit en dur et ne change pas : les blocs du README
+ce qui l'écrit en dur et ne change pas : les blocs du README et de ``docs/commandes/``
 (``test_readme_examples.py``), ``test_cli_project.py`` et ``test_cli_profile.py``.
 """
 

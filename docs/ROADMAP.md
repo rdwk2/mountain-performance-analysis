@@ -10,6 +10,35 @@ analyse les données d'entraînement, de récupération et de sommeil de l'athl�
 
 ---
 
+## Où en est le projet
+
+- **Moteur de prédiction** : M0 à M4 livrés ; M5 (interface v0) livré, ses deux pages
+  (`just ui`) ; le « Fini quand » de la ROADMAP se constate à l'usage. M6b livré :
+  l'estimation de la courbe personnelle (`just curve`), et sa mesure par le backtest
+  contre la v0 (`docs/JOURNAL.md`). Livrés en M4 :
+  l'appariement d'une trace à un tracé, les métriques d'erreur, la référence de
+  répétabilité, le registre des expériences, `just backtest` à cinq modèles, son
+  diagnostic de longue course et ses fourchettes (`0010` D12 et D11, au rapport complet ;
+  les fourchettes aussi au registre), et l'admission exploratoire d'un effet (`0010` D10,
+  hors le figement pour confirmation de D10.7), calculée par la bibliothèque — sa commande
+  viendra avec le premier effet, au M6a ; enfin la sensibilité (`0010` D13,
+  `just backtest courbe.csv --sensitivity`). L'origine glissante est commencée : OG-1
+  livrée, la règle à l'origine et `just curve --at` (`0020`) ; OG-2 livrée, le backtest
+  glissant (`just backtest-rolling`, `0010`).
+- **Piste analyse** : cadrage livré (AN0 : charte, questions, décisions 0011 à 0013) ;
+  AN1 (activités et montées) livré : son codec commun, l'ingestion des activités
+  (`just ingest`), les horloges du moteur rendues communes (le temps de mouvement),
+  les tables de `processed/` et la commande qui régénère `interim/` et `processed/`
+  (`just process`), la figure de Q1 (`just q1`). AN2 (données journalières et tableau
+  de bord) : l'ingestion lit plusieurs exports (AN2-0) et les données
+  journalières, avec leurs vues (AN2-1) ; `mperf tables` en tire la table `jours`, avec
+  les normales de six mesures, et lit le journal de l'athlète (AN2-2) ; l'interface la
+  montre (la page « récupération »), avec la dernière figure de Q1 (AN2-3). AN2 est
+  livrée. AN3 (Q2, l'efficience en montée) est commencée : la FC décalée de chaque
+  montée (AN3-1a).
+
+---
+
 ## Les trois principes qui gouvernent l'ordre
 
 **1. Tranches verticales, pas couches horizontales.**

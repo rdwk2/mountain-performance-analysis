@@ -79,7 +79,8 @@ _RUNS: list[Outcome] = []
 
 def sensitivity_command(factory: pytest.TempPathFactory) -> Outcome:
     """``mperf backtest manifeste.json --curve courbe.csv --sensitivity`` sur le monde,
-    exécutée au premier appel de la session (le README la relit aussi)."""
+    exécutée au premier appel de la session (``docs/commandes/backtest.md`` la relit
+    aussi)."""
     if not _RUNS:
         root = factory.mktemp("commande-sensibilite")
         data = root / "donnees"
