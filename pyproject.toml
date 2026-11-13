@@ -17,8 +17,10 @@ ingest = [
     "fitdecode>=0.11",
 ]
 analyse = [
+    "numpy>=2.5",
     "plotly>=7.1",
     "pyarrow>=21",
+    "scipy>=1.18",
 ]
 tableau = [
     "streamlit>=1.66",
@@ -32,6 +34,9 @@ build-backend = "hatchling.build"
 packages = ["src/mountain_perf"]
 
 [dependency-groups]
+analyse-dev = [
+    "scipy-stubs>=1.18",
+]
 dev = [
     "pytest>=8",
     "hypothesis>=6",
@@ -75,7 +80,8 @@ allowed-confusables = ["×", "−", "’", "…", "–"]
 "plotly".msg = "plotly ne s'importe que dans src/mountain_perf/analyse/plot.py (0011, 0015)."
 "streamlit".msg = "streamlit ne s'importe que sous src/mountain_perf/ui/ et dans ses tests (0011, 0016)."
 "pandas".msg = "pandas ne s'importe nulle part : aucun extra ne le déclare, Streamlit seul l'installe (0011, 0016)."
-"numpy".msg = "numpy ne s'importe nulle part : aucun extra ne le déclare, Streamlit seul l'installe (0011, 0016)."
+"numpy".msg = "numpy ne s'importe que dans src/mountain_perf/analyse/inference/ et ses tests (0011, 0021)."
+"scipy".msg = "scipy ne s'importe que dans src/mountain_perf/analyse/inference/ et ses tests (0011, 0021)."
 "altair".msg = "altair ne s'importe nulle part : aucun extra ne le déclare, Streamlit seul l'installe (0011, 0016)."
 
 [tool.ruff.lint.per-file-ignores]
@@ -84,6 +90,8 @@ allowed-confusables = ["×", "−", "’", "…", "–"]
 "src/mountain_perf/analyse/plot.py" = ["TID251"]
 "src/mountain_perf/ui/**/*.py" = ["TID251"]
 "tests/test_ui_*.py" = ["TID251"]
+"src/mountain_perf/analyse/inference/*.py" = ["TID251"]
+"tests/test_analyse_inference_*.py" = ["TID251"]
 
 [tool.mypy]
 # Strict sur src/ (exigence du projet). tests/ passe aussi : pytest et hypothesis
@@ -121,4 +129,12 @@ ignore_missing_imports = true
 # vérifie ui/ contre ses types (0016).
 [[tool.mypy.overrides]]
 module = ["streamlit", "streamlit.*"]
+ignore_missing_imports = true
+
+# numpy et scipy n'entrent que par src/mountain_perf/analyse/inference/ (0011, 0021) :
+# absents de l'étape 1 de la CI (sans extra) ; l'étape 2, avec l'extra et le groupe
+# `analyse-dev`, les vérifie contre leurs types (numpy en porte, scipy par
+# `scipy-stubs`).
+[[tool.mypy.overrides]]
+module = ["numpy", "numpy.*", "scipy", "scipy.*"]
 ignore_missing_imports = true
