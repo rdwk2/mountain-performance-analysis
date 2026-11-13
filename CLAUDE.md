@@ -107,7 +107,8 @@ mélanger les deux, tu t'arrêtes et tu le signales.
 - **Jamais de fin de session sur du cassé non commité.**
 - **Une entrée dans `docs/JOURNAL.md`** à la fin de chaque session de travail :
   date, ce qui a été fait, la conclusion, où c'est rangé.
-- **Le README décrit `main`** : une PR qui rend une de ses phrases fausse la corrige.
+- **Le README, `CONTRIBUTING.md`, `docs/README.md` et `docs/commandes/` décrivent
+  `main`** : une PR qui rend une de leurs phrases fausse la corrige.
 - **Une décision structurante = un fichier dans `docs/decisions/`** (voir le
   template `0000-template.md`).
 
@@ -369,7 +370,8 @@ tests/
 scripts/               outillage du dépôt (ex. `just dictionary`), jamais de logique métier ;
   hooks/               proteger_donnees.py : le hook de `.claude/settings.json`, qui refuse
                        à Claude Code l'accès à `MPA_DATA_DIR` (AN1-1)
-docs/                  ROADMAP, JOURNAL, PIEGES_DATA, MODELE_V1, decisions/,
+docs/                  README (l'index), commandes/ (une page par commande), ROADMAP,
+                       JOURNAL, PIEGES_DATA, MODELE_V1, decisions/,
                        analyse/ (charte et questions de la piste analyse),
                        DICTIONNAIRE_DONNEES (généré — ne pas éditer à la main)
 notebooks/             exploration, fichiers marimo sans sortie ; calcul jetable, tout

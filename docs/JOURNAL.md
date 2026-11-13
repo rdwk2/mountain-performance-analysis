@@ -16,6 +16,28 @@ Backtest (à partir de M4) : métrique avant → après.
 
 ---
 
+### 2026-11-13 · docs — Refonte du README et référence des commandes
+Le README de 58 Ko devient une vitrine (≈ 10,6 Ko) : présentation, figure, Pourquoi,
+interface, installation, premiers pas (un exemple de `mperf project`, rejoué), table des
+commandes, état, liens, « Comment le projet est mené ». Sa référence des commandes est
+déplacée telle quelle dans `docs/commandes/`, une page par commande (`profile`,
+`project`, `match`, `backtest` avec `just backtest-rolling`, `curve`, `ingest`,
+`process`, `q1`, `ui`) et un `README.md` « avant de commencer » ; seules quinze lignes
+du README de départ ne se retrouvent pas à l'identique (dix retouches de renvois et la
+section « État et plan », réécrite), ce que prouve le contrôle du déplacement, rejoué
+avant les commits 1 et 3. Neufs : `CONTRIBUTING.md` (vérifier, la version de Python, les
+tests qui lisent la documentation, le hook) et l'index `docs/README.md`, avec la liste
+des décisions ; l'état détaillé passe en tête de la ROADMAP (« Où en est le projet »).
+Les tests du README suivent leurs pages (`test_readme_examples.py` lit le README et
+`profile.md`, `project.md`, `match.md`, avec un test de garde : aucun exemple
+`uv run mperf` ailleurs ; `test_readme_backtest.py` et `test_readme_sensitivity.py`
+lisent `backtest.md`) ; `test_docs_links.py` (neuf) vérifie que chaque lien relatif de
+la documentation mène quelque part (137 liens). `CLAUDE.md` nomme les nouvelles pages
+dans la règle « décrivent `main` » et dans « Structure » ; la ligne (M9) « Méthode » du
+`BACKLOG` est cochée. Vérifications allégées, décision de rdw, écart à la règle 2 : un
+seul `just check` complet, avant le dernier commit. Rangé : `README.md`,
+`CONTRIBUTING.md`, `docs/README.md`, `docs/commandes/`, `tests/test_docs_links.py`.
+
 ### 2026-11-12 · AN3-1a — La FC décalée des montées
 Premier sous-jalon d'AN3 (Q2, l'efficience en montée). L'outil de FC du moteur devient
 commun : `HeartRateSeries.integral` rend l'intégrale exacte de la FC interpolée et la
