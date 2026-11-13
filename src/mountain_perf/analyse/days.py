@@ -16,6 +16,10 @@ ligne porte, dans cet ordre de calcul :
    support ``day`` (``QUANTITY_SUPPORTS``) d'un jour qui n'est pas ``complete`` est
    absente de la ligne, sauf la FC de repos, dont ``resting_hr_on`` dit le statut
    (``provisional`` sur un jour tronqué) ; les grandeurs de nuit et de réveil restent ;
+   et l'instant du milieu de la demi-heure de FC la plus basse
+   (``lowest_heart_rate_window_midpoint``, :func:`lowest_heart_rate_window` sur la
+   série de FC du document du jour), calculé sur tout jour qui a une fenêtre, quel que
+   soit son état ;
 3. le stress du jour mesuré et sa validité ; les siestes ; Training Status (chaque
    bloc à la ligne de sa date propre) ; les types du journal ; l'activité du jour (les
    entrées de l'index d'``interim/activities/``) ;
@@ -60,7 +64,8 @@ from __future__ import annotations
 from bisect import bisect_left, bisect_right
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
+from statistics import median
 from types import MappingProxyType
 from typing import Any, NamedTuple
 
@@ -88,6 +93,7 @@ from mountain_perf.schemas import (
     ActivityIndex,
     DayRecord,
     DayState,
+    HeartRateSeries,
     IndexedActivity,
     NightState,
     ParameterSet,
@@ -221,15 +227,39 @@ DAY_VIEW_PARAMETER_SPECS: tuple[ParameterSpec, ...] = (
             "la source) : chaque point couvre [t, t + pas) dans la couverture."
         ),
     ),
+    ParameterSpec(
+        name="lowest_heart_rate_window_s",
+        unit="s",
+        default=1800.0,
+        minimum=1.0,
+        maximum=86400.0,
+        description=(
+            "Demi-heure de FC la plus basse : la durée de chaque fenêtre [t ; t + "
+            "durée[ ouverte par un point de la série de FC du jour."
+        ),
+    ),
+    ParameterSpec(
+        name="lowest_heart_rate_min_point_fraction",
+        unit=None,
+        default=0.8,
+        minimum=0.0,
+        maximum=1.0,
+        description=(
+            "Demi-heure de FC la plus basse : une fenêtre est admise si son nombre de "
+            "points atteint cette part × la durée / le pas médian de la série (borne "
+            "comprise)."
+        ),
+    ),
 )
-"""Les seuils des vues et des validités de la table ``jours``, communs à tous les
-athlètes, portés par la provenance sous ``days.<nom>``. Bornes comprises, celles des
-arguments des vues : une fraction dans ``[0, 1]`` ; une durée positive ou nulle, jusqu'à
-24 h
+"""Les seuils des vues, des validités et de la demi-heure de FC la plus basse de la
+table ``jours``, communs à tous les athlètes, portés par la provenance sous
+``days.<nom>``. Bornes comprises, celles des arguments des vues : une fraction dans
+``[0, 1]`` ; une durée positive ou nulle, jusqu'à 24 h
 (``shift_s`` jusqu'à 12 h, l'écart circulaire le plus grand) ; un compte d'au moins 1,
 jusqu'à 365 ; le pas, une résolution strictement positive de la source, dans ``[0,001 ;
 3600]``
-s.
+s ; la fenêtre de la FC la plus basse, dans ``[1 ; 86 400]`` s : une fenêtre de durée
+nulle n'aurait aucun point.
 """
 
 DAY_VIEW_INTEGER_PARAMETERS: tuple[str, ...] = ("usual_window_days", "usual_min_nights")
@@ -442,9 +472,10 @@ class DaySummary:
 
 @dataclass(frozen=True)
 class DayDefinition:
-    """Les paramètres déclarés de la table ``jours`` : ``views``, les seuils des vues
-    et des validités (:data:`DAY_VIEW_PARAMETER_SPECS`) ; ``normals``, ceux des
-    normales (``NORMAL_PARAMETER_SPECS``).
+    """Les paramètres déclarés de la table ``jours`` : ``views``, les seuils des vues,
+    des validités et de la demi-heure de FC la plus basse
+    (:data:`DAY_VIEW_PARAMETER_SPECS`) ; ``normals``, ceux des normales
+    (``NORMAL_PARAMETER_SPECS``).
 
     ``ValueError`` à la construction si un jeu n'est pas de ses specs, ou si un compte
     ou l'interrupteur n'est pas entier (``integer_parameter``, qui nomme le
@@ -696,6 +727,61 @@ def _document_columns(record: DayRecord | None) -> dict[str, Any]:
     return columns
 
 
+def lowest_heart_rate_window(
+    series: HeartRateSeries | None, window_s: float, min_point_fraction: float
+) -> float | None:
+    """Le milieu de la fenêtre de FC la plus basse de ``series``, en secondes dans le
+    temps de la série (depuis ``window_start``), ou ``None``.
+
+    1. ``None`` sans série ou avec moins de deux points.
+    2. Le pas est la médiane (``statistics.median``) des écarts entre points
+       consécutifs.
+    3. Le compte minimal est ``min_point_fraction * window_s / step``, calculé de
+       gauche à droite, en flottants, jamais arrondi.
+    4. Chaque point ``t[i]`` ouvre une fenêtre ``[t[i] ; t[i] + window_s[`` (ouverte à
+       droite), admise si son nombre de points atteint le compte minimal.
+    5. La moyenne d'une fenêtre est la moyenne arithmétique des FC de ses points, non
+       pondérée par le temps.
+    6. Parmi les fenêtres admises, la plus basse moyenne ; à égalité, la plus tôt.
+    7. Le résultat est ``t[i] + window_s / 2`` (le milieu de la fenêtre, pas celui de
+       ses points) ; ``None`` si aucune fenêtre n'est admise.
+
+    Tous les points comptent, même hors de la fenêtre du jour.
+    """
+    if series is None or len(series.time_s) < 2:
+        return None
+    times, bpm = series.time_s, series.heart_rate_bpm
+    step = median(times[i + 1] - times[i] for i in range(len(times) - 1))
+    need = min_point_fraction * window_s / step
+    best_start: float | None = None
+    best_mean = 0.0
+    for i, start in enumerate(times):
+        end = bisect_left(times, start + window_s, lo=i)
+        count = end - i
+        if count < need:
+            continue
+        mean = sum(bpm[i:end]) / count
+        if best_start is None or mean < best_mean:
+            best_start, best_mean = start, mean
+    return None if best_start is None else best_start + window_s / 2
+
+
+def _lowest_window_midpoint(
+    record: DayRecord | None, views: ParameterSet
+) -> datetime | None:
+    """L'instant du milieu de la demi-heure de FC la plus basse du jour, au décalage de
+    ``window_start`` ; absent sans document ou sans fenêtre. Ne lit pas l'état du
+    jour."""
+    if record is None or record.window_start is None:
+        return None
+    mid = lowest_heart_rate_window(
+        record.series.heart_rate,
+        views["lowest_heart_rate_window_s"],
+        views["lowest_heart_rate_min_point_fraction"],
+    )
+    return None if mid is None else record.window_start + timedelta(seconds=mid)
+
+
 def _view_columns(
     day: date,
     record: DayRecord | None,
@@ -916,6 +1002,9 @@ def day_rows(
                 usual_window_days,
                 usual_min_nights,
             )
+        )
+        columns["lowest_heart_rate_window_midpoint"] = _lowest_window_midpoint(
+            record, definition.views
         )
         columns.update(_stress_columns(record, definition.views["stress_min_fraction"]))
         columns.update(_empty_status())

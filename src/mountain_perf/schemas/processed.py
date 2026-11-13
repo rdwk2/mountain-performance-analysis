@@ -1159,6 +1159,7 @@ _DAY_ROW_INSTANTS = (
     "ts_vo2_max_instant",
     "ts_heat_instant",
     "ts_altitude_instant",
+    "lowest_heart_rate_window_midpoint",
 )
 
 _DAY_ROW_NON_NEGATIVE = (
@@ -1343,6 +1344,15 @@ class DayRow:
       document.
     - ``window_start``, ``data_end`` — instants — début de la fenêtre du jour (minuit
       local) et ``fin_donnees`` ; présents si l'état n'est ni ``absent`` ni ``empty``.
+    - ``lowest_heart_rate_window_midpoint`` — instant — le milieu de la fenêtre de FC
+      la plus basse du jour (``days.lowest_heart_rate_window_s``, 30 min par défaut),
+      reconstruite depuis la série de FC du document du jour : fenêtres ouvertes par
+      chaque point, admises au compte minimal de points
+      (``days.lowest_heart_rate_min_point_fraction`` × durée / pas médian), la plus
+      basse moyenne des points, la plus tôt à égalité ; au décalage de
+      ``window_start`` ; absente sans document, sans série, avec un seul point ou sans
+      fenêtre admise ; calculée aussi un jour tronqué ou sans mesure (ce n'est pas une
+      grandeur de support ``day``).
     - ``reference_export`` — sans unité — le nom de l'export de référence du jour.
     - ``device_ranks`` — sans unité — les rangs des appareils que nomment les familles
       du jour (``DayRecord.device_ranks``), triés.
@@ -1607,7 +1617,9 @@ class DayRow:
       version, ni nuit (``night_state`` ``missing``), ni sieste, ni valeur du jour
       (``resting_hr_status`` ``absent``), ni entrée de Training Readiness ; elle peut
       porter Training Status, le journal, l'activité du jour, ``uncertain_device`` et
-      sa normale.
+      sa normale ;
+    - ``lowest_heart_rate_window_midpoint`` présent seulement avec ``window_start``, et
+      au même décalage que lui.
 
     Producteur
     ----------
@@ -1630,7 +1642,12 @@ class DayRow:
       deux fois à l'activité du jour ; la charge est celle de Garmin, jamais
       recalculée ;
     - aucun firmware : les rangs ne se comparent pas à l'appareil d'un FIT ;
-    - la ligne dépend aussi de ``journal.csv``, tenu à la main.
+    - la ligne dépend aussi de ``journal.csv``, tenu à la main ;
+    - que la fenêtre de FC la plus basse soit celle d'où Garmin tire sa FC de repos ;
+      une série dont le pas médian est d'au moins la part minimale × la durée admet
+      une fenêtre d'un seul point ; le jour d'un changement d'heure, l'heure murale de
+      l'instant, au décalage de minuit, peut différer d'une heure de l'heure locale
+      (l'instant est juste).
     """
 
     day: date
@@ -1816,6 +1833,7 @@ class DayRow:
     night_spo2_segment: int
     night_spo2_rupture: bool
     night_spo2_normal_straddles: bool
+    lowest_heart_rate_window_midpoint: datetime | None
 
     def __post_init__(self) -> None:
         self._check_values()
@@ -1827,6 +1845,19 @@ class DayRow:
             self._check_measure(prefix, unit, value)
         if self.state is DayRowState.ABSENT:
             self._check_absent_row()
+        self._check_lowest_window()
+
+    def _check_lowest_window(self) -> None:
+        midpoint = self.lowest_heart_rate_window_midpoint
+        if midpoint is None:
+            return
+        if self.window_start is None:
+            raise ContractError("lowest_heart_rate_window_midpoint exige window_start.")
+        if midpoint.utcoffset() != self.window_start.utcoffset():
+            raise ContractError(
+                "lowest_heart_rate_window_midpoint doit avoir le décalage de "
+                "window_start."
+            )
 
     def _check_values(self) -> None:
         for name in _DAY_ROW_INSTANTS:

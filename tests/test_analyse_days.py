@@ -27,6 +27,7 @@ from fixtures.day_table import (
     table,
 )
 from fixtures.days import (
+    EMPTY_DAY_SERIES,
     EMPTY_HISTORY,
     EMPTY_NIGHT_SERIES,
     activity_totals,
@@ -41,6 +42,7 @@ from fixtures.days import (
     night,
     readiness,
     resting_hr,
+    source,
     status_block,
     stress_summary,
     truncated_day,
@@ -62,7 +64,10 @@ from mountain_perf.analyse.normals import NORMAL_PARAMETER_SPECS
 from mountain_perf.ingest.families import BODY_BATTERY_LEVEL_RANGE
 from mountain_perf.schemas import (
     ContractError,
+    DayFamily,
+    DaySeries,
     DayState,
+    HeartRateSeries,
     JournalEventType,
     NightState,
     ParameterSet,
@@ -940,7 +945,7 @@ def test_an_outing_recorded_twice_adds_up_twice() -> None:
 # --- les paramètres -------------------------------------------------------------------
 
 
-def test_the_ten_thresholds() -> None:
+def test_the_twelve_thresholds() -> None:
     assert [
         (s.name, s.unit, s.default, s.minimum, s.maximum)
         for s in DAY_VIEW_PARAMETER_SPECS
@@ -955,6 +960,8 @@ def test_the_ten_thresholds() -> None:
         ("stress_min_fraction", None, 0.5, 0.0, 1.0),
         ("min_coverage_fraction", None, 0.8, 0.0, 1.0),
         ("night_body_battery_step_s", "s", 180.0, 0.001, 3600.0),
+        ("lowest_heart_rate_window_s", "s", 1800.0, 1.0, 86400.0),
+        ("lowest_heart_rate_min_point_fraction", None, 0.8, 0.0, 1.0),
     ]
     assert DAY_VIEW_INTEGER_PARAMETERS == ("usual_window_days", "usual_min_nights")
 
@@ -998,13 +1005,96 @@ def test_the_definition_of_the_days() -> None:
     items = DEFAULT_DAY_DEFINITION.items()
     names = [name for name, _ in items]
     assert names == sorted(names)
-    assert len(items) == 21
+    assert len(items) == 23
     found = dict(items)
     assert found["days.short_sleep_s"] == 14400.0
     assert found["days.night_body_battery_step_s"] == 180.0
+    assert found["days.lowest_heart_rate_window_s"] == 1800.0
+    assert found["days.lowest_heart_rate_min_point_fraction"] == 0.8
     assert found["normal.window_days"] == 28.0
     assert found["normal.exclude_altitude_stay"] == 1.0
     assert {name.split(".")[0] for name in names} == {"days", "normal"}
+
+
+# --- la demi-heure de FC la plus basse (AN3-3a) ------------------------------------
+
+LOW_TIMES = (0.0, 600.0, 1200.0, 1800.0, 2400.0, 3000.0)
+LOW_BPM = (60.0, 58.0, 55.0, 54.0, 57.0, 62.0)
+"""La série de FC du cas à la main : sa fenêtre la plus basse ouvre à 1 200 s."""
+
+
+def _heart_rate_series(
+    day: date, times: tuple[float, ...] = LOW_TIMES, bpm: tuple[float, ...] = LOW_BPM
+) -> DaySeries:
+    """Des séries du jour qui n'ont que la FC."""
+    return DaySeries(
+        HeartRateSeries(times, bpm, source(DayFamily.HEART_RATE, day)),
+        None,
+        None,
+        None,
+        None,
+    )
+
+
+def _midpoint(row: DayRow) -> datetime:
+    """L'instant de la ligne, au décalage de sa fenêtre."""
+    assert row.window_start is not None
+    midpoint = row.lowest_heart_rate_window_midpoint
+    assert midpoint is not None
+    assert midpoint.utcoffset() == row.window_start.utcoffset()
+    return midpoint
+
+
+def test_the_day_row_carries_the_lowest_window() -> None:
+    """La colonne vient de la série de FC du document du jour, des paramètres de la
+    définition, au décalage de ``window_start`` ; absente sans série, sans document ou
+    sans fenêtre."""
+    d1, d2, d3, d4 = D1, jan(2), jan(3), jan(4)
+    first = day_record(d1, series=_heart_rate_series(d1))
+    documents = (first, day_record(d2, series=EMPTY_DAY_SERIES), empty_day(d4))
+    result = table(documents)
+    row = row_of(result, d1)
+    assert row.window_start is not None
+    assert row.window_start.utcoffset() == timedelta(hours=1)
+    assert _midpoint(row) == row.window_start + timedelta(seconds=2100)
+    assert row_of(result, d2).lowest_heart_rate_window_midpoint is None
+    assert row_of(result, d3).state is DayRowState.ABSENT
+    assert row_of(result, d3).lowest_heart_rate_window_midpoint is None
+    assert row_of(result, d4).lowest_heart_rate_window_midpoint is None
+    shorter = definition({"lowest_heart_rate_window_s": 1200.0})
+    again = only(first, day_definition=shorter)
+    assert again.window_start is not None
+    assert _midpoint(again) == again.window_start + timedelta(seconds=1800)
+
+
+def test_the_lowest_window_of_a_truncated_day_and_of_outside_points() -> None:
+    """Un jour tronqué ou sans mesure a sa colonne ; un point hors de la fenêtre du
+    jour compte ; la part minimale vient de la définition."""
+    d1, d2, d3 = D1, jan(2), jan(3)
+    outside = _heart_rate_series(d2, (-600.0, *LOW_TIMES), (40.0, *LOW_BPM))
+    documents = (
+        truncated_day(d1, series=_heart_rate_series(d1)),
+        day_record(d2, series=outside),
+        day_record(d3, state=DayState.NO_MEASUREMENT, series=_heart_rate_series(d3)),
+    )
+    result = table(documents)
+    expected = {d1: 2100, d2: 300, d3: 2100}
+    for day, seconds in expected.items():
+        row = row_of(result, day)
+        assert row.window_start is not None
+        assert _midpoint(row) == row.window_start + timedelta(seconds=seconds)
+    assert row_of(result, d1).state is DayRowState.TRUNCATED
+    assert row_of(result, d3).state is DayRowState.NO_MEASUREMENT
+    whole = definition(
+        {
+            "lowest_heart_rate_window_s": 3600.0,
+            "lowest_heart_rate_min_point_fraction": 1.0,
+        }
+    )
+    first = day_record(D1, series=_heart_rate_series(D1))
+    row = only(first, day_definition=whole)
+    assert row.window_start is not None
+    assert _midpoint(row) == row.window_start + timedelta(seconds=1800)
 
 
 @pytest.mark.parametrize(

@@ -488,6 +488,7 @@ INSTANTS = (
     "ts_vo2_max_instant",
     "ts_heat_instant",
     "ts_altitude_instant",
+    "lowest_heart_rate_window_midpoint",
 )
 
 
@@ -523,6 +524,8 @@ def test_the_days_table_reads_as_it_is_written(tmp_path: Path, tables: Tables) -
     assert full.ts_status_instant.utcoffset() == timedelta(0)
     assert full.ts_heat_instant is not None
     assert full.ts_heat_instant.utcoffset() == timedelta(hours=2)
+    assert full.lowest_heart_rate_window_midpoint is not None
+    assert full.lowest_heart_rate_window_midpoint.utcoffset() == timedelta(hours=1)
     assert full.night_shifted is None
     assert full.night_shifted_absence is ViewAbsence.BELOW_USUAL_MINIMUM
     assert full.night_short is False
@@ -678,6 +681,23 @@ def test_a_climbs_table_without_the_positions_is_unreadable(
     older = table.drop_columns(["start_latitude_deg"])
     parquet._write(older, tmp_path / PROCESSED_DIR / CLIMBS_FILE)
     _unreadable(tmp_path, CLIMBS_FILE)
+
+
+def test_a_days_table_without_the_lowest_window_is_unreadable(
+    tmp_path: Path, tables: Tables
+) -> None:
+    """Un ``jours.parquet`` d'avant AN3-3a, avec une ligne, ne se relit pas : il manque
+    les deux colonnes de l'instant de la demi-heure de FC la plus basse (``0019``)."""
+    provenance = dataclasses.replace(tables.provenance, day_count=1)
+    table = parquet._table((complete_row(),), DayRow, provenance)
+    older = table.drop_columns(
+        [
+            "lowest_heart_rate_window_midpoint",
+            "lowest_heart_rate_window_midpoint_utc_offset_s",
+        ]
+    )
+    _write_one_day(tmp_path, tables, older)
+    _unreadable(tmp_path, DAYS_FILE)
 
 
 def test_an_instant_reads_from_its_two_columns(tmp_path: Path, tables: Tables) -> None:
