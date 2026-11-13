@@ -164,6 +164,8 @@ def student_interval(estimate: float, se: float, df: int, level: float) -> Inter
 def fraction_per_year(b_per_day: float) -> float:
     """La tendance en fraction par an (0,05 = 5 %) d'une pente en log par jour :
     ``expm1(365,25 · b_per_day)``."""
+    if not math.isfinite(b_per_day):
+        raise InferenceError(f"b_per_day : une pente finie est attendue ({b_per_day})")
     return math.expm1(365.25 * b_per_day)
 
 

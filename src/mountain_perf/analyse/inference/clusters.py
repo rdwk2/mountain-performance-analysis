@@ -19,6 +19,7 @@ from mountain_perf.analyse.inference.base import (
     Interval,
     as_matrix,
     as_vector,
+    check_design,
     check_level,
     order_quantile,
 )
@@ -86,6 +87,7 @@ def cr2_cov(X: object, resid: object, clusters: object) -> FloatArray:  # noqa: 
     ``M · (Σ_g X_gᵀ A_g e_g e_gᵀ A_g X_g) · M``, ``M = (XᵀX)⁻¹``,
     ``A_g = (I − H_gg)^(−1/2)`` symétrique ; au moins 2 grappes."""
     design = as_matrix(X, "X")
+    check_design(design)
     residuals = as_vector(resid, "resid")
     if residuals.shape[0] != design.shape[0]:
         raise InferenceError("resid : une valeur par ligne de X est attendue")

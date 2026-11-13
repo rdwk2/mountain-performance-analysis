@@ -125,11 +125,17 @@ def power_table(
     effects = tuple(float(b) for b in b_values)
     if len(effects) != len(outcomes):
         raise InferenceError("outcomes : une suite de résultats par b est attendue")
+    if isinstance(alpha_index, bool) or not isinstance(alpha_index, int):
+        raise InferenceError(f"alpha_index : un entier est attendu ({alpha_index!r})")
     rows: list[PowerRow] = []
     for b, draws in zip(effects, outcomes, strict=True):
         count = len(draws)
         if count == 0:
             raise InferenceError("outcomes : au moins un résultat par b est attendu")
+        if any(not 0 <= alpha_index < len(o.readings) for o in draws):
+            raise InferenceError(
+                f"alpha_index : hors des indices des lectures ({alpha_index})"
+            )
         established = [
             o for o in draws if o.readings[alpha_index] is Reading.ESTABLISHED
         ]
@@ -169,6 +175,8 @@ def smallest_visible_effect(
     """Le plus petit ``|b|`` parmi les lignes ``b ≠ 0`` dont la puissance atteint
     ``target`` ; ``None`` s'il n'y en a pas (sur la grille donnée, sans
     interpolation)."""
+    if not (math.isfinite(target) and 0.0 < target <= 1.0):
+        raise InferenceError(f"target : hors de ]0 ; 1] ({target})")
     visible = [
         abs(row.b)
         for row in rows
@@ -199,6 +207,9 @@ def calibrate_alpha(
     si le taux de faux « établi » au seuil nominal ``alphas[0]`` dépasse ``trigger`` ;
     alors le plus grand ``alphas[j]`` dont le taux ne dépasse pas ``alpha_target``.
     Chaque taux se calcule en une seule division (``compte / N``)."""
+    for name, value in (("alpha_target", alpha_target), ("trigger", trigger)):
+        if not (math.isfinite(value) and 0.0 < value < 1.0):
+            raise InferenceError(f"{name} : hors de ]0 ; 1[ ({value})")
     grid = _check_alphas(alphas)
     if any(b >= a for a, b in itertools.pairwise(grid)):
         raise InferenceError(
