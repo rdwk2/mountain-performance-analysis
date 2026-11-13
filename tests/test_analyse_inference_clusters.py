@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import itertools
 import math
+from collections.abc import Callable
 from fractions import Fraction
 from typing import Any, NoReturn, cast
 
@@ -230,3 +231,64 @@ def test_t24_wild_cluster_interval_coverage() -> None:
         )
         covered += interval.low <= 0.0 <= interval.high
     assert 96 <= covered <= 98
+
+
+def test_t21_the_rank_in_cr2() -> None:
+    """T21, le rang dans ``cr2_cov`` (B1) : deux lignes et trois colonnes ; une
+    colonne nulle ; deux colonnes égales : ``InferenceError``, « plein rang » pour les
+    deux derniers."""
+    labels = numpy.array([0, 0, 1, 1, 2, 2])
+    resid = numpy.array([1.0, -1.0, 0.5, -0.5, 2.0, -2.0])
+    with pytest.raises(InferenceError, match="n ≤ p"):
+        cr2_cov(numpy.ones((2, 3)), resid[:2], labels[:2])
+    column = numpy.arange(6.0)
+    with pytest.raises(InferenceError, match="plein rang"):
+        cr2_cov(numpy.column_stack([numpy.ones(6), numpy.zeros(6)]), resid, labels)
+    with pytest.raises(InferenceError, match="plein rang"):
+        cr2_cov(numpy.column_stack([numpy.ones(6), column, column]), resid, labels)
+
+
+def _ten_clusters() -> tuple[FloatArray, FloatArray, numpy.typing.NDArray[numpy.int_]]:
+    return _clustered(1021, 10, 2)
+
+
+@pytest.mark.parametrize(
+    ("call", "match"),
+    [
+        (
+            lambda: cluster_weights("webb", 0, 5, RaisingGenerator().as_generator()),
+            "^G et B :",
+        ),
+        (
+            lambda: cluster_weights("webb", 3, 0, RaisingGenerator().as_generator()),
+            "^G et B :",
+        ),
+        (
+            lambda: wild_cluster_interval(
+                *_ten_clusters()[:2], _ten_clusters()[2], 2, 0.95, 9, child_rng(1)
+            ),
+            "^j :",
+        ),
+        (
+            lambda: cr2_cov(numpy.ones((4, 1)), numpy.ones(4), numpy.zeros(3, int)),
+            "^clusters :",
+        ),
+        (
+            lambda: cr2_cov(numpy.ones((4, 1)), numpy.ones(4), numpy.zeros(4, int)),
+            "^clusters :",
+        ),
+    ],
+)
+def test_t23_refusals_at_the_bounds(call: Callable[[], object], match: str) -> None:
+    """T23, refus (L4, L5) : ``G = 0``, ``B = 0``, ``j`` égal au nombre de colonnes,
+    des étiquettes de mauvaise longueur, une seule grappe ; le message nomme
+    l'argument."""
+    with pytest.raises(InferenceError, match=match):
+        call()
+
+
+def test_t23_acceptances_next_to_the_bounds() -> None:
+    """T23, acceptations juste à côté : ``B = 1`` ; ``j = 0``."""
+    assert cluster_weights("webb", 3, 1, SpyGenerator(1).as_generator()).shape == (1, 3)
+    X, y, labels = _ten_clusters()  # noqa: N806
+    wild_cluster_interval(X, y, labels, 0, 0.95, 9, child_rng(1))

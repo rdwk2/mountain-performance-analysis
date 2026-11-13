@@ -15,6 +15,7 @@ import numpy
 from mountain_perf.analyse.inference.base import InferenceError
 from mountain_perf.analyse.inference.linear import ols
 from mountain_perf.analyse.inference.robust import huber
+from test_analyse_inference_base import assert_frozen
 
 H12_Y = numpy.array([0.0, 0.0, 0.0, 0.0, 10.0])
 
@@ -62,3 +63,22 @@ def test_t31_huber_oracle_values_and_refusals() -> None:
         huber(numpy.ones((5, 1)), H12_Y, max_iter=1)
     with pytest.raises(InferenceError, match="échelle nulle"):
         huber(numpy.ones((5, 1)), numpy.zeros(5))
+
+
+@pytest.mark.parametrize(
+    ("arguments", "match"),
+    [((0.0, None), "^c :"), ((1.345, 0.0), "^scale :")],
+)
+def test_t29_refusals_at_the_bounds(
+    arguments: tuple[float, float | None], match: str
+) -> None:
+    """T29, refus (L4, L5) : ``c = 0``, ``scale = 0`` ; le message nomme
+    l'argument."""
+    with pytest.raises(InferenceError, match=match):
+        huber(numpy.ones((5, 1)), H12_Y, c=arguments[0], scale=arguments[1])
+
+
+def test_t29_acceptance_next_to_the_bound_and_a_frozen_fit() -> None:
+    """T29 : ``c = 0,5`` accepté ; la sortie de ``huber`` est immuable (A4)."""
+    fit = huber(numpy.ones((5, 1)), H12_Y, c=0.5, scale=1.0)
+    assert_frozen(fit)

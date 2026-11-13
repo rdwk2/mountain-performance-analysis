@@ -5,6 +5,7 @@ comprises, et des propriétés. Sautés sans numpy ou scipy (extra ``analyse``).
 from __future__ import annotations
 
 import random
+from collections.abc import Callable
 
 import pytest
 
@@ -103,3 +104,23 @@ def test_t18_the_three_readings_h8() -> None:
     for delta in (0.0, -0.05):
         with pytest.raises(InferenceError):
             reading([_i(0.01, 0.04)], delta)
+
+
+@pytest.mark.parametrize(
+    ("call", "match"),
+    [
+        (lambda: holm((0.01,), 0.0), "^alpha :"),
+        (lambda: bonferroni_level(0.05, 0), "^m :"),
+    ],
+)
+def test_t17_refusals_at_the_bounds(call: Callable[[], object], match: str) -> None:
+    """T17, refus (L4, L5) : ``alpha = 0`` pour Holm, ``m = 0`` pour Bonferroni ; le
+    message nomme l'argument."""
+    with pytest.raises(InferenceError, match=match):
+        call()
+
+
+def test_t17_acceptances_next_to_the_bounds() -> None:
+    """T17, acceptations juste à côté : ``alpha = 1e−9``, ``m = 1``."""
+    assert holm((0.01,), 1e-9) == (False,)
+    assert bonferroni_level(0.05, 1) == pytest.approx(0.95, rel=1e-12)

@@ -8,6 +8,8 @@ ou scipy (extra ``analyse``)."""
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
+from typing import Any, cast
 
 import pytest
 
@@ -17,7 +19,7 @@ pytest.importorskip("scipy")
 import numpy
 import scipy.stats
 
-from mountain_perf.analyse.inference.base import child_rng
+from mountain_perf.analyse.inference.base import InferenceError, child_rng
 from mountain_perf.analyse.inference.power import (
     CalibratedAlpha,
     Outcome,
@@ -28,6 +30,7 @@ from mountain_perf.analyse.inference.power import (
     smallest_visible_effect,
 )
 from mountain_perf.analyse.inference.readings import Reading
+from test_analyse_inference_base import assert_frozen
 
 ESTABLISHED = Reading.ESTABLISHED
 NO_EFFECT = Reading.NO_USEFUL_EFFECT
@@ -203,3 +206,113 @@ def test_t38_calibrated_alpha_h17() -> None:
     assert border.rates[0] == 0.075
     assert not border.triggered
     assert border.alpha == 0.05
+
+
+def test_t36_each_row_reads_its_b_and_the_refusals() -> None:
+    """T36 (L3) : chaque ``PowerRow.b`` vaut le ``b`` de sa ligne ; des longueurs
+    différentes et une liste de tirages vide sont refusées."""
+    b_values = (0.1, -0.1, 0.0)
+    rows = power_table(b_values, (T36_OUTCOMES,) * 3)
+    assert tuple(row.b for row in rows) == b_values
+    with pytest.raises(InferenceError, match=r"^outcomes :"):
+        power_table((0.1, 0.2), (T36_OUTCOMES,))
+    with pytest.raises(InferenceError, match=r"^outcomes :"):
+        power_table((0.1,), ((),))
+
+
+def test_t38_the_refusals_of_calibrate_alpha() -> None:
+    """T38 (L3) : deux seuils égaux, aucun scénario, un scénario vide : refusés."""
+    with pytest.raises(InferenceError, match=r"^alphas :"):
+        calibrate_alpha([_scenario((1, 1), 20)], (0.05, 0.05), 0.05)
+    with pytest.raises(InferenceError, match=r"^null_outcomes :"):
+        calibrate_alpha([], (0.05,), 0.05)
+    with pytest.raises(InferenceError, match=r"^null_outcomes :"):
+        calibrate_alpha([()], (0.05,), 0.05)
+
+
+def test_t36_the_outputs_are_frozen() -> None:
+    """T36, T38, immuabilité (A4) : un ``Outcome``, un ``PowerRow``, un
+    ``CalibratedAlpha``."""
+    assert_frozen(T36_OUTCOMES[0])
+    assert_frozen(power_table((0.1,), (T36_OUTCOMES,))[0])
+    assert_frozen(calibrate_alpha([_scenario((1,), 20)], (0.05,), 0.05))
+
+
+def _simulate(**kwargs: Any) -> tuple[tuple[Outcome, ...], ...]:
+    arguments: dict[str, Any] = {
+        "simulate": normal_draw,
+        "estimate": threshold_estimate,
+        "b_values": (0.0,),
+        "alphas": (0.05,),
+        "n_draws": 1,
+        "root_seed": 1,
+    }
+    return simulate_power(**{**arguments, **kwargs})
+
+
+@pytest.mark.parametrize(
+    ("call", "match"),
+    [
+        (lambda: _simulate(workers=0), "^workers :"),
+        (lambda: _simulate(workers=True), "^workers :"),
+        (lambda: _simulate(workers=1.5), "^workers :"),
+        (lambda: _simulate(alphas=(0.0,)), "^alphas :"),
+        (lambda: _simulate(alphas=(0.05, 1.0)), "^alphas :"),
+        (lambda: _simulate(n_draws=0), "^n_draws :"),
+        (
+            lambda: calibrate_alpha(
+                [_scenario((1,), 20)], (0.05,), 0.05, trigger=math.nan
+            ),
+            "^trigger :",
+        ),
+        (
+            lambda: calibrate_alpha([_scenario((1,), 20)], (0.05,), 0.05, trigger=0.0),
+            "^trigger :",
+        ),
+        (
+            lambda: calibrate_alpha([_scenario((1,), 20)], (0.05,), 0.05, trigger=1.0),
+            "^trigger :",
+        ),
+        (
+            lambda: calibrate_alpha([_scenario((1,), 20)], (0.05,), math.inf),
+            "^alpha_target :",
+        ),
+        (
+            lambda: calibrate_alpha([_scenario((1,), 20)], (0.05,), 0.0),
+            "^alpha_target :",
+        ),
+        (
+            lambda: calibrate_alpha([_scenario((1,), 20)], (0.05,), 1.0),
+            "^alpha_target :",
+        ),
+        (lambda: smallest_visible_effect([], 0.0), "^target :"),
+        (lambda: smallest_visible_effect([], 1.0 + 1e-12), "^target :"),
+        (lambda: smallest_visible_effect([], math.nan), "^target :"),
+        (lambda: power_table((0.1,), (T36_OUTCOMES,), alpha_index=1), "^alpha_index :"),
+        (
+            lambda: power_table((0.1,), (T36_OUTCOMES,), alpha_index=-1),
+            "^alpha_index :",
+        ),
+        (
+            lambda: power_table((0.1,), (T36_OUTCOMES,), alpha_index=cast(int, True)),
+            "^alpha_index :",
+        ),
+    ],
+)
+def test_t35_refusals_at_the_bounds(call: Callable[[], object], match: str) -> None:
+    """T35 à T38, refus aux bornes (L4, L5, D1) : ``workers`` 0, booléen ou non
+    entier, ``alphas`` contenant 0 ou 1, ``n_draws = 0``, ``trigger`` et
+    ``alpha_target`` non finis ou hors de ``]0 ; 1[``, ``target`` hors de ``]0 ; 1]``,
+    ``alpha_index`` hors des lectures ou booléen ; le message nomme l'argument."""
+    with pytest.raises(InferenceError, match=match):
+        call()
+
+
+def test_t35_acceptances_next_to_the_bounds() -> None:
+    """T35 à T38, acceptations juste à côté : ``n_draws = 1``, ``workers = 1``,
+    ``target = 1``, ``alpha_index = 0``, ``trigger`` et ``alpha_target`` dans
+    ``]0 ; 1[``."""
+    assert len(_simulate(n_draws=1, workers=1)) == 1
+    assert smallest_visible_effect([], 1.0) is None
+    assert power_table((0.1,), (T36_OUTCOMES,), alpha_index=0)[0].b == 0.1
+    calibrate_alpha([_scenario((1,), 20)], (0.05,), 1e-9, trigger=1 - 1e-9)

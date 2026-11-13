@@ -26,6 +26,7 @@ from mountain_perf.analyse.inference.reml import (
     reml_fit,
     three_component_cov,
 )
+from test_analyse_inference_base import assert_frozen
 
 EXACT = 1e-12
 LN2 = math.log(2.0)
@@ -252,3 +253,58 @@ def test_t16_the_criterion_is_at_most_the_best_of_the_profile(name: str) -> None
     petit critère du profil plus ``1e−10``."""
     result = _fit(name)
     assert result.criterion <= min(c for _, c in result.profile) + 1e-10
+
+
+@pytest.mark.filterwarnings("ignore::RuntimeWarning")
+def test_t15_an_estimate_through_a_failing_cholesky() -> None:
+    """T15, un point où Cholesky échoue (A3) : 30 jours tirés avec répétition parmi
+    0 à 19 (graine 1), ``d = 0``, ``τ² = 0`` permis : l'optimiseur essaie des ``V``
+    non définies positives, leur critère vaut ``+∞``, et ``reml_fit`` rend une
+    estimation de critère fini. Les différences finies de scipy sur ``+∞`` donnent un
+    ``RuntimeWarning``, toléré."""
+    g = numpy.random.default_rng(1)
+    t = numpy.sort(g.integers(0, 20, 30)).astype(float)
+    X = numpy.column_stack([numpy.ones(30), (t - t.mean()) / 10])  # noqa: N806
+    V = three_component_cov(t, numpy.full(30, 1e-6), 0.0, 1.0, 5.0)  # noqa: N806
+    y = X @ numpy.array([1.0, 0.3]) + numpy.linalg.cholesky(V) @ g.standard_normal(30)
+    result = reml_fit(X, y, t, numpy.zeros(30), (1.0, 50.0))
+    assert math.isfinite(result.criterion)
+
+
+def test_t14_the_flags_at_their_edges() -> None:
+    """T14, les drapeaux à leurs bords (L2), sur les données de T14 : (a) ``y/2`` et
+    ``d/4`` : ``τ² + σ²_u < 1``, ``φ`` identifié, aucun drapeau ; (b) bornes
+    ``(15, 300)`` : ``φ`` rendu sous ``2·15``, pas à la borne basse ; (c) bornes
+    ``(0,5 ; 50)`` acceptées. Valeurs de l'oracle à ``1e−3``."""
+    X, y, t, d, bounds = _t14()  # noqa: N806
+    halved = reml_fit(X, y / 2, t, d / 4, bounds)
+    assert halved.tau2 == pytest.approx(0.09506195453298132, rel=1e-3)
+    assert halved.s2u == pytest.approx(0.6095523163450872, rel=1e-3)
+    assert halved.tau2 + halved.s2u < 1.0
+    assert halved.phi_identified
+    assert not halved.tau2_at_zero
+    assert not halved.s2u_at_zero
+    assert not halved.phi_at_lower
+    assert not halved.phi_at_upper
+    narrow = reml_fit(X, y, t, d, (15.0, 300.0))
+    assert narrow.phi == pytest.approx(29.28167505454651, rel=1e-3)
+    assert narrow.phi < 2 * 15.0
+    assert not narrow.phi_at_lower
+    wide = reml_fit(X, y, t, d, (0.5, 50.0))
+    assert wide.phi == pytest.approx(29.281584826674855, rel=1e-3)
+
+
+def test_t13_a_reml_fit_is_frozen() -> None:
+    """T13, immuabilité (A4) : la ``RemlFit`` de H5, et sa ``fit``."""
+    result = _fit("t13")
+    assert_frozen(result)
+    assert_frozen(result.fit)
+
+
+@pytest.mark.parametrize("tau2", [math.nan, math.inf, -1e-12])
+def test_t11_refusals_at_the_bounds(tau2: float) -> None:
+    """T11, refus (L4, L5) : ``τ²`` non fini ou négatif ; le message nomme
+    l'argument ; ``τ² = 0`` accepté."""
+    with pytest.raises(InferenceError, match=r"^tau2 :"):
+        three_component_cov([0.0, 1.0], [0.1, 0.1], tau2, 1.0, 1.0)
+    three_component_cov([0.0, 1.0], [0.1, 0.1], 0.0, 1.0, 1.0)

@@ -6,7 +6,9 @@ H1, H2, H3 et H6 du brief, et des propriétés. Sautés sans numpy ou scipy (ext
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
 from fractions import Fraction
+from typing import cast
 
 import pytest
 
@@ -27,6 +29,7 @@ from mountain_perf.analyse.inference.linear import (
     ols,
     student_interval,
 )
+from test_analyse_inference_base import assert_frozen
 
 EXACT = 1e-12
 
@@ -228,3 +231,73 @@ def test_t10_a_higher_level_gives_a_wider_interval(
     wide = student_interval(estimate, se, df, level + step)
     assert wide.low < narrow.low
     assert narrow.high < wide.high
+
+
+def _rank_ratio(X: FloatArray) -> float:  # noqa: N803
+    diagonal = numpy.abs(numpy.diag(numpy.linalg.qr(X, mode="r")))
+    return float(diagonal.min() / diagonal.max())
+
+
+def test_t5_the_rank_threshold() -> None:
+    """T5, le seuil de rang (A5) : la seconde colonne vaut la première plus
+    ``δ·(1, −1, 1, −1)`` ; le rapport ``min |R_ii| / max |R_ii|`` vaut ``δ`` (calculé) ;
+    à ``δ = 1e−9`` (dix fois au-dessus de ``1e−10``) accepté, à ``1e−11`` refusé."""
+    ones = numpy.ones(4)
+    wiggle = numpy.array([1.0, -1.0, 1.0, -1.0])
+    y = numpy.array([1.0, 3.0, 2.0, 5.0])
+    above = numpy.column_stack([ones, ones + 1e-9 * wiggle])
+    below = numpy.column_stack([ones, ones + 1e-11 * wiggle])
+    assert _rank_ratio(above) == pytest.approx(1e-9, rel=1e-3)
+    assert _rank_ratio(below) == pytest.approx(1e-11, rel=1e-2)
+    ols(above, y)
+    with pytest.raises(InferenceError, match="plein rang"):
+        ols(below, y)
+
+
+def test_t9_the_symmetry_threshold_and_a_non_finite_covariance() -> None:
+    """T9, le seuil de symétrie (A5) : ``V = 2·I`` plus ``ε`` en ``(0, 1)`` ;
+    l'asymétrie relative ``ε / max|V|`` (calculée) à ``1e−11`` refusée, à ``1e−13``
+    acceptée ; une ``V`` non finie dans son triangle supérieur, que Cholesky ne lit
+    pas, refusée (A2)."""
+    X = numpy.column_stack([numpy.ones(3), numpy.array([0.0, 1.0, 3.0])])  # noqa: N806
+    for relative, refused in ((1e-11, True), (1e-13, False)):
+        V = 2.0 * numpy.eye(3)  # noqa: N806
+        V[0, 1] += relative * 2.0
+        assert float(numpy.max(numpy.abs(V - V.T)) / numpy.max(numpy.abs(V))) == (
+            pytest.approx(relative, rel=1e-3)
+        )
+        if refused:
+            with pytest.raises(InferenceError, match="symétrique"):
+                gls(X, H2_Y, V)
+        else:
+            gls(X, H2_Y, V)
+    broken = H2_V.copy()
+    broken[0, 1] = math.nan
+    with pytest.raises(InferenceError, match="non finies"):
+        gls(H2_X, H2_Y, broken)
+
+
+def test_t6_a_linear_fit_is_frozen() -> None:
+    """T6, immuabilité (A4) : la ``LinearFit`` de ``gls``."""
+    assert_frozen(gls(H2_X, H2_Y, H2_V))
+
+
+@pytest.mark.parametrize(
+    ("call", "match"),
+    [
+        (lambda: student_interval(1.0, 1.0, cast(int, True), 0.95), "^df :"),
+        (lambda: fraction_per_year(math.nan), "^b_per_day :"),
+        (lambda: fraction_per_year(math.inf), "^b_per_day :"),
+    ],
+)
+def test_t10_refusals_at_the_bounds(call: Callable[[], object], match: str) -> None:
+    """T10, refus (L4, L5, D1) : ``df`` booléen, pente non finie ; le message nomme
+    l'argument."""
+    with pytest.raises(InferenceError, match=match):
+        call()
+
+
+def test_t10_acceptances_next_to_the_bounds() -> None:
+    """T10, acceptations juste à côté : ``df = 1``, pente nulle."""
+    student_interval(1.0, 1.0, 1, 0.95)
+    assert fraction_per_year(0.0) == 0.0

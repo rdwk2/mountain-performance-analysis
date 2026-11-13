@@ -6,8 +6,10 @@ graine cachée dans le paquet. Sautés sans numpy ou scipy (extra ``analyse``)."
 from __future__ import annotations
 
 import ast
+import dataclasses
 import math
 import random
+from collections.abc import Callable
 from pathlib import Path
 from typing import cast
 
@@ -26,6 +28,7 @@ from mountain_perf.analyse.inference.base import (
     order_quantile,
     percentile_interval,
 )
+from mountain_perf.analyse.inference.linear import ols
 
 PACKAGE = Path(inference.__file__).parent
 ALLOWED_RANDOM_CALLS = {"default_rng", "SeedSequence"}
@@ -193,3 +196,56 @@ def test_t3_no_hidden_seed_in_the_package() -> None:
         assert _violations(path.read_text(encoding="utf-8")) == [], path.name
     base = (PACKAGE / "base.py").read_text(encoding="utf-8")
     assert {a for a, _, _ in _random_calls(base)} == ALLOWED_RANDOM_CALLS
+
+
+def test_t2_order_quantile_guards() -> None:
+    """T2, garde-fous (A1) : sur les entiers 1 à 2 000, ``percentile_interval`` au
+    niveau 0,95 rend exactement ``[50 ; 1 950]`` (``q = (1 − 0,95)/2`` vaut un peu
+    plus que 0,025 : le ``− 1e−9`` le ramène à ``k = 50``) ; à ``q = 1e−12``, ``k``
+    vaut 1."""
+    assert (1 - 0.95) / 2 > 0.025
+    assert percentile_interval(list(range(1, 2001)), 0.95) == Interval(50.0, 1950.0)
+    assert order_quantile(list(range(1, 21)), 1e-12) == 1.0
+
+
+def assert_frozen(output: object) -> None:
+    """Une sortie du paquet est immuable (A4) : chaque champ tableau a
+    ``flags.writeable`` faux, et affecter un champ lève ``FrozenInstanceError``."""
+    assert dataclasses.is_dataclass(output)
+    for field in dataclasses.fields(output):
+        value = getattr(output, field.name)
+        if isinstance(value, numpy.ndarray):
+            assert not value.flags.writeable, field.name
+        with pytest.raises(dataclasses.FrozenInstanceError):
+            setattr(output, field.name, value)
+
+
+def test_t1_an_interval_is_frozen() -> None:
+    """T1, immuabilité (A4) : un ``Interval``."""
+    assert_frozen(Interval(0.0, 1.0))
+
+
+@pytest.mark.parametrize(
+    ("call", "match"),
+    [
+        (lambda: percentile_interval([1.0, 2.0], 0.0), "^level :"),
+        (lambda: child_rng(cast(int, True)), "^root_seed :"),
+        (lambda: child_rng(-1), "^root_seed :"),
+        (lambda: child_rng(cast(int, 1.5)), "^root_seed :"),
+        (lambda: child_rng(1, -1), "^key :"),
+        (lambda: ols(numpy.empty((0, 2)), []), "^X :"),
+    ],
+)
+def test_t1_refusals_at_the_bounds(call: Callable[[], object], match: str) -> None:
+    """T1, refus aux bornes (L4, L5) : niveau 0, graine booléenne, négative ou non
+    entière, matrice vide ; le message nomme l'argument."""
+    with pytest.raises(InferenceError, match=match):
+        call()
+
+
+def test_t1_acceptances_next_to_the_bounds() -> None:
+    """T1, acceptations juste à côté : niveau ``1e−9``, graine 0, clé 0, une ligne."""
+    percentile_interval([1.0, 2.0], 1e-9)
+    child_rng(0)
+    child_rng(0, 0)
+    ols(numpy.array([[1.0], [1.0]]), [1.0, 2.0])

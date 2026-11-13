@@ -30,6 +30,7 @@ from mountain_perf.analyse.inference.bootstrap import (
     wild_residual_draws,
 )
 from mountain_perf.analyse.inference.linear import gls_operator, ols
+from test_analyse_inference_base import assert_frozen
 from test_analyse_inference_clusters import SpyGenerator
 
 EXACT = 1e-12
@@ -154,3 +155,47 @@ def test_t28_bis_simultaneous_coverage() -> None:
         band = max_t_band(G @ f.coef, curves, 0.95)
         covered += bool(numpy.all((band.low <= truth) & (truth <= band.high)))
     assert 181 <= covered <= 183
+
+
+def test_t25_the_draws_follow_the_formula() -> None:
+    """T25, la formule et non seulement la loi (L1) : avec un générateur jumeau (même
+    graine, même ``standard_normal(size=(B, n))``), les tirages valent
+    ``mean + Z·Lᵀ`` à ``1e−12`` ; une ``V`` non finie dans son triangle supérieur est
+    refusée (A2)."""
+    V = numpy.array([[4.0, 2.0], [2.0, 9.0]])  # noqa: N806
+    mean = numpy.array([1.0, -2.0])
+    draws = parametric_draws(mean, V, 50, numpy.random.default_rng(2025))
+    z = numpy.random.default_rng(2025).standard_normal(size=(50, 2))
+    expected = mean + z @ numpy.linalg.cholesky(V).T
+    assert draws == pytest.approx(expected, rel=1e-12, abs=1e-12)
+    broken = numpy.array(
+        [[1.5, math.nan, 0.125], [0.5, 1.5, 0.25], [0.125, 0.25, 1.75]]
+    )
+    with pytest.raises(InferenceError, match="non finies"):
+        parametric_draws(numpy.zeros(3), broken, 5, numpy.random.default_rng(1))
+
+
+def test_t26_the_draws_follow_the_formula() -> None:
+    """T26, la formule (L1) : avec un jumeau (même ``integers(0, 2, size=(B, n))``),
+    les tirages valent exactement ``fitted + S·resid``."""
+    fitted = numpy.array([1.0, 2.0, 3.0, 4.0])
+    resid = numpy.array([0.5, -1.5, 0.25, 2.25])
+    draws = wild_residual_draws(fitted, resid, 40, numpy.random.default_rng(2026))
+    signs = 2 * numpy.random.default_rng(2026).integers(0, 2, size=(40, 4)) - 1
+    assert numpy.array_equal(draws, fitted + signs * resid)
+
+
+def test_t27_a_band_is_frozen() -> None:
+    """T27, immuabilité (A4) : une ``Band``."""
+    assert_frozen(max_t_band([0.0, 0.0], H14_DRAWS, 0.6))
+
+
+def test_t25_refusals_and_acceptances_at_the_bounds() -> None:
+    """T25, aux bornes (L4, L5) : ``B = 0`` refusé (message qui nomme ``B``),
+    ``B = 1`` accepté."""
+    with pytest.raises(InferenceError, match=r"^B :"):
+        parametric_draws([0.0], [[1.0]], 0, numpy.random.default_rng(1))
+    assert parametric_draws([0.0], [[1.0]], 1, numpy.random.default_rng(1)).shape == (
+        1,
+        1,
+    )

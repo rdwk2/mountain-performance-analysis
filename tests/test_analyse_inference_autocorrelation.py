@@ -17,6 +17,7 @@ from mountain_perf.analyse.inference.autocorrelation import (
     residual_autocorrelation,
 )
 from mountain_perf.analyse.inference.base import InferenceError
+from test_analyse_inference_base import assert_frozen
 
 T = (0, 1, 2, 5, 6)
 RESID = (1.0, -1.0, 2.0, 0.0, -2.0)
@@ -71,3 +72,16 @@ def test_t19_autocorrelation_refusals() -> None:
         residual_autocorrelation(T, (3.0,) * 5, ((1, 2),))
     with pytest.raises(InferenceError, match="resid"):
         residual_autocorrelation(T, RESID[:4], ((1, 2),))
+
+
+def test_t19_the_smallest_series() -> None:
+    """T19, aux bornes (L4, L5) : une seule valeur est refusée, le message nomme
+    ``t`` ; deux valeurs sont acceptées."""
+    with pytest.raises(InferenceError, match=r"^t :"):
+        residual_autocorrelation((0,), (1.0,), ((1, 2),))
+    assert residual_autocorrelation((0, 1), (1.0, -1.0), ((1, 2),))[0].pairs == 1
+
+
+def test_t19_a_lag_class_is_frozen() -> None:
+    """T19, immuabilité (A4) : une ``LagClass``."""
+    assert_frozen(residual_autocorrelation(T, RESID, ((1, 2),))[0])
