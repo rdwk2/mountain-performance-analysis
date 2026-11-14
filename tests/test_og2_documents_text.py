@@ -79,7 +79,7 @@ def test_the_backlog_lines_follow_the_og_lines_of_the_backtest() -> None:
     anchor = next(
         k
         for k, line in enumerate(lines)
-        if line.startswith("- [ ] (OG-UI) Avertir des sorties en bordure de fenêtre")
+        if line.startswith("- [x] ~~(OG-UI) Avertir des sorties en bordure de fenêtre")
     )
     assert anchor > backtest
     for offset, start in enumerate(BACKLOG_LINES, start=1):

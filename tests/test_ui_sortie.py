@@ -37,6 +37,7 @@ from mountain_perf.outing_views import (
 )
 from mountain_perf.runs import OutingMatch, check_outing, match_outing
 from mountain_perf.schemas import Clock, ClockKind, OutingScores, Unavailability
+from mountain_perf.ui.components import FILE_SOURCE
 from mountain_perf.units import format_duration, format_signed_duration
 from mountain_perf.validation import ContractError
 
@@ -73,7 +74,9 @@ def _page() -> None:
 
 
 def _app() -> AppTest:
-    return AppTest.from_function(_page, default_timeout=TIMEOUT_S).run()
+    at = AppTest.from_function(_page, default_timeout=TIMEOUT_S)
+    at.session_state["sortie.source"] = FILE_SOURCE
+    return at.run()
 
 
 def _copy(source: Path, folder: str, name: str | None = None) -> Path:
