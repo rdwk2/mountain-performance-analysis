@@ -35,6 +35,7 @@ sont au statut « acceptée » :
 - [0018 — Les données journalières dans `interim/days/` et leurs vues](decisions/0018-donnees-journalieres.md)
 - [0019 — La table `jours` et les normales](decisions/0019-table-jours-et-normales.md)
 - [0020 — L'origine glissante : la règle d'estimation à l'origine](decisions/0020-origine-glissante.md)
+- [0021 — L'inférence de la piste analyse](decisions/0021-inference-de-la-piste.md)
 
 Autres documents :
 

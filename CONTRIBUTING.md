@@ -20,8 +20,9 @@ tests qui lisent la documentation, et le garde-fou des données.
 [`docs/DICTIONNAIRE_DONNEES.md`](docs/DICTIONNAIRE_DONNEES.md) ; `just figure`
 régénère la figure du README. La CI
 ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) lance `just check` sur
-une machine vierge, sous Python 3.12, sans extra, puis toute la suite, et les types, avec
-tous les extras, à chaque push et à chaque pull request.
+une machine vierge, sous Python 3.12, sans extra, puis toute la suite, et les types,
+avec tous les extras et le groupe `analyse-dev` (les types de scipy), à chaque push et
+à chaque pull request.
 
 ## La version de Python
 

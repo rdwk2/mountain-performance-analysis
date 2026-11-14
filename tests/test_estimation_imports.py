@@ -19,7 +19,15 @@ FORBIDDEN_PACKAGES = (
     "mountain_perf.backtest",
     "mountain_perf.ui",
 )
-FORBIDDEN_LIBRARIES = {"numpy", "pandas", "fitdecode", "pyarrow", "plotly", "streamlit"}
+FORBIDDEN_LIBRARIES = {
+    "numpy",
+    "pandas",
+    "fitdecode",
+    "pyarrow",
+    "plotly",
+    "streamlit",
+    "scipy",
+}
 
 
 def _modules(path: Path) -> set[str]:

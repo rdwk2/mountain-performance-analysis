@@ -130,6 +130,18 @@ extra : le moteur reste sans dépendance ; (2)
 l'étape 1 (une recette `just` dédiée, les tests d'un extra sautés quand il manque, des
 cibles de mypy restreintes) se fixe avec la PR qui ouvre le premier extra.
 
+*Note du 2026-11-13 (AN3-1, `0021`) : l'extra `analyse` gagne numpy et scipy ;
+pandas, statsmodels et openpyxl n'y entrent pas encore (aucun module ne s'en sert).
+numpy et scipy ne s'importent que dans `src/mountain_perf/analyse/inference/` et ses
+tests (règle `banned-api`, tests de clôture). Le groupe `analyse-dev` s'ouvre avec
+`scipy-stubs` seul ; l'étape 2 de la CI l'installe (`--all-extras --group analyse-dev`)
+et vérifie numpy et scipy contre leurs types ; à l'étape 1, sans extra, mypy les ignore
+(`ignore_missing_imports`, comme Streamlit). Le REML de la covariance de Q2 est écrit
+dans le paquet, et non pris à `MixedLM` comme le prévoit le paragraphe « Écrits dans la
+piste » : statsmodels n'entre pas ; `MixedLM` reste la voie prévue pour un modèle mixte
+à pente aléatoire, que rien n'ouvre encore. Les méthodes « écrites dans la piste » dont
+Q2 a besoin sont dans le paquet ; leurs conventions sont dans `0021`.*
+
 ## Pourquoi
 
 - **B plutôt que A** : le moteur reste ce qu'il est depuis M1, et un athlète qui ne

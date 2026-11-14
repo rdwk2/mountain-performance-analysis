@@ -143,7 +143,7 @@ dans [les pages des commandes](docs/commandes/README.md).
 - **Piste analyse** : AN0 à AN2 livrés — l'ingestion des activités et des données
   journalières, les tables de `processed/`, la figure de Q1, les pages
   « récupération » et « Q1 » ; AN3 commencée : la FC décalée de chaque montée
-  (AN3-1a).
+  (AN3-1a), les outils d'inférence (AN3-1).
 
 Le détail, jalon par jalon : [`docs/ROADMAP.md`](docs/ROADMAP.md).
 

@@ -306,9 +306,10 @@ src/mountain_perf/     le code de la bibliothèque
     export.py          ingest_export : les exports de raw/garmin/ → interim/activities/
                        (AN1-1, AN2-0), puis interim/days/ (AN2-1)
   analyse/             tables de `processed/`, figures et méthodes statistiques de la
-                       piste analyse (AN1) ; Python pur, sauf `parquet.py` (pyarrow) et
-                       `plot.py` (plotly), seuls importeurs de l'extra `analyse`
-                       (`0011`, `0014`, `0015`) ; n'importe jamais `backtest/`
+                       piste analyse (AN1) ; Python pur, sauf `parquet.py` (pyarrow),
+                       `plot.py` (plotly) et `inference/` (numpy, scipy), seuls
+                       importeurs de l'extra `analyse` (`0011`, `0014`, `0015`,
+                       `0021`) ; n'importe jamais `backtest/`
     climbs.py          la montée : vue, horloges communes, profil, bornes et gain en
                        temps, horloge du gain, mesures (AN1-2b)
     quality.py         drapeaux, régimes par le gain, strates (AN1-2b)
@@ -344,6 +345,14 @@ src/mountain_perf/     le code de la bibliothèque
                        réécrite ; Python pur (AN1-2c) ; relecture des résultats, le
                        dernier, sa comparaison aux tables actuelles (AN2-3)
     plot.py            rendu HTML de la figure de Q1 ; seul importeur de plotly (AN1-2c)
+    inference/         outils d'inférence, sans rien de propre à une question ; seul
+                       importeur de numpy et de scipy (AN3-1, `0021`) : base.py ;
+                       linear.py (MCO, GLS, Student) ; reml.py (covariance à trois
+                       composantes) ; readings.py (Holm, Bonferroni, lectures) ;
+                       autocorrelation.py ; clusters.py (CR2, bootstrap sauvage par
+                       grappes) ; bootstrap.py (paramétrique, résidus, max-t) ;
+                       robust.py (Huber) ; spline.py ; power.py (puissance, seuil
+                       calibré)
   ui/                  interface — appelle la bibliothèque, ne calcule rien (M5) ;
                        extra tableau, seul importeur de streamlit (0016)
     app.py             point d'entrée ; PAGES, une ligne par page
