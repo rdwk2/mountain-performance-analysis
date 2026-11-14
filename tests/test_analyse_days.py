@@ -5,7 +5,7 @@ résumé, les paramètres. Des documents inventés à partir du 1er janvier 2000
 from __future__ import annotations
 
 import dataclasses
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 import pytest
@@ -38,6 +38,7 @@ from fixtures.days import (
     empty_day,
     heat_block,
     load_balance_block,
+    midnight,
     nap,
     night,
     readiness,
@@ -1095,6 +1096,26 @@ def test_the_lowest_window_of_a_truncated_day_and_of_outside_points() -> None:
     row = only(first, day_definition=whole)
     assert row.window_start is not None
     assert _midpoint(row) == row.window_start + timedelta(seconds=1800)
+
+
+def test_the_lowest_window_keeps_an_offset_paris_never_has() -> None:
+    """Les fixtures des jours suivent les décalages de Paris : sur une machine à l'heure
+    de Paris, une colonne ramenée au fuseau local passerait les autres tests. Ici la
+    fenêtre est à +05:45, que Paris n'a jamais : la colonne garde ce décalage, quel que
+    soit le fuseau de la machine."""
+    offset = timezone(timedelta(hours=5, minutes=45))
+    start = midnight(D1, offset)
+    document = day_record(
+        D1,
+        window_start=start,
+        data_end=start + timedelta(hours=24),
+        series=_heart_rate_series(D1),
+    )
+    row = row_of(table((document,)), D1)
+    midpoint = row.lowest_heart_rate_window_midpoint
+    assert midpoint is not None
+    assert midpoint == start + timedelta(seconds=2100)
+    assert midpoint.utcoffset() == timedelta(hours=5, minutes=45)
 
 
 @pytest.mark.parametrize(

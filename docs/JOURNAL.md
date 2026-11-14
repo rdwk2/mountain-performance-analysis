@@ -35,6 +35,8 @@ commit (11 470 tests réussis ou sautés). Textes : l'annexe D de la conception 
 `0019`, `CLAUDE.md`, README, `ROADMAP`, `process.md`, `CHARTE`). Rangé :
 `src/mountain_perf/analyse/days.py`, `src/mountain_perf/analyse/tables.py`,
 `src/mountain_perf/schemas/processed.py`, `tests/test_analyse_days_lowest_window.py`.
+La relecture (une C) n'a trouvé aucun défaut du code ; deux tests ajoutés (une durée
+impaire, une fenêtre à un décalage que Paris n'a jamais) ; `main` fusionnée (OG-UI).
 
 ### 2026-11-13 · OG-UI — L'origine glissante : les pages à l'origine
 Les pages projection et sortie prennent leur courbe à l'origine (par défaut), sur une plage de

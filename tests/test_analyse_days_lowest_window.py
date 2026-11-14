@@ -106,6 +106,16 @@ def test_a_sparse_series_admits_a_single_point() -> None:
     assert lowest((0, 43200), (55, 90)) == 900.0
 
 
+def test_an_odd_window_has_its_exact_midpoint() -> None:
+    """Le milieu vaut le début de la fenêtre plus la moitié de la durée, exactement,
+    pour une durée dont la moitié n'est pas entière : ni division entière, ni arrondi.
+    D'abord 1 s sur la série à deux points (fenêtres d'un point, la plus basse à 0 s) ;
+    puis 1 801 s sur le cas à la main (trois points, la plus basse ouvre à 600 s)."""
+    assert lowest((0, 43200), (55, 90), 1.0, 0.8) == 0.5
+    times = (0, 600, 1200, 1800, 2400, 3000)
+    assert lowest(times, (60, 58, 55, 54, 57, 62), 1801.0, 0.8) == 1500.5
+
+
 def _windows(
     times: Sequence[float], bpm: Sequence[float], window_s: float, fraction: float
 ) -> list[tuple[float, float]]:
