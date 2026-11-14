@@ -27,6 +27,7 @@ from mountain_perf.model.export import write_passages_csv
 from mountain_perf.model.views import passage_rows
 from mountain_perf.runs import project_route
 from mountain_perf.schemas import Projection
+from mountain_perf.ui.components import FILE_SOURCE
 from mountain_perf.units import format_count, format_duration, format_pace, format_vam
 
 APP = Path(mountain_perf.__file__).parent / "ui" / "app.py"
@@ -39,7 +40,9 @@ TIMEOUT_S = 30
 
 
 def _page() -> AppTest:
-    return AppTest.from_file(APP, default_timeout=TIMEOUT_S).run()
+    at = AppTest.from_file(APP, default_timeout=TIMEOUT_S)
+    at.session_state["source"] = FILE_SOURCE
+    return at.run()
 
 
 def _with_route(name: str = ROUTE.name, content: bytes | None = None) -> Path:

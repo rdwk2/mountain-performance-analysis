@@ -3,8 +3,9 @@
 L'interface ([`0016`](../decisions/0016-interface-v0.md)) est une appli Streamlit
 locale, sur `MPA_DATA_DIR`, avec les extras `tableau` et `analyse`. Elle ne calcule rien
 (règle 7 de [`CLAUDE.md`](../../CLAUDE.md)) : ce qu'elle montre vient des fonctions mêmes de
-`mperf` et de la bibliothèque. Quatre pages : « projection » et « sortie » (M5),
-« récupération » et « Q1 » (la piste analyse, AN2-3).
+`mperf` et de la bibliothèque. Cinq pages : « projection » et « sortie » (M5 ; la courbe
+à l'origine, OG-UI), « La fenêtre » (OG-UI), « récupération » et « Q1 » (la piste
+analyse, AN2-3).
 
 ```bash
 just ui
@@ -17,8 +18,13 @@ puis `http://localhost:8501` dans le navigateur.
   horodatée). Il est lu d'abord, comme la page le lira, puis écrit sous son nom, au clic
   seulement ; un fichier de même nom n'est jamais écrasé, et rien n'est supprimé.
 - **La page « projection »** : un préparé (un GPX de `MPA_DATA_DIR/routes/`) et une
-  courbe (un CSV de `MPA_DATA_DIR/reference/` et son compagnon `.meta.json`), choisis
-  dans la barre latérale.
+  courbe, choisis dans la barre latérale : à l'origine (par défaut ; le jour de la
+  course et la fenêtre, 56 jours par défaut, `0020`), sur une plage de dates (une
+  description, pas une prévision), ou un fichier de `MPA_DATA_DIR/reference/` (un CSV
+  et son compagnon `.meta.json`). Les deux premières se calculent en mémoire depuis
+  `MPA_DATA_DIR/interim/activities/`, et aucune courbe n'est écrite ; la page dit les
+  activités lues et avertit (moins de 20 sorties à pied passées, à l'origine ; plus de
+  50 % du temps prévu hors support).
   - **Les réglages** sont générés depuis les specs des paramètres du profil et du
     moteur : un curseur par paramètre, sur sa plage d'affichage.
   - **Elle montre** la synthèse de `mperf project` (son texte même), le profil avec les
@@ -31,7 +37,9 @@ puis `http://localhost:8501` dans le navigateur.
     (virgules, point décimal, UTF-8 sans marque d'en-tête) : Excel en français ne
     l'ouvre pas tel quel (`BACKLOG.md`).
 - **La page « sortie »** : un préparé, la trace d'une sortie faite sur lui (un GPX de
-  `MPA_DATA_DIR/sorties/`) et une courbe, puis « Comparer » : rien n'est calculé avant
+  `MPA_DATA_DIR/sorties/`) et une courbe (les mêmes sources ; à l'origine par défaut,
+  celle du jour de la sortie : une prévision hors échantillon), puis « Comparer » : rien
+  n'est calculé avant
   le clic. Elle montre le jour de la sortie (le jour à Paris de son premier instant),
   la partie comparée du préparé et le préfixe comparable (`0010` D4.11), prévu contre
   réalisé sous les horloges du rapport, et l'effort effectif `e* = exp(L)` sur le
@@ -43,6 +51,8 @@ puis `http://localhost:8501` dans le navigateur.
   sortie par v0 brut, à l'effort 1, sans réglage, et rien n'est écrit : pas une erreur
   du modèle, dont le chiffre qui fait foi reste celui du backtest. Le détail (régimes,
   enveloppes, épisodes) : `mperf match --curve`.
+- **La page « La fenêtre »** : pourquoi une activité qui finit tout près d'une borne de
+  la fenêtre peut ne pas être comptée ; texte seul.
 - **La page « récupération »** : la table `jours` de `processed/`, sans rien calculer
   ([`0019`](../decisions/0019-table-jours-et-normales.md), section AN2-3). Les six
   mesures de la nuit et du repos, chacune contre sa normale et sa plage : un point plein

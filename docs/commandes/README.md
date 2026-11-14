@@ -12,6 +12,8 @@ qu'elle lit et écrit, et sa sortie d'exemple quand elle en a une.
 - [`just ingest`](ingest.md) — l'ingestion des exports Garmin
 - [`just process`](process.md) — les tables des activités, des montées, des variantes et
   des jours
+- [`just project`](project.md) — les temps de passage d'un préparé, avec la courbe à
+  l'origine de la course
 - [`just q1`](q1.md) — la figure de Q1
 - [`just ui`](ui.md) — l'interface
 
@@ -56,8 +58,10 @@ l'ingestion, puis `interim/activities/`, `interim/days/`, `athlete.toml` et `jou
 lus, `processed/` écrit), à la figure
 de Q1 (`just q1` : `processed/` lu, `resultats/Q1/` écrit), à la courbe personnelle
 (`just curve` : `interim/activities/` lu, `reference/` écrit) et à l'interface
-(`just ui` : `routes/`, `sorties/`, `reference/`, `processed/` et `resultats/Q1/` lus ;
-`routes/` et `sorties/` écrits par l'ajout d'un fichier) ; les autres commandes ne le lisent pas, les tests non plus
+(`just ui` : `routes/`, `sorties/`, `reference/`, `interim/activities/`, `processed/` et
+`resultats/Q1/` lus ; `routes/` et `sorties/` écrits par l'ajout d'un fichier) et à la
+projection (`just project` : `routes/` lu ; avec `--at`, `interim/activities/` aussi, comme
+`mperf project … --at`) ; les autres commandes ne le lisent pas, les tests non plus
 ([`tests/conftest.py`](../../tests/conftest.py) le pose sur un dossier temporaire neuf
 pour chaque test). Pour le renseigner, copier [`.env.example`](../../.env.example) en
 `.env` ; `just` charge `.env` s'il existe. Sous Windows, écrire le chemin avec des
