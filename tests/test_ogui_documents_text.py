@@ -101,3 +101,17 @@ def test_the_usage_documents() -> None:
     assert "| [`just project`](docs/commandes/project.md) | " in readme
     commands = _text(COMMANDS / "README.md")
     assert "- [`just project`](project.md) — " in commands
+
+
+def test_the_data_folder_names_interim_for_the_pages() -> None:
+    """« Le dossier des données » dit qu'``interim/activities/`` est lu par l'interface
+    et par la projection avec ``--at`` (§ 6.6 (i) 1)."""
+    flat = " ".join(_text(COMMANDS / "README.md").split())
+    assert (
+        "(`just ui` : `routes/`, `sorties/`, `reference/`, `interim/activities/`, "
+        "`processed/` et `resultats/Q1/` lus ;"
+    ) in flat
+    assert (
+        "écrits par l'ajout d'un fichier) et à la projection (`just " + "project` : "
+        "`routes/` lu ; avec `--at`, `interim/activities/` aussi"
+    ) in flat

@@ -22,13 +22,20 @@ import streamlit as st
 from streamlit.testing.v1 import AppTest
 
 from fixtures.matching import MATCH_REFERENCE_GPX
-from fixtures.processed import write_interim
+from fixtures.processed import COMMIT, write_interim
+from mountain_perf import cli, gitstate
+from mountain_perf.cli import main
 from mountain_perf.config import data_dir
 from mountain_perf.estimation.intervals import activity_intervals
 from mountain_perf.estimation.origin import OriginWindow
+from mountain_perf.gitstate import GitState
 from mountain_perf.ingest.interim import read_index, read_recording, write_activities
 from mountain_perf.model.views import passage_rows
-from mountain_perf.reports import origin_curve_lines, projection_summary_lines
+from mountain_perf.reports import (
+    origin_curve_lines,
+    projection_summary_lines,
+    range_curve_lines,
+)
 from mountain_perf.runs import (
     OriginCurve,
     RouteProjection,
@@ -36,6 +43,7 @@ from mountain_perf.runs import (
     load_athlete_corpus,
     origin_curve,
     project_route,
+    range_curve,
 )
 from mountain_perf.ui.components import (
     FILE_SOURCE,
@@ -52,6 +60,9 @@ from test_schemas_interim import entry
 
 NOW = datetime(2024, 4, 1, 12, tzinfo=UTC)
 TODAY = date(2024, 4, 1)
+EVENING = datetime(2024, 3, 31, 23, 30, tzinfo=UTC)
+"""2024-04-01 01:30 à Paris (heure d'été depuis le 31 mars) : le jour UTC est la
+veille."""
 FIXTURES = Path(__file__).parent / "fixtures"
 ROUTE = FIXTURES / "mini_11.gpx"
 FOLLOWED = FIXTURES / MATCH_REFERENCE_GPX
@@ -146,6 +157,18 @@ def test_the_default_shows_two_warnings() -> None:
     assert WINDOW_LINK in _markdown(at)
     (table,) = at.dataframe
     assert table.value.to_dict("records") == _table(passage_rows(run.projection, None))
+
+
+def test_today_is_the_paris_day_at_23_30_utc(monkeypatch: pytest.MonkeyPatch) -> None:
+    """À 23:30 UTC le 31 mars, aujourd'hui est le 1er avril à Paris (§ 6.4 (b) 1)."""
+    monkeypatch.setattr("mountain_perf.runs.now", lambda: EVENING)
+    _with()
+    at = _app()
+    assert not at.exception
+    assert _block(at)[0] == FIRST_LINE
+    at = at.radio(key="source").set_value(RANGE_SOURCE).run()
+    assert at.date_input(key="plage_debut").value == date(2024, 2, 5)
+    assert at.date_input(key="plage_fin").value == date(2024, 3, 31)
 
 
 def test_a_followed_route_has_only_the_cold_start_warning() -> None:
@@ -247,6 +270,16 @@ def test_a_range_without_candidate() -> None:
     assert not at.dataframe
 
 
+def test_a_range_absence_shows_its_lines() -> None:
+    """Une absence sur une plage montre ses lignes (§ 6.4 (b) 3)."""
+    _with()
+    at = _range(_app(), date(2024, 1, 1), date(2024, 1, 31))
+    assert not at.exception
+    block = _block(at)
+    assert len(block) == 1
+    assert block[0].startswith("plage du 2024-01-01 au 2024-01-31 : ")
+
+
 def test_a_reversed_range() -> None:
     _with()
     at = _range(_app(), date(2024, 3, 31), date(2024, 3, 1))
@@ -325,6 +358,33 @@ def test_an_os_error_is_shown_without_exception(
     assert [str(element.value) for element in at.error] == ["refusé"]
 
 
+# --- Un fichier de reference/ ---------------------------------------------------------
+
+
+def test_a_file_curve_has_no_warning(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Un fichier de ``reference/`` au-delà du repère n'a pas d'avertissement de plus
+    (§ 0 règle 2, § 6.4 (b) 5)."""
+    monkeypatch.setattr(
+        gitstate, "git_state", lambda directory: GitState(COMMIT, False)
+    )
+    monkeypatch.setattr(cli, "_now", lambda: NOW)
+    route = _with()
+    assert main(["curve", "origine", "--at", "2024-04-01", "--athlete", "x"]) == 0
+    capsys.readouterr()
+    curve = data_dir() / "reference" / "origine.csv"
+    # Garde-fou : ce fichier est bien au-delà du repère de 50 % sur ce préparé.
+    share = project_route(route, curve, {}, {}).diagnostics.out_of_support_time_share
+    assert share > 0.5
+    at = AppTest.from_function(_page, default_timeout=TIMEOUT_S)
+    at.session_state["source"] = FILE_SOURCE
+    at.run()
+    assert not at.exception
+    assert at.dataframe
+    assert not at.warning
+
+
 # --- Les caches -----------------------------------------------------------------------
 
 
@@ -387,6 +447,51 @@ def test_the_intervals_cache_serves_two_days(monkeypatch: pytest.MonkeyPatch) ->
     at = _set_day(at, date(2024, 3, 25))
     assert not at.exception
     assert sorted(calls) == ["a1", "a3"]
+
+
+def _drop_a3() -> None:
+    """L'index réécrit sans ``a3`` ni son enregistrement : une autre empreinte, une
+    candidate de moins en mars 2024."""
+    folder = data_dir()
+    index = read_index(folder)
+    entries = tuple(item for item in index.entries if item.activity_ref != "a3")
+    recordings = [
+        read_recording(folder, item.activity_ref)
+        for item in entries
+        if item.has_recording
+    ]
+    write_activities(
+        folder, dataclasses.replace(index, entries=entries), recordings, REPORT
+    )
+
+
+def test_a_new_index_recomputes_the_range() -> None:
+    """Après un nouvel ``interim/``, la plage est recalculée sur le nouvel index
+    (§ 6.4 (a), piège 5)."""
+    _with()
+    at = _range(_app(), date(2024, 3, 1), date(2024, 3, 31))
+    assert not at.exception
+    before = _block(at)
+    _drop_a3()
+    at.run()
+    assert not at.exception
+    corpus = load_athlete_corpus(data_dir(), TRAIL)
+    expected = range_curve_lines(
+        range_curve(corpus, date(2024, 3, 1), date(2024, 3, 31), generated_at=NOW)
+    )
+    after = _block(at)
+    assert after[: len(expected)] == list(expected)
+    assert after != before
+
+
+def test_changing_only_the_end_of_the_range() -> None:
+    """« Au » seul changé change la courbe montrée (§ 6.4 (a))."""
+    _with()
+    at = _range(_app(), date(2024, 3, 1), date(2024, 3, 31))
+    assert _block(at)[0].startswith("plage du 2024-03-01 au 2024-03-31 : ")
+    at = at.date_input(key="plage_fin").set_value(date(2024, 3, 10)).run()
+    assert not at.exception
+    assert _block(at)[0].startswith("plage du 2024-03-01 au 2024-03-10 : ")
 
 
 # --- Chaque champ des trois sources ---------------------------------------------------

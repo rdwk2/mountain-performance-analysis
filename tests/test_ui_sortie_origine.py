@@ -39,7 +39,7 @@ from mountain_perf.runs import (
     origin_curve,
     outing_support_share,
 )
-from mountain_perf.ui.components import RANGE_SOURCE, WINDOW_LINK
+from mountain_perf.ui.components import FILE_SOURCE, RANGE_SOURCE, WINDOW_LINK
 from test_og1_cli_at import realign
 
 NOW = datetime(2026, 6, 10, 12, tzinfo=UTC)
@@ -47,6 +47,8 @@ TODAY = date(2026, 6, 10)
 FIXTURES = Path(__file__).parent / "fixtures"
 REFERENCE = FIXTURES / MATCH_REFERENCE_GPX
 TRACE = FIXTURES / MATCH_TRACE_GPX
+CURVE = FIXTURES / "courbe_synthetique.csv"
+COMPANION = FIXTURES / "courbe_synthetique.meta.json"
 TRAIL = frozenset({"trail_running"})
 TIMEOUT_S = 60
 CHOOSE = "Choisis un préparé, une trace et une courbe, puis « Comparer »."
@@ -141,6 +143,13 @@ def test_the_default_is_an_absence() -> None:
         "enregistrement des types demandés ne finit dans la fenêtre."
     ]
     assert not at.dataframe
+    # L'absence montre ses lignes (§ 6.4 (b) 3), celles de la seconde voie.
+    corpus = load_athlete_corpus(data_dir(), TRAIL)
+    curve = origin_curve(
+        corpus, course_origin(date(2026, 6, 1), TODAY), 56, generated_at=NOW
+    )
+    assert curve.curve is None
+    assert _block(at) == list(origin_curve_lines(curve))
 
 
 def test_all_the_past_compares_at_the_origin_of_the_outing() -> None:
@@ -230,6 +239,41 @@ def test_an_unreadable_trace_at_the_origin() -> None:
     assert RESULT_KEY not in at.session_state
 
 
+def test_without_interim_the_page_shows_an_error() -> None:
+    """Sans ``interim/``, à l'origine, ``st.error`` au clic et rien de gardé
+    (§ 6.5 point 4)."""
+    from mountain_perf.ui.sortie import RESULT_KEY
+
+    _copy(REFERENCE, FOLDERS[FileKind.ROUTE])
+    _copy(TRACE, FOLDERS[FileKind.OUTING])
+    at = _compare(_app())
+    assert not at.exception
+    errors = _texts(at.error)
+    assert len(errors) == 1
+    assert "mperf ingest" in errors[0]
+    assert RESULT_KEY not in at.session_state
+
+
+# --- Un fichier de reference/ ---------------------------------------------------------
+
+
+def test_a_file_curve_shows_no_lines() -> None:
+    """Avec un fichier, la page ne montre ni lignes ni avertissement de plus (§ 0
+    règle 2, § 6.5 point 6)."""
+    _copy(REFERENCE, FOLDERS[FileKind.ROUTE])
+    _copy(TRACE, FOLDERS[FileKind.OUTING])
+    _copy(CURVE, "reference")
+    _copy(COMPANION, "reference")
+    at = AppTest.from_function(_page, default_timeout=TIMEOUT_S)
+    at.session_state["sortie.source"] = FILE_SOURCE
+    at.run()
+    at = _compare(at)
+    assert not at.exception
+    assert at.dataframe
+    assert not at.code
+    assert not any(text.startswith("Avertissement : ") for text in _texts(at.warning))
+
+
 # --- La trace datée au-delà d'aujourd'hui + 7 jours -----------------------------------
 
 
@@ -248,6 +292,33 @@ def test_a_trace_beyond_seven_days_has_a_bounded_caption() -> None:
     assert _block(at)[0].startswith(
         "course le 2026-06-20 : au-delà de 7 jours, origine bornée à aujourd'hui "
         "(celle d'une course le 2026-06-17) ; "
+    )
+
+
+def test_the_bounded_origin_follows_today(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Le lendemain, l'origine bornée d'une trace lointaine avance d'un jour : ``today``
+    est dans la clé du cache de l'origine."""
+    folder = data_dir()
+    write_interim(folder)
+    realign(folder)
+    _copy(REFERENCE, FOLDERS[FileKind.ROUTE])
+    _late_trace()
+    at = _compare(_all_the_past(_app()))
+    assert not at.exception
+    bounded = (
+        " (00:00 à Paris, aujourd'hui : la sortie est datée au-delà d'aujourd'hui + 7 "
+        "jours)" + CAPTION_TAIL
+    )
+    assert "Courbe à l'origine du 10/06/2026" + bounded in _texts(at.caption)
+    monkeypatch.setattr(
+        "mountain_perf.runs.now", lambda: datetime(2026, 6, 11, 12, tzinfo=UTC)
+    )
+    at = _compare(at)
+    assert not at.exception
+    assert "Courbe à l'origine du 11/06/2026" + bounded in _texts(at.caption)
+    assert _block(at)[0].startswith(
+        "course le 2026-06-20 : au-delà de 7 jours, origine bornée à aujourd'hui "
+        "(celle d'une course le 2026-06-18) ; "
     )
 
 
