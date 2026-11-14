@@ -49,14 +49,17 @@ modèle que s'il fait baisser l'erreur mesurée, ou avec une justification écri
 
 `just ui` lance une appli Streamlit locale sur le dossier des données (`MPA_DATA_DIR`), à
 ouvrir sur `http://localhost:8501` : le serveur n'écoute que la machine, sans télémétrie. Elle ne calcule rien : ce qu'elle
-montre vient des fonctions mêmes de `mperf` et de la bibliothèque. Quatre pages :
+montre vient des fonctions mêmes de `mperf` et de la bibliothèque. Cinq pages :
 
-- **projection** : un préparé (un GPX) et une courbe donnent le profil avec les
-  passages, la vitesse projetée et le tableau des passages, avec son export CSV ; les
-  réglages sont générés depuis les specs des paramètres du profil et du moteur ;
+- **projection** : un préparé (un GPX) et une courbe (à l'origine de la course par
+  défaut, sur une plage de dates, ou un fichier) donnent le profil avec les passages,
+  la vitesse projetée et le tableau des passages, avec son export CSV ; les réglages
+  sont générés depuis les specs des paramètres du profil et du moteur ;
 - **sortie** : la trace d'une sortie face à son préparé, prévu contre réalisé, l'effort
   effectif et l'écart cumulé aux points ; c'est le contrôle d'une sortie par v0 brut,
   pas une erreur du modèle, dont le chiffre qui fait foi reste celui du backtest ;
+- **La fenêtre** : pourquoi une activité qui finit tout près d'une borne de la fenêtre de
+  la courbe peut ne pas être comptée ; texte seul ;
 - **récupération** (piste analyse) : la table `jours`, six mesures de la nuit et du
   repos, chacune contre sa normale et sa plage, puis le journal de l'athlète et
   l'activité du jour ; exploratoire : aucune alerte, aucun verdict ;
@@ -126,6 +129,7 @@ dans [les pages des commandes](docs/commandes/README.md).
 | [`just curve`](docs/commandes/curve.md) | la courbe allure↔pente personnelle, sur une plage ou à une origine | `MPA_DATA_DIR` |
 | [`just ingest`](docs/commandes/ingest.md) | l'ingestion des exports Garmin dans `interim/` | `MPA_DATA_DIR` |
 | [`just process`](docs/commandes/process.md) | l'ingestion, puis les tables des activités, des montées, des variantes et des jours | `MPA_DATA_DIR` |
+| [`just project`](docs/commandes/project.md) | les temps de passage d'un préparé de `MPA_DATA_DIR/routes/` ; avec `--at`, la courbe à l'origine de la course | `MPA_DATA_DIR` |
 | [`just q1`](docs/commandes/q1.md) | la figure de Q1 | `MPA_DATA_DIR` |
 | [`just ui`](docs/commandes/ui.md) | l'interface | `MPA_DATA_DIR` |
 
@@ -134,7 +138,8 @@ dans [les pages des commandes](docs/commandes/README.md).
 - **Moteur de prédiction** : M0 à M5 livrés — le profil, le moteur v0, le backtest à
   cinq modèles et sa sensibilité, l'interface ; M6b livré, la courbe personnelle
   (`just curve`) ; l'origine glissante commencée : livrés, la règle à
-  l'origine (`just curve --at`) et le backtest glissant (`just backtest-rolling`).
+  l'origine (`just curve --at`), le backtest glissant (`just backtest-rolling`) et les
+  pages à l'origine (`just ui`, `just project --at`).
 - **Piste analyse** : AN0 à AN2 livrés — l'ingestion des activités et des données
   journalières, les tables de `processed/`, la figure de Q1, les pages
   « récupération » et « Q1 » ; AN3 commencée : la FC décalée de chaque montée

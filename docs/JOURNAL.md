@@ -16,6 +16,22 @@ Backtest (à partir de M4) : métrique avant → après.
 
 ---
 
+### 2026-11-13 · OG-UI — L'origine glissante : les pages à l'origine
+Les pages projection et sortie prennent leur courbe à l'origine (par défaut), sur une plage de
+dates, ou dans un fichier de `reference/` ; `mperf project course.gpx --at D` rend la même
+courbe en commande. 7 commits. La règle garde le cache des intervalles, écrit une fois
+(`estimation/origin.py`), et l'empreinte de son index. Les sources de courbe dans `runs.py` (la
+courbe à l'origine, la plage — celle de `mperf curve --from --to`, mise en commun —, la courbe en
+mémoire), les lignes de l'origine et les avertissements dans `reports.py`. La commande, sa recette
+et le hook. Les contrôles de la source, le corpus gardé par le processus, les deux pages, la page
+« La fenêtre ». Aucune courbe n'est écrite par les pages. Les pages des commandes et le README
+disent les pages et la commande.
+Le rapport du mode glissant : l'issue probable compte les performances des paires ; la ligne de
+calage, D3, D6 et le tableau des performances disent « sans courbe » ; le registre refuse un
+instant hors du domaine des dates. 152 tests neufs ; les contre-épreuves et leur table sont dans la
+description de la PR. Les relectures ont ajouté 18 de ces tests (R1 à R12, deux commits) ; leurs
+contre-épreuves sont dans un commentaire de la PR. Branche `ogui/pages-a-l-origine`.
+
 ### 2026-11-13 · AN3-1 — L'inférence de la piste
 Le paquet `analyse/inference/` (`0021`), seul importeur de numpy et de scipy dans `src/`,
 générique (des tableaux et des fonctions, rien sur les montées ni les journées) : MCO et

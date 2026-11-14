@@ -20,6 +20,11 @@ Lu sur l'entrée standard : l'appel d'outil en JSON (``tool_name``, ``tool_input
   sous-commande entre guillemets comprise ; une recette
   ``ui-…``, ``process-…``, ``q1-…`` ou ``curve-…`` est une autre recette, et l'option
   ``--curve`` de ``mperf project`` ou ``mperf match`` n'est pas une sous-commande) ;
+- une commande qui lit les données sans les nommer (OG-UI) : ``just project`` (sa
+  recette prend le préparé sous ``MPA_DATA_DIR``) et ``mperf project … --at`` (la
+  courbe à l'origine lit ``interim/``), sous les mêmes formes (``--a``,
+  qu'``argparse`` complète, et ``'--at'`` entre guillemets compris) ; ``mperf project
+  … --curve`` reste permise ;
 - une commande qui lance l'interface (M5, ``0016``), qui lit et écrit les données :
   ``streamlit run`` sous toutes ses formes (``streamlit.exe``, ``python -m
   streamlit``, ``uv run streamlit``, guillemets, casse, options avant ``run``).
@@ -82,6 +87,12 @@ WRITING_COMMANDS = re.compile(
     r"(?:\s+-\S+(?:\s+[^\s-]\S*)?)*"
     r"\s+[\"']?(?:ingest|backtest-rolling|backtest|tables|process|q1|curve|ui)"
     r"(?![\w-])",
+    re.IGNORECASE,
+)
+READING_COMMANDS = re.compile(
+    r"\bjust(?:\.exe)?[\"']?(?:\s+-\S+(?:\s+[^\s-]\S*)?)*\s+[\"']?project(?![\w-])"
+    r"|\b(?:mperf|mountain_perf\.cli)(?:\.exe)?[\"']?(?:\s+-\S+(?:\s+[^\s-]\S*)?)*"
+    r"\s+[\"']?project(?![\w-])[^\n;&|]*?\s[\"']?--at?(?![\w-])",
     re.IGNORECASE,
 )
 INTERFACE_COMMANDS = re.compile(
@@ -267,6 +278,8 @@ def decide(call: dict[str, object], root: str | None) -> str | None:
         command = _text(tool_input.get("command"), "command")
         if WRITING_COMMANDS.search(command):
             return "commande qui écrit dans les données : rdw la lance lui-même"
+        if READING_COMMANDS.search(command):
+            return "commande qui lit les données : rdw la lance lui-même"
         if INTERFACE_COMMANDS.search(command):
             return "commande qui lance l'interface : rdw la lance lui-même"
         if VARIABLE.lower() in command.lower():

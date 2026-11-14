@@ -19,7 +19,7 @@ Python pur : ni ``analyse/`` ni ``backtest/``.
 from __future__ import annotations
 
 import json
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from enum import StrEnum
@@ -402,7 +402,9 @@ class OriginEstimate:
     - ``data_available_at`` — la plus tardive des fins sûres des candidates ;
     - ``last_retained_end`` — la plus tardive des fins sûres des retenues ;
     - ``history`` — l'historique, selon l'index ;
-    - ``support_threshold_min`` — minutes — le seuil des diagnostics.
+    - ``support_threshold_min`` — minutes — le seuil des diagnostics ;
+    - ``index_sha256`` — sans unité — l'empreinte de l'index du corpus de la règle
+      (OG-UI).
     """
 
     athlete_ref: str
@@ -421,6 +423,7 @@ class OriginEstimate:
     last_retained_end: datetime | None
     history: OriginHistory
     support_threshold_min: float
+    index_sha256: str
 
     @property
     def candidates(self) -> tuple[Inspection, ...]:
@@ -446,6 +449,84 @@ class IntervalsOf(Protocol):
         hr_min_coverage: float,
         max_elapsed_s: float | None,
     ) -> ActivityIntervals | TraceRefusal: ...
+
+
+def intervals_cache(
+    corpus: CurveCorpus,
+) -> Callable[..., ActivityIntervals | TraceRefusal]:
+    """Un cache des intervalles en mémoire, attaché à un corpus (OG-2, PG16 ; dans la
+    règle depuis OG-UI) : une table de ``(activity_ref, recording_sha256, paramètres
+    du profil, hr_lag_s, hr_min_coverage, max_elapsed_s)`` vers ce
+    qu'``activity_intervals`` a rendu — la clé de ``0020`` (« Conséquences »), moins ce
+    que le processus fixe (la version du code, l'environnement). Le backtest glissant
+    le garde le temps d'une préparation ; les pages, le temps d'une session."""
+    store: dict[tuple[object, ...], ActivityIntervals | TraceRefusal] = {}
+
+    def cached(
+        recording: ActivityRecording,
+        profile_parameters: ParameterSet,
+        /,
+        *,
+        hr_lag_s: float,
+        hr_min_coverage: float,
+        max_elapsed_s: float | None,
+    ) -> ActivityIntervals | TraceRefusal:
+        ref = recording.activity_ref
+        key = (
+            ref,
+            corpus.recording_sha256.get(ref),
+            tuple(sorted(profile_parameters.values.items())),
+            hr_lag_s,
+            hr_min_coverage,
+            max_elapsed_s,
+        )
+        if key not in store:
+            store[key] = activity_intervals(
+                recording,
+                profile_parameters,
+                hr_lag_s=hr_lag_s,
+                hr_min_coverage=hr_min_coverage,
+                max_elapsed_s=max_elapsed_s,
+            )
+        return store[key]
+
+    return cached
+
+
+def candidate_intervals(
+    corpus: CurveCorpus,
+    refs: Sequence[str],
+    selection: CurveSelection,
+    parameters: ParameterSet,
+    profile_parameters: ParameterSet,
+    *,
+    intervals_of: IntervalsOf | None = None,
+) -> tuple[ActivityIntervals | TraceRefusal, ...]:
+    """Les intervalles des candidates ``refs``, dans leur ordre (OG-UI) : un appel du
+    fournisseur par candidate, sur son enregistrement du corpus, avec les paramètres de
+    la règle ; ``None`` : :func:`activity_intervals`. Des intervalles d'une autre
+    activité sont refusés (``ContractError``)."""
+    # Le défaut se lit dans le module à l'appel, jamais à la définition (OG-1b, C2).
+    provider = activity_intervals if intervals_of is None else intervals_of
+    found: list[ActivityIntervals | TraceRefusal] = []
+    for ref in refs:
+        recording = corpus.recordings.get(ref)
+        if recording is None:
+            raise ContractError(f"corpus incomplet : l'enregistrement de {ref} manque.")
+        result = provider(
+            recording,
+            profile_parameters,
+            hr_lag_s=parameters["hr_lag_s"],
+            hr_min_coverage=parameters["hr_min_coverage"],
+            max_elapsed_s=selection.max_elapsed_s,
+        )
+        if isinstance(result, ActivityIntervals) and result.activity_ref != ref:
+            raise ContractError(
+                f"intervals_of : les intervalles de {result.activity_ref} rendus pour "
+                f"{ref}."
+            )
+        found.append(result)
+    return tuple(found)
 
 
 def _latest_end(inspections: Iterable[Inspection]) -> datetime | None:
@@ -529,23 +610,20 @@ def estimate_at_origin(
             last_retained,
             history,
             support_threshold_min,
+            corpus.index_sha256,
         )
 
     if not candidates:
         return absence(NO_CANDIDATE)
     refs = [inspection.end.activity_ref for inspection in candidates]
-    # Le défaut se lit dans le module à l'appel, jamais à la définition (OG-1b, C2).
-    provider = activity_intervals if intervals_of is None else intervals_of
-    intervals = [
-        provider(
-            corpus.recordings[ref],
-            profile_parameters,
-            hr_lag_s=parameters["hr_lag_s"],
-            hr_min_coverage=parameters["hr_min_coverage"],
-            max_elapsed_s=selection.max_elapsed_s,
-        )
-        for ref in refs
-    ]
+    intervals = candidate_intervals(
+        corpus,
+        refs,
+        selection,
+        parameters,
+        profile_parameters,
+        intervals_of=intervals_of,
+    )
     estimated = estimate_curve_outcome(
         intervals,
         refs,
@@ -583,6 +661,7 @@ def estimate_at_origin(
         last_retained,
         history,
         support_threshold_min,
+        corpus.index_sha256,
     )
 
 
@@ -661,11 +740,21 @@ def origin_document(result: OriginEstimate, corpus: CurveCorpus) -> dict[str, ob
     }
 
 
+def _check_index(result: OriginEstimate, corpus: CurveCorpus) -> None:
+    """Le corpus est celui de la règle : la même empreinte d'index (OG-UI)."""
+    if corpus.index_sha256 != result.index_sha256:
+        raise ContractError(
+            f"corpus : son index ({corpus.index_sha256[:12]}) n'est pas celui de la "
+            f"règle ({result.index_sha256[:12]})."
+        )
+
+
 def origin_absence_document(result: OriginEstimate, corpus: CurveCorpus) -> bytes:
     """Le document d'une courbe absente à l'origine (OG-2) : l'athlète, l'issue, sa
     raison, le seuil des diagnostics et la section ``origin`` d'un compagnon
     (:func:`origin_document`) ; les paramètres et la sélection sont au document de règle
-    de l'exécution."""
+    de l'exécution. Un corpus d'un autre athlète ou d'un autre index (OG-UI) est refusé
+    (``ContractError``)."""
     if result.estimate is not None:
         raise ContractError("result : une courbe n'est pas une absence.")
     if corpus.athlete_ref != result.athlete_ref:
@@ -673,6 +762,7 @@ def origin_absence_document(result: OriginEstimate, corpus: CurveCorpus) -> byte
             f"corpus : celui de {corpus.athlete_ref!r}, la règle a été rendue pour "
             f"{result.athlete_ref!r}."
         )
+    _check_index(result, corpus)
     document = {
         "athlete_ref": result.athlete_ref,
         "outcome": result.outcome.value,
@@ -697,8 +787,9 @@ def origin_companion(
     """La provenance et le document d'estimation d'une courbe à l'origine, ceux que
     ``mperf curve --at`` écrit (OG-1b) : une fonction pure ; l'appelant donne le commit
     et l'instant de l'estimation. ``corpus``, ``selection``, ``parameters`` et
-    ``profile_parameters`` sont ceux passés à :func:`estimate_at_origin` ; seul
-    l'athlète se vérifie."""
+    ``profile_parameters`` sont ceux passés à :func:`estimate_at_origin` ; l'athlète et
+    l'empreinte de l'index se vérifient (OG-UI : un autre index, ou un corpus dont
+    l'index n'a aucune des retenues, ``ContractError``)."""
     estimate = result.estimate
     if estimate is None:
         raise ContractError("result : une absence n'a pas de compagnon.")
@@ -707,8 +798,12 @@ def origin_companion(
             f"corpus : celui de {corpus.athlete_ref!r}, la règle a été rendue pour "
             f"{result.athlete_ref!r}."
         )
+    _check_index(result, corpus)
     days = retained_start_days(result, corpus)
-    assert days is not None  # une tranche estimée a une activité retenue
+    if days is None:
+        raise ContractError(
+            "corpus : aucune activité retenue par la règle n'est à son index."
+        )
     retained = set(estimate.activity_refs)
     # L'entrée et l'enregistrement d'une activité peuvent venir de deux exports
     # (0013, précision 16) ; estimation_document les dédoublonne et les trie.

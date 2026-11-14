@@ -1031,7 +1031,8 @@ _CONDITION = "(0010, précision OG-2, condition {})"
 def _moment(text: object, where: str) -> datetime | None:
     """Un instant écrit au compagnon (``isoformat`` en UTC), ``None`` pour ``null`` ;
     un texte illisible, ou un instant sans fuseau (que ``astimezone`` lirait à l'heure
-    de la machine qui relit) : ``RegistryError``."""
+    de la machine qui relit) : ``RegistryError`` ; un instant à fuseau hors du domaine
+    des dates une fois ramené en UTC (« 0001-01-01T00:00:00+01:00 ») aussi (OG-UI)."""
     if text is None:
         return None
     if not isinstance(text, str):
@@ -1042,7 +1043,12 @@ def _moment(text: object, where: str) -> datetime | None:
         raise RegistryError(f"{where}instant illisible {text!r}") from None
     if moment.tzinfo is None:
         raise RegistryError(f"{where}instant sans fuseau {text!r}")
-    return moment.astimezone(UTC)
+    try:
+        return moment.astimezone(UTC)
+    except OverflowError:
+        raise RegistryError(
+            f"{where}instant hors du domaine des dates {text!r}"
+        ) from None
 
 
 def _decision_of(

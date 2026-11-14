@@ -70,9 +70,16 @@ q1:
 curve name *options:
     uv run mperf curve "{{name}}" {{options}}
 
+# La projection d'un préparé de MPA_DATA_DIR/routes/ avec la courbe à l'origine d'une
+# course (OG-UI, docs/decisions/0020) : la courbe se calcule en mémoire depuis interim/,
+# rien n'est écrit. Exemple : just project course.gpx --at 2026-06-20 ; --window 28 ou
+# all après la date (mperf project --help) ; refusée à Claude Code par le hook.
+project route *options:
+    uv run mperf project "{{env_var('MPA_DATA_DIR')}}/routes/{{route}}" {{options}}
+
 # L'interface (M5, docs/decisions/0016) : une appli Streamlit locale, sur MPA_DATA_DIR
-# (routes/, sorties/, reference/ ; processed/ et resultats/Q1/ pour les pages de la
-# piste), avec les extras tableau et analyse ; à ouvrir sur
+# (routes/, sorties/, reference/, interim/ ; processed/ et resultats/Q1/ pour les
+# pages de la piste), avec les extras tableau et analyse ; à ouvrir sur
 # http://localhost:8501. Serveur local seulement, sans télémétrie :
 # .streamlit/config.toml, lu depuis la racine, où just lance ses recettes.
 ui:

@@ -167,3 +167,22 @@ ouvre l'extra `tableau`.
   `fit-x` (en largeur étirée, Streamlit ferait tenir toute la figure dans sa hauteur) ;
   des noms de couche uniques sur la page (deux couches du même nom mêlent leurs
   données) ; la virgule décimale (`config.locale`).
+
+## OG-UI — la courbe à l'origine sur les pages (2026-11-13)
+
+Les pages projection et sortie proposent trois sources de courbe : à l'origine (par défaut), sur
+une plage de dates, ou un fichier de `reference/`. À l'origine, la courbe est celle de la règle de
+`0020` au jour de la course (la page projection) ou de la sortie (la page sortie), sur la fenêtre
+choisie (56 jours par défaut) ; au-delà d'aujourd'hui + 7 jours, l'origine est bornée à aujourd'hui,
+et la page le dit. Sur une plage, la courbe est une description, pas une prévision. Aucune page
+n'écrit de courbe : la courbe est en mémoire, relue de ses octets canoniques ; le corpus de
+l'athlète et le cache des intervalles sont gardés par le processus de l'appli
+(`st.cache_resource`), et rechargés quand l'index d'`interim/` change. Avec une courbe à l'origine
+ou d'une plage, la page dit les lignes de l'origine (ou de la plage), la plage de support et la part
+du temps prévu hors support, et avertit au-delà de 50 % ; à l'origine, aussi quand l'athlète a moins
+de 20 sorties à pied passées.
+Avec un fichier, elle se comporte comme avant. Une page de texte, « La fenêtre », dit pourquoi une
+activité en bordure de fenêtre peut ne pas être comptée.
+La commande `mperf project course.gpx --at D` rend la courbe et la projection de la page
+projection, mais ne lit que le corpus de son origine ; la page lit une fois tout le corpus de
+l'athlète : un enregistrement illisible, de n'importe quelle date, l'arrête.

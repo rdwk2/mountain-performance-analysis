@@ -10,7 +10,6 @@ from __future__ import annotations
 import argparse
 import contextlib
 import csv
-import dataclasses
 import io
 import math
 import os
@@ -110,7 +109,6 @@ from mountain_perf.estimation.origin import (
     OriginEstimate,
     OriginOutcome,
     OriginWindow,
-    TemporalDecision,
     cold_start_warning,
     estimate_at_origin,
     origin_companion,
@@ -126,7 +124,9 @@ from mountain_perf.gpx import (
     read_gpx,
 )
 from mountain_perf.gpx.trace_reader import TraceError
+from mountain_perf.ingest.interim import InterimError
 from mountain_perf.model import (
+    PROJECTION_PARAMETER_SPECS,
     CurveError,
     CurveReadResult,
 )
@@ -139,12 +139,27 @@ from mountain_perf.outing_views import (
     clock_label,
     point_name,
 )
-from mountain_perf.reports import grid_lines, passage_lines, projection_summary_lines
+from mountain_perf.reports import (
+    curve_warnings,
+    grid_lines,
+    origin_curve_lines,
+    origin_summary_lines,
+    paris_minute,
+    passage_lines,
+    projection_summary_lines,
+)
 from mountain_perf.runs import (
+    FOLDER_ATHLETE,
     check_outing,
+    course_origin,
+    curve_selection,
     load_curve_corpus,
+    load_range_corpus,
     match_outing,
+    origin_curve,
     project_route,
+    range_companion,
+    range_estimate,
 )
 from mountain_perf.schemas import (
     BAND_LABEL,
@@ -166,6 +181,7 @@ from mountain_perf.schemas import (
     ClockScores,
     ClockTotals,
     ConfigurationOutcome,
+    Coverage,
     CurveStatus,
     DataSet,
     Declaration,
@@ -1187,9 +1203,13 @@ def _aggregate_lines(rows: Sequence[AggregateRow], *, with_missing: bool) -> lis
     return lines
 
 
-def _performance_lines(run: _Run) -> list[str]:
+def _performance_lines(
+    run: _Run, *, no_curve: Mapping[str, Coverage] | None = None
+) -> list[str]:
     """Le tableau ``performances`` : une ligne par sortie déclarée, colonnes de
-    largeur fixe (§ 6.3 du brief M4b-5)."""
+    largeur fixe (§ 6.3 du brief M4b-5) ; une sortie de ``no_curve`` (mode glissant,
+    OG-UI) a la couverture et le préfixe de son appariement, et « sans courbe » pour
+    ``L v0`` et ``q_usage v0``."""
     scored = {outing.outing.outing_id: outing for outing in run.outings}
     unscored = {exclusion.outing_id: exclusion.reason for exclusion in run.unscored}
     header = (
@@ -1208,6 +1228,15 @@ def _performance_lines(run: _Run) -> list[str]:
             )
             if outing.outing_id in unscored:
                 line = f"{start}non scorée : {unscored[outing.outing_id]}"
+                if performance.is_multi_outing:
+                    line += " (jour multi-sorties)"
+                lines.append(line)
+                continue
+            if no_curve is not None and outing.outing_id in no_curve:
+                covered = no_curve[outing.outing_id]
+                share = _coverage_percent(covered.fraction)
+                prefix = f"{covered.prefix_end_m / 1000:.2f} km"
+                line = f"{start}{share:<12}{prefix:<11}{'sans courbe':<12}sans courbe"
                 if performance.is_multi_outing:
                     line += " (jour multi-sorties)"
                 lines.append(line)
@@ -1809,9 +1838,13 @@ def _subclass_count(count: int, subclass: DescentSubclass, under: bool) -> str:
     return text
 
 
-def _descent_lines(run: _Run, threshold: float) -> list[str]:
+def _descent_lines(
+    run: _Run, threshold: float, *, no_curve: Sequence[str] = ()
+) -> list[str]:
     """Les sous-classes de descente de chaque sortie scorée, puis leur total
-    (précision de D6, M4b-5 ; diagnostic, ni cible ni garde-fou)."""
+    (précision de D6, M4b-5 ; diagnostic, ni cible ni garde-fou) ; une ligne
+    « indisponible » par sortie sans courbe de ``no_curve`` (OG-UI), que le total ne
+    compte pas."""
     lines = [
         f"{'descentes':<13}roulantes et raides au seuil {threshold:.2f} (0010 D6) ; "
         "diagnostic, ni cible ni garde-fou"
@@ -1860,6 +1893,10 @@ def _descent_lines(run: _Run, threshold: float) -> list[str]:
                 _row(f"{label} D_R", [_label(m.dispersion, _plain) for m in by_clock]),
                 _row(f"{label} E_R−L", [_label(m.shape, _log) for m in by_clock]),
             ]
+    lines += [
+        f"{_INDENT}{outing_id} — 0010 D6 : indisponible (sans courbe)"
+        for outing_id in no_curve
+    ]
     lines.append(
         f"{_INDENT}total : "
         + ", ".join(
@@ -1870,32 +1907,32 @@ def _descent_lines(run: _Run, threshold: float) -> list[str]:
     return lines
 
 
-def _geometry_lines(run: _Run) -> list[str]:
+def _geometry_lines(run: _Run, *, no_curve: Sequence[str] = ()) -> list[str]:
     """Le diagnostic de géométrie de chaque sortie scorée (précision de D3, M4b-5) :
-    ``G`` et ses quatre classes, ou « sans référence »."""
+    ``G`` et ses quatre classes, ou « sans référence » ; puis « sans courbe » pour
+    chaque sortie de ``no_curve`` (OG-UI)."""
     lines = [
         f"{'géométrie':<13}usage − contrôle = ln(ΣP_usage / ΣP_contrôle) sur le "
         "support admis (0010 D3), v0 brut"
     ]
     header = ["G", *(REGIME_CLASS_LABELS[regime] for regime in RegimeClass)]
-    rows: list[tuple[str, list[str] | None]] = []
+    rows: list[tuple[str, list[str] | str]] = []
     for outing in run.outings:
         diagnostic = geometry_diagnostic(outing.scores)
         if diagnostic is None:
-            rows.append((outing.outing.outing_id, None))
+            rows.append((outing.outing.outing_id, "sans référence"))
             continue
         values = [diagnostic.total, *diagnostic.classes]
         rows.append((outing.outing.outing_id, [_label(v, _log) for v in values]))
+    rows += [(outing_id, "sans courbe") for outing_id in no_curve]
     names = max([16, *(len(name) + 2 for name, _ in rows)])
-    cells = [*header, *(c for _, row in rows if row is not None for c in row)]
+    cells = [*header, *(c for _, row in rows if isinstance(row, list) for c in row)]
     width = max(20, max(len(c) for c in cells) + 2)
     lines.append(
         (_INDENT + " " * names + "".join(f"{h:<{width}}" for h in header)).rstrip()
     )
     for name, row in rows:
-        shown = (
-            "sans référence" if row is None else "".join(f"{c:<{width}}" for c in row)
-        )
+        shown = row if isinstance(row, str) else "".join(f"{c:<{width}}" for c in row)
         lines.append((_INDENT + f"{name:<{names}}" + shown).rstrip())
     return lines
 
@@ -2644,6 +2681,70 @@ def _run_project(args: argparse.Namespace) -> None:
             print(line)
 
 
+def _run_project_at(args: argparse.Namespace) -> int:
+    """``mperf project <fichier.gpx> --at D [--window W]`` (OG-UI) : la projection avec
+    la courbe à l'origine de la course du jour ``D``. Dans cet ordre :
+
+    1. les deux jeux de paramètres, contrôlés ;
+    2. ``MPA_DATA_DIR``, l'instant présent, l'origine de la course (bornée au-delà
+       d'aujourd'hui + 7 jours) et la fenêtre (56 jours par défaut) ;
+    3. le corpus de cette seule origine, puis la courbe à l'origine ;
+    4. une absence : les lignes de l'origine (sur la sortie d'erreur avec ``--csv``),
+       puis l'erreur, code 1 ;
+    5. la projection, avant toute impression : une erreur ici n'a rien imprimé ;
+    6. sans ``--csv`` : les lignes de l'origine, la synthèse, les avertissements, les
+       passages ; avec ``--csv`` : les lignes de l'origine et les avertissements sur
+       la sortie d'erreur, le CSV seul sur la sortie standard.
+
+    La courbe reste en mémoire ; rien n'est écrit.
+    """
+    profile_values = _given(args, _PROFILE_OPTIONS)
+    projection_values = _given(args, _PROJECTION_OPTIONS)
+    ParameterSet(PROFILE_PARAMETER_SPECS, profile_values)
+    ParameterSet(PROJECTION_PARAMETER_SPECS, projection_values)
+    folder = data_dir()
+    moment = _now()
+    course = course_origin(args.at, civil_date(moment))
+    window = DEFAULT_WINDOW_DAYS if args.window is None else args.window
+    corpus = load_curve_corpus(
+        folder,
+        FOLDER_ATHLETE,
+        curve_selection().source_activity_types,
+        course.origin,
+        window,
+    )
+    found = origin_curve(corpus, course, window, generated_at=moment)
+    notes = sys.stderr if args.csv else sys.stdout
+    if found.curve is None:
+        for line in origin_curve_lines(found):
+            print(line, file=notes)
+        print(
+            f"Erreur : aucune courbe à l'origine : {found.result.absence_reason}",
+            file=sys.stderr,
+        )
+        return 1
+    run = project_route(args.path, found.curve, profile_values, projection_values)
+    warnings = [
+        f"avertissement : {warning}"
+        for warning in curve_warnings(
+            found.result.history, run.diagnostics.out_of_support_time_share
+        )
+    ]
+    if args.csv:
+        for line in (*origin_curve_lines(found), *warnings):
+            print(line, file=sys.stderr)
+        write_passages_csv(run.projection, sys.stdout)
+        return 0
+    for line in (
+        *origin_curve_lines(found),
+        *projection_summary_lines(run),
+        *warnings,
+        *passage_lines(run.projection),
+    ):
+        print(line)
+    return 0
+
+
 def _run_match(args: argparse.Namespace) -> None:
     # La courbe est lue avant toute sortie : une erreur de lecture laisse stdout vide.
     match = match_outing(
@@ -2859,8 +2960,8 @@ E15_HYPOTHESIS = (
 MDE_TEXT = (
     "Plus petit écart de |L| détectable à 80 % (test t apparié bilatéral à 5 %, "
     "écart-type 0,0253 des différences mesuré chez rdw, 56 − 28 jours, n = 11) : "
-    "{mde:.3f} avec {n} performances couvertes sous tous les W. Le banc mesure, à "
-    "support égal, des écarts de 0,013 au plus."
+    "{mde:.3f} avec {n} performances couvertes sous tous les W et lues en usage (v0 "
+    "brut, écoulé). Le banc mesure, à support égal, des écarts de 0,013 au plus."
 )
 
 PAIR_COUNT_WORDS = {1: "une paire lue", 2: "deux paires lues", 3: "trois paires lues"}
@@ -2956,35 +3057,27 @@ def _rolling_performance_lines(run: _RollingRun, reading: float) -> list[str]:
 
 def _rolling_outing_lines(run: _RollingRun) -> list[str]:
     """Le tableau ``performances`` (§ 6.3 du brief M4b-5) ; une sortie d'une
-    performance sans courbe le dit (choix C12)."""
-    no_curve = {item.traced.outing.outing_id for item in run.evaluation.no_curve}
-    lines = []
-    for line in _performance_lines(
-        dataclasses.replace(
-            run,
-            unscored=(
-                *run.unscored,
-                *(
-                    Exclusion(
-                        outing_id,
-                        "sans courbe : v0 brut et v0 + effort recalé ne la scorent pas",
-                    )
-                    for outing_id in sorted(no_curve)
-                ),
-            ),
-        )
-    ):
-        lines.append(line)
-    return lines
+    performance sans courbe a sa couverture et son préfixe, et « sans courbe » pour v0
+    (OG-UI)."""
+    return _performance_lines(
+        run,
+        no_curve={
+            item.traced.outing.outing_id: item.traced.match.coverage
+            for item in run.evaluation.no_curve
+        },
+    )
 
 
 def _rolling_calibration_lines(run: _RollingRun) -> list[str]:
-    """La ligne de calage (précision de D15, M4c-2), puis les contributeurs de chaque
-    performance (§ 6.9 (a) 5) ; sans courbe, « sans courbe » pour v0 et la population
-    publiée."""
+    """La ligne de calage (précision de D15, M4c-2), celle du mode déclaré plus ce
+    que le mode glissant ajoute (OG-UI) : ``|C_j^eff|`` lu sur le premier modèle calé
+    de la première sortie, les notes « contrôle » et « jour multi-sorties » ; puis les
+    contributeurs de chaque performance (§ 6.9 (a) 5) ; sans courbe, « sans courbe »
+    pour v0 et la population publiée."""
     lines = [
-        f"{'calage':<13}0010 D9.2 sur C_j, calage (a) avec κ_j ; écoulé, usage "
-        "(contrôle sans référence) ; e : effort de v0, a : facteur",
+        f"{'calage':<13}0010 D9.2 sur C_j (entraînements terminés avant o_j) ; écoulé, "
+        "usage (contrôle sans référence) ; e : effort de v0, a : facteur ; calage (a) "
+        "avec κ_j",
         (
             _INDENT
             + f"{'jour':<12}{'C_j':<5}{'C_j^eff':<9}"
@@ -2996,6 +3089,10 @@ def _rolling_calibration_lines(run: _RollingRun) -> list[str]:
         d.performance.civil_date: [
             (o.outing_id, o.activity_refs) for o in d.performance.outings
         ]
+        for d in declaration.performances
+    }
+    multi = {
+        d.performance.civil_date: d.performance.is_multi_outing
         for d in declaration.performances
     }
     for index, performance in enumerate(run.calibration):
@@ -3024,10 +3121,18 @@ def _rolling_calibration_lines(run: _RollingRun) -> list[str]:
             scores = entry.control if control else entry.usage
             assert scores is not None
             calibration = scores.clocks[0].calibration
-            effective = str(len(calibration.population))
+            if effective == "—":
+                effective = str(len(calibration.population))
             cells.append(_calibration_cell(calibration))
         line = f"{start}{effective:<9}" + "".join(f"{c:<20}" for c in cells)
-        line = line.rstrip() + (" (contrôle)" if control else "")
+        line = line.rstrip()
+        notes = []
+        if control:
+            notes.append("contrôle")
+        if multi.get(day, False):
+            notes.append(f"jour multi-sorties, {first}")
+        if notes:
+            line += f" ({' ; '.join(notes)})"
         lines.append(line)
         terms = run.evaluation.terms[index]
         curve = run.curves[index]
@@ -3150,7 +3255,7 @@ def _unmatched_line(declaration: Declaration) -> str:
         for o in d.performance.outings
         if not o.activity_refs
     ]
-    return f"{'correspondance':<13}sorties sans correspondance : {len(names)}" + (
+    return f"{'activités':<13}sorties sans correspondance : {len(names)}" + (
         f" ({', '.join(names)})" if names else ""
     )
 
@@ -3235,8 +3340,9 @@ def _rolling_report_body(run: _RollingRun, threshold: float) -> list[str]:
     lines += _band_aggregate_lines(entries)
     for route_id, reference in run.references:
         lines += _reference_lines(route_id, reference)
-    lines += _descent_lines(run, threshold)
-    lines += _geometry_lines(run)
+    no_curve = sorted(item.traced.outing.outing_id for item in run.evaluation.no_curve)
+    lines += _descent_lines(run, threshold, no_curve=no_curve)
+    lines += _geometry_lines(run, no_curve=no_curve)
     declaration = run.preparation.declaration
     for outing in run.outings:
         index = next(
@@ -3333,16 +3439,6 @@ def _comparison_report(
             for label, found in zip(labels, sets.beyond, strict=True)
         ),
     ]
-    n = len(sets.covered_under_all)
-    mde = minimum_detectable_effect(n)
-    lines.append(
-        f"{'issue':<13}"
-        + (
-            "Issue probable : indisponible (n < 2)."
-            if mde is None
-            else MDE_TEXT.format(mde=mde, n=n)
-        )
-    )
     views = [_rolling_view(w.evaluation, manifest) for w in windows]
     values = []
     scores = []
@@ -3357,6 +3453,23 @@ def _comparison_report(
             }
         )
         scores.append({e.civil_date: e.scores for e in entries})
+    # L'issue ne lit que la disponibilité de |L| sous chaque W, jamais sa valeur
+    # (OG-UI, R1 : le n des paires).
+    level = (ReportMetric.ABS_LEVEL, None)
+    n = sum(
+        1
+        for d in sets.covered_under_all
+        if all(not isinstance(found[d][level], str) for found in values)
+    )
+    mde = minimum_detectable_effect(n)
+    lines.append(
+        f"{'issue':<13}"
+        + (
+            "Issue probable : indisponible (n < 2)."
+            if mde is None
+            else MDE_TEXT.format(mde=mde, n=n)
+        )
+    )
     all_index = next((k for k, r in enumerate(rollings) if r.window_days is None), None)
     metrics: list[tuple[str, tuple[ReportMetric, RegimeClass | None]]] = [
         ("|L|", (ReportMetric.ABS_LEVEL, None)),
@@ -4057,11 +4170,6 @@ def _window_argument(text: str) -> OriginWindow:
     return int(text)
 
 
-def _paris(moment: datetime) -> str:
-    """L'instant à Paris, à la minute."""
-    return moment.astimezone(PARIS).strftime("%Y-%m-%d %H:%M")
-
-
 def _curve_mode_error(args: argparse.Namespace) -> str | None:
     """Ce qui ne va pas dans le choix des activités de ``mperf curve`` : une plage de
     dates ou une origine, et ``--window`` seulement avec une origine (OG-1)."""
@@ -4080,35 +4188,12 @@ def _curve_mode_error(args: argparse.Namespace) -> str | None:
 
 
 def _print_origin_summary(result: OriginEstimate, day: date) -> None:
-    """Les lignes de l'origine, avant le résumé de ``mperf curve`` : l'origine et sa
-    fenêtre, les décisions (zéros compris), les dernières fins s'il y a une candidate,
-    l'historique selon l'index, l'avertissement du démarrage à froid s'il y en a un."""
-    window = (
-        "fenêtre tout le passé"
-        if result.lower_bound is None
-        else (
-            f"fenêtre {result.window} jours, fins depuis le "
-            f"{_paris(result.lower_bound)} à Paris"
-        )
-    )
-    print(f"jour {day} : origine {_paris(result.origin)} à Paris ; {window}")
-    decisions = Counter(inspection.decision for inspection in result.inspections)
-    details = ", ".join(f"{d.value} {decisions[d]}" for d in TemporalDecision)
-    print(f"activités inspectées : {len(result.inspections)} ({details})")
-    if result.data_available_at is not None:
-        last = result.last_retained_end
-        print(
-            f"  dernières fins, à Paris : candidate {_paris(result.data_available_at)} "
-            f"; retenue {'aucune' if last is None else _paris(last)}"
-        )
-    history = result.history
-    print(
-        f"historique à l'origine, selon l'index : {history.foot_index_finished} "
-        f"sorties à pied finies ({history.foot_without_index_elapsed} sans écoulé), "
-        f"{history.selected_index_finished} des types choisis "
-        f"({history.selected_without_index_elapsed} sans écoulé)"
-    )
-    warning = cold_start_warning(history)
+    """Les lignes de l'origine, avant le résumé de ``mperf curve`` : celles de
+    :func:`~mountain_perf.reports.origin_summary_lines` (OG-UI), puis l'avertissement
+    du démarrage à froid s'il y en a un."""
+    for line in origin_summary_lines(result, day):
+        print(line)
+    warning = cold_start_warning(result.history)
     if warning is not None:
         print(f"avertissement : {warning}")
 
@@ -4169,8 +4254,8 @@ def _run_curve(args: argparse.Namespace) -> int:
     origin_instant = None if args.at is None else civil_origin(args.at)
     if origin_instant is not None and origin_instant > _now():
         print(
-            f"Erreur : l'origine du jour {args.at} ({_paris(origin_instant)} à Paris) "
-            "est dans le futur : la règle ne lit que le passé.",
+            f"Erreur : l'origine du jour {args.at} ({paris_minute(origin_instant)} à "
+            "Paris) est dans le futur : la règle ne lit que le passé.",
             file=sys.stderr,
         )
         return 1
@@ -4179,14 +4264,10 @@ def _run_curve(args: argparse.Namespace) -> int:
         CURVE_ESTIMATION_PARAMETER_SPECS,
         BinValue,
         CurveSelection,
+        NoCurve,
         curve_file_rows,
-        curve_provenance,
-        estimate_curve,
-        estimation_document,
-        select_candidates,
     )
-    from mountain_perf.estimation.intervals import activity_intervals
-    from mountain_perf.ingest.interim import InterimError, read_index, read_recording
+    from mountain_perf.ingest.interim import InterimError
     from mountain_perf.model.curve_io import (
         CURVE_PARAMETER_SPECS,
         META_SUFFIX,
@@ -4278,81 +4359,32 @@ def _run_curve(args: argparse.Namespace) -> int:
                 generated_at=_now(),
             )
         else:
-            # ValueError : CodecError et ContractError en sont, et seuls les modules de
-            # documents importent le codec commun (tests/test_codec.py).
-            try:
-                index = read_index(folder)
-            except ValueError as error:
-                raise CurveError(
-                    f"index d'interim/ : {error} ; relancer `mperf ingest`."
-                ) from error
-            entries = select_candidates(index, selection)
-            if not entries:
-                raise CurveError(
-                    "aucune activité candidate : aucun enregistrement des types "
-                    "demandés dans la fenêtre."
-                )
-            candidates = []
-            recorded_at = []
-            for entry in entries:
-                try:
-                    recording = read_recording(folder, entry.activity_ref)
-                except ValueError as error:
-                    raise CurveError(
-                        f"activité {entry.activity_ref} : {error} ; relancer `mperf "
-                        "ingest`."
-                    ) from error
-                recorded_at.append(recording.source.retrieved_at)
-                candidates.append(
-                    activity_intervals(
-                        recording,
-                        profile,
-                        hr_lag_s=parameters["hr_lag_s"],
-                        hr_min_coverage=parameters["hr_min_coverage"],
-                        max_elapsed_s=selection.max_elapsed_s,
-                    )
-                )
-            estimate = estimate_curve(
-                candidates,
-                [entry.activity_ref for entry in entries],
+            # La plage, en bibliothèque (OG-UI, C4) : le corpus de ses candidates (sans
+            # candidate, refusé avant toute lecture d'enregistrement), l'estimation de
+            # 0017, la provenance et le document d'estimation.
+            range_corpus = load_range_corpus(folder, args.athlete, selection)
+            entries, outcome = range_estimate(
+                range_corpus,
                 selection,
                 parameters,
+                profile,
                 support_threshold_min=support_threshold_min,
             )
+            if isinstance(outcome, NoCurve):
+                raise CurveError(outcome.reason)
+            estimate = outcome
             rows = curve_file_rows(estimate)
             support_error = check_curve_rows(rows, support_threshold_min)
-            retained = set(estimate.activity_refs)
-            # L'entrée et l'enregistrement d'une activité peuvent venir de deux exports
-            # (0013, précision 16) : la courbe est choisie sur l'une, mesurée sur
-            # l'autre.
-            exports = [
-                instant
-                for entry, recorded in zip(entries, recorded_at, strict=True)
-                if entry.activity_ref in retained
-                for instant in (entry.source.retrieved_at, recorded)
-            ]
-            provenance = curve_provenance(
+            provenance, document = range_companion(
                 estimate,
-                selection,
-                parameters,
-                date_from=args.date_from,
-                date_to=args.date_to,
-                estimator=(
-                    "mperf curve (M6b) : intervalles de la grille du profil, temps M "
-                    f"θc, tranches variables, valeur {selection.value.value}"
-                ),
-                generated_at=_now(),
-                athlete_ref=args.athlete,
-                support_threshold_min=support_threshold_min,
-            )
-            document = estimation_document(
-                estimate,
+                entries,
+                range_corpus,
                 selection,
                 parameters,
                 profile,
                 commit=state.commit,
-                exports_retrieved_at=exports,
-                support_error=support_error,
+                generated_at=_now(),
+                support_threshold_min=support_threshold_min,
             )
         target.parent.mkdir(parents=True, exist_ok=True)
         write_curve(target, rows, Sport.FOOT, provenance, document)
@@ -4423,10 +4455,30 @@ def main(argv: Sequence[str] | None = None) -> int:
     profile_parser.add_argument(
         "--csv", action="store_true", help="Grille CSV sur stdout"
     )
-    # --curve est exigé, mais pas par argparse : sa sortie d'usage vaut 2, et le
-    # contrat de la commande est de renvoyer 1 sur une erreur d'entrée.
-    project_parser.add_argument(
+    # --curve ou --at est exigé, mais pas par argparse : sa sortie d'usage vaut 2, et
+    # le contrat de la commande est de renvoyer 1 sur une erreur d'entrée ; les deux
+    # ensemble, l'erreur d'argparse (OG-UI).
+    project_curve = project_parser.add_mutually_exclusive_group()
+    project_curve.add_argument(
         "--curve", type=Path, metavar="fichier.csv", help="Courbe allure↔pente"
+    )
+    project_curve.add_argument(
+        "--at",
+        type=date.fromisoformat,
+        metavar="AAAA-MM-JJ",
+        help=(
+            "Jour de la course : la courbe à l'origine, sur les activités finies avant "
+            "00:00 à Paris de ce jour moins 7 jours ; au-delà d'aujourd'hui + 7 jours, "
+            "l'origine est bornée à aujourd'hui (OG-UI ; exclut --curve)"
+        ),
+    )
+    project_parser.add_argument(
+        "--window",
+        type=_window_argument,
+        metavar="JOURS|all",
+        help=(
+            "Fenêtre de la courbe à l'origine, en jours ou all (défaut 56 ; avec --at)"
+        ),
     )
     for option, parameter in _PROJECTION_OPTIONS.items():
         project_parser.add_argument(option, dest=parameter, type=float, metavar="F")
@@ -4642,13 +4694,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="Valeur d'une tranche : (a) somme / somme, (b) médiane des activités",
     )
     args = parser.parse_args(argv)
-    if args.command == "project" and args.curve is None:
+    if args.command == "project" and args.curve is None and args.at is None:
         print(project_parser.format_usage(), file=sys.stderr, end="")
         print(
-            "Erreur : --curve est obligatoire. Une courbe implicite rendrait la "
-            "projection non reproductible.",
+            "Erreur : --curve ou --at est obligatoire. Une courbe implicite "
+            "rendrait la projection non reproductible.",
             file=sys.stderr,
         )
+        return 1
+    if args.command == "project" and args.window is not None and args.at is None:
+        print("Erreur : --window demande --at.", file=sys.stderr)
         return 1
     if args.command == "backtest" and args.rolling is None:
         for name, option in ROLLING_OPTIONS:
@@ -4678,6 +4733,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 return _run_rolling(args)
             return _run_backtest(args)
         if args.command == "project":
+            if args.at is not None:
+                return _run_project_at(args)
             _run_project(args)
         elif args.command == "match":
             # Contrôlé toujours, avant toute sortie (0010 D3 ; § 6.7 du brief M4b-2).
@@ -4698,6 +4755,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         BacktestError,
         ManifestError,
         RegistryError,
+        InterimError,
     ) as error:
         print(f"Erreur : {error}", file=sys.stderr)
         return 1

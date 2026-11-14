@@ -21,6 +21,7 @@ from mountain_perf.config import DATA_DIR_ENV_VAR, data_dir
 from mountain_perf.data_files import FileKind
 from mountain_perf.reports import projection_summary_lines
 from mountain_perf.runs import RouteProjection, project_route
+from mountain_perf.ui.components import FILE_SOURCE
 
 APP = Path(mountain_perf.__file__).parent / "ui" / "app.py"
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -46,7 +47,9 @@ COLUMNS = [
 
 
 def _app() -> AppTest:
-    return AppTest.from_file(APP, default_timeout=TIMEOUT_S).run()
+    at = AppTest.from_file(APP, default_timeout=TIMEOUT_S)
+    at.session_state["source"] = FILE_SOURCE
+    return at.run()
 
 
 def _with_route() -> Path:
