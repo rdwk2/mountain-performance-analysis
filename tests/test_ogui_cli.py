@@ -35,6 +35,7 @@ from mountain_perf.runs import (
     RouteProjection,
     course_origin,
     curve_selection,
+    load_athlete_corpus,
     load_curve_corpus,
     origin_curve,
     project_route,
@@ -44,6 +45,9 @@ from test_og1_cli_at import realign
 
 NOW = datetime(2024, 4, 1, 12, tzinfo=UTC)
 TODAY = date(2024, 4, 1)
+EVENING = datetime(2024, 4, 1, 22, 30, tzinfo=UTC)
+"""22:30 UTC le 1er avril 2024, 00:30 à Paris le 2 (heure d'été depuis le 31 mars) :
+le jour à Paris est le 2 avril, le jour UTC le 1er."""
 FIXTURES = Path(__file__).parent / "fixtures"
 ROUTE = FIXTURES / "mini_11.gpx"
 FOLLOWED = FIXTURES / MATCH_REFERENCE_GPX
@@ -156,6 +160,28 @@ def test_project_at_bounded(capsys: pytest.CaptureFixture[str]) -> None:
     assert lines == expected_lines(curve, run)
 
 
+def test_a_bounded_curve_is_named_after_its_effective_day(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """La courbe d'une course bornée porte le jour effectif, pas celui de la course
+    (§ 6.2 (e)) : le nom, écrit en dur."""
+    folder = write_aligned()
+    code, out, _ = project(capsys, str(ROUTE), "--at", "2024-04-20")
+    assert code == 0
+    assert any(
+        line.startswith("courbe       origine-2024-04-08-w56.csv   sha256 ")
+        for line in out.splitlines()
+    )
+    found = origin_curve(
+        load_athlete_corpus(folder, TRAIL),
+        course_origin(date(2024, 4, 20), TODAY),
+        56,
+        generated_at=NOW,
+    )
+    assert found.curve is not None
+    assert found.curve.name == "origine-2024-04-08-w56.csv"
+
+
 def test_project_at_not_bounded_has_no_bounded_line(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -163,6 +189,43 @@ def test_project_at_not_bounded_has_no_bounded_line(
     _, out, _ = project(capsys, str(ROUTE), "--at", "2024-04-08")
     assert not out.startswith("course le ")
     assert out.splitlines()[0].startswith("jour 2024-04-08 : origine 2024-04-01 ")
+
+
+# --- Le jour T de la commande est le jour à Paris -------------------------------------
+
+
+def test_a_far_day_is_bounded_from_the_paris_day(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """À 22:30 UTC le 1er avril, T = 2 avril (§ 6.3 (b) 2) : la course du 20 avril est
+    bornée à celle du 9."""
+    monkeypatch.setattr(cli, "_now", lambda: EVENING)
+    write_aligned()
+    code, out, _ = project(capsys, str(ROUTE), "--at", "2024-04-20")
+    assert code == 0
+    lines = out.splitlines()
+    assert lines[0] == (
+        "course le 2024-04-20 : au-delà de 7 jours, origine bornée à aujourd'hui "
+        "(celle d'une course le 2024-04-09) ; ce n'est pas la courbe que le backtest "
+        "prendrait pour cette course"
+    )
+    assert lines[1] == (
+        "jour 2024-04-09 : origine 2024-04-02 00:00 à Paris ; fenêtre 56 jours, fins "
+        "depuis le 2024-02-06 00:00 à Paris"
+    )
+
+
+def test_t_plus_seven_from_the_paris_day_is_not_bounded(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """À 22:30 UTC le 1er avril, T + 7 = 9 avril : la course du 9 n'est pas bornée."""
+    monkeypatch.setattr(cli, "_now", lambda: EVENING)
+    write_aligned()
+    code, out, _ = project(capsys, str(ROUTE), "--at", "2024-04-09")
+    assert code == 0
+    assert out.splitlines()[0].startswith(
+        "jour 2024-04-09 : origine 2024-04-02 00:00 à Paris ; "
+    )
 
 
 def test_project_at_without_support_warning(
@@ -237,6 +300,25 @@ def test_project_at_with_csv_prints_only_the_csv(
     ]
     assert err.splitlines() == expected
     assert len([line for line in expected if line.startswith("avertissement")]) == 2
+
+
+def test_an_absence_with_csv_leaves_stdout_empty(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Une absence avec ``--csv`` (§ 6.3 (b) 4) : code 1, la sortie standard vide, les
+    lignes de l'origine puis l'erreur sur la sortie d'erreur."""
+    write_aligned()
+    code, out, err = project(
+        capsys, str(ROUTE), "--at", "2024-03-25", "--window", "7", "--csv"
+    )
+    assert code == 1
+    assert out == ""
+    lines = err.splitlines()
+    assert lines[0] == (
+        "jour 2024-03-25 : origine 2024-03-18 00:00 à Paris ; fenêtre 7 jours, fins "
+        "depuis le 2024-03-11 00:00 à Paris"
+    )
+    assert lines[-1].startswith("Erreur : aucune courbe à l'origine : ")
 
 
 # --- Les options ----------------------------------------------------------------------

@@ -25,12 +25,14 @@ from mountain_perf import cli, gitstate
 from mountain_perf.backtest.rolling import rolling_selection
 from mountain_perf.cli import main
 from mountain_perf.config import data_dir
-from mountain_perf.estimation.origin import OriginWindow
+from mountain_perf.estimation.intervals import activity_intervals
+from mountain_perf.estimation.origin import OriginWindow, intervals_cache
 from mountain_perf.gitstate import GitState
 from mountain_perf.gpx import PROFILE_PARAMETER_SPECS, build_profile, read_gpx
 from mountain_perf.model import PROJECTION_PARAMETER_SPECS
 from mountain_perf.model.curve_io import CurveError, freeze_companion
 from mountain_perf.model.engine import portion_out_of_support_time_share
+from mountain_perf.reports import range_curve_lines
 from mountain_perf.runs import (
     FOLDER_ATHLETE,
     RANGE_NO_CANDIDATE,
@@ -50,7 +52,9 @@ from mountain_perf.runs import (
     range_curve,
 )
 from mountain_perf.schemas import ParameterSet
+from mountain_perf.validation import ContractError
 from test_og1_cli_at import activities, damage, realign
+from test_ogui_cli import write_not_projectable
 
 NOW = datetime(2024, 4, 1, 12, tzinfo=UTC)
 TODAY = date(2024, 4, 1)
@@ -361,6 +365,119 @@ def test_range_curve_without_candidate_is_an_absence() -> None:
     assert found.estimate is None
     assert found.support_error is None
     assert found.absence_reason == RANGE_NO_CANDIDATE
+
+
+def test_range_without_bin_keeps_its_reason(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Le 2024-03-11, la seule ``a3``, sans trace : une absence qui n'est pas « aucune
+    candidate » ; sa raison est celle que ``mperf curve --from --to`` imprime
+    (§ 6.2 (f))."""
+    folder = write_aligned()
+    found = range_curve(
+        load_athlete_corpus(folder, TRAIL),
+        date(2024, 3, 11),
+        date(2024, 3, 11),
+        generated_at=NOW,
+    )
+    assert found.curve is None
+    assert found.absence_reason is not None
+    code, _, err = curve_command(
+        capsys,
+        "s",
+        "--from",
+        "2024-03-11",
+        "--to",
+        "2024-03-11",
+        "--athlete",
+        FOLDER_ATHLETE,
+    )
+    assert code == 1
+    assert err == f"Erreur : {found.absence_reason}\n"
+
+
+def test_range_curve_not_projectable_says_so(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Le monde non projetable de ``tests/test_ogui_cli.py`` (``a2`` seule retenue, la
+    tranche centrale sous 10 min), sur la plage de mars : l'erreur de support est
+    remplie, et la dernière ligne est celle que ``mperf curve --from --to`` imprime
+    (§ 6.2 (f), § 8.2)."""
+    write_not_projectable()
+    found = range_curve(
+        load_athlete_corpus(data_dir(), TRAIL),
+        date(2024, 3, 1),
+        date(2024, 3, 31),
+        generated_at=NOW,
+    )
+    assert found.curve is not None
+    assert found.support_error is not None
+    lines = range_curve_lines(found)
+    assert lines[-1] == f"Courbe non projetable par read_curve : {found.support_error}"
+    code, out, _ = curve_command(
+        capsys,
+        "plage-2024-03-01-2024-03-31",
+        "--from",
+        "2024-03-01",
+        "--to",
+        "2024-03-31",
+        "--athlete",
+        FOLDER_ATHLETE,
+    )
+    assert code == 0
+    printed = [
+        line
+        for line in out.splitlines()
+        if line.startswith("Courbe non projetable par read_curve : ")
+    ]
+    assert printed == [lines[-1]]
+
+
+def test_the_range_refuses_intervals_of_another_activity() -> None:
+    """``range_curve``, par ``range_estimate``, passe par ``candidate_intervals``
+    (§ 6.1 (b)) : a1 reçoit le refus d'a3 (sans trace), puis a3 les intervalles d'a1,
+    refusés."""
+    folder = write_aligned()
+    corpus = load_athlete_corpus(folder, TRAIL)
+
+    def provider(recording: Any, *args: Any, **kwargs: Any) -> Any:
+        other = "a1" if recording.activity_ref == "a3" else "a3"
+        return activity_intervals(corpus.recordings[other], *args, **kwargs)
+
+    with pytest.raises(ContractError) as raised:
+        range_curve(
+            corpus,
+            date(2024, 3, 1),
+            date(2024, 3, 31),
+            generated_at=NOW,
+            intervals_of=provider,
+        )
+    assert str(raised.value) == "intervals_of : les intervalles de a1 rendus pour a3."
+
+
+def test_the_range_goes_through_the_given_intervals_cache(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Deux plages qui partagent leurs candidates, sur le cache qu'on leur donne
+    (§ 6.2 (f), § 6.4 (a)) : chaque activité calculée une fois."""
+    calls: list[str] = []
+
+    def spy(recording: Any, *args: Any, **kwargs: Any) -> Any:
+        calls.append(recording.activity_ref)
+        return activity_intervals(recording, *args, **kwargs)
+
+    monkeypatch.setattr("mountain_perf.estimation.origin.activity_intervals", spy)
+    corpus = load_athlete_corpus(write_aligned(), TRAIL)
+    cache = intervals_cache(corpus)
+    for date_from, date_to in (
+        (date(2024, 3, 1), date(2024, 3, 31)),
+        (date(2024, 3, 9), date(2024, 3, 11)),
+    ):
+        found = range_curve(
+            corpus, date_from, date_to, generated_at=NOW, intervals_of=cache
+        )
+        assert found.estimate is not None
+    assert sorted(calls) == ["a1", "a3"]
 
 
 # --- La lecture -----------------------------------------------------------------------

@@ -22,6 +22,7 @@ from mountain_perf.estimation.intervals import (
 from mountain_perf.estimation.origin import (
     CurveCorpus,
     candidate_intervals,
+    estimate_at_origin,
     intervals_cache,
     origin_absence_document,
     origin_companion,
@@ -31,6 +32,7 @@ from mountain_perf.schemas import ActivityIndex, ActivityRecording, ParameterSet
 from mountain_perf.validation import ContractError
 from test_estimation_curve import DEFAULTS
 from test_og1_origin import (
+    ORIGIN,
     PROFILE,
     _season,
     at,
@@ -152,6 +154,30 @@ def test_candidate_intervals_follow_the_order_of_refs() -> None:
     found = _candidates(season, ["s3", "s0", "s2"], provider)
     assert calls == ["s3", "s0", "s2"]
     assert [item.activity_ref for item in found] == ["s3", "s0", "s2"]
+
+
+def test_the_rule_refuses_intervals_of_another_activity() -> None:
+    """``estimate_at_origin`` passe par ``candidate_intervals`` (§ 6.1 (b)) : le
+    fournisseur qui rend les intervalles de s1 pour s0 est refusé par la règle même."""
+    season = _season_corpus()
+
+    def provider(recording: ActivityRecording, *args: Any, **kwargs: Any) -> Any:
+        other = "s0" if recording.activity_ref == "s1" else "s1"
+        return activity_intervals(season.recordings[other], *args, **kwargs)
+
+    with pytest.raises(ContractError) as raised:
+        estimate_at_origin(
+            season,
+            "x",
+            ORIGIN,
+            56,
+            origin_selection(),
+            DEFAULTS,
+            PROFILE,
+            support_threshold_min=10.0,
+            intervals_of=provider,
+        )
+    assert str(raised.value) == "intervals_of : les intervalles de s1 rendus pour s0."
 
 
 # --- L'empreinte de l'index -----------------------------------------------------------
