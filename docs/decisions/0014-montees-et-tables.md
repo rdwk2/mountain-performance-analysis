@@ -414,3 +414,23 @@ besoin.
 9. **La relecture.** Un `montees.parquet` écrit avant AN3-1a n'a pas ces colonnes : dès
    qu'il a une montée, il ne se relit pas (`UNREADABLE_TABLE`, « relancer just
    process »).
+
+## Précisions d'AN3-3a
+
+*Ajoutées par la PR AN3-3a (2026-11-13), pour Q2.*
+
+10. **Les positions des bornes d'une montée.** Quatre colonnes neuves, à la fin de
+    `montees`, en degrés (WGS84) : `start_latitude_deg` et `start_longitude_deg`, la
+    position de la montée à sa borne de départ (`start_offset_s`) ; `end_latitude_deg`
+    et `end_longitude_deg`, à sa borne d'arrivée (`end_offset_s`). Ce sont les deux
+    positions que lit déjà le déplacement net (`net_displacement_m`) : la latitude et
+    la longitude de la vue positions et altitude, interpolées linéairement en temps aux
+    bornes de la montée, dans le temps de la trace. Les bornes étant des instants de la
+    vue, c'est la position enregistrée en ce point (à l'arrondi près). Une montée
+    n'existe pas sans vue : ces colonnes ne manquent jamais. La distance orthodromique
+    entre les deux positions est le déplacement net. Q2 en tire ses groupes de
+    parcours ; comme toute la table, elles restent sous `MPA_DATA_DIR` (règle 1 de
+    `CLAUDE.md`).
+11. **La relecture.** Un `montees.parquet` écrit avant AN3-3a n'a pas ces colonnes : dès
+    qu'il a une montée, il ne se relit pas (`UNREADABLE_TABLE`, « relancer just
+    process »).

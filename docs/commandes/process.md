@@ -15,9 +15,10 @@
   ascensionnelle (le gain pris en mouvement divisé par le temps en mouvement, avec sa
   variante et son enveloppe), sa pente, son régime (côte, intermédiaire, montée longue,
   ski de randonnée, ski de randonnée court, autre sport), ses strates de pente et
-  d'altitude, ses drapeaux et sa stabilité, et sa FC moyenne décalée de 60 s (celle de
+  d'altitude, ses drapeaux et sa stabilité, sa FC moyenne décalée de 60 s (celle de
   l'outil de FC du moteur), sur son temps en mouvement et ses variantes, avec la part
-  que la FC en couvre ;
+  que la FC en couvre, et sa position (latitude, longitude) à son départ et à son
+  arrivée ;
 - `variantes.parquet`, une ligne par montée de chaque variante déclarée de la
   définition (celles que la stabilité recalcule) : ses bornes, son gain, son gain pris
   en mouvement et son temps en mouvement, son régime, ses strates et ses drapeaux sous
@@ -30,7 +31,8 @@
   de repos et son statut, HRV, respiration, SpO2, stress, Body Battery, pas), Training
   Readiness du réveil, Training Status à sa date propre, les types du journal qui
   couvrent le jour, l'activité du jour (la charge selon Garmin et les temps écoulés par
-  famille de sport) ; et, pour six mesures (HRV de la nuit, FC de repos, sommeil
+  famille de sport), l'instant du milieu de la demi-heure où la FC de la journée est la
+  plus basse ; et, pour six mesures (HRV de la nuit, FC de repos, sommeil
   mesuré, stress, respiration et SpO2 de la nuit), si la valeur du jour entre dans les
   normales, sinon pourquoi, et la normale des 28 jours précédents (un paramètre
   déclaré), sa plage, ses segments et ses avertissements de rupture (un changement de

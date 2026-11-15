@@ -226,10 +226,14 @@ def measure_fields(measure: str) -> list[str]:
 NAMES = [field.name for field in dataclasses.fields(DayRow)]
 
 
-def test_day_row_has_its_183_columns_in_order() -> None:
-    expected = EXPECTED_FIELDS + [f for m in MEASURE_NAMES for f in measure_fields(m)]
-    assert len(NAMES) == 183
-    assert len(set(NAMES)) == 183
+def test_day_row_has_its_184_columns_in_order() -> None:
+    expected = (
+        EXPECTED_FIELDS
+        + [f for m in MEASURE_NAMES for f in measure_fields(m)]
+        + ["lowest_heart_rate_window_midpoint"]
+    )
+    assert len(NAMES) == 184
+    assert len(set(NAMES)) == 184
     assert expected == NAMES
 
 
@@ -367,7 +371,12 @@ INSTANTS = (
     "ts_vo2_max_instant",
     "ts_heat_instant",
     "ts_altitude_instant",
+    "lowest_heart_rate_window_midpoint",
 )
+
+WINDOW_AND_MIDPOINT = ("window_start", "lowest_heart_rate_window_midpoint")
+"""Deux instants qui vont au même décalage (AN3-3a) : ils changent de fuseau
+ensemble."""
 
 
 def _instant_of(name: str) -> datetime:
@@ -381,11 +390,15 @@ def _instant_of(name: str) -> datetime:
 def test_an_instant_with_any_constant_zone_is_brought_to_a_fixed_offset(
     name: str,
 ) -> None:
-    instant = _instant_of(name)
-    row = complete_row(**{name: instant.astimezone(_Plus2())})
-    kept = getattr(row, name)
-    assert kept == instant
-    assert kept.tzinfo == timezone(timedelta(hours=2))
+    names = WINDOW_AND_MIDPOINT if name in WINDOW_AND_MIDPOINT else (name,)
+    instants = {each: _instant_of(each) for each in names}
+    row = complete_row(
+        **{each: value.astimezone(_Plus2()) for each, value in instants.items()}
+    )
+    for each, instant in instants.items():
+        kept = getattr(row, each)
+        assert kept == instant
+        assert kept.tzinfo == timezone(timedelta(hours=2))
 
 
 @pytest.mark.parametrize("name", INSTANTS)
@@ -650,7 +663,12 @@ def test_a_document_with_a_window_has_it(state: DayRowState) -> None:
 
 
 def test_an_empty_or_absent_day_has_no_window() -> None:
-    row = complete_row(state=DayRowState.EMPTY, window_start=None, data_end=None)
+    row = complete_row(
+        state=DayRowState.EMPTY,
+        window_start=None,
+        data_end=None,
+        lowest_heart_rate_window_midpoint=None,
+    )
     assert row.state is DayRowState.EMPTY
     refused(complete_row, WINDOW_STATE, state=DayRowState.EMPTY)
     complete = complete_row()
@@ -660,6 +678,36 @@ def test_an_empty_or_absent_day_has_no_window() -> None:
         window_start=complete.window_start,
         data_end=complete.data_end,
     )
+
+
+def test_the_lowest_window_needs_the_window_and_its_offset() -> None:
+    """L'instant de la demi-heure de FC la plus basse exige la fenêtre, et va à son
+    décalage (AN3-3a)."""
+    complete = complete_row()
+    assert complete.window_start is not None
+    instant = complete.window_start + timedelta(hours=3)
+    refused(
+        absent_row,
+        "lowest_heart_rate_window_midpoint exige window_start.",
+        lowest_heart_rate_window_midpoint=instant,
+    )
+    offset = "lowest_heart_rate_window_midpoint doit avoir le décalage de window_start."
+    plus2 = timezone(timedelta(hours=2))
+    refused(
+        complete_row,
+        offset,
+        lowest_heart_rate_window_midpoint=instant.astimezone(plus2),
+    )
+    refused(
+        complete_row,
+        offset,
+        window_start=complete.window_start.astimezone(plus2),
+    )
+    kept = complete_row(lowest_heart_rate_window_midpoint=instant)
+    midpoint = kept.lowest_heart_rate_window_midpoint
+    assert midpoint is not None
+    assert midpoint == instant
+    assert midpoint.utcoffset() == timedelta(hours=1)
 
 
 def test_the_reference_export() -> None:

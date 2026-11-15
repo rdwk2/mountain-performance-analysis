@@ -184,6 +184,30 @@ def gap_recording() -> ActivityRecording:
     )
 
 
+POSITIONS_FROM_S = 20.0
+"""Les positions de ``p1`` ne commencent qu'à 20 s : la vue part de là."""
+
+
+def positions_recording() -> ActivityRecording:
+    """``p1``, sans bruit : un replat, une montée de 300 m à 15 % et 600 m/h, un replat.
+    Les positions n'existent qu'à partir de :data:`POSITIONS_FROM_S` (l'altitude reste
+    entière : la vue part de 20 s), et leur latitude varie, ``45 + 1e-6 × t``."""
+    rec = recording(
+        [FLAT, climb_at(600, 0.15, 300), FLAT], noise=False, activity_ref="p1"
+    )
+    assert rec.position is not None
+    pos = rec.position
+    keep = [i for i, t in enumerate(pos.time_s) if t >= POSITIONS_FROM_S]
+    return dataclasses.replace(
+        rec,
+        position=PositionChannel(
+            tuple(pos.time_s[i] for i in keep),
+            tuple(45.0 + 1e-6 * pos.time_s[i] for i in keep),
+            tuple(pos.longitude_deg[i] for i in keep),
+        ),
+    )
+
+
 def write_one(
     data_dir: Path,
     rec: ActivityRecording,
@@ -210,3 +234,9 @@ def write_gap_interim(data_dir: Path) -> ActivityIndex:
     """Écrit sous ``data_dir`` un ``interim/`` d'une seule activité, ``g1``
     (:func:`gap_recording`), à pied."""
     return write_one(data_dir, gap_recording())
+
+
+def write_positions_interim(data_dir: Path) -> ActivityIndex:
+    """Écrit sous ``data_dir`` un ``interim/`` d'une seule activité, ``p1``
+    (:func:`positions_recording`), à pied."""
+    return write_one(data_dir, positions_recording())

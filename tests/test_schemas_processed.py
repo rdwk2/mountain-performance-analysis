@@ -181,12 +181,46 @@ def test_the_synthetic_rows_are_valid(tables: Tables) -> None:
             {"flags": (ClimbFlag.SPIKE, ClimbFlag.SPIKE)},
             "flags doit être trié, sans doublon.",
         ),
+        (
+            {"start_latitude_deg": 90.5},
+            "start_latitude_deg doit être dans [-90.0, 90.0]",
+        ),
+        (
+            {"end_latitude_deg": -90.5},
+            "end_latitude_deg doit être dans [-90.0, 90.0]",
+        ),
+        (
+            {"start_longitude_deg": 180.5},
+            "start_longitude_deg doit être dans [-180.0, 180.0]",
+        ),
+        (
+            {"end_longitude_deg": -180.5},
+            "end_longitude_deg doit être dans [-180.0, 180.0]",
+        ),
+        ({"start_latitude_deg": float("nan")}, "start_latitude_deg doit être fini"),
     ],
 )
 def test_climb_row_refusals(
     climb: ClimbRow, changes: dict[str, Any], message: str
 ) -> None:
     _refused(climb, message, **changes)
+
+
+def test_climb_positions_may_sit_on_their_bounds(climb: ClimbRow) -> None:
+    """Les plages des positions sont fermées (AN3-3a)."""
+    for latitude in (90.0, -90.0):
+        row = dataclasses.replace(
+            climb, start_latitude_deg=latitude, end_latitude_deg=latitude
+        )
+        assert (row.start_latitude_deg, row.end_latitude_deg) == (latitude, latitude)
+    for longitude in (180.0, -180.0):
+        row = dataclasses.replace(
+            climb, start_longitude_deg=longitude, end_longitude_deg=longitude
+        )
+        assert (row.start_longitude_deg, row.end_longitude_deg) == (
+            longitude,
+            longitude,
+        )
 
 
 LAGGED_HEART_RATES = (

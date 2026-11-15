@@ -539,3 +539,39 @@ et rien n'est écrit.
   ni couleur d'alerte ; ni les composites de Garmin (Training Readiness, score de
   sommeil, Body Battery), ni la charge aiguë de Training Status (`BACKLOG`) ; elle
   n'écrit rien.
+
+## AN3-3a — la demi-heure de FC la plus basse (2026-11-13)
+
+- **La colonne** : `lowest_heart_rate_window_midpoint`, à la fin de `jours`, un
+  instant : le milieu de la demi-heure où la FC de la journée est la plus basse,
+  reconstruite depuis la série de FC du document du jour (`DaySeries.heart_rate`, en
+  secondes depuis `window_start`). Q2 la lit pour écarter une FC de repos mesurée après
+  le départ de la première sortie du jour.
+- **La règle**, sur une série d'au moins deux points : le pas est la médiane des écarts
+  entre deux points consécutifs ; chaque point, d'instant `t`, ouvre la fenêtre
+  `[t ; t + days.lowest_heart_rate_window_s[` ; une fenêtre est admise si elle compte au
+  moins `days.lowest_heart_rate_min_point_fraction × days.lowest_heart_rate_window_s /
+  pas` points ; parmi les fenêtres admises, la colonne prend celle dont la moyenne des FC
+  de ses points est la plus basse, la plus tôt à égalité, et vaut `window_start + t +
+  days.lowest_heart_rate_window_s / 2`. Elle est absente sans document, sans série, avec
+  un seul point, ou sans fenêtre admise. Tous les points de la série comptent, même
+  ceux qui sortent de la fenêtre du jour. Ce n'est pas une grandeur de support `day` :
+  la colonne se calcule sur tout jour qui a une fenêtre, tronqué compris (« Les
+  validités » ne s'y appliquent pas).
+- **Les seuils** : deux paramètres déclarés, portés par la provenance :
+  `days.lowest_heart_rate_window_s` (1 800 s, la demi-heure de la FC de repos de
+  Garmin, `docs/PIEGES_DATA.md`) et `days.lowest_heart_rate_min_point_fraction` (0,8).
+- **L'instant** est au décalage de `window_start`, minuit local : le jour d'un
+  changement d'heure, son heure murale peut différer d'une heure de l'heure locale
+  après le changement ; l'instant, lui, est juste, et se compare à un autre instant
+  sans que le changement d'heure joue.
+- **Non promis** : que cette demi-heure soit celle d'où Garmin tire sa FC de repos ;
+  une série clairsemée (un pas médian d'au moins
+  `days.lowest_heart_rate_min_point_fraction × days.lowest_heart_rate_window_s`) admet
+  une fenêtre d'un seul point.
+- « Ce que la ligne tire d'une série » disait « La seule série lue est celle du Body
+  Battery de la nuit » : depuis AN3-3a, la ligne lit aussi la série de FC de la
+  journée, pour cette seule colonne.
+- **La relecture** : un `jours.parquet` écrit avant AN3-3a n'a pas cette colonne : dès
+  qu'il a une ligne, il ne se relit pas (`UNREADABLE_TABLE`, « relancer just
+  process »).
