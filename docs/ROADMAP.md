@@ -22,10 +22,11 @@ analyse les données d'entraînement, de récupération et de sommeil de l'athl�
   les fourchettes aussi au registre), et l'admission exploratoire d'un effet (`0010` D10,
   hors le figement pour confirmation de D10.7), calculée par la bibliothèque — sa commande
   viendra avec le premier effet, au M6a ; enfin la sensibilité (`0010` D13,
-  `just backtest courbe.csv --sensitivity`). L'origine glissante est commencée : OG-1
-  livrée, la règle à l'origine et `just curve --at` (`0020`) ; OG-2 livrée, le backtest
-  glissant (`just backtest-rolling`, `0010`) ; OG-UI livrée, les pages à l'origine et
-  `mperf project --at` (`0016`, `0020`).
+  `just backtest courbe.csv --sensitivity`). L'origine glissante est livrée : OG-1, la
+  règle à l'origine et `just curve --at` (`0020`) ; OG-2, le backtest glissant
+  (`just backtest-rolling`, `0010`) ; OG-UI, les pages à l'origine et
+  `mperf project --at` (`0016`, `0020`) ; OG-3, les trois exécutions réelles côte à
+  côte (`docs/JOURNAL.md`).
 - **Piste analyse** : cadrage livré (AN0 : charte, questions, décisions 0011 à 0013) ;
   AN1 (activités et montées) livré : son codec commun, l'ingestion des activités
   (`just ingest`), les horloges du moteur rendues communes (le temps de mouvement),
@@ -245,7 +246,9 @@ l'interface donnent la courbe à l'origine d'une date.
 **État** : OG-1 livrée (PR #41) : la règle à l'origine et `mperf curve --at` (`0020`) ;
 OG-1b livrée : les coutures (`0020`, précision OG-1b) ; OG-2 livrée : le backtest
 glissant (`0010`, précision OG-2) ; OG-UI livrée : les pages à l'origine et
-`mperf project --at` (`0016`, `0020`, précisions OG-UI).
+`mperf project --at` (`0016`, `0020`, précisions OG-UI) ; les trois exécutions réelles
+faites le 2026-11-15 (28 jours, 56 jours, tout le passé) et publiées au `JOURNAL`
+(OG-3). **OG est fini.**
 
 ---
 
