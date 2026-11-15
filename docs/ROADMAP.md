@@ -13,7 +13,7 @@ analyse les données d'entraînement, de récupération et de sommeil de l'athl�
 ## Où en est le projet
 
 - **Moteur de prédiction** : M0 à M4 livrés ; M5 (interface v0) livré, ses deux pages
-  (`just ui`) ; le « Fini quand » de la ROADMAP se constate à l'usage. M6b livré :
+  (`just ui`) ; M5-3 livrée, les profils de démo (`0022`) ; le « Fini quand » de la ROADMAP se constate à l'usage. M6b livré :
   l'estimation de la courbe personnelle (`just curve`), et sa mesure par le backtest
   contre la v0 (`docs/JOURNAL.md`). Livrés en M4 :
   l'appariement d'une trace à un tracé, les métriques d'erreur, la référence de
@@ -151,6 +151,7 @@ de vérifier que l'API du moteur est utilisable.
 
 - charger un GPX, choisir une courbe, régler les paramètres, voir profil + tableau
 - export CSV
+- **M5-3 — Profils de démo** : cinq personnages inventés, construits à la demande (`just demo`, `0022`)
 
 **Point de conception qui rend la suite gratuite** : l'interface **génère ses
 contrôles à partir du schéma de paramètres du moteur**. Chaque effet ajouté plus
