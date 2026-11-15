@@ -4509,7 +4509,7 @@ def _run_demo(args: argparse.Namespace) -> int:
         today = civil_date(_now())
         folder = root / "demo" / name
         if not folder.exists():
-            construction.require_modules(("fitdecode",), name)
+            construction.require_modules(("fitdecode", "pyarrow"), name)
             state = gitstate.git_state(_package_directory())
             if state.modified:
                 raise construction.DemoError(DEMO_MODIFIED_TREE_ERROR)

@@ -13,6 +13,7 @@ import pytest
 
 pytest.importorskip("fitdecode")
 pytest.importorskip("streamlit")
+pytest.importorskip("pyarrow")
 
 import streamlit as st
 from streamlit.testing.v1 import AppTest
@@ -112,3 +113,32 @@ def test_the_window_page(
     _on("polyvalente", tmp_path_factory, monkeypatch)
     at = _app(_window)
     assert not at.exception
+
+
+def _recovery() -> None:
+    from mountain_perf.ui.recuperation import recuperation_page
+
+    recuperation_page()
+
+
+def _q1() -> None:
+    from mountain_perf.ui.q1 import q1_page
+
+    q1_page()
+
+
+@pytest.mark.parametrize("name", CHARACTER_NAMES)
+@pytest.mark.parametrize("page", [_recovery, _q1], ids=["recuperation", "q1"])
+def test_the_piste_pages(
+    name: str,
+    page: Callable[[], None],
+    tmp_path_factory: pytest.TempPathFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Les pages récupération et Q1 : la table et le journal existent, la figure de Q1
+    aussi ; aucune exception, aucune erreur, aucune information."""
+    _on(name, tmp_path_factory, monkeypatch)
+    at = _app(page)
+    assert not at.exception
+    assert not at.error
+    assert [info.value for info in at.info] == []

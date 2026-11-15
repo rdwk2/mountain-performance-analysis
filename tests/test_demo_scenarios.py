@@ -32,6 +32,7 @@ from mountain_perf.runs import (
 from mountain_perf.schemas import ParameterSet
 
 pytest.importorskip("fitdecode")
+pytest.importorskip("pyarrow")
 
 NOW = datetime(2026, 11, 13, 12, tzinfo=UTC)
 RACE = date(2026, 12, 4)

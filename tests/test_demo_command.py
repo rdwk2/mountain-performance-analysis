@@ -41,6 +41,7 @@ from mountain_perf.demo.personnages import character
 from mountain_perf.gitstate import GitFailure, GitState, GitStateError
 
 pytest.importorskip("fitdecode")
+pytest.importorskip("pyarrow")
 
 T0 = date(2026, 11, 13)
 NOW = datetime(2026, 11, 13, 12, tzinfo=UTC)
@@ -54,8 +55,9 @@ DETERMINISTIC_MODULES = (
     "gpx.py",
     "fit.py",
     "sorties.py",
+    "jours.py",
 )
-"""Les modules du § 6.0 (« Le déterminisme ») qui existent à ce commit."""
+"""Les modules du § 6.0 (« Le déterminisme »)."""
 
 EXTRAS = (
     "Erreur : mperf demo demande les extras ingest et analyse (et tableau pour "
@@ -246,7 +248,7 @@ def test_a_git_state_error_is_said(
     assert not (root / "demo").exists()
 
 
-@pytest.mark.parametrize("missing", ["fitdecode"])
+@pytest.mark.parametrize("missing", ["fitdecode", "pyarrow"])
 def test_a_missing_build_extra_refuses(
     root: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -453,7 +455,7 @@ def test_every_field_of_a_demo_build(tmp_path_factory: pytest.TempPathFactory) -
     assert build.summary == InputsSummary(
         date(2026, 10, 9), date(2026, 11, 12), 12, True
     )
-    assert sorted(build.outputs) == ["curve", "ingest"]
+    assert sorted(build.outputs) == ["curve", "ingest", "q1", "tables"]
     assert "Activités dans l'index : 12" in build.outputs["ingest"].splitlines()
     assert "-> reference/plage.csv" in build.outputs["curve"]
 

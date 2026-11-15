@@ -400,3 +400,73 @@ RACE_TWO_PARTS_DAYS: Final = 21
 
 DEMO_PORT_BASE: Final = 8511
 """Le port de l'interface d'un personnage : ``DEMO_PORT_BASE`` + son rang."""
+
+# --- Les jours (D13) ------------------------------------------------------------------
+
+DAYS_SEED_OFFSET: Final = 1000
+"""Le flux des jours : ``random.Random(graine + DAYS_SEED_OFFSET)``."""
+
+HRV_NORMAL_MS: Final = 55
+HRV_NOISE_MS: Final = 4
+HRV_AFTER_TWO_LAPS_MS: Final = -8
+HRV_ILLNESS_MS: Final = -20
+"""La HRV de la nuit : normale, bruit (±, entier), lendemain d'une sortie de deux
+tours, maladie."""
+
+HRV_WEEKLY_AVG_MS: Final = 55
+"""La HRV de la semaine de Garmin, chaque jour : la normale de la HRV."""
+
+RESTING_HR_NORMAL_BPM: Final = 48
+RESTING_HR_NOISE_BPM: Final = 3
+RESTING_HR_AFTER_TWO_LAPS_BPM: Final = 5
+RESTING_HR_ILLNESS_BPM: Final = 8
+RESTING_HR_ALTITUDE_BPM: Final = 6
+"""La FC de repos : normale, bruit, lendemain, maladie, séjour en altitude."""
+
+SLEEP_NORMAL_S: Final = 24_000
+SLEEP_NOISE_S: Final = 1_200
+SLEEP_ILLNESS_S: Final = 1_800
+"""Le sommeil mesuré : normale, bruit (multiple de 60 s), maladie."""
+
+STRESS_NORMAL: Final = 15
+STRESS_NOISE: Final = 3
+STRESS_AFTER_TWO_LAPS: Final = 5
+STRESS_ILLNESS: Final = 15
+"""Le stress de la nuit : normale, bruit, lendemain, maladie."""
+
+RESPIRATION_NORMAL: Final = 14.0
+RESPIRATION_NOISE: Final = 2.0
+RESPIRATION_ILLNESS: Final = 3.0
+"""La respiration de la nuit, en respirations par minute : normale, bruit (au
+dixième), maladie."""
+
+SPO2_NORMAL_PERCENT: Final = 95
+SPO2_NOISE_PERCENT: Final = 2
+SPO2_ILLNESS_PERCENT: Final = -4
+SPO2_ALTITUDE_PERCENT: Final = -5
+"""La SpO2 de la nuit : normale, bruit, maladie, séjour en altitude."""
+
+ILLNESS_FROM_T0: Final = 29
+ILLNESS_DAYS: Final = 3
+"""La maladie : du jour T0 − 29, trois jours."""
+
+ALTITUDE_FROM_T0: Final = 20
+ALTITUDE_DAYS: Final = 4
+"""Le séjour en altitude : du jour T0 − 20, quatre jours."""
+
+RACE_FROM_T0: Final = 14
+"""La course passée du journal : le jour T0 − 14, un jour de sortie."""
+
+DEVICE_CHANGE_FROM_T0: Final = 10
+"""Le changement de l'appareil des jours : la rupture au jour T0 − 10, le jour
+incertain la veille."""
+
+SPO2_MISSING_FROM_T0: Final = (6, 5)
+"""Les nuits sans valeur de SpO2 : T0 − 6 et T0 − 5."""
+
+DAY_DEVICE_BEFORE: Final = 7
+DAY_DEVICE_AFTER: Final = 8
+"""L'appareil des jours avant le changement (celui du gabarit), puis après."""
+
+JOURNAL_NOTE: Final = "inventé (démo)"
+"""La note des lignes du journal."""

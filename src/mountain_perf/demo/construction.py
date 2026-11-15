@@ -20,6 +20,7 @@ from typing import Final
 
 import mountain_perf
 from mountain_perf.demo.constantes import DEMO_VERSION
+from mountain_perf.demo.jours import write_days, write_journal
 from mountain_perf.demo.personnages import Character
 from mountain_perf.demo.sorties import write_export, write_routes
 from mountain_perf.validation import ContractError
@@ -72,12 +73,15 @@ def generate_inputs(
     person: Character, folder: Path, t0: date, *, reduced: bool = False
 ) -> InputsSummary:
     """Les entrées brutes du personnage dans ``folder``, créé ici (``ContractError``
-    s'il existe) : les préparés, l'export Garmin et la trace témoin."""
+    s'il existe) : les préparés, l'export Garmin (activités et jours), la trace
+    témoin et le journal."""
     if folder.exists():
         raise ContractError(f"le dossier existe déjà : {folder}")
     folder.mkdir(parents=True)
     write_routes(folder)
     summary = write_export(person, folder, t0, reduced=reduced)
+    write_days(person, folder, t0, reduced=reduced)
+    write_journal(person, folder, t0, reduced=reduced)
     return InputsSummary(summary.first_day, summary.last_day, summary.outings, reduced)
 
 
@@ -105,11 +109,14 @@ def build_folder(
     reduced: bool = False,
 ) -> InputsSummary:
     """Construit le dossier de démo : les entrées, puis, ``MPA_DATA_DIR`` sur
-    ``folder``, ``mperf ingest`` et la courbe de plage ; un code non nul arrête tout
+    ``folder``, ``mperf ingest``, ``mperf tables``, ``mperf q1`` et la courbe de
+    plage ; un code non nul arrête tout
     (``DemoError``) ; en dernier, la marque. Rend le résumé des entrées."""
     summary = generate_inputs(person, folder, t0, reduced=reduced)
     steps: tuple[list[str], ...] = (
         ["ingest"],
+        ["tables"],
+        ["q1"],
         [
             "curve",
             CURVE_NAME,

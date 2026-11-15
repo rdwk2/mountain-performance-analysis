@@ -29,11 +29,12 @@ MODULES = (
     "construction.py",
     "fit.py",
     "gpx.py",
+    "jours.py",
     "parcours.py",
     "personnages.py",
     "sorties.py",
 )
-"""Les modules du paquet à ce commit."""
+"""Les modules du paquet."""
 
 
 def _imports(tree: ast.Module, path: Path) -> set[str]:
