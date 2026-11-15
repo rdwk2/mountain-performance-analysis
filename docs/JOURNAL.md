@@ -16,6 +16,69 @@ Backtest (à partir de M4) : métrique avant → après.
 
 ---
 
+### 2026-11-15 · OG-3 — L'origine glissante : les trois exécutions réelles
+Les trois exécutions réelles du backtest glissant, côte à côte, comme le demande le « Fini
+quand » d'OG (ROADMAP). Une seule commande, `just backtest-rolling 28,56,all
+--covered-threshold 0.1 --coverage-tolerance 5` (rdw, sous Windows, sur `main` =
+`6ce15a9`, arbre propre), sur le manifeste réel élargi (30 sorties, chacune avec ses
+`activity_refs`) : 28 jours, DÉCLARATION 15 et RÉSULTAT
+16, rapport `rapports/backtest-0016.txt` ; 56 jours, DÉCLARATION 17 et RÉSULTAT 18,
+`rapports/backtest-0018.txt` ; tout le passé, DÉCLARATION 19 et RÉSULTAT 20,
+`rapports/backtest-0020.txt` ; la comparaison des fenêtres, `rapports/comparaison-0020.txt`
+(pas un événement du registre) ; sceau (empreinte de la dernière ligne)
+`ca182513d7bf94de7371845adc93b99e0d2af7a04334391030da3c545d6b38a0`. `s` (10 %) et la
+tolérance (5 s) ont été fixés par rdw avant l'exécution, sur un compte des performances
+couvertes qui ne lit aucun score. Relecture de la conception, en lecture seule :
+`verify_registry` accepte les vingt événements ; les trois DÉCLARATIONS portent le même
+commit, le même manifeste et le même index d'`interim/` ; leurs courbes et leurs parts hors
+support sont celles de la même préparation refaite sous Linux sur le même `main` (mêmes
+statuts ; parts égales à 3,5e−8 près, sans effet sur aucun ensemble : une ligne de
+`BACKLOG.md`).
+Ensembles : 28 performances ; 24 ont une courbe sous les trois fenêtres (les quatre plus
+anciennes, « historique à pied : 0 » au rapport) ; 19 sont couvertes sous les trois
+(part hors support au plus `s`), dont 18 lues en usage ; au-delà du repère de 50 % : 3 sous
+28 jours, 2 sous 56 jours, aucune sous tout le passé. Aucune performance n'est en
+confirmation : tout ce qui suit est exploratoire.
+`|L|` et `L` de v0 brut, usage, écoulé, sur les mêmes performances (moyenne à poids égal par
+performance, effectif ; commun : courbe sous les trois fenêtres), les performances neuves du
+manifeste élargi à part — la synthèse par sortie reste dans les rapports, hors du dépôt
+(règle 1 de `CLAUDE.md`) :
+```text
+                              28 jours       56 jours       tout le passé
+couvertes        |L|          0.0852 (18)    0.0785 (18)    0.0909 (18)
+                 L            +0.0266        +0.0133        −0.0469
+  anciennes      |L|          0.0973 (9)     0.0849 (9)     0.1010 (9)
+  neuves         |L|          0.0730 (9)     0.0722 (9)     0.0809 (9)
+commun           |L|          0.0817 (23)    0.0754 (23)    0.0947 (23)
+                 L            +0.0348        +0.0013        −0.0603
+  anciennes      |L|          0.0892 (11)    0.0707 (11)    0.0981 (11)
+  neuves         |L|          0.0749 (12)    0.0797 (12)    0.0917 (12)
+```
+Différences appariées de `|L|` sur les couvertes (IC95 de Student, trois paires, sans
+correction de multiplicité) : 56 − 28 jours −0,0066 [−0,0179 ; +0,0047] ; tout le passé −
+28 jours +0,0058 [−0,0272 ; +0,0388] ; tout le passé − 56 jours +0,0124 [−0,0167 ;
++0,0415]. Les trois intervalles contiennent 0, de même sur le commun ; le rapport conclut :
+« Les fenêtres ne se départagent pas sur les couvertes. » L'écart détectable à 80 % est de
+0,018 (n 18 ; écart-type des différences 0,0253, mesuré chez rdw avant cette exécution,
+56 − 28 jours, n 11) ; le banc multi-athlète mesure, à support égal,
+des écarts de 0,013 au plus : cette exécution ne pouvait pas les voir. Sur les cibles, 7
+intervalles sur 27 excluent 0 (environ 1,4 attendu au hasard) : tout le passé se trompe
+moins en descente (`|E_R|` : −0,037 contre 28 jours, −0,036 contre 56 jours) et plus en
+montée contre 56 jours (+0,027) ; son `q_usage` est plus bas, sur trois performances
+seulement. Le biais change de signe avec la fenêtre : un peu trop lent sous 28 et 56 jours,
+trop rapide sous tout le passé, qui mêle des périodes d'entraînement différentes
+(hypothèse, non mesurée ; celle du rapport, E15, porte sur le calage (a)).
+Le contrôle réel des pages d'OG-UI (rdw, `just ui` et `just project … --at`) : la première
+ouverture prend 20 à 22 s, une date ou une fenêtre neuve de 2 à 20 s (plus long, sur
+trois essais, quand la fenêtre compte plus de sorties), une déjà vue est instantanée (P7) ; la
+sortie de `just project --at` est complète. Le refus d'une courbe trop pauvre autour du plat
+écrit sa durée brute : une ligne de `BACKLOG.md`.
+Conclusion : OG est fini (« Fini quand » de la ROADMAP) : les trois fenêtres sont publiées
+côte à côte, sur les mêmes performances, sans qu'aucune soit choisie après coup, et les
+pages donnent la courbe à l'origine d'une date. 56 jours reste le défaut d'usage, un choix
+de rdw et non un résultat de ce backtest. Le registre, les rapports et le manifeste restent
+sous `MPA_DATA_DIR`.
+
 ### 2026-11-13 · AN3-3a — Les positions des montées et la demi-heure de FC la plus basse
 Deux données de `processed/` pour Q2. `montees` gagne, à la fin, la latitude et la
 longitude de chaque montée à ses deux bornes (`start_latitude_deg`, `start_longitude_deg`,

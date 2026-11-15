@@ -137,9 +137,10 @@ dans [les pages des commandes](docs/commandes/README.md).
 
 - **Moteur de prédiction** : M0 à M5 livrés — le profil, le moteur v0, le backtest à
   cinq modèles et sa sensibilité, l'interface ; M6b livré, la courbe personnelle
-  (`just curve`) ; l'origine glissante commencée : livrés, la règle à
-  l'origine (`just curve --at`), le backtest glissant (`just backtest-rolling`) et les
-  pages à l'origine (`just ui`, `just project --at`).
+  (`just curve`) ; l'origine glissante livrée : la règle à l'origine
+  (`just curve --at`), le backtest glissant (`just backtest-rolling`), les pages à
+  l'origine (`just ui`, `just project --at`) et ses trois exécutions réelles
+  (`docs/JOURNAL.md`).
 - **Piste analyse** : AN0 à AN2 livrés — l'ingestion des activités et des données
   journalières, les tables de `processed/`, la figure de Q1, les pages
   « récupération » et « Q1 » ; AN3 commencée : la FC décalée de chaque montée
