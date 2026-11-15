@@ -386,3 +386,17 @@ LOAD_PER_MINUTE: Final = 1.0
 
 ACQUISITION_HOUR: Final = 6
 """L'heure, à Paris, de l'instant d'acquisition de l'export, le jour T0."""
+
+# --- La construction et la commande ---------------------------------------------------
+
+DEMO_VERSION: Final = 1
+"""La version du générateur, écrite dans la marque ``demo.json``."""
+
+RACE_STEEP_DAYS: Final = 5
+"""Le jour de la course raide, en jours après T0."""
+
+RACE_TWO_PARTS_DAYS: Final = 21
+"""Le jour de la course à deux parties, en jours après T0."""
+
+DEMO_PORT_BASE: Final = 8511
+"""Le port de l'interface d'un personnage : ``DEMO_PORT_BASE`` + son rang."""

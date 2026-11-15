@@ -26,6 +26,7 @@ ALLOWED_EXACT = ("mountain_perf", "mountain_perf.schemas.days")
 MODULES = (
     "__init__.py",
     "constantes.py",
+    "construction.py",
     "fit.py",
     "gpx.py",
     "parcours.py",

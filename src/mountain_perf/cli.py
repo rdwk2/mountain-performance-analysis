@@ -103,6 +103,7 @@ from mountain_perf.backtest.rolling import (
     reading_threshold,
 )
 from mountain_perf.config import ConfigError, data_dir
+from mountain_perf.demo.constantes import CHARACTER_NAMES
 from mountain_perf.estimation.origin import (
     ALL_PAST,
     DEFAULT_WINDOW_DAYS,
@@ -4423,6 +4424,133 @@ def _run_curve(args: argparse.Namespace) -> int:
     return 0
 
 
+DEMO_MODIFIED_TREE_ERROR = (
+    "mperf demo construit le dossier par les commandes du dépôt, qui refusent un arbre "
+    "modifié : un fichier suivi est modifié (git status) ; rien n'est écrit."
+)
+"""Le message de ``mperf demo`` sur un clone modifié, avant toute construction
+(M5-3)."""
+
+DEMO_UNMARKED_ERROR = (
+    "Le dossier {folder} existe sans la marque demo.json : construction interrompue, "
+    "ou dossier étranger. Rien n'est écrit ; pour le reconstruire, supprime-le."
+)
+"""Le message de ``mperf demo`` sur un dossier présent sans marque (M5-3)."""
+
+
+def _demo_aging_lines(mark: Any, today: date) -> list[str]:
+    """Les lignes du vieillissement d'un dossier de démo (M5-3) : ``mark``, sa marque
+    (``mountain_perf.demo.construction.Mark``), comparée au jour ``today``, une ligne
+    par seuil atteint, par les règles d'OG-UI : la course raide passée, l'origine de la
+    course à deux parties qui n'est plus bornée, la fenêtre de 56 jours vide au jour
+    par défaut."""
+    from datetime import timedelta
+
+    from mountain_perf.backtest.calendar import ORIGIN_LAG
+    from mountain_perf.demo.constantes import RACE_STEEP_DAYS, RACE_TWO_PARTS_DAYS
+    from mountain_perf.demo.personnages import character
+    from mountain_perf.demo.sorties import plan
+
+    built_on: date = mark.built_on
+    lines: list[str] = []
+    steep_day = built_on + timedelta(days=RACE_STEEP_DAYS)
+    if today > steep_day:
+        lines.append(f"la course raide (le {steep_day}) est passée")
+    two_parts_day = built_on + timedelta(days=RACE_TWO_PARTS_DAYS)
+    if not course_origin(built_on + timedelta(days=RACE_TWO_PARTS_DAYS), today).bounded:
+        lines.append(
+            f"la course à deux parties (le {two_parts_day}) est à 7 jours ou moins : "
+            "son origine n'est plus bornée"
+        )
+    last = plan(character(mark.character), built_on, reduced=mark.reduced)[-1].day
+    if last < today - ORIGIN_LAG - timedelta(days=DEFAULT_WINDOW_DAYS):
+        lines.append(
+            "au jour par défaut, la fenêtre de 56 jours ne contient plus aucune "
+            "activité"
+        )
+    return lines
+
+
+def _run_demo(args: argparse.Namespace) -> int:
+    """``mperf demo <personnage> [--interface]`` (M5-3, ``docs/decisions/0022``), dans
+    cet ordre :
+
+    1. la racine du dépôt, refusée si ce n'est pas un clone ;
+    2. avec ``--interface``, l'extra ``tableau`` ;
+    3. aujourd'hui, le jour à Paris de l'horloge des commandes (T0 d'une
+       construction) ; le dossier ``<racine>/demo/<personnage>`` ;
+    4. le dossier absent : les extras de la construction, puis l'arbre (un fichier
+       suivi modifié est refusé), puis la construction ; présent et marqué : rien n'est
+       écrit, quel que soit l'arbre, et les lignes du vieillissement ; présent sans
+       marque : refusé ;
+    5. avec ``--interface``, l'interface, dont le code est celui de la commande.
+
+    Ne lit jamais ``MPA_DATA_DIR`` pour décider où écrire, et ne supprime rien.
+    ``DemoError``, ``GitStateError`` : « Erreur : <message> », code 1."""
+    from datetime import timedelta
+
+    from mountain_perf import gitstate
+    from mountain_perf.demo import construction
+    from mountain_perf.demo.constantes import (
+        DEMO_PORT_BASE,
+        DEMO_VERSION,
+        RACE_STEEP_DAYS,
+        RACE_TWO_PARTS_DAYS,
+    )
+    from mountain_perf.demo.personnages import character
+
+    name = args.personnage
+    person = character(name)
+    try:
+        root = construction.repository_root()
+        construction.require_clone(root)
+        if args.interface:
+            construction.require_modules(("streamlit",), name)
+        today = civil_date(_now())
+        folder = root / "demo" / name
+        if not folder.exists():
+            construction.require_modules(("fitdecode",), name)
+            state = gitstate.git_state(_package_directory())
+            if state.modified:
+                raise construction.DemoError(DEMO_MODIFIED_TREE_ERROR)
+            construction.build_folder(person, folder, today, main)
+            built_on = today
+            reused = ""
+            extra: list[str] = []
+        else:
+            mark = construction.read_mark(folder)
+            if mark is None:
+                raise construction.DemoError(DEMO_UNMARKED_ERROR.format(folder=folder))
+            built_on = mark.built_on
+            reused = " ; pour le régénérer, supprime-le"
+            extra = _demo_aging_lines(mark, today)
+            if mark.generator != DEMO_VERSION:
+                extra.append(
+                    "construit par une autre version du générateur "
+                    f"({mark.generator}) ; pour le régénérer, supprime-le"
+                )
+    except (construction.DemoError, gitstate.GitStateError) as error:
+        print(f"Erreur : {error}", file=sys.stderr)
+        return 1
+    steep_day = built_on + timedelta(days=RACE_STEEP_DAYS)
+    two_parts_day = built_on + timedelta(days=RACE_TWO_PARTS_DAYS)
+    print(
+        f"dossier de démo : {folder} (personnage {person.label}, construit le "
+        f"{built_on}){reused}"
+    )
+    print(
+        f"courses en vue : course_raide.gpx le {steep_day} ; deux_parties.gpx le "
+        f"{two_parts_day}"
+    )
+    for line in extra:
+        print(line)
+    if not args.interface:
+        return 0
+    port = DEMO_PORT_BASE + person.rank
+    print(f"interface : http://localhost:{port} (Ctrl+C pour l'arrêter)")
+    return construction.launch_interface(root, folder, port)
+
+
 def _write_utf8() -> None:
     """Sorties standard en UTF-8, quel que soit l'encodage de la console.
 
@@ -4693,6 +4821,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         default="a",
         help="Valeur d'une tranche : (a) somme / somme, (b) médiane des activités",
     )
+    demo_parser = commands.add_parser(
+        "demo",
+        help=(
+            "Construire un dossier de démo (données inventées) sous "
+            "demo/<personnage>/, et lancer l'interface dessus (M5-3)"
+        ),
+    )
+    demo_parser.add_argument("personnage", choices=CHARACTER_NAMES)
+    demo_parser.add_argument(
+        "--interface",
+        action="store_true",
+        help="lancer l'interface sur le dossier, port 8511 + rang",
+    )
     args = parser.parse_args(argv)
     if args.command == "project" and args.curve is None and args.at is None:
         print(project_parser.format_usage(), file=sys.stderr, end="")
@@ -4720,6 +4861,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(BACKTEST_CURVE_ERROR, file=sys.stderr)
         return 1
     try:
+        if args.command == "demo":
+            return _run_demo(args)
         if args.command == "ingest":
             return _run_ingest()
         if args.command == "tables":

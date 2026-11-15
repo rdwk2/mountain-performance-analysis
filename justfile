@@ -84,3 +84,10 @@ project route *options:
 # .streamlit/config.toml, lu depuis la racine, où just lance ses recettes.
 ui:
     uv run --extra tableau --extra analyse streamlit run src/mountain_perf/ui/app.py
+
+# Les profils de démo (M5-3, docs/decisions/0022) : construit demo/<personnage>/ (données
+# inventées, ignorées par git) s'il manque, puis lance l'interface dessus, port 8511 + rang.
+# Personnages : debutant, polyvalente, grimpeur, rouleur, moyen. Refusée à Claude Code par
+# le hook.
+demo personnage:
+    uv run --extra ingest --extra analyse --extra tableau mperf demo "{{personnage}}" --interface

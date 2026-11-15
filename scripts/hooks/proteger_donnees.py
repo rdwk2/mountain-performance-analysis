@@ -14,11 +14,12 @@ Lu sur l'entrée standard : l'appel d'outil en JSON (``tool_name``, ``tool_input
   variable, ou une commande qui écrit dans les données (``mperf ingest``,
   ``mperf backtest``, ``mperf tables``, ``mperf q1``, ``mperf curve``, ``just ingest``,
   ``just backtest``, ``just backtest-rolling``, ``just process``, ``just q1``,
-  ``just curve``, ``just ui``, options de ``just`` comprises, et ``python -m
-  mountain_perf.cli`` suivi de ``ingest``, ``backtest``, ``tables``, ``process``,
-  ``q1`` ou ``curve`` ; sans casse, ``mperf.exe`` et ``just.exe`` compris,
-  sous-commande entre guillemets comprise ; une recette
-  ``ui-…``, ``process-…``, ``q1-…`` ou ``curve-…`` est une autre recette, et l'option
+  ``just curve``, ``just ui``, ``just demo``, ``mperf demo`` (M5-3), options de
+  ``just`` comprises, et ``python -m mountain_perf.cli`` suivi de ``ingest``,
+  ``backtest``, ``tables``, ``process``, ``q1``, ``curve`` ou ``demo`` ; sans casse,
+  ``mperf.exe`` et ``just.exe`` compris, sous-commande entre guillemets comprise ; une
+  recette ``ui-…``, ``demo-…``, ``process-…``, ``q1-…`` ou ``curve-…`` est une autre
+  recette, et l'option
   ``--curve`` de ``mperf project`` ou ``mperf match`` n'est pas une sous-commande) ;
 - une commande qui lit les données sans les nommer (OG-UI) : ``just project`` (sa
   recette prend le préparé sous ``MPA_DATA_DIR``) et ``mperf project … --at`` (la
@@ -85,7 +86,7 @@ SHELL_TOOLS = {"Bash", "PowerShell", "Monitor"}
 WRITING_COMMANDS = re.compile(
     r"\b(?:mperf|just|mountain_perf\.cli)(?:\.exe)?[\"']?"
     r"(?:\s+-\S+(?:\s+[^\s-]\S*)?)*"
-    r"\s+[\"']?(?:ingest|backtest-rolling|backtest|tables|process|q1|curve|ui)"
+    r"\s+[\"']?(?:ingest|backtest-rolling|backtest|tables|process|q1|curve|ui|demo)"
     r"(?![\w-])",
     re.IGNORECASE,
 )
