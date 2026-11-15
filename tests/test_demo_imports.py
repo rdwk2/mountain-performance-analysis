@@ -26,9 +26,11 @@ ALLOWED_EXACT = ("mountain_perf", "mountain_perf.schemas.days")
 MODULES = (
     "__init__.py",
     "constantes.py",
+    "fit.py",
     "gpx.py",
     "parcours.py",
     "personnages.py",
+    "sorties.py",
 )
 """Les modules du paquet à ce commit."""
 

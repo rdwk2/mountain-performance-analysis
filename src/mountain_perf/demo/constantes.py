@@ -343,3 +343,46 @@ départ)."""
 
 ROUTE_POINT_STEP_M: Final = 10.0
 """Le pas des points d'un GPX préparé, en mètres."""
+
+# --- Les sorties ----------------------------------------------------------------------
+
+OUTING_FACTOR_MIN: Final = 0.95
+OUTING_FACTOR_SPAN: Final = 0.10
+"""Le bruit du jour d'une sortie : un facteur de vitesse ``0,95 + 0,10 · u``."""
+
+ALTITUDE_NOISE_M: Final = 0.4
+"""L'amplitude du bruit d'altitude d'un enregistrement (±0,2 m)."""
+
+HR_REST: Final = 95.0
+"""La FC au départ et pendant l'arrêt, en bpm."""
+
+HR_BASE: Final = 125.0
+"""La FC cible en mouvement sur le plat, en bpm."""
+
+HR_PER_GRADE: Final = 150.0
+"""Ce que la pente positive ajoute à la FC cible, en bpm par unité de pente."""
+
+HR_LAG_S: Final = 30.0
+"""Le retard de la FC sur sa cible, en secondes."""
+
+STOP_S: Final = 120
+"""La durée de l'arrêt d'une sortie, en secondes, à mi-parcours du premier tour."""
+
+STOP_EVERY: Final = 3
+"""Une sortie sur trois s'arrête (``number % 3 == 0``)."""
+
+REDUCED_HISTORY_DAYS: Final = 42
+"""L'historique au plus de la version réduite, en jours (les traileurs ; le débutant,
+plus court, est inchangé)."""
+
+REDUCED_LAPS: Final = 1
+"""Les tours d'une sortie de la version réduite."""
+
+ID_BASE: Final = 1_000_000
+"""La base des identifiants des activités : ``ID_BASE · (rang + 1) + numéro``."""
+
+LOAD_PER_MINUTE: Final = 1.0
+"""La charge selon Garmin d'une minute de sortie."""
+
+ACQUISITION_HOUR: Final = 6
+"""L'heure, à Paris, de l'instant d'acquisition de l'export, le jour T0."""
