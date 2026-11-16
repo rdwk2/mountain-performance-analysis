@@ -85,6 +85,42 @@ def test_length_and_climb(name: str) -> None:
     assert climb_m(found) == pytest.approx(climb, abs=1e-9)
 
 
+def _line(*segments: Segment) -> Route:
+    return Route(
+        name="essai",
+        segments=segments,
+        start_xy=(0.0, 0.0),
+        shape="line",
+        start_altitude_m=0.0,
+        waypoints=(),
+    )
+
+
+@pytest.mark.parametrize(
+    ("segment", "climb"),
+    [
+        (Segment(100.0, 0.1, -0.1), 2.5),
+        (Segment(100.0, -0.1, 0.1), 2.5),
+        (Segment(100.0, 0.2, -0.05), 8.0),
+    ],
+)
+def test_the_climb_of_a_segment_that_changes_sign(
+    segment: Segment, climb: float
+) -> None:
+    """La part positive d'un tronçon qui change de signe (§ 6.1) ; le dernier croise
+    zéro à 80 m."""
+    assert climb_m(_line(segment)) == pytest.approx(climb, abs=1e-12)
+
+
+def test_the_climb_of_a_route_whose_segments_change_sign() -> None:
+    found = _line(
+        Segment(100.0, 0.1, -0.1),
+        Segment(100.0, -0.1, 0.1),
+        Segment(100.0, 0.2, -0.05),
+    )
+    assert climb_m(found) == pytest.approx(13.0, abs=1e-12)
+
+
 @pytest.mark.parametrize("name", NAMES)
 def test_every_field_of_each_route(name: str) -> None:
     shape, start, altitude, _, _ = TABLE[name]

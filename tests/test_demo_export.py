@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import contextlib
 import io
+import itertools
 import json
 import random
 import zipfile
@@ -32,6 +33,7 @@ from mountain_perf.demo.sorties import (
     ExportSummary,
     Outing,
     PlannedOuting,
+    _laps_text,
     export_dir,
     plan,
     simulate,
@@ -224,6 +226,62 @@ def test_simulate_without_noise() -> None:
     )
     assert stopped.stop_s == 120
     assert stopped.records[-1].elapsed_s == last.elapsed_s + 120
+
+
+def test_simulate_two_laps() -> None:
+    """Deux tours : la position est celle du tour courant, la trace finit à 2 L, au
+    départ de la boucle, en deux fois le temps d'un tour."""
+    loop = route("boucle_roulante")
+    total = length_m(loop)
+    assert total == 8_100.0
+    person = character("rouleur")
+    outing = simulate(person, loop, 2, start=START, stop=False, rng=_Half())
+    one = simulate(person, loop, 1, start=START, stop=False, rng=_Half())
+    last = outing.records[-1]
+    assert last.distance_m == 16_200.0
+    assert last.altitude_m == pytest.approx(1_100.0, abs=1e-9)
+    assert (last.lat, last.lon) == to_lat_lon(*xy_at(loop, total))
+    for record in outing.records[:-1]:
+        d = record.distance_m
+        sigma = d if d < total else d - total
+        assert (record.lat, record.lon) == to_lat_lon(*xy_at(loop, sigma)), d
+    assert abs(last.elapsed_s - 2 * one.records[-1].elapsed_s) <= 2
+    assert (_laps_text(1), _laps_text(2)) == ("1 tour", "2 tours")
+
+
+class _ThreeQuarters(random.Random):
+    """Un flux qui rend toujours 0,75 : facteur 1,025."""
+
+    def random(self) -> float:
+        return 0.75
+
+
+def test_simulate_heart_rate_stop_and_factor() -> None:
+    """L'arrêt de 120 s dès la moitié du tour, la FC qui rejoint sa cible au trentième
+    par seconde, la vitesse vraie fois le facteur du jour (§ 6.2 (b) 3 à 5)."""
+    loop = route("boucle_roulante")
+    person = character("rouleur")
+    outing = simulate(person, loop, 1, start=START, stop=True, rng=_Half())
+    records = outing.records
+    stopped = [i for i, r in enumerate(records) if r.speed_ms == 0.0]
+    assert len(stopped) == 120
+    assert stopped == list(range(stopped[0], stopped[0] + 120))
+    assert records[stopped[0]].distance_m >= 4_050.0
+    assert records[stopped[0] - 1].distance_m < 4_050.0
+    for a, b in itertools.pairwise(records):
+        if a.speed_ms == 0.0:
+            target = 95.0
+        else:
+            target = 125.0 + 150.0 * max(grade_at(loop, a.distance_m), 0.0)
+        assert b.heart_rate == pytest.approx(
+            a.heart_rate + (target - a.heart_rate) / 30, rel=1e-12
+        ), a.elapsed_s
+    faster = simulate(person, loop, 1, start=START, stop=False, rng=_ThreeQuarters())
+    assert faster.factor == pytest.approx(1.025, rel=1e-12)
+    assert faster.records[0].speed_ms == pytest.approx(
+        true_speed_ms(person, 0.0) * 1.025, rel=1e-12
+    )
+    assert faster.records[0].speed_ms == pytest.approx(2.81875, rel=1e-12)
 
 
 @pytest.mark.parametrize("name", CHARACTER_NAMES)
