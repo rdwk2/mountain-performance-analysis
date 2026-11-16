@@ -21,6 +21,7 @@ from mountain_perf.demo.parcours import (
     to_lat_lon,
     xy_at,
 )
+from mountain_perf.demo.sorties import write_routes
 from mountain_perf.gpx import PROFILE_PARAMETER_SPECS, build_profile, read_gpx
 from mountain_perf.schemas import ParameterSet
 from mountain_perf.validation import ContractError
@@ -185,6 +186,18 @@ def test_the_prepared_gpx_reads_back(tmp_path: Path, name: str) -> None:
     assert profile.cumulative_ascent_m[-1] == pytest.approx(
         climb_m(found), rel=tolerance
     )
+
+
+def test_the_prepared_gpx_have_lf_line_ends(tmp_path: Path) -> None:
+    """Les six préparés de ``write_routes`` : UTF-8, fins de ligne ``\\n`` (§ 6.0,
+    D8)."""
+    write_routes(tmp_path)
+    paths = sorted((tmp_path / "routes").glob("*.gpx"))
+    assert len(paths) == len(NAMES)
+    for path in paths:
+        data = path.read_bytes()
+        assert b"\r\n" not in data, path.name
+        data.decode("utf-8")
 
 
 def test_the_two_part_course_has_3001_points_and_5_places(tmp_path: Path) -> None:

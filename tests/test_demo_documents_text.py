@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
 from mountain_perf.demo.constantes import CHARACTER_NAMES, DEMO_PORT_BASE
@@ -32,6 +33,18 @@ def test_the_recipe() -> None:
 
 def test_the_gitignore_line() -> None:
     assert "/demo/" in _text(ROOT / ".gitignore").splitlines()
+
+
+def _check_ignore(path: str) -> int:
+    """Le code de ``git check-ignore`` : 0 ignoré, 1 non ignoré, 128 un échec."""
+    return subprocess.run(
+        ["git", "check-ignore", "-q", "--no-index", path], cwd=ROOT, check=False
+    ).returncode
+
+
+def test_the_demo_folders_are_ignored_but_not_the_package() -> None:
+    assert _check_ignore("demo/polyvalente/demo.json") == 0
+    assert _check_ignore("src/mountain_perf/demo/constantes.py") == 1
 
 
 def test_the_command_page_names_the_characters_and_their_ports() -> None:

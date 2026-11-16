@@ -8,6 +8,7 @@ racine, ``construction.py``) et ``mountain_perf.schemas.days`` (``WAKING_CONTEXT
 from __future__ import annotations
 
 import ast
+import subprocess
 import sys
 from pathlib import Path
 
@@ -98,3 +99,36 @@ def test_the_closure_sees_every_form() -> None:
     ):
         imports = _imports(ast.parse(code), path)
         assert all(_allowed(m) or _is_name_of(m) for m in imports), code
+
+
+def test_cli_imports_only_the_names_at_the_top_level() -> None:
+    """``cli.py`` n'importe de la démo, au premier niveau, que ``CHARACTER_NAMES`` de
+    ``mountain_perf.demo.constantes``."""
+    tree = ast.parse((SOURCE / "cli.py").read_text(encoding="utf-8"))
+    for node in tree.body:
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                assert not alias.name.startswith("mountain_perf.demo"), alias.name
+        elif isinstance(node, ast.ImportFrom):
+            module = node.module or ""
+            names = [alias.name for alias in node.names]
+            if module == "mountain_perf":
+                assert "demo" not in names
+            if module.startswith("mountain_perf.demo"):
+                assert (module, names) == (
+                    "mountain_perf.demo.constantes",
+                    ["CHARACTER_NAMES"],
+                )
+
+
+def test_loading_cli_loads_only_the_demo_constants() -> None:
+    code = (
+        "import sys, mountain_perf.cli\n"
+        "print(sorted(m for m in sys.modules if m.startswith('mountain_perf.demo')))\n"
+    )
+    found = subprocess.run(
+        [sys.executable, "-c", code], check=True, capture_output=True, text=True
+    )
+    assert found.stdout.strip() == (
+        "['mountain_perf.demo', 'mountain_perf.demo.constantes']"
+    )

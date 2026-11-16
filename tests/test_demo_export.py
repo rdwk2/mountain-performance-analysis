@@ -8,6 +8,7 @@ import contextlib
 import io
 import json
 import random
+import zipfile
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
@@ -31,6 +32,7 @@ from mountain_perf.demo.sorties import (
     ExportSummary,
     Outing,
     PlannedOuting,
+    export_dir,
     plan,
     simulate,
     write_export,
@@ -149,6 +151,26 @@ def test_the_witness_trace_matches_its_activity(written: Written) -> None:
     assert entry.elapsed_duration_s is not None
     assert abs((trace.start_time - entry.start_time).total_seconds()) <= 1
     assert abs(trace.time_s[-1] - entry.elapsed_duration_s) <= 1
+
+
+def test_the_witness_trace_has_lf_line_ends(written: Written) -> None:
+    """UTF-8, fins de ligne ``\\n`` (§ 6.0, D8)."""
+    data = written.summary.witness.read_bytes()
+    assert b"\r\n" not in data
+    data.decode("utf-8")
+
+
+def test_every_archive_member_has_fixed_metadata(written: Written) -> None:
+    """La date fixe, sans compression, système 0 (§ 6.2 (c), D8), quelle que soit
+    l'heure de la construction."""
+    archives = sorted((export_dir(written.folder) / "activity_fit").glob("*.zip"))
+    assert len(archives) == 12
+    for path in archives:
+        with zipfile.ZipFile(path) as archive:
+            (info,) = archive.infolist()
+            assert info.date_time == (2001, 1, 1, 0, 0, 0), path.name
+            assert info.compress_type == zipfile.ZIP_STORED, path.name
+            assert info.create_system == 0, path.name
 
 
 def test_the_prepared_routes(written: Written) -> None:

@@ -21,6 +21,7 @@ from mountain_perf import gitstate
 from mountain_perf.analyse.normals import NormalMeasure
 from mountain_perf.cli import main
 from mountain_perf.config import DATA_DIR_ENV_VAR
+from mountain_perf.demo import jours
 from mountain_perf.demo.constantes import CHARACTER_NAMES
 from mountain_perf.demo.jours import DayValues, day_values, write_days, write_journal
 from mountain_perf.demo.personnages import character
@@ -168,6 +169,33 @@ def test_the_days_report(name: str, tmp_path_factory: pytest.TempPathFactory) ->
     data: dict[str, Any] = json.loads(path.read_bytes().decode("utf-8"))["data"]
     assert data["copy_disagreements"] == []
     assert data["night_equality_violations"] == 0
+
+
+def test_the_readiness_copies_follow_their_value(
+    tmp_path_factory: pytest.TempPathFactory,
+) -> None:
+    """La HRV hebdomadaire de Training Readiness (``hrvWeeklyAverage``) suit celle du
+    résumé HRV : aucune copie antérieure ne diffère."""
+    report = read_days_report(built("debutant", tmp_path_factory).folder)
+    assert report.readiness_prior_copies
+    for count in report.readiness_prior_copies:
+        assert count.differing == 0, count
+
+
+def test_the_weekly_hrv_is_the_normal(tmp_path_factory: pytest.TempPathFactory) -> None:
+    rows = _days(built("debutant", tmp_path_factory))
+    assert rows
+    for row in rows:
+        assert row.hrv_weekly_avg_ms == 55, row.day
+
+
+def test_the_waking_readiness_is_kept(tmp_path_factory: pytest.TempPathFactory) -> None:
+    """La Training Readiness du réveil est retenue chaque jour."""
+    rows = _days(built("debutant", tmp_path_factory))
+    assert rows
+    for row in rows:
+        assert row.readiness_absence is None, (row.day, row.readiness_absence)
+        assert row.readiness_score is not None, row.day
 
 
 @pytest.mark.parametrize("name", CHARACTER_NAMES)
@@ -325,6 +353,24 @@ def test_day_values_spo2_missing() -> None:
     for values, _ in _versions():
         for day, v in values.items():
             assert (v.spo2_avg_sleep_percent is None) is (day in NO_SPO2), day
+
+
+@pytest.mark.parametrize("name", CHARACTER_NAMES)
+def test_the_spo2_is_drawn_even_without_value(
+    name: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Un tirage par mesure et par jour, même les nuits où la SpO2 écrite est
+    ``null`` : sans ces nuits, aucune autre valeur d'aucun jour ne change."""
+    person = character(name)
+    written = jours.day_values(person, T0)
+    monkeypatch.setattr(jours, "SPO2_MISSING_FROM_T0", ())
+    every = jours.day_values(person, T0)
+    assert sorted(written) == sorted(every)
+    for day, value in written.items():
+        for field in VALUE_FIELDS[:-1]:
+            assert getattr(value, field) == getattr(every[day], field), (day, field)
+        if value.spo2_avg_sleep_percent is not None:
+            assert value.spo2_avg_sleep_percent == every[day].spo2_avg_sleep_percent
 
 
 def test_every_field_of_day_values() -> None:

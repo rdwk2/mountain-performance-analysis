@@ -4,10 +4,15 @@
 from __future__ import annotations
 
 import ast
+import dataclasses
+import importlib
+import pkgutil
 from pathlib import Path
+from typing import Any
 
 import pytest
 
+from mountain_perf import demo
 from mountain_perf.demo import constantes
 from mountain_perf.demo.constantes import CHARACTER_NAMES
 from mountain_perf.demo.parcours import route
@@ -283,6 +288,40 @@ def test_the_order_of_the_parts() -> None:
 def test_true_time_refuses_a_variable_grade() -> None:
     with pytest.raises(ContractError, match="pente variable"):
         true_time_s(character("moyen"), route("boucle_raide"), 0.0, 8_000.0)
+
+
+FROZEN = (
+    "Character",
+    "DayValues",
+    "ExportSummary",
+    "FitRecord",
+    "InputsSummary",
+    "Mark",
+    "Outing",
+    "PlannedOuting",
+    "Route",
+    "Segment",
+)
+"""Les dataclasses du paquet, toutes gelées (§ 6.0)."""
+
+
+def _frozen(cls: Any) -> bool:
+    return bool(cls.__dataclass_params__.frozen)
+
+
+def test_the_dataclasses_are_frozen() -> None:
+    found: dict[str, bool] = {}
+    for info in pkgutil.iter_modules(demo.__path__, f"{demo.__name__}."):
+        module = importlib.import_module(info.name)
+        for name, value in vars(module).items():
+            if (
+                isinstance(value, type)
+                and dataclasses.is_dataclass(value)
+                and value.__module__ == module.__name__
+            ):
+                found[name] = _frozen(value)
+    assert sorted(found) == list(FROZEN)
+    assert all(found.values()), found
 
 
 def test_the_constants_carry_rule_1() -> None:

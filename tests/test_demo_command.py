@@ -14,7 +14,7 @@ import os
 import shutil
 import subprocess
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from datetime import UTC, date, datetime, timedelta
 from importlib.machinery import ModuleSpec
 from pathlib import Path
@@ -33,12 +33,15 @@ from mountain_perf.demo.construction import (
     DemoError,
     InputsSummary,
     Mark,
+    build_folder,
     generate_inputs,
+    launch_interface,
     read_mark,
     repository_root,
 )
 from mountain_perf.demo.personnages import character
 from mountain_perf.gitstate import GitFailure, GitState, GitStateError
+from mountain_perf.validation import ContractError
 
 pytest.importorskip("fitdecode")
 pytest.importorskip("pyarrow")
@@ -225,6 +228,26 @@ def test_an_interrupted_build_has_no_mark(
     assert "existe sans la marque demo.json" in capsys.readouterr().err
 
 
+def test_the_variable_is_restored_after_an_interrupted_build(tmp_path: Path) -> None:
+    """« Même sur une exception » : la variable du dossier des données reprend sa
+    valeur d'avant."""
+    before = os.environ.get(DATA_DIR_ENV_VAR)
+    with pytest.raises(DemoError):
+        build_folder(character("debutant"), tmp_path / "d", T0, lambda arguments: 1)
+    assert os.environ.get(DATA_DIR_ENV_VAR) == before
+
+
+def test_the_chain_order(tmp_path: Path) -> None:
+    seen: list[str] = []
+
+    def run(arguments: Sequence[str]) -> int:
+        seen.append(arguments[0])
+        return 0
+
+    build_folder(character("debutant"), tmp_path / "d", T0, run)
+    assert seen == ["ingest", "tables", "q1", "curve"]
+
+
 def test_a_modified_tree_refuses_to_build(
     root: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -256,6 +279,17 @@ def test_a_missing_build_extra_refuses(
     missing: str,
 ) -> None:
     _without(missing, monkeypatch)
+    assert main(["demo", "debutant"]) == 1
+    assert capsys.readouterr().err == EXTRAS.format(name="debutant")
+    assert not (root / "demo").exists()
+
+
+def test_the_extras_before_the_tree(
+    root: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Un extra manquant et un arbre modifié : le message des extras."""
+    monkeypatch.setattr(gitstate, "git_state", lambda directory: GitState(COMMIT, True))
+    _without("fitdecode", monkeypatch)
     assert main(["demo", "debutant"]) == 1
     assert capsys.readouterr().err == EXTRAS.format(name="debutant")
     assert not (root / "demo").exists()
@@ -333,6 +367,32 @@ def test_an_unreadable_mark(tmp_path: Path) -> None:
     assert read_mark(tmp_path / "absent") is None
 
 
+MARK = {
+    "built_on": "2026-11-13",
+    "character": "debutant",
+    "generator": 1,
+    "reduced": True,
+    "seed": 11,
+}
+"""Une marque lisible : ses cinq clés, de leurs types."""
+
+
+@pytest.mark.parametrize("missing", sorted(MARK))
+def test_a_mark_without_one_key_is_unreadable(tmp_path: Path, missing: str) -> None:
+    mark = {key: value for key, value in MARK.items() if key != missing}
+    (tmp_path / "demo.json").write_text(json.dumps(mark), encoding="utf-8")
+    with pytest.raises(DemoError):
+        read_mark(tmp_path)
+
+
+def test_a_mark_of_wrong_types_is_unreadable(tmp_path: Path) -> None:
+    (tmp_path / "demo.json").write_text(
+        json.dumps({**MARK, "generator": "1"}), encoding="utf-8"
+    )
+    with pytest.raises(DemoError):
+        read_mark(tmp_path)
+
+
 # --- Pas un clone -----------------------------------------------------------------
 
 
@@ -406,6 +466,20 @@ def test_the_interface_runs_streamlit(
     )
 
 
+def test_the_interface_environment_completes_the_current_one(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Une variable posée avant l'appel se retrouve dans ``env`` (comme PATH ou
+    SYSTEMROOT), avec la variable du dossier des données sur le dossier."""
+    monkeypatch.setenv("DEMO_TEMOIN", "1")
+    calls = _spy(monkeypatch)
+    folder = tmp_path / "demo" / "polyvalente"
+    assert launch_interface(tmp_path, folder, 8512) == 0
+    ((_, options),) = calls
+    assert options["env"]["DEMO_TEMOIN"] == "1"
+    assert options["env"][DATA_DIR_ENV_VAR] == str(folder)
+
+
 def test_ctrl_c_stops_the_interface(
     root: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -468,7 +542,7 @@ def test_every_field_of_the_inputs_summary(tmp_path: Path) -> None:
         12,
         True,
     )
-    with pytest.raises(Exception, match="existe déjà"):
+    with pytest.raises(ContractError, match="existe déjà"):
         generate_inputs(character("debutant"), tmp_path / "d", T0, reduced=True)
 
 
