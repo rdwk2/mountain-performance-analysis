@@ -16,6 +16,7 @@ des vraies commandes. Les modules :
 - ``construction`` : les entrées, la construction par les vraies commandes, la marque,
   l'interface.
 
-Bibliothèque standard seule, avec ``mountain_perf.validation`` et
-``mountain_perf.gitstate`` ; le générateur ne lit jamais l'horloge.
+Bibliothèque standard seule, avec ``mountain_perf`` (la racine du dépôt),
+``mountain_perf.validation`` et ``mountain_perf.schemas.days`` (``WAKING_CONTEXT``) ;
+le générateur ne lit jamais l'horloge.
 """
