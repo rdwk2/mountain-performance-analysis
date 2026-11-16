@@ -87,6 +87,9 @@ d'elle-même : [avant de commencer](docs/commandes/README.md).
 
 ## Premiers pas
 
+Sans aucune donnée, l'interface sur un personnage inventé : `just demo polyvalente`, puis
+`http://localhost:8512` ([les profils de démo](docs/commandes/demo.md)).
+
 Sans aucune donnée personnelle, depuis la racine du dépôt, sur les fixtures
 synthétiques commitées ([`tests/fixtures/`](tests/fixtures/README.md)) : les temps de
 passage sur un petit tracé inventé, avec une courbe synthétique.
@@ -132,6 +135,7 @@ dans [les pages des commandes](docs/commandes/README.md).
 | [`just project`](docs/commandes/project.md) | les temps de passage d'un préparé de `MPA_DATA_DIR/routes/` ; avec `--at`, la courbe à l'origine de la course | `MPA_DATA_DIR` |
 | [`just q1`](docs/commandes/q1.md) | la figure de Q1 | `MPA_DATA_DIR` |
 | [`just ui`](docs/commandes/ui.md) | l'interface | `MPA_DATA_DIR` |
+| [`just demo`](docs/commandes/demo.md) | l'interface sur un personnage inventé, construit à la demande | — |
 
 ## État
 

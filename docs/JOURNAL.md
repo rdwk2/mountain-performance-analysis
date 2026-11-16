@@ -16,6 +16,15 @@ Backtest (à partir de M4) : métrique avant → après.
 
 ---
 
+### 2026-11-15 · M5-3 — Profils de démo
+
+- Cinq personnages inventés (`mountain_perf/demo/`, `0022`) : un export Garmin, des GPX et des
+  jours synthétiques, puis la chaîne réelle (`ingest`, `tables`, `q1`, `curve`) ; `mperf demo`,
+  `just demo` (refusée par le hook), port 8511 + rang.
+- Tests : une version réduite de chaque personnage passe la chaîne et les pages ; gardes ;
+  déterminisme.
+- Conclusion : l'interface s'essaie sans données ; les nombres de la démo ne mesurent rien.
+
 ### 2026-11-15 · OG-3 — L'origine glissante : les trois exécutions réelles
 Les trois exécutions réelles du backtest glissant, côte à côte, comme le demande le « Fini
 quand » d'OG (ROADMAP). Une seule commande, `just backtest-rolling 28,56,all

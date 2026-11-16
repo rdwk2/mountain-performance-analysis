@@ -16,14 +16,16 @@ qu'elle lit et écrit, et sa sortie d'exemple quand elle en a une.
   l'origine de la course
 - [`just q1`](q1.md) — la figure de Q1
 - [`just ui`](ui.md) — l'interface
+- [`just demo`](demo.md) — les profils de démo, des données inventées pour essayer l'interface
 
 Avant de commencer : les sous-commandes de `mperf`, les extras et le dossier des
 données, ci-dessous ; l'installation est dans le [README](../../README.md).
 
 ## Utilisation : `mperf`
 
-Huit sous-commandes, installées par `uv sync` ; `ingest`, `tables` et `q1` demandent en
-plus leur extra (`ingest`, `analyse`). Les exemples de ces pages ont été exécutés depuis la
+Neuf sous-commandes, installées par `uv sync` ; `ingest`, `tables` et `q1` demandent en
+plus leur extra (`ingest`, `analyse`) ; `demo` demande les extras `ingest`, `analyse` et
+`tableau`. Les exemples de ces pages ont été exécutés depuis la
 racine du dépôt, sur des fixtures synthétiques commitées
 ([`tests/fixtures/`](../../tests/fixtures/README.md)) ; celui du backtest, sur le monde
 synthétique que les tests écrivent dans un dossier temporaire.
@@ -61,7 +63,8 @@ de Q1 (`just q1` : `processed/` lu, `resultats/Q1/` écrit), à la courbe person
 (`just ui` : `routes/`, `sorties/`, `reference/`, `interim/activities/`, `processed/` et
 `resultats/Q1/` lus ; `routes/` et `sorties/` écrits par l'ajout d'un fichier) et à la
 projection (`just project` : `routes/` lu ; avec `--at`, `interim/activities/` aussi, comme
-`mperf project … --at`) ; les autres commandes ne le lisent pas, les tests non plus
+`mperf project … --at`) ; `mperf demo` ne le lit pas : il écrit dans
+`demo/<personnage>/` ([`demo.md`](demo.md)) ; les autres commandes ne le lisent pas, les tests non plus
 ([`tests/conftest.py`](../../tests/conftest.py) le pose sur un dossier temporaire neuf
 pour chaque test). Pour le renseigner, copier [`.env.example`](../../.env.example) en
 `.env` ; `just` charge `.env` s'il existe. Sous Windows, écrire le chemin avec des

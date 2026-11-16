@@ -10,6 +10,9 @@ data/
 !tests/fixtures/**/*.gpx
 !tests/fixtures/**/*.fit
 
+# Les dossiers de démo (M5-3) : construits à la demande, jamais commités
+/demo/
+
 # secrets
 .env
 .env.*

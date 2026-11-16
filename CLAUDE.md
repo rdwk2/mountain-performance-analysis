@@ -28,11 +28,17 @@ Python. Usage personnel d'abord, projet portfolio ensuite. Le repo est public.
    données (`docs/analyse/CHARTE.md`). Tout le reste vit hors du repo, dans le dossier
    pointé par la variable d'environnement `MPA_DATA_DIR`.
    Les tests n'utilisent **que** les fixtures synthétiques de `tests/fixtures/`,
-   qui sont minuscules, inventées, et commitées. Claude Code ne lit ni n'écrit rien
+   qui sont minuscules, inventées, et commitées. Les tests de la démo construisent
+   aussi, dans un dossier temporaire, des données entièrement synthétiques ; `demo/`
+   (ignoré par git) en reçoit de même, construites à la demande par `mperf demo`, dont
+   les nombres sont inventés, ou d'ordre de grandeur courant, et jamais tirés des
+   données de l'athlète (ni valeur, ni loi, ni ordre de grandeur) ni d'un jeu externe
+   (`docs/decisions/0022`). Claude Code ne lit ni n'écrit rien
    sous `MPA_DATA_DIR` : le hook de `.claude/settings.json` le refuse, et les
    commandes sur les données réelles (`just ingest`, `just process`, `just q1`,
    `just backtest`, `just curve`, `just project`, `mperf project … --at`, `just ui`,
-   et `streamlit run`, que le hook refuse aussi) sont lancées par l'humain.
+   et `streamlit run`, que le hook refuse aussi) sont lancées par l'humain. `just demo`
+   aussi, que le hook refuse.
 
 2. **`just check` doit être vert avant tout commit.**
    Si tu n'arrives pas à le rendre vert, tu t'arrêtes et tu le dis. Tu ne
@@ -132,6 +138,7 @@ just curve nom --from AAAA-MM-JJ --to AAAA-MM-JJ --athlete x  # une courbe allur
 just curve nom --at AAAA-MM-JJ --athlete x  # la courbe de la règle à l'origine (OG-1)
 just project course.gpx --at AAAA-MM-JJ  # la projection avec la courbe à l'origine d'une course (OG-UI) ; préparé de MPA_DATA_DIR/routes/
 just ui         # l'interface (M5, AN2-3) : appli Streamlit locale sur MPA_DATA_DIR, extras tableau et analyse
+just demo polyvalente  # les profils de démo (M5-3) : construit demo/<personnage>/, puis l'interface dessus
 uv run mperf profile tests/fixtures/mini_11.gpx  # compte-rendu GPX (M2), --csv pour la grille
 uv run mperf project tests/fixtures/mini_11.gpx --curve tests/fixtures/courbe_synthetique.csv  # temps de passage (M3)
 uv run mperf match tests/fixtures/appariement_reference.gpx tests/fixtures/appariement_trace_x01.gpx  # points de score (M4a-2a)
@@ -366,6 +373,9 @@ src/mountain_perf/     le code de la bibliothèque
     recuperation.py    la page récupération et le cache des tables, AN2-3 ; importe
                        analyse dans ses fonctions seulement
     q1.py              la page Q1 : la dernière figure de just q1, AN2-3
+  demo/                profils de démo (M5-3, 0022) : personnages, parcours, FIT et export
+                       Garmin inventés, jours ; constantes.py, tous les nombres ; la
+                       construction par les vraies commandes
   cli.py               mperf profile <fichier.gpx>, compte-rendu ou CSV sur stdout ;
                        mperf match <référence.gpx> <trace.gpx>, points de score (M4a-2a),
                        segments, couverture et horloges (M4a-2b), passages (M4a-3) ;
@@ -378,7 +388,8 @@ src/mountain_perf/     le code de la bibliothèque
                        interim/days/ et journal.csv → jours, son résumé (AN2-2) ;
                        mperf q1 : processed/ → resultats/Q1/ (AN1-2c) ;
                        mperf curve <nom> : interim/ → reference/<nom>.csv (M6b) ;
-                       --at : la règle à l'origine (OG-1)
+                       --at : la règle à l'origine (OG-1) ;
+                       mperf demo <personnage> : demo/<personnage>/, --interface (M5-3)
 tests/
   conftest.py          MPA_DATA_DIR sur un dossier temporaire neuf pour chaque test (M4c-1)
   strategies.py        stratégies Hypothesis des contrats, réutilisées par tous les jalons
