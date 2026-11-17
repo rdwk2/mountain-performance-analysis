@@ -18,12 +18,29 @@ pytest.importorskip("numpy")
 pytest.importorskip("scipy")
 
 from fixtures.processed import COMMIT
-from fixtures.q2_world import at, q2_activity, q2_climb, q2_tables
+from fixtures.q2_world import at, q2_activity, q2_climb, q2_tables, small_world
 from mountain_perf.analyse.athlete import Periods
+from mountain_perf.analyse.inference.base import child_rng, order_quantile
 from mountain_perf.analyse.q2 import results
 from mountain_perf.analyse.q2.data import Q2Data, q2_data
-from mountain_perf.analyse.q2.model import Measure, ModelSpec, model_spec
-from mountain_perf.analyse.q2.parameters import Q2_PARAMETER_SPECS, Q2_REGIMES
+from mountain_perf.analyse.q2.figure import (
+    Q2Figure,
+    partial_date_residuals,
+    q2_figure_data,
+)
+from mountain_perf.analyse.q2.model import (
+    Measure,
+    ModelSpec,
+    build_design,
+    fit_direct,
+    model_spec,
+    stage_one,
+)
+from mountain_perf.analyse.q2.parameters import (
+    Q2_PARAMETER_SPECS,
+    Q2_REGIMES,
+    Q2_ROOT_SEED,
+)
 from mountain_perf.analyse.q2.power import (
     PowerResult,
     RegimePower,
@@ -34,18 +51,26 @@ from mountain_perf.analyse.q2.results import (
     FLUX_COLUMNS,
     POWER_DIR,
     Q2ResultsError,
+    StoredPower,
+    append_trials,
+    check_trials,
+    figure_csv,
     flux_csv,
     flux_rows,
     latest_power,
+    write_estimation_results,
     write_folder,
     write_power_results,
 )
+from mountain_perf.analyse.q2.trials import NOT_DONE, Q2Estimation, TrialRow
 from mountain_perf.analyse.tables import Tables
+from mountain_perf.codec import content_hash
 from mountain_perf.schemas import ParameterSet
 from mountain_perf.schemas.processed import ClimbRegime, ProcessedProvenance
 from test_analyse_q2_data import c3_tables
 
 LONG = ClimbRegime.LONG_CLIMB
+EXACT = 1e-12
 DEFAULTS = ParameterSet(Q2_PARAMETER_SPECS)
 
 
@@ -409,3 +434,224 @@ def test_latest_power_at_equal_dates_takes_the_last_written(tmp_path: Path) -> N
     stored = latest_power(tmp_path, provenance)
     assert stored is not None
     assert stored.folder.name == "2026-11-16_000000000000"
+
+
+# --- C16 : le journal chaîné ------------------------------------------------------
+
+
+def _trial(name: str, value: float) -> TrialRow:
+    return TrialRow(
+        essai=name,
+        indice=0,
+        famille="principale",
+        regime="long_climb",
+        mesure="M-P",
+        statut="estime",
+        estimation_fraction=value,
+        intervalle_fraction=(value - 0.01, value + 0.01),
+    )
+
+
+def _journal(data_dir: Path) -> Path:
+    return data_dir / results.JOURNAL
+
+
+def test_c16_the_chained_journal(tmp_path: Path) -> None:
+    """C16 : deux exécutions de deux lignes ; la ligne 1 a ``precedente = null``, la
+    ligne ``k`` l'empreinte des octets de la ligne ``k − 1`` sans ``\\n``."""
+    append_trials(tmp_path, "e1", COMMIT, [_trial("P", 0.01), _trial("S1", 0.02)])
+    append_trials(tmp_path, "e2", COMMIT, [_trial("P", 0.03), _trial("S1", 0.04)])
+    lines = _journal(tmp_path).read_bytes().split(b"\n")
+    assert lines[-1] == b""
+    lines = lines[:-1]
+    assert len(lines) == 4
+    records = [json.loads(line) for line in lines]
+    assert records[0]["precedente"] is None
+    for k in range(1, 4):
+        assert records[k]["precedente"] == content_hash(lines[k - 1])
+    assert list(records[0]) == [
+        "question",
+        "execution",
+        "commit",
+        "essai",
+        "precedente",
+    ]
+    assert records[2]["execution"] == "e2"
+    assert records[0]["essai"]["intervalle_fraction"] == [0.0, 0.02]
+    assert list(records[0]["essai"])[:3] == ["essai", "indice", "famille"]
+
+
+def test_c16_a_changed_line_breaks_the_chain(tmp_path: Path) -> None:
+    """Un chiffre de la ligne 2 changé (elle se décode encore) : l'ajout suivant lève
+    à la ligne 3, et le fichier reste identique à l'octet."""
+    append_trials(tmp_path, "e1", COMMIT, [_trial("P", 0.01), _trial("S1", 0.02)])
+    append_trials(tmp_path, "e2", COMMIT, [_trial("P", 0.03), _trial("S1", 0.04)])
+    path = _journal(tmp_path)
+    lines = path.read_bytes().split(b"\n")
+    assert b"0.02" in lines[1]
+    lines[1] = lines[1].replace(b"0.02", b"0.07", 1)
+    path.write_bytes(b"\n".join(lines))
+    before = path.read_bytes()
+    with pytest.raises(Q2ResultsError) as error:
+        append_trials(tmp_path, "e3", COMMIT, [_trial("P", 0.05)])
+    assert str(error.value) == (
+        "essais.jsonl, ligne 3 : la chaîne est rompue ; rien n'est écrit"
+    )
+    assert path.read_bytes() == before
+
+
+def test_c16_a_removed_line_breaks_the_chain(tmp_path: Path) -> None:
+    append_trials(tmp_path, "e1", COMMIT, [_trial("P", 0.01), _trial("S1", 0.02)])
+    append_trials(tmp_path, "e2", COMMIT, [_trial("P", 0.03), _trial("S1", 0.04)])
+    path = _journal(tmp_path)
+    lines = path.read_bytes().split(b"\n")
+    path.write_bytes(b"\n".join([lines[0], *lines[2:]]))
+    with pytest.raises(Q2ResultsError, match="ligne 2 : la chaîne est rompue"):
+        check_trials(tmp_path)
+
+
+def test_c16_the_last_line_is_not_seen_by_the_chain(tmp_path: Path) -> None:
+    """La limite dite : la dernière ligne retouchée ne se voit pas par la chaîne."""
+    append_trials(tmp_path, "e1", COMMIT, [_trial("P", 0.01), _trial("S1", 0.02)])
+    path = _journal(tmp_path)
+    first, last, end = path.read_bytes().split(b"\n")
+    path.write_bytes(b"\n".join([first, last.replace(b"0.02", b"0.09"), end]))
+    assert check_trials(tmp_path) is not None
+
+
+# --- C24 et la figure ---------------------------------------------------------------
+
+
+def test_c24_the_partial_residuals_of_the_date() -> None:
+    x = [[1.0, 0.0, 2.0], [1.0, 10.0, 1.0], [1.0, 20.0, 4.0]]
+    y = [5.0, 4.0, 9.0]
+    assert partial_date_residuals(x, y, [1.0, 0.1, 2.0], 0, 1) == pytest.approx(
+        [1.0, 2.0, 1.0], rel=EXACT
+    )
+
+
+@pytest.fixture(scope="module")
+def figure() -> Q2Figure:
+    params = ParameterSet(Q2_PARAMETER_SPECS, {"bootstrap_draws": 9.0})
+    data = q2_data(small_world(1), None, params)
+    spec = model_spec(data.days[LONG], Measure.MP, LONG, params)
+    units = spec.units()
+    design = build_design(units, spec, stage_one(units, Measure.MP), params)
+    built = q2_figure_data(
+        fit_direct(design, params), params, child_rng(Q2_ROOT_SEED, 2, 0, 2)
+    )
+    assert built is not None
+    return built
+
+
+def test_the_figure_has_five_knots_and_a_provisional_last_section(
+    figure: Q2Figure,
+) -> None:
+    t = [float((p.day - figure.points[0].day).days) for p in figure.points]
+    assert figure.knots[0] == min(t)
+    assert figure.knots[-1] == max(t)
+    assert len(figure.knots) == 5
+    assert figure.knots[3] == order_quantile(t, 0.75)
+    first = figure.points[0].day
+    for c in figure.curve:
+        assert c.provisional is ((c.day - first).days > figure.knots[3])
+        assert c.low <= c.estimate <= c.high
+    assert len(figure.curve) == int(max(t)) + 1
+    assert figure.draws == 9
+    assert figure.key == (2, 0, 2)
+
+
+def test_figure_csv(figure: Q2Figure) -> None:
+    text = figure_csv(figure)
+    lines = text.splitlines()
+    assert lines[0] == "type,date,residu_partiel,estimation,bas,haut,provisoire"
+    points = [line for line in lines if line.startswith("point,")]
+    curve = [line for line in lines if line.startswith("courbe,")]
+    assert len(points) == len(figure.points)
+    assert len(curve) == len(figure.curve)
+    assert lines[1].split(",")[3:] == ["", "", "", ""]
+    assert curve[-1].endswith(",true")
+    assert curve[0].endswith(",false")
+    assert figure_csv(None) == lines[0] + "\n"
+
+
+def test_the_figure_page_carries_the_legend_word_for_word(figure: Q2Figure) -> None:
+    pytest.importorskip("plotly")
+    from mountain_perf.analyse.plot import q2_figure_html
+
+    page = q2_figure_html(figure)
+    assert (
+        "Résidus partiels de la date, montées longues ; courbe lissée et bande"
+        " simultanée à 95 % ; descriptive, sans verdict ; la bande ignore la"
+        " corrélation entre journées : sans doute trop étroite ; dernier tronçon"
+        " provisoire."
+    ) in page
+    assert q2_figure_html(figure) == page
+    empty = q2_figure_html(None)
+    assert "Pas de figure : l&#x27;essai principal n&#x27;est pas estimé." in empty
+
+
+# --- le dossier d'estimation ----------------------------------------------------------
+
+
+def _estimation(data: Q2Data) -> Q2Estimation:
+    return Q2Estimation(
+        rows=(_trial("P", 0.01),),
+        specs=_specs(data),
+        principal=None,
+        levels={"P": 0.95},
+        bounds={},
+        autocorrelation=(("long_climb", "M-P", 57, None, 0, None),),
+    )
+
+
+def _write_estimation(data_dir: Path, day: date) -> Path:
+    data = q2_data(c3_tables(), None, DEFAULTS)
+    power = StoredPower(
+        data_dir / "puissance" / "2026-11-15_aaaaaaaaaaaa", "f" * 64, {}
+    )
+    return write_estimation_results(
+        data_dir,
+        _estimation(data),
+        data,
+        None,
+        "<p>x</p>",
+        c3_tables().provenance,
+        DEFAULTS,
+        power,
+        commit=COMMIT,
+        package_version="0.0.1",
+        generated_on=day,
+    )
+
+
+def test_the_estimation_folder(tmp_path: Path) -> None:
+    written = _write_estimation(tmp_path, date(2026, 11, 16))
+    assert written.parent == tmp_path / "resultats" / "Q2"
+    assert results.RESULT_NAME.fullmatch(written.name)
+    assert sorted(p.name for p in written.iterdir()) == [
+        "autocorrelation.csv",
+        "essais.csv",
+        "figure.csv",
+        "figure.html",
+        "flux.csv",
+        "provenance.json",
+    ]
+    assert (written / "autocorrelation.csv").read_text(encoding="utf-8") == (
+        "regime,mesure,de,a,paires,correlation\nlong_climb,M-P,57,,0,\n"
+    )
+    header = (written / "essais.csv").read_text(encoding="utf-8").splitlines()[0]
+    assert "intervalle_fraction_bas,intervalle_fraction_haut" in header
+    document = json.loads((written / "provenance.json").read_text(encoding="utf-8"))
+    assert document["commande"] == "mperf q2"
+    assert document["puissance"] == {
+        "dossier": "2026-11-15_aaaaaaaaaaaa",
+        "empreinte": "f" * 64,
+    }
+    assert document["non_faites"] == list(NOT_DONE)
+    assert document["figure"] is None
+    other = _write_estimation(tmp_path, date(2026, 11, 17))
+    assert other.name.split("_")[1] == written.name.split("_")[1]
+    with pytest.raises(Q2ResultsError, match="existe déjà"):
+        _write_estimation(tmp_path, date(2026, 11, 16))
+    assert not any(p.name.startswith(".") for p in written.parent.iterdir())

@@ -119,10 +119,11 @@ def test_backtest_reexports_the_same_objects() -> None:
 
 def test_only_the_registry_documents_import_the_common_codec() -> None:
     """Dans ``src/``, seuls ``backtest/codec.py``, les documents d'``interim/``
-    (``ingest/interim.py``, AN1-1, ``0013``) et les tables de ``processed/``
+    (``ingest/interim.py``, AN1-1, ``0013``), les tables de ``processed/``
     (``analyse/parquet.py`` pour leur provenance, ``analyse/tables.py`` pour nommer un
-    document d'``interim/`` qui ne se relit pas ; AN1-2b, ``0014``) importent le codec
-    commun."""
+    document d'``interim/`` qui ne se relit pas ; AN1-2b, ``0014``) et le journal
+    chaîné des essais de Q2 (``analyse/q2/results.py``, AN3-3b, ``0023``) importent le
+    codec commun."""
     importers = []
     for path in sorted(SOURCE.rglob("*.py")):
         if path == COMMON_MODULE:
@@ -134,6 +135,7 @@ def test_only_the_registry_documents_import_the_common_codec() -> None:
                 importers.append(path.relative_to(SOURCE).as_posix())
     assert importers == [
         "analyse/parquet.py",
+        "analyse/q2/results.py",
         "analyse/tables.py",
         "backtest/codec.py",
         "ingest/interim.py",

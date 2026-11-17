@@ -24,6 +24,7 @@ import dataclasses
 import hashlib
 import io
 import json
+import math
 import re
 import shutil
 from collections.abc import Iterable, Mapping, Sequence
@@ -41,6 +42,7 @@ from mountain_perf.analyse.q2.data import (
     Q2Motif,
     period_of,
 )
+from mountain_perf.analyse.q2.figure import Q2Figure
 from mountain_perf.analyse.q2.model import Measure, ModelSpec
 from mountain_perf.analyse.q2.parameters import Q2_REGIMES, Q2_ROOT_SEED
 from mountain_perf.analyse.q2.power import (
@@ -49,6 +51,13 @@ from mountain_perf.analyse.q2.power import (
     PowerResult,
     RegimePower,
 )
+from mountain_perf.analyse.q2.trials import (
+    INTERVAL_FIELDS,
+    NOT_DONE,
+    Q2Estimation,
+    TrialRow,
+)
+from mountain_perf.codec import canonical_bytes, content_hash
 from mountain_perf.schemas import ParameterSet
 from mountain_perf.schemas.processed import ClimbRegime, ProcessedProvenance
 
@@ -677,3 +686,245 @@ def latest_power(data_dir: Path, current: ProcessedProvenance) -> StoredPower | 
         return None
     _, folder, document, raw = max(candidates, key=lambda item: item[0])
     return StoredPower(folder, hashlib.sha256(raw).hexdigest(), _levels(document))
+
+
+# --- l'estimation ------------------------------------------------------------------
+
+TRIALS_FILE = "essais.csv"
+FIGURE_CSV = "figure.csv"
+FIGURE_HTML = "figure.html"
+AUTOCORRELATION_FILE = "autocorrelation.csv"
+JOURNAL = Path("resultats") / "essais.jsonl"
+"""Le journal chaîné des essais, sous ``MPA_DATA_DIR``."""
+FIGURE_COLUMNS: tuple[str, ...] = (
+    "type",
+    "date",
+    "residu_partiel",
+    "estimation",
+    "bas",
+    "haut",
+    "provisoire",
+)
+AUTOCORRELATION_COLUMNS: tuple[str, ...] = (
+    "regime",
+    "mesure",
+    "de",
+    "a",
+    "paires",
+    "correlation",
+)
+
+
+def trial_columns() -> tuple[str, ...]:
+    """Les colonnes d'``essais.csv`` : un champ de ``TrialRow`` par colonne, un
+    intervalle en deux (``_bas``, ``_haut``)."""
+    columns: list[str] = []
+    for item in dataclasses.fields(TrialRow):
+        if item.name in INTERVAL_FIELDS:
+            columns += [f"{item.name}_bas", f"{item.name}_haut"]
+        else:
+            columns.append(item.name)
+    return tuple(columns)
+
+
+def _trial_cells(row: TrialRow) -> list[object]:
+    cells: list[object] = []
+    for item in dataclasses.fields(TrialRow):
+        value = getattr(row, item.name)
+        if item.name in INTERVAL_FIELDS:
+            cells += [None, None] if value is None else [value[0], value[1]]
+        else:
+            cells.append(value)
+    return cells
+
+
+def essais_csv(rows: Sequence[TrialRow]) -> str:
+    """``essais.csv`` : les lignes d'essai, dans l'ordre des indices."""
+    return csv_text(trial_columns(), [_trial_cells(r) for r in rows])
+
+
+def autocorrelation_csv(
+    rows: Sequence[tuple[str, str, int, int | None, int, float | None]],
+) -> str:
+    """``autocorrelation.csv`` (``a`` vide à la dernière classe, ``correlation`` vide
+    sans paire)."""
+    return csv_text(AUTOCORRELATION_COLUMNS, rows)
+
+
+def figure_csv(figure: Q2Figure | None) -> str:
+    """``figure.csv`` : une ligne ``point`` par journée, puis une ligne ``courbe`` par
+    jour de la grille ; son seul en-tête sans figure."""
+    rows: list[list[object]] = []
+    if figure is not None:
+        rows += [
+            ["point", p.day.isoformat(), p.residual, None, None, None, None]
+            for p in figure.points
+        ]
+        rows += [
+            [
+                "courbe",
+                c.day.isoformat(),
+                None,
+                c.estimate,
+                c.low,
+                c.high,
+                c.provisional,
+            ]
+            for c in figure.curve
+        ]
+    return csv_text(FIGURE_COLUMNS, rows)
+
+
+def _json_value(value: object) -> object:
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    if isinstance(value, tuple):
+        return [_json_value(v) for v in value]
+    return value
+
+
+def trial_record(row: TrialRow) -> dict[str, object]:
+    """Les champs de ``row`` en types JSON, dans l'ordre de ``TrialRow`` (un
+    intervalle en liste, ``NaN`` et absences en ``null``)."""
+    return {
+        item.name: _json_value(getattr(row, item.name))
+        for item in dataclasses.fields(TrialRow)
+    }
+
+
+def _broken(line: int) -> Q2ResultsError:
+    return Q2ResultsError(
+        f"essais.jsonl, ligne {line} : la chaîne est rompue ; rien n'est écrit"
+    )
+
+
+def check_trials(data_dir: Path) -> str | None:
+    """Relit ``resultats/essais.jsonl`` en entier : chaque ligne se décode et son
+    ``precedente`` est l'empreinte de la ligne d'avant (``null`` pour la première).
+    Rend l'empreinte de la dernière ligne (``None`` sans fichier, ou vide) ;
+    :class:`Q2ResultsError` à la première ligne qui ne suit plus.
+
+    Limite : une retouche de la **dernière** ligne ne se voit pas par la chaîne
+    seule."""
+    path = data_dir / JOURNAL
+    if not path.exists():
+        return None
+    data = path.read_bytes()
+    if not data:
+        return None
+    if not data.endswith(b"\n"):
+        raise _broken(data.count(b"\n") + 1)
+    previous: str | None = None
+    for number, line in enumerate(data[:-1].split(b"\n"), start=1):
+        try:
+            record = json.loads(line.decode("utf-8"))
+        except (UnicodeDecodeError, ValueError) as error:
+            raise _broken(number) from error
+        if not isinstance(record, dict) or record.get("precedente") != previous:
+            raise _broken(number)
+        previous = content_hash(line)
+    return previous
+
+
+def append_trials(
+    data_dir: Path, execution: str, commit: str, rows: Sequence[TrialRow]
+) -> None:
+    """Ajoute une ligne par essai de ``rows`` à ``resultats/essais.jsonl``, en une
+    seule écriture, chaînées sur la dernière ligne existante ; la chaîne est relue
+    d'abord (:func:`check_trials`) : rompue, rien n'est écrit."""
+    previous = check_trials(data_dir)
+    lines: list[bytes] = []
+    for row in rows:
+        record = {
+            "question": "Q2",
+            "execution": execution,
+            "commit": commit,
+            "essai": trial_record(row),
+            "precedente": previous,
+        }
+        line = canonical_bytes(record)
+        lines.append(line + b"\n")
+        previous = content_hash(line)
+    path = data_dir / JOURNAL
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("ab") as journal:
+        journal.write(b"".join(lines))
+
+
+def estimation_files(
+    estimation: Q2Estimation, data: Q2Data, figure: Q2Figure | None, html: str
+) -> dict[str, str]:
+    """Les fichiers du dossier d'estimation, sauf ``provenance.json``."""
+    return {
+        TRIALS_FILE: essais_csv(estimation.rows),
+        FLUX_FILE: flux_csv(data, estimation.specs),
+        FIGURE_CSV: figure_csv(figure),
+        FIGURE_HTML: html,
+        AUTOCORRELATION_FILE: autocorrelation_csv(estimation.autocorrelation),
+    }
+
+
+def estimation_document(
+    estimation: Q2Estimation,
+    data: Q2Data,
+    figure: Q2Figure | None,
+    tables: ProcessedProvenance,
+    parameters: ParameterSet,
+    power: StoredPower,
+    *,
+    commit: str,
+    package_version: str,
+) -> dict[str, object]:
+    """La provenance du dossier d'estimation, sans les fichiers ni ``genere_le``."""
+    return {
+        **common_provenance(
+            data,
+            tables,
+            parameters,
+            command=ESTIMATION_COMMAND,
+            commit=commit,
+            package_version=package_version,
+        ),
+        "puissance": {"dossier": power.folder.name, "empreinte": power.digest},
+        "niveaux": dict(estimation.levels),
+        "non_faites": list(NOT_DONE),
+        "bornes": dict(estimation.bounds),
+        "figure": None
+        if figure is None
+        else {
+            "noeuds": list(figure.knots),
+            "tirages": figure.draws,
+            "cle": [Q2_ROOT_SEED, *figure.key],
+        },
+    }
+
+
+def write_estimation_results(
+    data_dir: Path,
+    estimation: Q2Estimation,
+    data: Q2Data,
+    figure: Q2Figure | None,
+    html: str,
+    tables: ProcessedProvenance,
+    parameters: ParameterSet,
+    power: StoredPower,
+    *,
+    commit: str,
+    package_version: str,
+    generated_on: date,
+) -> Path:
+    """Écrit ``resultats/Q2/<date>_<empreinte>/`` : ``essais.csv``, ``flux.csv``,
+    ``figure.csv``, ``figure.html``, ``autocorrelation.csv``, ``provenance.json``.
+    :class:`Q2ResultsError` si le dossier existe déjà (rien n'est écrit)."""
+    document = estimation_document(
+        estimation,
+        data,
+        figure,
+        tables,
+        parameters,
+        power,
+        commit=commit,
+        package_version=package_version,
+    )
+    files = estimation_files(estimation, data, figure, html)
+    return write_folder(data_dir, RESULTS_DIR, files, document, generated_on)

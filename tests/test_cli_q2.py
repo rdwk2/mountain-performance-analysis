@@ -395,3 +395,90 @@ def test_mperf_help_lists_the_q2_subcommand(
     with pytest.raises(SystemExit):
         main(["--help"])
     assert "Q2 : la puissance (puissance), puis l'estimation" in capsys.readouterr().out
+
+
+# --- l'estimation ---------------------------------------------------------------------
+
+
+def _journal_lines(base: Path) -> list[bytes]:
+    path = base / "resultats" / "essais.jsonl"
+    return path.read_bytes().splitlines() if path.exists() else []
+
+
+def _estimations(base: Path) -> list[str]:
+    root = base / "resultats" / "Q2"
+    return sorted(p.name for p in root.iterdir() if p.name != "puissance")
+
+
+def test_the_estimation_after_the_power(
+    power_run: PowerRun,
+    fixed_world: list[Path],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Puissance, puis estimation : le dossier, 24 lignes au journal ; à une autre
+    date, 48 ; le même jour, refusée sans rien écrire (le calcul repris de la première
+    estimation)."""
+    from datetime import date
+
+    from mountain_perf.analyse.q2 import trials
+
+    base = _copy(power_run)
+    computed: list[Any] = []
+    original = trials.q2_trials
+
+    def keep(*args: Any, **kwargs: Any) -> Any:
+        if not computed:
+            computed.append(original(*args, **kwargs))
+        return computed[0]
+
+    monkeypatch.setattr(trials, "q2_trials", keep)
+    assert main(["q2"]) == 0
+    out = capsys.readouterr().out.splitlines()
+    (name,) = _estimations(base)
+    assert sorted(p.name for p in (base / "resultats" / "Q2" / name).iterdir()) == [
+        "autocorrelation.csv",
+        "essais.csv",
+        "figure.csv",
+        "figure.html",
+        "flux.csv",
+        "provenance.json",
+    ]
+    assert len(_journal_lines(base)) == 24
+    assert out[0].startswith("P : estime — ")
+    assert len([line for line in out if " : " in line and " — " in line]) >= 20
+    assert "24 essais ajoutés à resultats/essais.jsonl" in out
+    assert out[-1] == f"-> resultats/Q2/{name}/"
+    document = json.loads(
+        (base / "resultats" / "Q2" / name / "provenance.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert document["puissance"]["dossier"] == _power_folder(base).name
+    monkeypatch.setattr(cli, "_today", lambda: date(2026, 11, 18))
+    assert main(["q2"]) == 0
+    capsys.readouterr()
+    assert len(_journal_lines(base)) == 48
+    assert len(_estimations(base)) == 2
+    before = (base / "resultats" / "essais.jsonl").read_bytes()
+    assert main(["q2"]) == 1
+    assert "existe déjà : rien n'est réécrit" in capsys.readouterr().err
+    assert (base / "resultats" / "essais.jsonl").read_bytes() == before
+    assert len(_estimations(base)) == 2
+
+
+def test_a_broken_journal_refuses_the_estimation(
+    power_run: PowerRun,
+    fixed_world: list[Path],
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """§ 10.4 (correction H) : une chaîne rompue, aucun dossier d'estimation."""
+    base = _copy(power_run)
+    journal = base / "resultats" / "essais.jsonl"
+    journal.write_bytes(b'{"precedente":"x"}\n')
+    assert main(["q2"]) == 1
+    assert capsys.readouterr().err == (
+        "Erreur : essais.jsonl, ligne 1 : la chaîne est rompue ; rien n'est écrit\n"
+    )
+    assert _estimations(base) == []
+    assert journal.read_bytes() == b'{"precedente":"x"}\n'

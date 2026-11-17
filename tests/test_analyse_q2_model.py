@@ -7,9 +7,12 @@ from __future__ import annotations
 
 import math
 import random
+import subprocess
+import sys
 from collections.abc import Callable
 from datetime import date, timedelta
 from fractions import Fraction
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -427,11 +430,38 @@ def test_the_power_bootstrap_keeps_v_fixed(monkeypatch: pytest.MonkeyPatch) -> N
     assert len(draws.draws) + draws.removed == 9
 
 
-def test_the_bootstrap_does_not_depend_on_the_number_of_processes() -> None:
-    _, fitted_inverse, params = _fitted(bootstrap_draws=4)
-    one = inverse_bootstrap(fitted_inverse, params, child_rng(1, 2, 0, 0), 1)
-    two = inverse_bootstrap(fitted_inverse, params, child_rng(1, 2, 0, 0), 2)
-    assert one == two
+BOOTSTRAP_IN_NEW_PROCESS = """
+import os, sys
+for name in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS"):
+    os.environ[name] = "1"
+sys.path.insert(0, {tests!r})
+from mountain_perf.analyse.inference.base import child_rng
+from mountain_perf.analyse.q2.model import inverse_bootstrap
+from test_analyse_q2_model import _fitted
+
+if __name__ == "__main__":
+    _, inverse, params = _fitted(bootstrap_draws=4)
+    one = inverse_bootstrap(inverse, params, child_rng(1, 2, 0, 0), 1)
+    two = inverse_bootstrap(inverse, params, child_rng(1, 2, 0, 0), 2)
+    print(one == two, len(one.draws) + one.removed)
+"""
+
+
+def test_the_bootstrap_does_not_depend_on_the_number_of_processes(
+    tmp_path: Path,
+) -> None:
+    """§ 7.3 : les réajustements se répartissent sans changer la sortie ; dans un
+    processus neuf, un fil BLAS posé avant numpy (Q-50 (b)), comme la commande."""
+    tests = Path(__file__).resolve().parent
+    script = tmp_path / "bootstrap.py"
+    script.write_text(
+        BOOTSTRAP_IN_NEW_PROCESS.format(tests=str(tests)), encoding="utf-8"
+    )
+    result = subprocess.run(
+        [sys.executable, str(script)], capture_output=True, text=True, check=False
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.split() == ["True", "4"]
 
 
 def test_a_reestimated_fit_reports_b_and_its_standard_error() -> None:

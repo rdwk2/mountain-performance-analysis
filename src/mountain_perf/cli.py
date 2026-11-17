@@ -4193,13 +4193,16 @@ def _run_q2(mode: str | None, processus: int) -> int:
     de puissance ; le calcul et les écritures ; le résumé."""
     _single_thread_blas()
     try:
-        from mountain_perf.analyse import plot  # noqa: F401
+        from mountain_perf.analyse.inference.base import child_rng
         from mountain_perf.analyse.parquet import ProcessedError, read_tables
+        from mountain_perf.analyse.plot import q2_figure_html
         from mountain_perf.analyse.q2 import parameters as q2_parameters
         from mountain_perf.analyse.q2 import power as q2_power
         from mountain_perf.analyse.q2 import results as q2_results
         from mountain_perf.analyse.q2.data import Q2Error, q2_data
+        from mountain_perf.analyse.q2.figure import FIGURE_KEY, q2_figure_data
         from mountain_perf.analyse.q2.model import Measure, model_spec
+        from mountain_perf.analyse.q2.trials import q2_trials
     except ModuleNotFoundError as error:
         if (error.name or "").split(".")[0] not in Q2_EXTRAS:
             raise
@@ -4229,10 +4232,43 @@ def _run_q2(mode: str | None, processus: int) -> int:
             if power is None:
                 print(Q2_NO_POWER_ERROR, file=sys.stderr)
                 return 1
-            print(
-                "Erreur : l'estimation de Q2 n'est pas encore écrite", file=sys.stderr
+            q2_results.check_trials(folder)
+            estimation = q2_trials(data, parameters, power.levels, processus)
+            figure = (
+                None
+                if estimation.principal is None
+                else q2_figure_data(
+                    estimation.principal.direct,
+                    parameters,
+                    child_rng(q2_parameters.Q2_ROOT_SEED, *FIGURE_KEY),
+                )
             )
-            return 1
+            written = q2_results.write_estimation_results(
+                folder,
+                estimation,
+                data,
+                figure,
+                q2_figure_html(figure),
+                tables.provenance,
+                parameters,
+                power,
+                commit=state.commit,
+                package_version=mountain_perf.__version__,
+                generated_on=_today(),
+            )
+            try:
+                q2_results.append_trials(
+                    folder, written.name, state.commit, estimation.rows
+                )
+            except (OSError, q2_results.Q2ResultsError) as error:
+                raise q2_results.Q2ResultsError(
+                    f"le dossier {written.name} est écrit, essais.jsonl ne l'est pas"
+                    f" ({error})"
+                ) from error
+            _print_estimation(estimation.rows)
+            _print_other_commit(tables.provenance.commit, state.commit)
+            print(f"-> {(q2_results.RESULTS_DIR / written.name).as_posix()}/")
+            return 0
         result = q2_power.run_power(data, parameters, processus)
         written = q2_results.write_power_results(
             folder,
@@ -4268,6 +4304,18 @@ def _print_other_commit(tables_commit: str, commit: str) -> None:
             f"Tables écrites par un autre commit ({tables_commit[:12]}) : "
             "relancer just process si leur calcul a changé."
         )
+
+
+def _print_estimation(rows: Sequence[Any]) -> None:
+    """Le résumé de ``mperf q2`` : une ligne par essai, la phrase du principal, le
+    journal."""
+    for row in rows:
+        detail = row.lecture if row.statut == "estime" else row.motif
+        print(f"{row.essai} : {row.statut} — {detail or ''}".rstrip(" —"))
+    principal = rows[0]
+    if principal.phrase:
+        print(f"Principal : {principal.phrase}")
+    print(f"{len(rows)} essais ajoutés à resultats/essais.jsonl")
 
 
 def _print_power(result: Any, parameters: Any) -> None:
