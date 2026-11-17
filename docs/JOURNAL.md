@@ -16,6 +16,36 @@ Backtest (à partir de M4) : métrique avant → après.
 
 ---
 
+### 2026-11-17 · AN3-3b — Le code de Q2 : données, modèle, puissance, essais
+Le paquet `analyse/q2/` (`0023`), Python pur, sans numpy : les données (journées,
+appareil principal, exclusions au premier motif, normale de repos de Q2, `e_s`, `r`),
+les groupes de parcours, le budget et ses cinq retraits, les deux étages (étage 1 centré
+par journée, étage 2 en GLS à covariance REML), la régression inverse et la lecture
+bornée, `κ`, la simulation de puissance (bootstrap de `b_inv` à `V` fixée, Q-45), les 24
+essais (Holm, sensibilités vérifiées, bornes, autocorrélation), la figure, les deux
+dossiers de résultats et le journal chaîné `essais.jsonl`. `whiten` et `student_pvalue`
+dans `analyse/inference/linear.py` ; `q2_figure_html` dans `analyse/plot.py` ; la table
+`[periodes]` d'`athlete.toml` (`read_periods`). `mperf q2 puissance` et `mperf q2` (refusée
+sans résultat de puissance des mêmes tables), un fil BLAS posé avant tout import ; la
+recette `q2`, refusée par le hook. Cinq commits (données ; modèle et inférence ;
+puissance, flux et commande de puissance ; essais, journal, figure et estimation ;
+textes de l'annexe D). Tests des cas C1 à C24 ; 166 tests neufs dans les fichiers de Q2,
+3 min 13 s (13 s de plus que la borne de trois minutes accordée). Les 46 contre-épreuves
+du § 13.3, toutes rouges, jouées en worktrees détachés ; contre C20, les n° 24 (graine),
+25 et 43 rougissent seules ; « variables BLAS posées seulement pour N > 1 » ne rougit pas
+C20 (son processus neuf pose les variables avant numpy) mais rougit le test des valeurs
+à `--processus 1`. Écarts au brief, acceptés par la conception : C20 en deux exécutions
+neuves (processus, ordre des lignes et `PYTHONHASHSEED` changés ensemble) ; les grilles
+de puissance réduites par les seuls tests de bout en bout ; les champs de `TrialRow` aux
+noms français des colonnes. Vérifications allégées, décision de rdw, écart à la règle 2 :
+lint, types et suite ciblée avant les commits 1 à 4 ; un `just check` complet, tous les
+extras, avant le commit 5 (N = 12 112 tests réussis ou sautés ; un délai de Hypothesis
+sous charge, rejoué seul, vert) ; l'étape sans extra de la CI, verte. Aucun chiffre tiré
+des données : rien n'a été lancé sur le réel. Rangé : `src/mountain_perf/analyse/q2/`,
+`tests/test_analyse_q2_*.py`, `tests/test_cli_q2.py`, `tests/fixtures/q2_world.py`,
+`tests/fixtures/q2_run.py`. Après la fusion, chez rdw : `just process`, puis
+`just q2 puissance --processus <N>` ; l'estimation après le plan v2.
+
 ### 2026-11-15 · M5-3 — Profils de démo
 
 - Cinq personnages inventés (`mountain_perf/demo/`, `0022`) : un export Garmin, des GPX et des

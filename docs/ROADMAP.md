@@ -38,7 +38,8 @@ analyse les données d'entraînement, de récupération et de sommeil de l'athl�
   montre (la page « récupération »), avec la dernière figure de Q1 (AN2-3). AN2 est
   livrée. AN3 (Q2, l'efficience en montée) est commencée : la FC décalée de chaque
   montée (AN3-1a), les outils d'inférence (AN3-1), les positions des bornes de
-  chaque montée et la demi-heure de FC la plus basse du jour (AN3-3a).
+  chaque montée et la demi-heure de FC la plus basse du jour (AN3-3a), le code de
+  Q2, sa puissance et ses essais (AN3-3b).
 
 ---
 
@@ -412,5 +413,6 @@ question a son plan d'analyse, relu avant le code (charte).
 montée, décalée de 60 s, mesurée par l'outil de FC du moteur rendu commun (`0014`,
 précisions d'AN3-1a) ; puis les outils d'inférence (AN3-1, `0021`). AN3-3a : deux
 données de plus pour Q2, les positions des bornes de chaque montée et l'instant de la
-demi-heure de FC la plus basse du jour (`0014`, précisions d'AN3-3a ; `0019`). Suivent
-la commande `mperf q2`, le contrôle réel, puis la page.
+demi-heure de FC la plus basse du jour (`0014`, précisions d'AN3-3a ; `0019`). AN3-3b :
+le code de Q2, `mperf q2 puissance` puis `mperf q2`, les vingt-quatre essais et leur
+journal (`0023`). Suivent le contrôle réel et le plan v2, puis la page.
