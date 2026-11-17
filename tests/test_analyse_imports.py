@@ -236,3 +236,52 @@ def test_tables_compute_without_the_extras(
         [sys.executable, "-c", code], capture_output=True, text=True, check=True
     )
     assert result.stdout.strip() == "[]"
+
+
+Q2 = ANALYSE / "q2"
+Q2_FORBIDDEN = ("numpy", "scipy", "pyarrow", "plotly", "mountain_perf.backtest")
+
+
+def test_q2_never_imports_numpy_scipy_pyarrow_plotly_or_the_backtest() -> None:
+    """AN3-3b (Q-32, T40) : aucun module d'``analyse/q2/`` n'importe numpy, scipy,
+    pyarrow, plotly ni le backtest, même sous ``TYPE_CHECKING`` (l'AST entier est
+    lu) ; les calculs matriciels passent par ``analyse/inference/``."""
+    modules = sorted(Q2.glob("*.py"))
+    assert modules
+    for path in modules:
+        assert not any(
+            m == f or m.startswith(f"{f}.")
+            for m in _imports(path)
+            for f in Q2_FORBIDDEN
+        ), path.name
+
+
+def test_a_q2_import_under_type_checking_is_seen() -> None:
+    tree = ast.parse(
+        "from typing import TYPE_CHECKING\nif TYPE_CHECKING:\n    import numpy\n"
+    )
+    assert "numpy" in _modules(_imported_modules(tree, "mountain_perf.analyse.q2"))
+
+
+def test_the_cli_imports_q2_only_inside_a_function() -> None:
+    """``mperf`` s'importe sans l'extra ``analyse`` : ``cli.py`` n'importe
+    ``analyse.q2`` que dans le corps d'une fonction."""
+    tree = ast.parse((SOURCE / "cli.py").read_text(encoding="utf-8"))
+    inside = {
+        id(node)
+        for function in ast.walk(tree)
+        if isinstance(function, ast.FunctionDef | ast.AsyncFunctionDef)
+        for node in ast.walk(function)
+    }
+    top = ast.Module(
+        body=[
+            n
+            for n in ast.walk(tree)
+            if isinstance(n, ast.Import | ast.ImportFrom) and id(n) not in inside
+        ],
+        type_ignores=[],
+    )
+    assert not any(
+        m.startswith("mountain_perf.analyse.q2")
+        for m in _modules(_imported_modules(top, "mountain_perf"))
+    )

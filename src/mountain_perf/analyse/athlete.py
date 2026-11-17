@@ -1,7 +1,7 @@
 """Ce que l'athlète déclare pour les montées, dans ``MPA_DATA_DIR/athlete.toml``
 (charte, § 3 ; ``docs/decisions/0014``). Le fichier est tenu à la main : la
-bibliothèque le lit, ne l'écrit jamais. Seule sa table ``[analyse]`` est lue ici ;
-les autres tables appartiennent à d'autres lecteurs.
+bibliothèque le lit, ne l'écrit jamais. Ses tables ``[analyse]`` et ``[periodes]``
+(ci-dessous) sont lues ici ; les autres tables appartiennent à d'autres lecteurs.
 
 ```toml
 [analyse]
@@ -19,13 +19,25 @@ barometer_products = [{ manufacturer = "garmin", product = 1 }]
 
 Fichier absent, ou sans table ``[analyse]`` : les défauts. Une clé inconnue de la
 table, ou une valeur hors de sa plage, est refusée (:class:`AthleteError`).
+
+La table ``[periodes]`` est lue ici aussi, pour Q2 (AN3-3b, ``docs/decisions/0023``),
+par :func:`read_periods` :
+
+```toml
+[periodes]
+decouverte = { debut = "2031-03-01", fin = "2031-05-31" }
+```
+
+(dates d'exemple, inventées) ; absente, Q2 se joue sans période.
 """
 
 from __future__ import annotations
 
 import math
+import re
 import tomllib
 from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
 
 from mountain_perf.analyse.quality import DEFAULT_REFERENCE_VERTICAL_SPEED_MS
@@ -34,6 +46,10 @@ ATHLETE_FILE = "athlete.toml"
 """Le nom du fichier, à la racine de ``MPA_DATA_DIR``."""
 
 _SECTION = "analyse"
+_PERIODS = "periodes"
+_DISCOVERY = "decouverte"
+_DISCOVERY_KEYS = frozenset({"debut", "fin"})
+_DATE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
 _KEYS = frozenset({"reference_vertical_speed_m_per_h", "barometer_products"})
 _PRODUCT_KEYS = frozenset({"manufacturer", "product"})
 _MIN_M_PER_H, _MAX_M_PER_H = 100.0, 5000.0
@@ -129,3 +145,62 @@ def read_athlete(data_dir: Path) -> AthleteSettings:
             )
         products.add((manufacturer, product))
     return AthleteSettings(speed, declared, frozenset(products))
+
+
+@dataclass(frozen=True)
+class Periods:
+    """Les périodes déclarées dans ``[periodes]`` : la période de découverte, bornes
+    comprises."""
+
+    discovery_start: date
+    discovery_end: date
+
+
+def _load(path: Path) -> dict[str, object]:
+    try:
+        with path.open("rb") as file:
+            return tomllib.load(file)
+    except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError) as error:
+        raise AthleteError(f"{ATHLETE_FILE} illisible : {error}") from error
+
+
+def _period_date(value: object, key: str) -> date:
+    where = f"[{_PERIODS}] {_DISCOVERY}.{key}"
+    if not isinstance(value, str) or not _DATE.fullmatch(value):
+        raise AthleteError(f'{where} : une date écrite "AAAA-MM-JJ", entre guillemets')
+    try:
+        return date.fromisoformat(value)
+    except ValueError as error:
+        raise AthleteError(f"{where} : date invalide ({value})") from error
+
+
+def read_periods(data_dir: Path) -> Periods | None:
+    """Les périodes de ``data_dir/athlete.toml`` (table ``[periodes]``, pour Q2) ;
+    ``None`` si le fichier ou la table est absent. :class:`AthleteError` si la table
+    n'en est pas une, porte une autre clé que ``decouverte``, si ``decouverte`` n'a pas
+    exactement ``debut`` et ``fin``, si une date n'est pas une chaîne ``AAAA-MM-JJ``
+    (une date TOML native est refusée : une seule écriture), ou si ``fin`` précède
+    ``debut``."""
+    path = data_dir / ATHLETE_FILE
+    if not path.exists():
+        return None
+    section = _load(path).get(_PERIODS)
+    if section is None:
+        return None
+    if not isinstance(section, dict):
+        raise AthleteError(f"[{_PERIODS}] n'est pas une table")
+    unknown = sorted(set(section) - {_DISCOVERY})
+    if unknown:
+        raise AthleteError(f"[{_PERIODS}] : clés inconnues {unknown}")
+    if _DISCOVERY not in section:
+        raise AthleteError(f"[{_PERIODS}] : {_DISCOVERY} manque")
+    discovery = section[_DISCOVERY]
+    if not isinstance(discovery, dict) or set(discovery) != _DISCOVERY_KEYS:
+        raise AthleteError(
+            f"[{_PERIODS}] {_DISCOVERY} : une table {{ debut, fin }}, sans autre clé"
+        )
+    start = _period_date(discovery["debut"], "debut")
+    end = _period_date(discovery["fin"], "fin")
+    if end < start:
+        raise AthleteError(f"[{_PERIODS}] {_DISCOVERY} : fin précède debut")
+    return Periods(start, end)
