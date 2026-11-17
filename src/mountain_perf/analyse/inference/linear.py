@@ -172,3 +172,33 @@ def fraction_per_year(b_per_day: float) -> float:
 def fraction_per_year_interval(interval: Interval) -> Interval:
     """``fraction_per_year`` sur chaque borne (la transformation est croissante)."""
     return Interval(fraction_per_year(interval.low), fraction_per_year(interval.high))
+
+
+def whiten(
+    X: object,  # noqa: N803
+    y: object,
+    V: object,  # noqa: N803
+) -> tuple[FloatArray, FloatArray]:
+    """``(L⁻¹X, L⁻¹y)``, ``V = LLᵀ`` (``cholesky_of``), par résolution triangulaire,
+    jamais l'inverse de ``L`` (AN3-3b). ``X`` n × p, ``y`` n, ``V`` n × n ; refuse des
+    dimensions qui ne s'accordent pas, ``V`` non symétrique ou non définie positive ;
+    ne contrôle pas le plan (``n ≤ p``, rang) : ``whiten`` ne régresse pas."""
+    design = as_matrix(X, "X")
+    response = as_vector(y, "y")
+    n = design.shape[0]
+    if response.shape[0] != n:
+        raise InferenceError(f"y : {response.shape[0]} valeurs pour {n} lignes de X")
+    lower = cholesky_of(V, n)
+    return _whitened(design, response, lower)
+
+
+def student_pvalue(estimate: float, se: float, df: int) -> float:
+    """La p-valeur bilatérale de Student ``2 · P(T_df ≥ |estimate / se|)`` (AN3-3b) ;
+    ``se > 0`` fini, ``estimate`` fini, ``df ≥ 1`` entier, sinon ``InferenceError``."""
+    if not (math.isfinite(se) and se > 0.0):
+        raise InferenceError(f"se : un réel > 0 est attendu ({se})")
+    if not math.isfinite(estimate):
+        raise InferenceError(f"estimate : non fini ({estimate})")
+    if isinstance(df, bool) or not isinstance(df, int) or df < 1:
+        raise InferenceError(f"df : un entier ≥ 1 est attendu ({df!r})")
+    return float(2.0 * scipy.stats.t.sf(abs(estimate / se), df))
