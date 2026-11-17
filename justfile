@@ -63,6 +63,13 @@ process:
 q1:
     uv run --extra analyse mperf q1
 
+# Q2 (AN3-3b, docs/decisions/0023) : d'abord la puissance (just q2 puissance
+# --processus 8), avant toute estimation ; puis l'estimation (just q2), refusée sans
+# résultat de puissance des mêmes tables. MPA_DATA_DIR/processed →
+# MPA_DATA_DIR/resultats/Q2/, avec l'extra analyse.
+q2 *options:
+    uv run --extra analyse mperf q2 {{options}}
+
 # Une courbe allure↔pente personnelle (M6b) : MPA_DATA_DIR/interim →
 # MPA_DATA_DIR/reference/<name>.csv et son compagnon, jamais réécrits. Exemple :
 # just curve saison --from 2000-01-01 --to 2000-12-31 --athlete x ; les options suivent

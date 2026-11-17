@@ -65,6 +65,7 @@ def q2_climb(
     flags: Sequence[ClimbFlag] = (),
     h: float | None = 150.0,
     coverage: float = 1.0,
+    grade: float | None = None,
     **changes: Any,
 ) -> ClimbRow:
     """Une montée de l'activité ``ref`` (partie à ``when``), qui commence ``offset_s``
@@ -75,7 +76,7 @@ def q2_climb(
         "lagged_moving_heart_rate_coverage": coverage if h is not None else 0.0,
     }
     fields.update(changes)
-    return climb(
+    row = climb(
         ref,
         when,
         offset_s,
@@ -86,6 +87,7 @@ def q2_climb(
         flags=flags,
         **fields,
     )
+    return row if grade is None else dataclasses.replace(row, grade=grade)
 
 
 def q2_day_row(

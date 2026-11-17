@@ -581,6 +581,12 @@ def phi_bounds(t: Sequence[float], parameters: ParameterSet) -> tuple[float, flo
     return (low, high)
 
 
+def fit_reml(design: Design, parameters: ParameterSet) -> RemlFit:
+    """Le REML de ``design`` (``φ`` borné par :func:`phi_bounds`) ;
+    :class:`NotEstimableError` si ``reml_fit`` lève."""
+    return _reml(design, parameters)
+
+
 def _reml(design: Design, parameters: ParameterSet) -> RemlFit:
     bounds = phi_bounds(design.t, parameters)
     try:
