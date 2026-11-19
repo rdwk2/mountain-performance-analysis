@@ -13,8 +13,9 @@ UTF-8, fins de ligne ``\\n``.
 ``flux.csv`` compte, par régime, mesure, période, mois, étape et motif, les journées et
 les montées exclues, celles retenues, et le 90ᵉ centile de la part hors mouvement.
 
-Python pur : ce module n'importe que la bibliothèque standard, ``analyse/q2/`` et
-``analyse/inference/`` (par ses fonctions).
+Python pur : ce module n'importe que la bibliothèque standard, ``analyse/q2/``,
+``analyse/inference/`` (par ses fonctions), ``mountain_perf.codec`` (le journal
+chaîné) et ``mountain_perf.schemas``.
 """
 
 from __future__ import annotations
@@ -548,17 +549,6 @@ def write_folder(
         raise
     temporary.rename(target)
     return target
-
-
-def folder_name(
-    files: Mapping[str, str], document: Mapping[str, object], generated_on: date
-) -> str:
-    """Le nom du dossier que :func:`write_folder` écrirait."""
-    full = {
-        **document,
-        "fichiers": {name: sha256_text(text) for name, text in sorted(files.items())},
-    }
-    return f"{generated_on.isoformat()}_{sha256_text(json_text(full))[:12]}"
 
 
 def write_power_results(

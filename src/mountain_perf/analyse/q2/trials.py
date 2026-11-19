@@ -1160,11 +1160,16 @@ MANQUE: frozenset[Q2Motif] = frozenset(
 
 @dataclass(frozen=True)
 class _Missing:
+    """Une journée exclue par un manque : sa date, sa période, ses moyennes (``None``
+    pour une grandeur absente), son groupe de parcours, le nombre de ses montées, et si
+    elle est parmi les journées des étapes 1 à 4 (exclue à l'étape 5)."""
+
     day: date
     period: Period
     features: dict[str, float | None]
     group: int | None
     count: int
+    kept: bool
 
 
 def _period_mean(values: Sequence[float]) -> float | None:
@@ -1248,7 +1253,7 @@ def _imputable(
         features["heure"] = None if heure is None else heure - 12.0
         count = len(climbs)
         group = None
-    return _Missing(day, period, features, group, max(1, count))
+    return _Missing(day, period, features, group, max(1, count), q2_day is not None)
 
 
 def bounds(context: _Context, fitted: Fitted) -> dict[str, object]:
@@ -1329,8 +1334,12 @@ def _imputed_row(
     item: _Missing, design: Design, averages: Sequence[float | None], first: date
 ) -> list[float]:
     """La ligne d'une journée imputée : ses covariables, une covariable absente prise
-    à la moyenne de sa période parmi les journées gardées (Q-49 (j)) ; ses
-    indicatrices de parcours à la moyenne de sa période si elle n'a pas de groupe."""
+    à la moyenne de sa période parmi les journées gardées (Q-49 (j)). Ses indicatrices
+    de parcours : une journée sans groupe (exclue aux étapes 1 à 3, sans journée des
+    étapes 1 à 4) prend, dans chacune, la moyenne de sa période parmi les journées
+    gardées ; une journée exclue à l'étape 5 garde le groupe que ``route_groups`` lui
+    rend : 1 dans sa colonne et 0 ailleurs, 0 partout si ce groupe est « autre » (la
+    référence, Q-49 (h)) ou n'a pas de colonne au modèle."""
     features = dict(item.features)
     names = list(design.columns)
     covariates = (
@@ -1369,7 +1378,7 @@ def _imputed_row(
     )
     row = []
     for k, name in enumerate(names):
-        if name.startswith("parcours_") and item.group is None:
+        if name.startswith("parcours_") and not item.kept:
             row.append(averages[k] or 0.0)
         else:
             row.append(values[name])

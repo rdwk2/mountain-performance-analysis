@@ -22,5 +22,6 @@ Jamais ``raw/``, ``interim/`` ni ``journal.csv``.
 
 **La clôture** : aucun module du paquet n'importe numpy, scipy, pyarrow ni plotly
 (``docs/decisions/0021``) ; les calculs matriciels passent par
-``mountain_perf.analyse.inference``, qui reçoit et rend des listes Python.
+``mountain_perf.analyse.inference``, qui reçoit des listes Python et rend des
+tableaux numpy, que ``q2`` lit par indice, ``float(...)`` ou ``.tolist()``.
 """

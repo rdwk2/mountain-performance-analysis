@@ -31,7 +31,7 @@ from __future__ import annotations
 
 import html
 import math
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import plotly.graph_objects as go
 import plotly.io as pio
@@ -47,12 +47,16 @@ from mountain_perf.analyse.q1 import (
     Q1Figure,
     View,
 )
-from mountain_perf.analyse.q2.figure import Q2Figure
 from mountain_perf.schemas.processed import (
     AltitudeStratum,
     ClimbRegime,
     GradeStratum,
 )
+
+if TYPE_CHECKING:
+    # Une annotation seulement : importer ``plot`` ne charge ni ``q2/model.py`` ni
+    # ``inference/`` (la figure de Q1 importe ``plot``).
+    from mountain_perf.analyse.q2.figure import Q2Figure
 
 PANEL_TITLES: dict[ClimbRegime, str] = {
     ClimbRegime.LONG_CLIMB: "(a) montées longues",

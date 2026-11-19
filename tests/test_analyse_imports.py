@@ -263,6 +263,65 @@ def test_a_q2_import_under_type_checking_is_seen() -> None:
     assert "numpy" in _modules(_imported_modules(tree, "mountain_perf.analyse.q2"))
 
 
+def _under_type_checking(tree: ast.Module) -> set[int]:
+    """Les nœuds placés sous un ``if TYPE_CHECKING:`` (ou ``typing.TYPE_CHECKING``)."""
+    inside: set[int] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.If):
+            continue
+        test = node.test
+        name = (
+            test.id
+            if isinstance(test, ast.Name)
+            else test.attr
+            if isinstance(test, ast.Attribute)
+            else None
+        )
+        if name == "TYPE_CHECKING":
+            inside |= {id(child) for stmt in node.body for child in ast.walk(stmt)}
+    return inside
+
+
+def test_plot_imports_q2_only_under_type_checking() -> None:
+    """Correctifs de la PR #52 : ``analyse/plot.py`` n'importe ``analyse.q2`` que sous
+    ``TYPE_CHECKING`` (la figure de Q2 n'y sert qu'à une annotation). Contre un import
+    remonté au niveau du module, qui ferait charger ``q2/model.py`` et ``inference/``
+    à quiconque importe ``plot``."""
+    tree = ast.parse((ANALYSE / "plot.py").read_text(encoding="utf-8"))
+    guarded = _under_type_checking(tree)
+    q2_imports = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Import | ast.ImportFrom)
+        and any(
+            m.startswith("mountain_perf.analyse.q2")
+            for m in _modules(
+                _imported_modules(
+                    ast.Module(body=[node], type_ignores=[]), "mountain_perf.analyse"
+                )
+            )
+        )
+    ]
+    assert q2_imports
+    assert all(id(node) in guarded for node in q2_imports)
+
+
+def test_importing_plot_does_not_load_the_q2_model() -> None:
+    """Correctifs de la PR #52 : dans un processus neuf, importer
+    ``mountain_perf.analyse.plot`` ne charge pas ``mountain_perf.analyse.q2.model``.
+    Contre la garde ``TYPE_CHECKING`` ôtée."""
+    pytest.importorskip("plotly")
+    code = (
+        "import sys\n"
+        "import mountain_perf.analyse.plot\n"
+        "print('mountain_perf.analyse.q2.model' in sys.modules)\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True, check=True
+    )
+    assert result.stdout.strip() == "False"
+
+
 def test_the_cli_imports_q2_only_inside_a_function() -> None:
     """``mperf`` s'importe sans l'extra ``analyse`` : ``cli.py`` n'importe
     ``analyse.q2`` que dans le corps d'une fonction."""
