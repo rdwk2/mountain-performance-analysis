@@ -46,6 +46,27 @@ des données : rien n'a été lancé sur le réel. Rangé : `src/mountain_perf/a
 `tests/fixtures/q2_run.py`. Après la fusion, chez rdw : `just process`, puis
 `just q2 puissance --processus <N>` ; l'estimation après le plan v2.
 
+**Correctifs (2026-11-19)**, décidés par la conception après la relecture C et un
+balayage par mutations. Le défaut : aux bornes, une journée exclue à l'étape 5 recevait
+la moyenne de sa période pour ses indicatrices de parcours dès que son groupe était
+« autre » ; elle garde désormais le groupe que `route_groups` lui rend (0 partout pour
+« autre » ou un groupe sans colonne, 1 dans sa colonne), et seule une journée sans
+groupe prend la moyenne de sa période. Les tests : les bornes de bout en bout (un espion
+sur leur GLS) ; un monde riche, `rich_world` (45 journées de trois montées, aucun
+retrait aux seuils par défaut, l'étape 5 qui exclut deux journées, l'inverse bien
+identifiée) ; les défauts des paramètres, les exclusions, la première sortie après
+minuit, les colonnes après chaque retrait, les égalités aux bornes, l'estimation simulée
+contre l'estimateur du réel, la liaison des tirages, les comptes de la puissance, les
+sensibilités, les lignes non estimées, la provenance, la figure, la commande. 83 tests
+neufs, 31 s de plus sur les fichiers touchés. Retouches : `plot.py` importe la figure de
+Q2 sous `TYPE_CHECKING`, deux docstrings, `folder_name` retirée. Les 52 contre-épreuves
+(P2a à P5o, les « puis » jouées séparément), en worktrees détachés : 51 rougissent par
+leur assertion ; P5a-1 (la lecture bornée de l'estimation simulée sans l'intervalle
+inverse) survit : aux seuils du test, la lecture sur le seul direct est la même. Un test
+retiré, rouge sur le code : une puissance à δ d'exactement 0,5 donne `non_tranche_attendu`
+faux (comparaison stricte), le correctif l'attend vrai ; à trancher par la conception.
+`just check` complet, tous les extras : N = 12 195 (12 190 réussis, 5 sautés).
+
 ### 2026-11-15 · M5-3 — Profils de démo
 
 - Cinq personnages inventés (`mountain_perf/demo/`, `0022`) : un export Garmin, des GPX et des
