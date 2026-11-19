@@ -364,3 +364,13 @@ def test_c17_student_pvalue_refusals(
 ) -> None:
     with pytest.raises(InferenceError, match=match):
         student_pvalue(estimate, se, df)
+
+
+def test_student_pvalue_at_one_degree_of_freedom() -> None:
+    """Correctifs de la PR #52, 3.10 : ``df = 1`` est accepté ; Student à 1 degré de
+    liberté est la loi de Cauchy : ``2·(1/2 − arctan(2)/π) = 0,2951672353008665``.
+    Contre un ``student_pvalue`` qui refuse ``df = 1`` (P3v)."""
+    assert student_pvalue(2.0, 1.0, 1) == pytest.approx(0.2951672353008665, rel=1e-12)
+    assert 2.0 * (0.5 - math.atan(2.0) / math.pi) == pytest.approx(
+        0.2951672353008665, rel=1e-12
+    )

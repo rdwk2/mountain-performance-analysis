@@ -360,3 +360,90 @@ def make_day(
             for c in climbs
         ),
     )
+
+
+RICH_START = date(2025, 3, 3)
+"""Le premier jour d'activité possible de ``rich_world``."""
+RICH_EXCLUDED = (date(2025, 4, 16), date(2025, 9, 10))
+"""Les deux journées de ``rich_world`` exclues à l'étape 5 (FC de repos
+``provisional``)."""
+
+
+def rich_world(
+    seed: int, *, days: int = 45, span: int = 300, b: float = 0.0004
+) -> Tables:
+    """Un monde d'estimation inventé, plus riche que :func:`small_world` (correctifs
+    de la PR #52) : ``days`` journées de montées longues sur ``span`` jours, de trois
+    montées chacune, dont la FC varie d'une journée à l'autre et pèse fort sur la VAM
+    (``ln v`` croît de 0,02 par battement) : l'inverse est bien identifiée. La plus
+    grande montée de chaque journée suit l'un de deux parcours. Les deux journées de
+    :data:`RICH_EXCLUDED` (ajoutées au tirage) ont une FC de repos ``provisional`` :
+    l'étape 5 les exclut. Aux seuils par défaut, aucun retrait ne joue (la spline de
+    la FC est au modèle, ``e_s`` aussi). Tailles sans rapport avec un effectif
+    réel."""
+    rnd = random.Random(seed)
+    offsets = set(rnd.sample(range(span), days - len(RICH_EXCLUDED)))
+    offsets |= {(d - RICH_START).days for d in RICH_EXCLUDED}
+    activities: list[ActivityRow] = []
+    climbs: list[ClimbRow] = []
+    for offset in sorted(offsets):
+        day = RICH_START + timedelta(days=offset)
+        ref = f"r{offset:03d}"
+        when = at(day, 7)
+        activities.append(q2_activity(ref, when))
+        heart = rnd.uniform(130.0, 165.0)
+        effect = rnd.gauss(0.0, 0.02)
+        for k in range(3):
+            route = ROUTES[offset % 2] if k == 0 else None
+            gain = rnd.uniform(700.0, 800.0) if route else rnd.uniform(300.0, 500.0)
+            h = heart + rnd.gauss(0.0, 3.0)
+            log_v = (
+                -1.0
+                + b * offset
+                + 0.02 * (h - 145.0)
+                - 0.1 * (math.log(gain) - 6.0)
+                + effect
+                + rnd.gauss(0.0, 0.02)
+            )
+            speed = math.exp(log_v)
+            if route is None:
+                lat, lon = 46.0 + rnd.uniform(0.0, 1.0), 7.0 + rnd.uniform(0.0, 1.0)
+            else:
+                lat, lon = route[0] + rnd.uniform(0.0, 0.0002), route[1]
+            climbs.append(
+                q2_climb(
+                    ref,
+                    when,
+                    offset_s=3000.0 * k + rnd.uniform(0.0, 600.0),
+                    gain_m=gain,
+                    moving_s=gain / speed,
+                    h=h,
+                    grade=rnd.uniform(0.1, 0.3),
+                    moving_mean_elevation_m=rnd.uniform(800.0, 2500.0),
+                    preceding_ascent_m=rnd.uniform(0.0, 800.0),
+                    preceding_descent_m=rnd.uniform(0.0, 600.0),
+                    unlagged_moving_heart_rate_bpm=h - 1.0 + rnd.gauss(0.0, 1.0),
+                    lagged_second_half_heart_rate_bpm=h + 3.0 + rnd.gauss(0.0, 1.0),
+                    lagged_elapsed_heart_rate_bpm=h - 0.5 + rnd.gauss(0.0, 1.0),
+                    moving_or_undetermined_vertical_speed_ms=speed
+                    * rnd.uniform(0.9, 1.0),
+                    start_latitude_deg=lat,
+                    start_longitude_deg=lon,
+                    end_latitude_deg=lat + 0.03,
+                    end_longitude_deg=lon,
+                    stable=rnd.random() > 0.2,
+                )
+            )
+    first = RICH_START - timedelta(days=30)
+    count = (RICH_START + timedelta(days=span + 1) - first).days
+    rows = [
+        q2_day_row(
+            first + timedelta(days=i),
+            resting=round(50.0 + rnd.gauss(0.0, 1.5), 1),
+            status=RestingHrStatus.PROVISIONAL
+            if first + timedelta(days=i) in RICH_EXCLUDED
+            else RestingHrStatus.VALID,
+        )
+        for i in range(count)
+    ]
+    return q2_tables(activities, climbs, rows)

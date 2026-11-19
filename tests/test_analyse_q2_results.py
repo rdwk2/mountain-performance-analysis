@@ -42,6 +42,7 @@ from mountain_perf.analyse.q2.parameters import (
     Q2_ROOT_SEED,
 )
 from mountain_perf.analyse.q2.power import (
+    PowerLevel,
     PowerResult,
     RegimePower,
     alpha_grid,
@@ -655,3 +656,194 @@ def test_the_estimation_folder(tmp_path: Path) -> None:
     with pytest.raises(Q2ResultsError, match="existe déjà"):
         _write_estimation(tmp_path, date(2026, 11, 16))
     assert not any(p.name.startswith(".") for p in written.parent.iterdir())
+
+
+# --- correctifs de la PR #52 ----------------------------------------------------------
+
+PERIODS = Periods(date(2025, 4, 1), date(2025, 5, 31))
+
+
+def _flux_lines(text: str) -> list[list[str]]:
+    return [line.split(",") for line in text.splitlines()[1:]]
+
+
+def test_the_flux_when_step_five_applies() -> None:
+    """Correctifs de la PR #52, 3.9 : sur ``rich_world`` (aucun retrait : l'étape 5
+    s'applique), la journée du 16 avril 2025 (FC de repos ``provisional``, trois
+    montées) est comptée à l'étape 5, ``fc_repos_non_valide``, en M-P et en M-S, à 1
+    journée et 3 montées, et manque à ``retenues`` d'avril. Contre les lignes de
+    l'étape 5 jamais écrites (P3s)."""
+    from fixtures.q2_world import rich_world
+
+    tables = rich_world(1)
+    data, specs = _data_and_specs(tables)
+    assert specs[(LONG, Measure.MP)].withdrawals == ()
+    assert specs[(LONG, Measure.MS)].withdrawals == ()
+    april = [
+        a
+        for a in tables.activities
+        if a.start_time.date().strftime("%Y-%m") == "2025-04"
+    ]
+    lines = _flux_lines(flux_csv(data, specs))
+    for measure in ("M-P", "M-S"):
+        (step5,) = [
+            r
+            for r in lines
+            if r[:6]
+            == ["long_climb", measure, "toutes", "2025-04", "5", "fc_repos_non_valide"]
+        ]
+        assert step5[6:8] == ["1", "3"]
+        (kept,) = [
+            r
+            for r in lines
+            if r[:5] == ["long_climb", measure, "toutes", "2025-04", "retenues"]
+        ]
+        assert kept[6:8] == [str(len(april) - 1), str(3 * (len(april) - 1))]
+
+
+def test_the_flux_counts_each_period_on_its_own_line() -> None:
+    """Correctifs de la PR #52, 3 bis.12 : avec ``[periodes]``, une journée longue de
+    découverte à deux activités (``journee_reunie`` : 1 journée, 2 montées, ligne de
+    ``decouverte``, 2025-04) et une montée de M-S de la suite à ``h − r ≤ 0``
+    (``ms_reserve_non_positive`` : 1 et 1, ligne de ``suite``, 2025-06) ; les mêmes
+    cases de l'autre période à 0. Contre un flux qui range tout sous ``toutes``
+    (P5m)."""
+    from fixtures.q2_world import day_range
+
+    merged, low = date(2025, 4, 10), date(2025, 6, 12)
+    first, second, third = at(merged, 8), at(merged, 15), at(low, 9)
+    tables = q2_tables(
+        [
+            q2_activity("d1", first),
+            q2_activity("d2", second),
+            q2_activity("s1", third),
+        ],
+        [
+            q2_climb("d1", first),
+            q2_climb("d2", second),
+            q2_climb("s1", third, h=50.0),
+        ],
+        day_range(date(2025, 3, 1), 140),
+    )
+    lines = _flux_lines(_flux(tables, PERIODS))
+
+    def counts(period: str, month: str, step: str, motif: str, measure: str) -> Any:
+        (row,) = [
+            r
+            for r in lines
+            if r[:6] == ["long_climb", measure, period, month, step, motif]
+        ]
+        return row[6:8]
+
+    assert counts("decouverte", "2025-04", "4", "journee_reunie", "commun") == [
+        "1",
+        "2",
+    ]
+    assert counts("suite", "2025-06", "4", "journee_reunie", "commun") == ["0", "0"]
+    reserve = ("6", "ms_reserve_non_positive", "M-S")
+    assert counts("suite", "2025-06", *reserve) == ["1", "1"]
+    assert counts("decouverte", "2025-04", *reserve) == ["0", "0"]
+    assert not any(r[2] == "toutes" for r in lines)
+
+
+def test_the_estimation_provenance_with_periods(tmp_path: Path) -> None:
+    """Correctifs de la PR #52, 3.9 : une provenance d'estimation **avec**
+    ``[periodes]`` écrit ``periodes`` avec ses deux dates (écrites en dur). Contre
+    une provenance d'estimation sans ``periodes`` (P3t)."""
+    data = q2_data(c3_tables(), PERIODS, DEFAULTS)
+    power = StoredPower(
+        tmp_path / "puissance" / "2026-11-15_aaaaaaaaaaaa", "f" * 64, {}
+    )
+    written = write_estimation_results(
+        tmp_path,
+        _estimation(data),
+        data,
+        None,
+        "<p>x</p>",
+        c3_tables().provenance,
+        DEFAULTS,
+        power,
+        commit=COMMIT,
+        package_version="0.0.1",
+        generated_on=date(2026, 11, 16),
+    )
+    document = json.loads((written / "provenance.json").read_text(encoding="utf-8"))
+    assert document["periodes"] == {"debut": "2025-04-01", "fin": "2025-05-31"}
+
+
+def test_latest_power_reads_a_triggered_calibration(tmp_path: Path) -> None:
+    """Correctifs de la PR #52, 3 bis.6 : un ``provenance.json`` écrit à la main, les
+    côtes non estimables, les montées longues à calibration déclenchée (``alpha`` =
+    0,02) : les niveaux rendus, écrits en dur. Contre un ``latest_power`` qui ignore
+    une calibration déclenchée (P5g)."""
+    provenance = c3_tables().provenance
+    _power_folder(tmp_path, "2026-11-16_aaaaaaaaaaaa", provenance, alpha=0.02)
+    stored = latest_power(tmp_path, provenance)
+    assert stored is not None
+    assert dict(stored.levels) == {
+        "long_climb": PowerLevel(True, True, 0.02),
+        "short_climb": PowerLevel(False, False, None),
+    }
+
+
+def test_c16_an_undecodable_line_is_named(tmp_path: Path) -> None:
+    """Correctifs de la PR #52, 3 bis.15 : la ligne 2 remplacée par une accolade
+    seule (elle ne se décode pas) : le message nomme la ligne 2."""
+    append_trials(tmp_path, "e1", COMMIT, [_trial("P", 0.01), _trial("S1", 0.02)])
+    append_trials(tmp_path, "e2", COMMIT, [_trial("P", 0.03)])
+    path = _journal(tmp_path)
+    lines = path.read_bytes().split(b"\n")
+    lines[1] = b"{"
+    path.write_bytes(b"\n".join(lines))
+    with pytest.raises(Q2ResultsError) as error:
+        check_trials(tmp_path)
+    assert str(error.value) == (
+        "essais.jsonl, ligne 2 : la chaîne est rompue ; rien n'est écrit"
+    )
+
+
+def _plotted(page: str) -> list[dict[str, Any]]:
+    """Les traces de la figure de Q2, relues dans l'appel ``Plotly.newPlot`` de la
+    page."""
+    start = page.index('"q2-principale",', page.index("Plotly.newPlot("))
+    start = page.index("[", start)
+    traces, _ = json.JSONDecoder().raw_decode(page[start:])
+    assert isinstance(traces, list)
+    return traces
+
+
+def test_the_figure_page_carries_the_points_the_curve_and_the_band(
+    figure: Q2Figure,
+) -> None:
+    """Correctifs de la PR #52, 3.11 : les traces relues dans ``figure.html`` : les
+    points (x : les dates des journées, y : leurs résidus partiels), la courbe (x :
+    les dates de la grille, y : l'estimation, en deux traces, la pleine puis le
+    tronçon provisoire), la bande (ses deux bornes, aller-retour), égales aux données
+    de la figure ; la page embarque plotly.js (son bandeau), comme celle de Q1.
+    Contre la courbe sans ses y (P3x), la page sans plotly.js (P3y)."""
+    pytest.importorskip("plotly")
+    from mountain_perf.analyse import plot
+    from mountain_perf.analyse.plot import q2_figure_html
+
+    page = q2_figure_html(figure)
+    assert page.count(vars(plot)["get_plotlyjs"]()) == 1
+    assert page.index("plotly.js v") < page.index("</head>")
+    band, solid, provisional, points = _plotted(page)
+    days = [c.day.isoformat() for c in figure.curve]
+    assert band["x"] == days + days[::-1]
+    assert band["y"] == pytest.approx(
+        [c.high for c in figure.curve] + [c.low for c in figure.curve][::-1],
+        rel=EXACT,
+    )
+    assert band["fill"] == "toself"
+    assert solid["x"] + provisional["x"] == days
+    assert solid.get("y", []) + provisional.get("y", []) == pytest.approx(
+        [c.estimate for c in figure.curve], rel=EXACT
+    )
+    assert provisional["x"] == [
+        c.day.isoformat() for c in figure.curve if c.provisional
+    ]
+    assert provisional["x"]
+    assert points["x"] == [p.day.isoformat() for p in figure.points]
+    assert points["y"] == pytest.approx([p.residual for p in figure.points], rel=EXACT)
+    assert points["mode"] == "markers"

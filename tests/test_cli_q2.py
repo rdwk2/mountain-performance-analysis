@@ -23,14 +23,25 @@ import pytest
 
 from fixtures.processed import COMMIT
 from mountain_perf import cli, gitstate
-from mountain_perf.cli import (
-    Q2_EXTRA_ERROR,
-    Q2_MODIFIED_TREE_ERROR,
-    Q2_NO_POWER_ERROR,
-    main,
-)
+from mountain_perf.cli import main
 from mountain_perf.config import data_dir
 from mountain_perf.gitstate import GitState
+
+Q2_EXTRA_ERROR = (
+    "Erreur : Q2 demande l'extra analyse. Installer : uv sync --extra analyse"
+)
+"""Le message sans l'extra, recopié du brief (§ 11.1), écrit en dur."""
+Q2_MODIFIED_TREE_ERROR = (
+    "Erreur : un fichier suivi du code exécuté est modifié : mperf q2 écrit le "
+    "commit du code dans ses résultats (CHARTE, § 10). Committer ou annuler la "
+    "modification."
+)
+"""Le message d'un clone modifié (la phrase de Q1 avec « mperf q2 »), écrit en dur."""
+Q2_NO_POWER_ERROR = (
+    "Erreur : aucun résultat de mperf q2 puissance pour ces tables : lancer just q2 "
+    "puissance d'abord (la puissance se calcule avant toute estimation, 0023)"
+)
+"""Le message de la garde de l'estimation, recopié du brief (§ 11.1), écrit en dur."""
 
 OTHER_COMMIT = "b" * 40
 POWER = Path("resultats") / "Q2" / "puissance"
@@ -482,3 +493,256 @@ def test_a_broken_journal_refuses_the_estimation(
     )
     assert _estimations(base) == []
     assert journal.read_bytes() == b'{"precedente":"x"}\n'
+
+
+# --- correctifs de la PR #52 ----------------------------------------------------------
+
+POWER_HEADER = (
+    "regime,scenario,b_fraction_par_an,tirages,tirages_en_echec,p_etabli,"
+    "p_absence_effet_utile,erreur_mc_etabli,puissance,erreur_s,erreur_m,"
+    "biais_fraction_par_an"
+)
+"""L'en-tête de ``puissance.csv``, recopié du brief (§ 8.4), écrit en dur."""
+
+
+def test_the_power_header_and_no_failed_draw(power_run: PowerRun) -> None:
+    """Correctifs de la PR #52, 3.5 et 3.7 (a) : l'en-tête de ``puissance.csv`` écrit
+    en dur ; sur le monde de la commande (celui de C21), aucun tirage en échec, ni
+    dans ``puissance.csv`` ni dans la provenance. Contre l'en-tête changé (P3j) et une
+    estimation simulée qui lève sans qu'on le voie (P3o)."""
+    written = _power_folder(power_run.folder)
+    lines = (written / "puissance.csv").read_text(encoding="utf-8").splitlines()
+    assert lines[0] == POWER_HEADER
+    assert len(lines) > 1
+    failed = POWER_HEADER.split(",").index("tirages_en_echec")
+    assert all(line.split(",")[failed] == "0" for line in lines[1:])
+    document = json.loads((written / "provenance.json").read_text(encoding="utf-8"))
+    regimes = document["regimes"]
+    assert set(regimes) == {"long_climb", "short_climb"}
+    assert all(r["tirages_en_echec"] == 0 for r in regimes.values())
+
+
+POWER_TOP_KEYS = {
+    "question",
+    "commande",
+    "commit",
+    "version_du_paquet",
+    "periode",
+    "tables",
+    "periodes",
+    "parametres",
+    "graine",
+    "appareil_principal",
+    "grilles",
+    "regimes",
+    "fichiers",
+    "genere_le",
+}
+"""Les clés du haut de la provenance de la puissance (§ 10.1), écrites en dur."""
+REGIME_KEYS = {
+    "statut",
+    "monde",
+    "colonnes",
+    "residus_de_journee_nuls",
+    "reml_sans_date",
+    "seuils",
+    "plus_petit_effet_visible",
+    "a_delta",
+    "a_zero",
+    "calibration",
+    "absence_hors_d_atteinte",
+    "non_tranche_attendu",
+    "message",
+    "tirages_en_echec",
+}
+"""Les clés de ``regimes.<régime>`` d'un régime calculé (§§ 8.4, 10.1)."""
+
+
+def test_the_power_provenance_keys_and_sorted_text(power_run: PowerRun) -> None:
+    """Correctifs de la PR #52, 3 bis.11 : les clés du haut et celles de
+    ``regimes.<régime>``, écrites en dur ; ``commit`` (celui des fixtures),
+    ``version_du_paquet`` (celle de ``pyproject.toml``), ``periode`` (la première et
+    la dernière journée, relues dans les tables par le test), ``periodes`` absent ; le
+    texte égal à son JSON relu puis réécrit trié. Contre ``provenance.json`` écrit sans
+    ``sort_keys`` (P5l), ``commit`` retiré (P5l)."""
+    from fixtures import q2_run
+
+    written = _power_folder(power_run.folder)
+    text = (written / "provenance.json").read_text(encoding="utf-8")
+    document = json.loads(text)
+    assert text == (
+        json.dumps(document, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+    )
+    assert set(document) == POWER_TOP_KEYS
+    for regime in ("long_climb", "short_climb"):
+        assert set(document["regimes"][regime]) == REGIME_KEYS
+    assert document["commit"] == COMMIT
+    assert document["version_du_paquet"] == "0.0.1"
+    starts = [a.start_time.date() for a in q2_run.world_tables().activities]
+    assert document["periode"] == {
+        "debut": min(starts).isoformat(),
+        "fin": max(starts).isoformat(),
+    }
+    assert document["periodes"] is None
+
+
+def test_the_power_summary_line_of_a_regime(power_run: PowerRun) -> None:
+    """Correctifs de la PR #52, 3 bis.14 : la ligne des montées longues du résumé,
+    bâtie dans le test : ``n``, ``p`` et les retraits du modèle calculé ici par
+    ``model_spec`` ; le plus petit effet visible, la puissance à δ et la calibration
+    lus dans le résultat calculé (ils dépendent des tirages), mis en forme à la
+    main."""
+    from fixtures import q2_run
+    from mountain_perf.analyse.q2.data import q2_data
+    from mountain_perf.analyse.q2.model import Measure, model_spec
+    from mountain_perf.schemas.processed import ClimbRegime
+
+    params = q2_run.reduced_parameters()
+    data = q2_data(q2_run.world_tables(), None, params)
+    long = ClimbRegime.LONG_CLIMB
+    spec = model_spec(data.days[long], Measure.MP, long, params)
+    (summary,) = [r.summary for r in power_run.result.regimes if r.regime is long]
+    visible = (
+        "hors de la grille"
+        if summary.smallest_visible is None
+        else format(100 * summary.smallest_visible, ".1f").replace(".", ",") + " %/an"
+    )
+    power = format(summary.power_at_delta, ".2f").replace(".", ",")
+    calibration = summary.calibration
+    calibrated = (
+        "non déclenchée"
+        if not calibration.triggered
+        else "non calibrable"
+        if calibration.alpha is None
+        else f"déclenchée ({calibration.alpha!r})"
+    )
+    withdrawals = "-".join(str(w) for w in spec.withdrawals) or "aucun"
+    expected = (
+        f"long_climb : {spec.n} journées, {spec.p} colonnes, retraits {withdrawals} "
+        f"; plus petit effet visible à 80 % : {visible} ; puissance à 5 %/an : "
+        f"{power} ; calibration : {calibrated}"
+    )
+    assert power_run.out.splitlines()[0] == expected
+
+
+@pytest.mark.parametrize("processus", [1, 2, 3])
+def test_processus_is_passed_to_simulate_power(
+    fixed_world: list[Path],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    processus: int,
+) -> None:
+    """Correctifs de la PR #52, 3 bis.14 : ``--processus 1``, ``2`` et ``3`` sont
+    acceptés (code 0) et un espion de ``simulate_power`` voit ce nombre de
+    processus à chaque appel (8 : deux régimes, quatre scénarios). Contre un
+    ``--processus`` qui refuse 1 (P5n) et ``workers`` non transmis (P5n)."""
+    from fixtures import q2_run
+    from mountain_perf.analyse.inference.power import Outcome
+    from mountain_perf.analyse.inference.readings import Reading
+    from mountain_perf.analyse.q2 import power
+
+    seen: list[int] = []
+
+    def fake(
+        simulate: Any,
+        estimate: Any,
+        b_values: Any,
+        alphas: Any,
+        n_draws: int,
+        root_seed: int,
+        key: tuple[int, ...] = (),
+        workers: int = 1,
+    ) -> Any:
+        seen.append(workers)
+        undecided = Outcome(0.0, (Reading.UNDECIDED,) * len(alphas), (0,) * len(alphas))
+        return tuple((undecided,) * n_draws for _ in b_values)
+
+    q2_run.write_world(data_dir())
+    monkeypatch.setattr(power, "simulate_power", fake)
+    code: object
+    try:
+        code = main(["q2", "puissance", "--processus", str(processus)])
+    except SystemExit as stop:
+        code = stop.code
+    assert code == 0
+    capsys.readouterr()
+    assert seen == [processus] * 8
+
+
+@dataclass(frozen=True)
+class EstimationRun:
+    """Une estimation après la puissance, faite une fois pour le module : le dossier
+    des données, la sortie, le dossier écrit."""
+
+    folder: Path
+    out: str
+    written: Path
+
+
+@pytest.fixture(scope="module")
+def estimation_run(
+    power_run: PowerRun, tmp_path_factory: pytest.TempPathFactory
+) -> EstimationRun:
+    """``mperf q2`` sur le monde de la puissance du module (le principal y est
+    estimé)."""
+    _extras()
+    from fixtures import q2_run
+    from mountain_perf.analyse.q2 import parameters, power
+
+    folder = tmp_path_factory.mktemp("q2_estimation")
+    shutil.copytree(power_run.folder, folder, dirs_exist_ok=True)
+    out = io.StringIO()
+    with pytest.MonkeyPatch.context() as patch:
+        for name in BLAS:
+            patch.setenv(name, os.environ.get(name, "0"))
+        patch.setenv("MPA_DATA_DIR", str(folder))
+        patch.setattr(gitstate, "git_state", lambda d: GitState(COMMIT, False))
+        patch.setattr(cli, "_today", lambda: q2_run.DAY)
+        patch.setattr(parameters, "q2_parameters", q2_run.reduced_parameters)
+        patch.setattr(power, "power_grids", q2_run.reduced_grids)
+        with contextlib.redirect_stdout(out):
+            assert main(["q2"]) == 0
+    (name,) = _estimations(folder)
+    return EstimationRun(folder, out.getvalue(), folder / "resultats" / "Q2" / name)
+
+
+def test_the_estimation_writes_the_figure(estimation_run: EstimationRun) -> None:
+    """Correctifs de la PR #52, 3 bis.14 : le principal estimé, ``figure.html`` porte
+    la figure (sa légende et le graphique), pas la phrase « pas de figure » ;
+    ``figure.csv`` a ses points."""
+    page = (estimation_run.written / "figure.html").read_text(encoding="utf-8")
+    assert "Pas de figure" not in page
+    assert "Résidus partiels de la date, montées longues" in page
+    assert "Plotly.newPlot(" in page
+    lines = (estimation_run.written / "figure.csv").read_text(encoding="utf-8")
+    assert "\npoint," in lines
+
+
+def test_each_journal_line_carries_the_commit(estimation_run: EstimationRun) -> None:
+    """Correctifs de la PR #52, 3 bis.14 : chaque ligne d'``essais.jsonl`` porte le
+    commit du code exécuté (celui des fixtures) et le nom du dossier écrit."""
+    lines = _journal_lines(estimation_run.folder)
+    assert len(lines) == 24
+    records = [json.loads(line) for line in lines]
+    assert all(r["commit"] == COMMIT for r in records)
+    assert all(r["execution"] == estimation_run.written.name for r in records)
+
+
+def test_the_s19_summary_line(estimation_run: EstimationRun) -> None:
+    """Correctifs de la PR #52, 3 bis.14 : la ligne de S19 du résumé, écrite en dur
+    (``κ`` estimé : la ligne n'a pas de lecture)."""
+    assert "S19 : estime" in estimation_run.out.splitlines()
+
+
+def test_the_estimation_provenance_names_the_figure_key(
+    estimation_run: EstimationRun,
+) -> None:
+    """Correctifs de la PR #52, 3 bis.11 : une provenance d'estimation avec figure : sa
+    clé de générateur ``[20261115, 2, 0, 2]`` écrite en dur ; le texte trié."""
+    text = (estimation_run.written / "provenance.json").read_text(encoding="utf-8")
+    document = json.loads(text)
+    assert document["figure"]["cle"] == [20261115, 2, 0, 2]
+    assert document["commit"] == COMMIT
+    assert text == (
+        json.dumps(document, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+    )

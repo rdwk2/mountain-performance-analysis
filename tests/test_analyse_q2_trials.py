@@ -5,11 +5,13 @@ tirages réduits."""
 
 from __future__ import annotations
 
+import copy
 import dataclasses
 import math
+import random
 from collections.abc import Sequence
 from datetime import date, timedelta
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
@@ -19,6 +21,7 @@ pytest.importorskip("scipy")
 from fixtures.q2_world import at, q2_activity, q2_climb, small_world
 from mountain_perf.analyse.athlete import Periods
 from mountain_perf.analyse.inference import clusters, linear
+from mountain_perf.analyse.inference.base import Interval, child_rng
 from mountain_perf.analyse.inference.linear import student_pvalue
 from mountain_perf.analyse.inference.readings import bonferroni_level, holm
 from mountain_perf.analyse.inference.reml import three_component_cov
@@ -184,14 +187,67 @@ def _with_missing_days(tables: Tables, count: int) -> Tables:
     )
 
 
+@dataclasses.dataclass(frozen=True)
+class Run:
+    """Une estimation de Q2 sur un monde de test : les tables, les données, les 24
+    lignes, et, par sensibilité, les matrices que ``fit_direct`` a reçues pendant
+    qu'elle se calculait (``""`` : hors des sensibilités)."""
+
+    tables: Tables
+    data: Any
+    estimation: Q2Estimation
+    designs: dict[str, list[Any]]
+
+
+def _recorded_trials(
+    tables: Tables,
+    periods: Periods | None,
+    params: ParameterSet,
+    patch: pytest.MonkeyPatch,
+) -> Run:
+    """``q2_trials`` sous un espion de ``fit_direct`` qui range chaque matrice sous le
+    nom de la sensibilité en cours."""
+    from mountain_perf.analyse.q2 import model
+
+    designs: dict[str, list[Any]] = {}
+    current = [""]
+    original = model.fit_direct
+
+    def fit_spy(design: Any, parameters: Any, coefficient: str = "date") -> Any:
+        designs.setdefault(current[0], []).append(design)
+        return original(design, parameters, coefficient)
+
+    patch.setattr(trials, "fit_direct", fit_spy)
+    table = cast(dict[str, Any], trials.SENSITIVITIES)
+    for name, function in list(table.items()):
+
+        def wrapped(
+            t: Any, c: Any, p: Any, _name: str = name, _f: Any = function
+        ) -> Any:
+            current[0] = _name
+            try:
+                return _f(t, c, p)
+            finally:
+                current[0] = ""
+
+        patch.setitem(table, name, wrapped)
+    data = q2_data(tables, periods, params)
+    return Run(tables, data, q2_trials(data, params, {}), designs)
+
+
 @pytest.fixture(scope="module")
-def with_periods() -> tuple[Q2Estimation, Any]:
+def periods_run() -> Run:
     """Le monde à périodes, à FC de variantes manquantes et à journées de manque :
     tous les retraits jouent."""
-    params = _params()
     tables = _with_missing_days(_with_gaps(small_world(1)), 12)
-    data = q2_data(tables, PERIODS, params)
-    return q2_trials(data, params, {}), data
+    with pytest.MonkeyPatch.context() as patch:
+        return _recorded_trials(tables, PERIODS, _params(), patch)
+
+
+@pytest.fixture(scope="module")
+def with_periods(periods_run: Run) -> tuple[Q2Estimation, Any]:
+    """Les essais et les données de :func:`periods_run`."""
+    return periods_run.estimation, periods_run.data
 
 
 @pytest.fixture(scope="module")
@@ -428,29 +484,58 @@ def test_s14_is_not_done_under_ten_months(
     assert "sous s14_min_months = 10" in row.motif
 
 
-def test_s14_estimated_with_integer_month_labels(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Sur un monde de plus de douze mois, les grappes sont des entiers 0, 1, 2…
-    dans l'ordre des mois (la fonction refuse des chaînes)."""
-    seen: list[Any] = []
+@dataclasses.dataclass(frozen=True)
+class TwelveMonths:
+    """Les essais d'un monde de plus de douze mois, les grappes et une copie du
+    générateur que ``wild_cluster_interval`` a reçus."""
+
+    estimation: Q2Estimation
+    labels: list[list[Any]]
+    generators: list[Any]
+
+
+@pytest.fixture(scope="module")
+def twelve_months() -> TwelveMonths:
+    """S14 estimée : un monde de plus de douze mois, un espion de
+    ``wild_cluster_interval``."""
+    labels: list[list[Any]] = []
+    generators: list[Any] = []
     original = clusters.wild_cluster_interval
 
     def spy(X: Any, y: Any, clusters: Any, *rest: Any) -> Any:  # noqa: N803
-        seen.append(list(clusters))
+        labels.append(list(clusters))
+        generators.append(copy.deepcopy(rest[-1]))
         return original(X, y, clusters, *rest)
 
-    monkeypatch.setattr(trials, "wild_cluster_interval", spy)
-    params = _params()
-    data = q2_data(small_world(4, span=420), PERIODS, params)
-    estimation = q2_trials(data, params, {})
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(trials, "wild_cluster_interval", spy)
+        params = _params()
+        data = q2_data(small_world(4, span=420), PERIODS, params)
+        estimation = q2_trials(data, params, {})
+    return TwelveMonths(estimation, labels, generators)
+
+
+def test_s14_estimated_with_integer_month_labels(twelve_months: TwelveMonths) -> None:
+    """Sur un monde de plus de douze mois, les grappes sont des entiers 0, 1, 2…
+    dans l'ordre des mois (la fonction refuse des chaînes)."""
+    estimation = twelve_months.estimation
     assert _row(estimation, "S14").statut == "estime"
-    (labels,) = seen
+    (labels,) = twelve_months.labels
     assert all(isinstance(label, int) for label in labels)
     assert labels == sorted(labels)
     assert sorted(set(labels)) == list(range(max(labels) + 1))
     assert max(labels) + 1 >= 12
     assert estimation.bounds["long_climb"]["statut"] == "non declenchees"  # type: ignore[index]
+
+
+def test_s14_draws_under_its_own_key(twelve_months: TwelveMonths) -> None:
+    """Correctifs de la PR #52, point 3 bis.9 : le générateur que reçoit
+    ``wild_cluster_interval`` est celui de la clé du § 9.1, ``child_rng(20261115, 2,
+    17, 1)`` (S14 est l'essai d'indice 17, usage 1), comparé par son premier tirage ;
+    l'estimation de S14 est écrite. Contre une autre clé de générateur (P5j-2)."""
+    (generator,) = twelve_months.generators
+    assert generator.random() == child_rng(20261115, 2, 17, 1).random()
+    assert _row(twelve_months.estimation, "S14").estimation_fraction is not None
 
 
 # --- les bornes, l'autocorrélation --------------------------------------------------
@@ -771,3 +856,495 @@ def test_the_bounds_end_to_end(monkeypatch: pytest.MonkeyPatch) -> None:
     assert bound["b_haute_fraction"] == pytest.approx(
         fraction_per_year(b_high), rel=1e-9
     )
+
+
+# --- les tests de la relecture et du balayage (correctifs de la PR #52) -------------
+
+SUITE_ONLY = Periods(date(2024, 1, 1), date(2024, 1, 31))
+"""Une découverte avant toute activité : toutes les journées sont de la suite."""
+ROUTE_C = (44.0, 6.0)
+"""Le départ d'un troisième parcours, de deux journées dans :func:`_plain_world`."""
+ROUTE_C_DAYS = (date(2025, 9, 15), date(2025, 9, 17))
+"""Les deux journées du troisième parcours ; la seconde est exclue à l'étape 5."""
+
+
+def _offset(ref: str) -> int:
+    return int(ref[1:])
+
+
+def _plain_world() -> Tables:
+    """``small_world(1)`` retouché : la FC des montées longues tirée sans lien avec la
+    VAM (l'intervalle de ``k̂`` contient 0) ; les montées longues des journées du
+    parcours qui n'est pas celui de la première journée toutes instables, les autres
+    stables ; une montée longue sur neuf sans VAM « en mouvement ou indéterminée », les
+    autres à la VAM ; deux journées d'un troisième parcours, dont la seconde a une FC
+    de repos ``provisional``."""
+    from fixtures.q2_world import q2_day_row
+    from mountain_perf.schemas.days import RestingHrStatus
+
+    tables = small_world(1)
+    rnd = random.Random(7)
+    longs = [c for c in tables.climbs if c.regime is LONG]
+    first = min(_offset(c.activity_ref) for c in longs)
+    climbs = []
+    index = 0
+    for climb in tables.climbs:
+        if climb.regime is LONG:
+            unstable = _offset(climb.activity_ref) % 2 != first % 2
+            climb = dataclasses.replace(
+                climb,
+                lagged_moving_heart_rate_bpm=rnd.uniform(130.0, 160.0),
+                stable=not unstable,
+                moving_or_undetermined_vertical_speed_ms=None
+                if index % 9 == 0
+                else climb.vertical_speed_ms,
+            )
+            index += 1
+        climbs.append(climb)
+    activities = list(tables.activities)
+    for k, day in enumerate(ROUTE_C_DAYS):
+        when = at(day, 7)
+        ref = f"c{k}"
+        activities.append(q2_activity(ref, when))
+        climbs.append(
+            q2_climb(
+                ref,
+                when,
+                gain_m=750.0,
+                h=140.0 + 5.0 * k,
+                start_latitude_deg=ROUTE_C[0],
+                start_longitude_deg=ROUTE_C[1],
+                end_latitude_deg=ROUTE_C[0] + 0.03,
+                end_longitude_deg=ROUTE_C[1],
+            )
+        )
+    days = [
+        q2_day_row(
+            row.day, resting=row.resting_hr_bpm, status=RestingHrStatus.PROVISIONAL
+        )
+        if row.day == ROUTE_C_DAYS[1]
+        else row
+        for row in tables.days
+    ]
+    return dataclasses.replace(
+        tables, activities=tuple(activities), climbs=tuple(climbs), days=tuple(days)
+    )
+
+
+@pytest.fixture(scope="module")
+def plain_run() -> Run:
+    """Le monde de :func:`_plain_world`, toutes ses journées dans la suite, au budget
+    de 5 : aucun retrait ne joue, l'étape 5 s'applique."""
+    with pytest.MonkeyPatch.context() as patch:
+        return _recorded_trials(
+            _plain_world(), SUITE_ONLY, _params(min_residual_df=5), patch
+        )
+
+
+@pytest.fixture(scope="module")
+def rich_run() -> Run:
+    """``rich_world(2)`` à ``[periodes]`` ; chaque bootstrap de ``b_inv`` rend un
+    tirage retiré de plus (sur dix : plus de 1 %)."""
+    from fixtures.q2_world import rich_world
+    from mountain_perf.analyse.q2 import model
+
+    original = model.inverse_bootstrap
+
+    def one_more_removed(*args: Any, **kwargs: Any) -> Any:
+        return dataclasses.replace(original(*args, **kwargs), removed=1)
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(trials, "inverse_bootstrap", one_more_removed)
+        return _recorded_trials(rich_world(2), PERIODS, _params(), patch)
+
+
+@pytest.fixture(scope="module")
+def short_only() -> Q2Estimation:
+    """Des côtes seules, une montée par journée : le principal n'a aucune journée,
+    l'étage 1 des côtes n'a aucun degré de liberté."""
+    tables = small_world(2, regimes=(ClimbRegime.SHORT_CLIMB,))
+    seen: set[str] = set()
+    climbs = []
+    for climb in tables.climbs:
+        if climb.activity_ref not in seen:
+            seen.add(climb.activity_ref)
+            climbs.append(climb)
+    params = _params()
+    data = q2_data(dataclasses.replace(tables, climbs=tuple(climbs)), None, params)
+    return q2_trials(data, params, {})
+
+
+def _days(design: Any) -> list[date]:
+    return list(design.days)
+
+
+def _in_discovery(day: date) -> bool:
+    return date(2025, 4, 1) <= day <= date(2025, 5, 31)
+
+
+# --- 3.4 : l'identité des sensibilités ---------------------------------------------
+
+
+def test_s5_drops_exactly_the_discovery(periods_run: Run) -> None:
+    """Point 3.4 : l'échantillon de S5 n'a aucune journée de la découverte (du 1er
+    avril au 31 mai 2025) et a toutes les autres journées du principal. Contre S5 qui
+    retire la suite au lieu de la découverte (P3f)."""
+    principal = _days(periods_run.designs[""][0])
+    (s5,) = periods_run.designs["S5"]
+    assert any(_in_discovery(d) for d in principal)
+    assert _days(s5) == [d for d in principal if not _in_discovery(d)]
+
+
+def test_s1_and_s2_count_the_climbs_without_their_heart_rate(periods_run: Run) -> None:
+    """Point 3.4 : ``montees_retirees`` de S1 est le nombre de montées longues gardées
+    du monde sans FC sans décalage, celui de S2 sans FC de la seconde moitié (les
+    deux nombres diffèrent sur ce monde). Contre S1 et S2 échangées (P3g)."""
+    kept = [
+        c
+        for c in periods_run.tables.climbs
+        if c.regime is LONG and ClimbFlag.SPIKE not in c.flags
+    ]
+    unlagged = sum(1 for c in kept if c.unlagged_moving_heart_rate_bpm is None)
+    second = sum(1 for c in kept if c.lagged_second_half_heart_rate_bpm is None)
+    assert unlagged != second
+    estimation = periods_run.estimation
+    assert _row(estimation, "S1").montees_retirees == unlagged
+    assert _row(estimation, "S2").montees_retirees == second
+
+
+def test_s9_keeps_the_days_inside_the_common_support(periods_run: Run) -> None:
+    """Point 3.4 : l'échantillon de S9 est fait des journées du principal dont la FC
+    moyenne est dans l'intersection des étendues de la découverte et de la suite,
+    calculées ici sur les montées ; il est strictement plus petit que celui du
+    principal. Contre l'union des supports au lieu de leur intersection (P3h)."""
+    principal = periods_run.estimation.principal
+    assert principal is not None
+    means = {
+        u.day.day: sum(c.h for c in u.climbs) / len(u.climbs) for u in principal.units
+    }
+    discovery = [h for d, h in means.items() if _in_discovery(d)]
+    after = [h for d, h in means.items() if d > date(2025, 5, 31)]
+    low, high = max(min(discovery), min(after)), min(max(discovery), max(after))
+    expected = [d for d in sorted(means) if low <= means[d] <= high]
+    (s9,) = periods_run.designs["S9"]
+    assert _days(s9) == expected
+    assert len(expected) < len(means)
+
+
+# --- 3.5 : les mentions écrites par le brief ------------------------------------------
+
+
+def _mentions(row: TrialRow) -> list[str]:
+    return [] if row.mention is None else row.mention.split(" ; ")
+
+
+def test_the_three_mentions_word_for_word(rich_run: Run, periods_run: Run) -> None:
+    """Point 3.5 (§ 9.1) : « plus de 1 % de tirages retirés » (un tirage retiré sur
+    dix au principal), « optimiste » (sous 40 journées ; le monde riche en a plus),
+    « dépend de l'intensité choisie » (``κ`` hors de 1 à S19 et à M-S des longues),
+    chacune lue sur une ligne qui la porte. Contre une mention changée d'un mot
+    (P3i)."""
+    rich = rich_run.estimation
+    principal = _row(rich, "P")
+    assert principal.tirages_retires == 1
+    assert "plus de 1 % de tirages retirés" in _mentions(principal)
+    assert "optimiste" not in _mentions(principal)
+    assert "optimiste" in _mentions(_row(periods_run.estimation, "P"))
+    assert _row(rich, "S19").mention == "dépend de l'intensité choisie"
+    assert "dépend de l'intensité choisie" in _mentions(_row(rich, "S-MS-longues"))
+
+
+# --- 3.9 : des branches jamais exécutées ----------------------------------------------
+
+
+def test_without_a_principal_the_sensitivities_are_not_done(
+    short_only: Q2Estimation,
+) -> None:
+    """Point 3.9 : le principal non estimé, chaque sensibilité qui en part (S1 à S18)
+    est « non faite », motif « principal non estimé », et il n'y a pas de principal
+    pour la figure. Contre un principal non estimé qui laisserait les sensibilités
+    se calculer, ou une figure tirée d'un principal absent."""
+    assert short_only.principal is None
+    assert short_only.rows[0].statut == "non_estimable"
+    for row in short_only.rows[6:22]:
+        assert (row.statut, row.motif) == ("non_faite", "principal non estimé"), (
+            row.essai
+        )
+
+
+def test_a_dropped_route_indicator_is_said(plain_run: Run) -> None:
+    """Point 3.9, dernier tiret (§ 9.2) : S4 garde les montées stables ; toutes les
+    journées du parcours qui a la colonne ``parcours_1`` sortent, l'indicatrice est
+    retirée et la ligne le dit. Contre une indicatrice sans journée gardée (une
+    colonne nulle) ou retirée sans le dire."""
+    row = _row(plain_run.estimation, "S4")
+    assert row.statut == "estime"
+    assert row.mention == "indicatrice de parcours retirée : parcours_1"
+    (s4,) = plain_run.designs["S4"]
+    assert "parcours_1" not in s4.columns
+    assert "parcours_1" in plain_run.designs[""][0].columns
+
+
+# --- 3 bis.7 : le principal borné -----------------------------------------------------
+
+
+def _percent(value: float) -> str:
+    return format(100 * value, ".1f").replace(".", ",")
+
+
+def test_the_bounded_principal_and_its_sentence(rich_run: Run) -> None:
+    """Point 3 bis.7 : sur le monde riche à ``[periodes]``, l'intervalle de l'inverse
+    du principal est écrit ; « établi », sa phrase est bâtie ici sur les bornes
+    extrêmes des deux intervalles ; sa mention ne porte pas celle des côtes. Contre
+    la mention des côtes posée sur le principal (P5h-1)."""
+    row = _row(rich_run.estimation, "P")
+    assert row.intervalle_inverse_fraction is not None
+    assert row.intervalle_fraction is not None
+    assert row.lecture == "établi"
+    low = min(row.intervalle_fraction[0], row.intervalle_inverse_fraction[0])
+    high = max(row.intervalle_fraction[1], row.intervalle_inverse_fraction[1])
+    assert row.phrase == (
+        f"la tendance est comprise entre {_percent(low)} et {_percent(high)} %/an "
+        "(régressions directe et inverse) ; elle se lit comme un écart entre la "
+        "période de découverte et la suite, saison non séparée ; exploratoire"
+    )
+    assert "FC dépendante de la VAM sur ces durées" not in _mentions(row)
+
+
+def test_the_bounded_pvalue_counts_the_draws_at_zero() -> None:
+    """Point 3 bis.7 : ``2·min(1/4 ; 3/4) = 0,5`` sur des tirages sous 1 en valeur
+    absolue. Contre la part des tirages ``≥ 1`` au lieu de ``≥ 0`` (P5h-2)."""
+    assert bounded_pvalue(0.01, (-0.001, 0.0005, 0.001, 0.002), False) == 0.5
+
+
+def test_s18_undecided_when_k_contains_zero(plain_run: Run) -> None:
+    """Point 3 bis.7 : sur un monde où la FC n'a pas de lien avec la VAM, l'intervalle
+    de ``k̂`` contient 0 et S18 dit « les données ne tranchent pas »."""
+    principal, s18 = _row(plain_run.estimation, "P"), _row(plain_run.estimation, "S18")
+    assert principal.k_contient_zero is True
+    assert s18.k_contient_zero is True
+    assert (s18.lecture, s18.phrase) == ("non tranché", "les données ne tranchent pas")
+
+
+def test_no_useful_effect_names_its_delta() -> None:
+    """Point 3 bis.7 : « absence d'effet utile » à ``delta = 0,025`` dit « à un effet
+    de 2,5 %/an ». Contre un ``delta`` écrit en dur à 5 %."""
+    from mountain_perf.analyse.q2.model import bounded_reading
+
+    reading, sentence = bounded_reading(Interval(-0.01, 0.01), None, None, 0.025, False)
+    assert reading.value == "absence d'effet utile"
+    assert (
+        sentence == "la régression directe ne laisse pas place à un effet de 2,5 %/an"
+    )
+
+
+# --- 3 bis.9 : les sensibilités restantes ---------------------------------------------
+
+
+def test_s17_has_no_heart_rate_column(periods_run: Run) -> None:
+    """Point 3 bis.9 : la matrice que S17 ajuste (espion de ``fit_direct``) n'a ni
+    ``fc``, ni ``fc_1``, ni ``fc_2``, et celle du principal en a une. Contre S17 qui
+    garde la colonne de FC (P5j-1)."""
+    (s17,) = periods_run.designs["S17"]
+    assert not {"fc", "fc_1", "fc_2"} & set(s17.columns)
+    assert {"fc", "fc_1", "fc_2"} & set(periods_run.designs[""][0].columns)
+
+
+def test_s12_counts_the_climbs_without_moving_speed(plain_run: Run) -> None:
+    """Point 3 bis.9 : une montée longue sur neuf n'a pas de VAM « en mouvement ou
+    indéterminée » : S12 en retire et en compte autant (la journée exclue à l'étape 5
+    n'est pas de l'échantillon et a sa VAM)."""
+    expected = sum(
+        1
+        for c in plain_run.tables.climbs
+        if c.regime is LONG and c.moving_or_undetermined_vertical_speed_ms is None
+    )
+    assert expected > 0
+    row = _row(plain_run.estimation, "S12")
+    assert row.montees_retirees == expected
+    assert row.variante_effective is True
+
+
+def test_s12_equal_to_the_speed_everywhere_is_not_effective(plain_run: Run) -> None:
+    """Point 3 bis.9 : la VAM « en mouvement ou indéterminée » égale à la VAM partout,
+    S12 ne change rien : ``variante_effective`` faux, rien de retiré."""
+    from mountain_perf.analyse.q2.model import Unit
+
+    principal = plain_run.estimation.principal
+    assert principal is not None
+    same = dataclasses.replace(
+        principal,
+        units=tuple(
+            Unit(
+                u.day,
+                tuple(dataclasses.replace(c, y_s12=c.y) for c in u.climbs),
+                u.y,
+            )
+            for u in principal.units
+        ),
+    )
+    context = trials._Context(plain_run.data, _params(min_residual_df=5), {}, 1)
+    (trial,) = [t for t in TRIALS if t.name == "S12"]
+    row = trials.SENSITIVITIES["S12"](trial, context, same)
+    assert row.variante_effective is False
+    assert row.montees_retirees == 0
+
+
+def test_s10_gives_its_column_to_a_group_other_at_the_principal(plain_run: Run) -> None:
+    """Point 3 bis.9 (Q-50 (a)) : le troisième parcours n'a qu'une journée dans
+    l'échantillon du principal (l'autre est exclue à l'étape 5) : « autre », aucune
+    indicatrice à 1 ; S10 rend la journée exclue, le groupe a deux journées et sa
+    colonne, où ses deux journées valent 1, et elles seules."""
+    principal = plain_run.designs[""][0]
+    routes = [c for c in principal.columns if c.startswith("parcours_")]
+    first = _days(principal).index(ROUTE_C_DAYS[0])
+    assert ROUTE_C_DAYS[1] not in _days(principal)
+    assert all(principal.X[first][principal.columns.index(c)] == 0.0 for c in routes)
+    (s10,) = plain_run.designs["S10"]
+    days = _days(s10)
+    rows = [s10.X[days.index(d)] for d in ROUTE_C_DAYS]
+    ones = [
+        c
+        for c in s10.columns
+        if c.startswith("parcours_")
+        and all(r[s10.columns.index(c)] == 1.0 for r in rows)
+    ]
+    assert len(ones) == 1
+    k = s10.columns.index(ones[0])
+    assert [d for d, r in zip(days, s10.X, strict=True) if r[k] == 1.0] == list(
+        ROUTE_C_DAYS
+    )
+
+
+def test_s11_keeps_the_withdrawals_and_s19_its_covariance(
+    periods_run: Run, rich_run: Run
+) -> None:
+    """Point 3 bis.9 : S11 rapporte les retraits du principal (les cinq, sur ce monde) ;
+    S19 rapporte ``τ̂²``, ``s²_u`` et ``φ̂`` de son REML."""
+    assert _row(periods_run.estimation, "S11").retraits == "1-2-3-4-5"
+    s19 = _row(rich_run.estimation, "S19")
+    assert s19.statut == "estime"
+    assert s19.tau2 is not None
+    assert s19.s2u is not None
+    assert s19.phi is not None
+
+
+# --- 3 bis.10 : les lignes non estimées -----------------------------------------------
+
+
+def test_the_ski_rows_without_ski(with_periods: tuple[Q2Estimation, Any]) -> None:
+    """Point 3 bis.10 : sans ski, ``S-MP-ski`` et ``S-MS-ski`` sont « non estimable »,
+    motif, niveau de Bonferroni (0,99), retraits et ``p`` écrits ici. Contre un motif
+    vidé (P5k-1) ou un niveau vidé (P5k-2)."""
+    estimation, _ = with_periods
+    for name, p in (("S-MP-ski", 7), ("S-MS-ski", 6)):
+        row = _row(estimation, name)
+        assert row.statut == "non_estimable"
+        assert row.motif == f"n − p = {-p}, sous min_estimable_df = 10"
+        assert row.niveau == pytest.approx(0.99, rel=EXACT)
+        assert row.retraits == "1-2-3-4-5"
+        assert (row.n_journees, row.p) == (0, p)
+
+
+def test_short_climbs_of_one_climb_per_day_are_not_estimable(
+    short_only: Q2Estimation,
+) -> None:
+    """Point 3 bis.10 : chaque journée de côtes n'a qu'une montée, l'étage 1 lève :
+    ``S-MP-cotes`` et ``S-MS-cotes`` « non estimable », motif, niveau, ``n``, ``p``,
+    retraits écrits ici (30 journées ; après les cinq retraits, 9 colonnes en M-P et
+    8 en M-S). Contre un motif vidé (P5k-1) ou un niveau vidé (P5k-2)."""
+    for name, q, p in (("S-MP-cotes", 6, 9), ("S-MS-cotes", 5, 8)):
+        row = _row(short_only, name)
+        assert row.statut == "non_estimable"
+        assert row.motif == f"étage 1 : N − J − q = {-q}"
+        assert row.niveau == pytest.approx(0.99, rel=EXACT)
+        assert (row.n_journees, row.p, row.retraits) == (30, p, "1-2-3-4-5")
+
+
+def test_s9_not_done_without_a_discovery_day(plain_run: Run) -> None:
+    """Point 3 bis.10 : la découverte n'a aucune journée au principal : S9 « non
+    faite », motif « une période sans journée »."""
+    row = _row(plain_run.estimation, "S9")
+    assert (row.statut, row.motif) == ("non_faite", "une période sans journée")
+
+
+# --- 3 bis.13 : les bornes, en plus du point 2 ----------------------------------------
+
+
+def _bounds_world_without_column_after() -> Tables:
+    """:func:`_bounds_world` sans les journées de la suite du parcours qui a sa
+    colonne : dans la suite, aucune journée gardée n'a cette colonne."""
+    from fixtures.q2_world import WORLD_START
+
+    tables = _bounds_world()
+    first = min(
+        a.start_time.date() for a in tables.activities if a.activity_ref[0] == "w"
+    )
+    column_route = 1 - (first - WORLD_START).days % 2
+    dropped = {
+        a.activity_ref
+        for a in tables.activities
+        if a.activity_ref[0] == "w"
+        and a.start_time.date() > date(2025, 5, 31)
+        and (a.start_time.date() - WORLD_START).days % 2 == column_route
+    }
+    assert dropped
+    return dataclasses.replace(
+        tables,
+        activities=tuple(a for a in tables.activities if a.activity_ref not in dropped),
+        climbs=tuple(c for c in tables.climbs if c.activity_ref not in dropped),
+    )
+
+
+def test_the_bounds_impute_e_s_and_a_column_absent_from_a_period(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Point 3 bis.13 : la colonne ``e_s`` de chaque journée imputée (aucune n'a
+    ``e_s``) vaut la moyenne de sa période parmi les journées gardées ; la journée
+    sans groupe de la suite, où aucune journée gardée n'a la colonne du parcours,
+    vaut 0 dans cette colonne. Contre une moyenne prise hors de la période, ou une
+    case absente."""
+    from mountain_perf.analyse.q2 import model
+
+    calls: list[list[list[float]]] = []
+    original = model.date_effect_at
+
+    def spy(X: Any, y: Any, V: Any, date_column: int) -> Any:  # noqa: N803
+        calls.append([list(r) for r in X])
+        return original(X, y, V, date_column)
+
+    monkeypatch.setattr(trials, "date_effect_at", spy)
+    params = _params(min_residual_df=5, min_estimable_df=3)
+    data = q2_data(_bounds_world_without_column_after(), PERIODS, params)
+    estimation = q2_trials(data, params, {})
+    principal = estimation.principal
+    assert principal is not None
+    design = principal.design
+    columns = list(design.columns)
+    assert "e_s" in columns
+    bound = estimation.bounds["long_climb"]
+    assert isinstance(bound, dict)
+    assert bound["statut"] == "declenchees"
+    groups = dict(
+        zip([d.day for d in principal.spec.days], principal.spec.groups, strict=True)
+    )
+    column = f"parcours_{groups[BOUNDS_DAYS['colonne']]}"
+    assert column in columns
+    after = [i for i, u in enumerate(principal.units) if u.day.day > date(2025, 5, 31)]
+    assert after
+    assert all(design.X[i][columns.index(column)] == 0.0 for i in after)
+    assert len(calls) == 2
+    origin = design.days[0]
+    rows = {round(r[columns.index("date")]): r for r in calls[0]}
+    for name in ("autre", "colonne", "sans_groupe", "suite"):
+        day = BOUNDS_DAYS[name]
+        in_period = [
+            i
+            for i, u in enumerate(principal.units)
+            if (u.day.day > date(2025, 5, 31)) == (name == "suite")
+            and u.day.day >= date(2025, 4, 1)
+        ]
+        e_s = sum(design.X[i][columns.index("e_s")] for i in in_period) / len(in_period)
+        row = rows[(day - origin).days]
+        assert row[columns.index("e_s")] == pytest.approx(e_s, rel=EXACT), name
+    assert rows[(BOUNDS_DAYS["suite"] - origin).days][columns.index(column)] == 0.0

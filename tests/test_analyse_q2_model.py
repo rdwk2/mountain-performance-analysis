@@ -9,7 +9,7 @@ import math
 import random
 import subprocess
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from datetime import date, timedelta
 from fractions import Fraction
 from pathlib import Path
@@ -472,3 +472,212 @@ def test_a_reestimated_fit_reports_b_and_its_standard_error() -> None:
     assert fitted_inverse.b_inv == pytest.approx(
         -fitted_inverse.reml.fit.coef[1] / fitted_inverse.k, rel=EXACT
     )
+
+
+# --- correctifs de la PR #52 --------------------------------------------------
+
+_HEAD = ("constante", "date", "saison_sin", "saison_cos")
+_COVARIATES = ("log_gain", "pente", "altitude", "d_plus_avant")
+
+MP_AFTER: dict[tuple[int, ...], tuple[str, ...]] = {
+    (1,): (*_HEAD, "fc_1", "fc_2", *_COVARIATES, "heure", "e_s"),
+    (1, 2): (*_HEAD, "fc_1", "fc_2", *_COVARIATES, "e_s"),
+    (1, 2, 3): (*_HEAD, "fc", *_COVARIATES, "e_s"),
+    (1, 2, 3, 4): (*_HEAD, "fc", *_COVARIATES, "e_s"),
+    (1, 2, 3, 4, 5): (*_HEAD, "fc", *_COVARIATES),
+}
+"""Les colonnes de M-P (montées longues, sans parcours) après chaque retrait (§ 6.2),
+écrites en dur."""
+
+MS_AFTER: dict[tuple[int, ...], tuple[str, ...]] = {
+    (1,): (*_HEAD, *_COVARIATES, "heure", "e_s"),
+    (1, 2): (*_HEAD, *_COVARIATES, "e_s"),
+    (1, 2, 3): (*_HEAD, *_COVARIATES, "e_s"),
+    (1, 2, 3, 4): (*_HEAD, *_COVARIATES, "e_s"),
+    (1, 2, 3, 4, 5): (*_HEAD, *_COVARIATES),
+}
+"""Les colonnes de M-S (montées longues) après chaque retrait : sans FC, le 3ᵉ
+retrait n'y retire rien."""
+
+
+@pytest.mark.parametrize("withdrawals", list(MP_AFTER))
+def test_the_columns_after_each_of_the_five_withdrawals(
+    withdrawals: tuple[int, ...],
+) -> None:
+    """Correctifs de la PR #52, 3.8 : les colonnes et leur ordre dans chacun des cinq
+    états de retraits, pour M-P et M-S, écrits en dur. Contre un retrait qui ôte la
+    colonne d'un autre (P3q : le 2ᵉ qui retire celle du 3ᵉ)."""
+    assert base_columns(Measure.MP, LONG, withdrawals) == MP_AFTER[withdrawals]
+    assert base_columns(Measure.MS, LONG, withdrawals) == MS_AFTER[withdrawals]
+
+
+def _fourth_withdrawal_days() -> list[Q2Day]:
+    """20 journées, toutes avec ``e_s`` : un parcours de deux journées (les deux
+    premières), un de trois (les trois suivantes), les autres seules."""
+    first = date(2025, 1, 1)
+    days = []
+    for i in range(20):
+        lat = 45.0 if i < 2 else 45.5 if i < 5 else 40.0 + 0.1 * i
+        climbs = [make_climb(lat=lat), make_climb(lat=lat, y=-0.9)]
+        days.append(make_day(first + timedelta(days=7 * i), climbs))
+    return days
+
+
+def test_the_budget_stops_after_the_fourth_withdrawal() -> None:
+    """Correctifs de la PR #52, 3.8 : au budget de 9, après les retraits 1 à 3,
+    ``n − p = 20 − 12 = 8`` ; le 4ᵉ fait passer « autre » le groupe de deux journées
+    (``max_other_days = min_route_days − 1 = 2``), le groupe de trois garde sa
+    colonne : ``p = 11``, ``n − p = 9`` ; le budget s'arrête là, sans le 5ᵉ. Contre
+    un 4ᵉ retrait qui laisse « autre » à une journée (P3r : le 5ᵉ jouerait)."""
+    spec = model_spec(
+        _fourth_withdrawal_days(),
+        Measure.MP,
+        LONG,
+        _params(min_residual_df=9, min_estimable_df=3),
+    )
+    assert spec.withdrawals == (1, 2, 3, 4)
+    assert (spec.n, spec.p) == (20, 11)
+    assert spec.columns == (*MP_AFTER[(1, 2, 3, 4)], "parcours_0")
+    assert spec.groups == (None, None, 0, 0, 0, *([None] * 15))
+
+
+def test_the_season_columns_of_a_day() -> None:
+    """Correctifs de la PR #52, 3.5 : sur une ligne de la matrice, ``saison_sin`` et
+    ``saison_cos`` du 2025-03-01 (jour 60 de l'année) valent ``sin`` et ``cos`` de
+    ``2π·60/365,25``, calculés ici. Contre une période de 365 jours (P3l)."""
+    from mountain_perf.analyse.q2.model import StageOne, unit_of
+
+    days = [
+        make_day(date(2025, 1, 1), [make_climb()]),
+        make_day(date(2025, 3, 1), [make_climb()]),
+    ]
+    spec = model_spec(days, Measure.MP, LONG, _params(min_residual_df=1))
+    units = [unit_of(d, Measure.MP) for d in days]
+    stage = StageOne(sigma2=1.0, df=1, d=(1.0, 1.0), slopes=())
+    design = build_design(
+        units,
+        spec,
+        stage,
+        _params(),
+        columns=("constante", "date", "saison_sin", "saison_cos"),
+    )
+    angle = 2 * math.pi * 60 / 365.25
+    assert design.X[1] == pytest.approx(
+        (1.0, 59.0, math.sin(angle), math.cos(angle)), rel=EXACT
+    )
+
+
+def test_a_stage_one_with_one_degree_of_freedom_is_estimable() -> None:
+    """Correctifs de la PR #52, 3.10 : ``N − J − q = 4 − 2 − 1 = 1`` s'estime.
+    Journée A : ``(y, x)`` = (1, 1), (3, 2) ; B : (2, 1), (5, 3) ; centrées, la pente
+    vaut ``4 / 2,5 = 1,6``, ``RSS = 0,1``, ``s² = 0,1``, ``d = 0,05``. Contre un
+    étage 1 refusé à un seul degré de liberté."""
+    stage = centered_stage_one(
+        [[(1.0, [1.0]), (3.0, [2.0])], [(2.0, [1.0]), (5.0, [3.0])]]
+    )
+    assert stage.df == 1
+    assert stage.slopes == pytest.approx((1.6,), rel=EXACT)
+    assert stage.sigma2 == pytest.approx(0.1, rel=1e-10)
+    assert stage.d == pytest.approx((0.05, 0.05), rel=1e-10)
+
+
+def test_a_k_interval_starting_or_ending_at_zero_contains_it() -> None:
+    """Correctifs de la PR #52, 3.10 et 3 bis.15 : un intervalle de ``k̂`` qui
+    commence, ou finit, exactement à 0 contient 0 : la lecture bornée est « non
+    tranché ». Contre « contient 0 » lu strictement (P3u)."""
+    direct, inverse = _i(0.01, 0.06), _i(0.025, 0.11)
+    undecided = (Reading.UNDECIDED, "les données ne tranchent pas")
+    assert bounded_reading(direct, inverse, _i(0.0, 0.3), 0.05, False) == undecided
+    assert bounded_reading(direct, inverse, _i(-0.3, 0.0), 0.05, False) == undecided
+    assert bounded_reading(direct, inverse, _i(0.1, 0.3), 0.05, False)[0] is (
+        Reading.ESTABLISHED
+    )
+
+
+def test_k_contains_zero_when_the_low_bound_is_exactly_zero() -> None:
+    """Correctifs de la PR #52, 3 bis.15 : ``k̂ = q``, ``se = 1``, ``q`` le quantile
+    de Student à 95 % et 12 ddl (lu sur l'intervalle de ``0 ± q``) : la borne basse
+    de l'intervalle de ``k̂`` vaut exactement 0, il contient 0. Contre une borne basse
+    exigée strictement sous 0 (P5o)."""
+    from mountain_perf.analyse.inference.linear import student_interval
+
+    q = student_interval(0.0, 1.0, 12, 0.95).high
+    assert student_interval(q, 1.0, 12, 0.95).low == 0.0
+    assert k_contains_zero(q, 1.0, 12) is True
+    assert k_contains_zero(q * 1.001, 1.0, 12) is False
+
+
+_ZERO = (0.0, 0.0, 0.0, 0.0)
+# (ln gain, pente, altitude, D+, D−) par montée, en écarts au sein de la journée.
+_A_ROWS = list(
+    zip(
+        (1.0, -1.0, 0.0, 0.0),
+        (0.0, 0.0, 1.0, -1.0),
+        (1.0, 1.0, -1.0, -1.0),
+        _ZERO,
+        _ZERO,
+        strict=True,
+    )
+)
+_B_ROWS = list(
+    zip(
+        _ZERO,
+        _ZERO,
+        _ZERO,
+        (1.0, -1.0, 0.0, 0.0),
+        (0.0, 0.0, 1.0, -1.0),
+        strict=True,
+    )
+)
+
+
+def _ms_day(
+    when: date,
+    rows: Sequence[tuple[float, ...]],
+    r: float,
+    hs: tuple[float, ...],
+    extra: tuple[float, ...],
+) -> Q2Day:
+    """Une journée dont la réponse de M-S ``y − ln(h − r)`` vaut ``0,7 +
+    (0,3 ; −0,2 ; 0,1 ; 0,4 ; 0,5)·écarts + extra``."""
+    coefficients = (0.3, -0.2, 0.1, 0.4, 0.5)
+    climbs = []
+    for row, h, e in zip(rows, hs, extra, strict=True):
+        target = 0.7 + sum(c * x for c, x in zip(coefficients, row, strict=True))
+        climbs.append(
+            make_climb(
+                y=math.log(h - r) + target + e,
+                h=h,
+                log_gain=6.0 + row[0],
+                grade=0.2 + row[1],
+                elevation_m=1500.0 + row[2],
+                d_plus=100.0 + row[3],
+                d_minus=50.0 + row[4],
+            )
+        )
+    return make_day(when, climbs, r=r)
+
+
+def test_the_ms_stage_one_at_a_known_reserve() -> None:
+    """Correctifs de la PR #52, 3 bis.8 : deux journées de quatre montées, ``r`` = 50
+    et 55 ; la réponse de M-S ``y − ln(h − r)`` est, par construction, une
+    combinaison exacte des cinq covariables centrées, plus ``0,05·(1, 1, −1, −1)``
+    sur la journée B, le seul résidu possible (``N − J − q = 8 − 2 − 5 = 1``) :
+    ``RSS = 4·0,05² = 0,01``, ``s² = 0,01``, ``d = 0,01/4 = 0,0025`` par journée.
+    Contre la réponse ``y − ln(h + r)`` (P5i)."""
+    from mountain_perf.analyse.q2.model import unit_of
+
+    days = [
+        _ms_day(date(2025, 1, 1), _A_ROWS, 50.0, (140.0, 150.0, 145.0, 155.0), _ZERO),
+        _ms_day(
+            date(2025, 1, 2),
+            _B_ROWS,
+            55.0,
+            (142.0, 148.0, 151.0, 139.0),
+            (0.05, 0.05, -0.05, -0.05),
+        ),
+    ]
+    stage = stage_one([unit_of(d, Measure.MS) for d in days], Measure.MS)
+    assert stage.df == 1
+    assert stage.sigma2 == pytest.approx(0.01, rel=1e-9)
+    assert stage.d == pytest.approx((0.0025, 0.0025), rel=1e-9)

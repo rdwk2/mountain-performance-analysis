@@ -440,3 +440,150 @@ def test_utc_and_local_dates_differ_here() -> None:
     00 h 10 est la veille en UTC."""
     moment = at(date(2025, 3, 11), 0, 10)
     assert moment.astimezone(UTC).date() == date(2025, 3, 10)
+
+
+# --- correctifs de la PR #52 : paramètres, ensembles exclus, minuit, heure ------------
+
+BRIEF_DEFAULTS: tuple[tuple[str, float], ...] = (
+    ("min_heart_rate_coverage", 0.8),
+    ("short_climb_min_gain_s", 180.0),
+    ("route_radius_m", 100.0),
+    ("route_max_gain_ratio", 1.10),
+    ("min_route_days", 3.0),
+    ("normal_window_days", 28.0),
+    ("normal_min_admitted_days", 14.0),
+    ("min_residual_df", 25.0),
+    ("min_estimable_df", 10.0),
+    ("phi_min_days", 2.0),
+    ("alpha", 0.05),
+    ("secondary_family_size", 5.0),
+    ("delta", 0.05),
+    ("bounded_reading_slope_bpm_per_year", 2.0),
+    ("bootstrap_draws", 2000.0),
+    ("power_draws", 2000.0),
+    ("calibration_trigger", 0.075),
+    ("power_target_visible", 0.8),
+    ("power_target_no_effect", 0.9),
+    ("power_target_undecided", 0.5),
+    ("heart_rate_reliability", 0.85),
+    ("slow_component_sd", 0.03),
+    ("slow_component_days", 45.0),
+    ("hinge_peak", 0.08),
+    ("discovery_step", 0.05),
+    ("bounds_trigger", 0.10),
+    ("s14_min_months", 10.0),
+    ("spline_knot_low", 0.10),
+    ("spline_knot_mid", 0.50),
+    ("spline_knot_high", 0.90),
+    ("optimistic_below_days", 40.0),
+)
+"""La table du § 5.2 du brief, recopiée : les 31 seuils de Q2 et leur défaut."""
+
+
+def test_the_defaults_of_the_q2_parameters_are_those_of_the_brief() -> None:
+    """Correctifs de la PR #52, 3.1 : chaque défaut de ``Q2_PARAMETER_SPECS`` est
+    celui de la table du brief, recopiée en dur, et les noms sont dans son ordre.
+    Contre un défaut changé (P3a : ``min_residual_df`` à 24 ; P3b :
+    ``route_max_gain_ratio`` à 1,11)."""
+    assert len(BRIEF_DEFAULTS) == 31
+    assert [spec.name for spec in Q2_PARAMETER_SPECS] == [n for n, _ in BRIEF_DEFAULTS]
+    for spec, (name, default) in zip(Q2_PARAMETER_SPECS, BRIEF_DEFAULTS, strict=True):
+        assert (spec.name, spec.default) == (name, default)
+
+
+COUNT_PARAMETERS = (
+    "min_route_days",
+    "normal_window_days",
+    "normal_min_admitted_days",
+    "min_residual_df",
+    "min_estimable_df",
+    "secondary_family_size",
+    "bootstrap_draws",
+    "power_draws",
+    "optimistic_below_days",
+)
+"""Les seuils de comptes du brief dont la plage commence à 1 (``s14_min_months``
+commence à 10)."""
+
+
+@pytest.mark.parametrize("name", COUNT_PARAMETERS)
+def test_a_count_parameter_at_one_is_accepted(name: str) -> None:
+    """Correctifs de la PR #52, 3.10 : un compte vaut au moins 1 (§ 5.2) ; 1 est
+    accepté, et se lit comme l'entier 1. Contre une borne basse posée à 2."""
+    from mountain_perf.analyse.normals import integer_parameter
+
+    params = _params(**{name: 1.0})
+    assert params[name] == 1.0
+    assert integer_parameter(params, name) == 1
+
+
+EXCLUDED_FLAG_NAMES = (
+    "non_human",
+    "spike",
+    "unresolved_grade",
+    "non_barometric",
+    "altimetric_drift",
+    "gain_outside_moving",
+)
+"""Les drapeaux exclus du § 5.2 du brief, recopiés."""
+
+
+@pytest.mark.parametrize("flag", EXCLUDED_FLAG_NAMES)
+def test_each_excluded_flag_excludes_its_climb(flag: str) -> None:
+    """Correctifs de la PR #52, 3.2 : une montée qui porte un drapeau exclu du brief
+    est exclue sous ``drapeau_exclu``. Contre un drapeau retiré de l'ensemble (P3d :
+    ``non_human``)."""
+    when = at(date(2025, 1, 1), 9)
+    tables = q2_tables(
+        [q2_activity("f1", when)], [q2_climb("f1", when, flags=[ClimbFlag(flag)])]
+    )
+    data = _data(tables)
+    assert [e.motif.value for e in data.excluded] == ["drapeau_exclu"]
+    assert data.days[LONG] == ()
+
+
+@pytest.mark.parametrize("journal_type", ["maladie", "blessure", "sejour_altitude"])
+def test_each_excluding_journal_type_excludes_the_day(journal_type: str) -> None:
+    """Correctifs de la PR #52, 3.2 : une journée dont le journal porte un type qui
+    exclut un jour (le brief : ``maladie``, ``blessure``, ``sejour_altitude``) a sa
+    montée exclue sous ``jour_exclu_du_journal``. Contre un type retiré de l'ensemble
+    (P3c : ``sejour_altitude``)."""
+    day = date(2025, 1, 10)
+    when = at(day, 9)
+    rows = [
+        *day_range(day - timedelta(days=5), 5),
+        q2_day_row(day, journal=[JournalEventType(journal_type)]),
+    ]
+    tables = q2_tables([q2_activity("j1", when)], [q2_climb("j1", when)], rows)
+    data = _data(tables)
+    assert [e.motif.value for e in data.excluded] == ["jour_exclu_du_journal"]
+    assert data.days[LONG] == ()
+
+
+def test_the_first_outing_just_after_midnight() -> None:
+    """Correctifs de la PR #52, 3.3 (avec C18) : la première activité du jour D part à
+    00 h 30 (+02:00 ; sans montée, d'un autre produit), la montée longue à 14 h 00, le
+    milieu de la demi-heure la plus basse à 10 h 00 : la première sortie est celle de
+    00 h 30, prise au jour local de son départ (Q-47) : ``fc_repos_apres_sortie``. À
+    jouer sous ``TZ=UTC`` et ``TZ=Europe/Paris``. Contre le jour de la première sortie
+    pris au fuseau de la machine (P3e, sous ``TZ=UTC`` : 00 h 30 +02:00 y est la
+    veille)."""
+    early = at(MAY_6, 0, 30, tz=PLUS2)
+    climb_start = at(MAY_6, 14, tz=PLUS2)
+    activities = [q2_activity("c1", climb_start), q2_activity("f0", early, product=9)]
+    rows = day_range(MAY_6 - timedelta(days=20), 20, tz=PLUS2)
+    rows.append(q2_day_row(MAY_6, midpoint=at(MAY_6, 10, 0, tz=PLUS2), tz=PLUS2))
+    tables = q2_tables(activities, [q2_climb("c1", climb_start)], rows)
+    (day,) = _data(tables).days[LONG]
+    assert day.step5 is Q2Motif.RESTING_AFTER
+
+
+def test_the_hour_of_a_climb_counts_its_seconds() -> None:
+    """Correctifs de la PR #52, 3.10 (Q-49 (c)) : une montée partie à 09 h 30 min
+    36 s a une heure de 9,51. Contre des secondes divisées par 3 601 (P3w)."""
+    when = at(date(2025, 1, 1), 9, 30)
+    tables = q2_tables([q2_activity("s1", when)], [q2_climb("s1", when, offset_s=36)])
+    (day,) = _data(tables).days[LONG]
+    (climb,) = day.climbs
+    assert climb.local_start_time.second == 36
+    assert climb.hour == pytest.approx(9.51, rel=1e-12)
