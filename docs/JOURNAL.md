@@ -67,6 +67,31 @@ retiré, rouge sur le code : une puissance à δ d'exactement 0,5 donne `non_tra
 faux (comparaison stricte), le correctif l'attend vrai ; à trancher par la conception.
 `just check` complet, tous les extras : N = 12 195 (12 190 réussis, 5 sautés).
 
+**Correctifs, lot 2 (2026-11-20)**, décidés par la conception après la vérification du
+lot 1, une relecture bornée et un second balayage par mutations ; des tests seuls,
+`src/` inchangé. Point 1 : « non tranché attendu » se lit au sens strict (le test retiré
+au lot 1 remis : à δ, 2 « établi » sur 4 donnent faux, 1 sur 4 vrai). Point 2 :
+l'estimation simulée lit l'intervalle inverse (le bootstrap de `b_inv` remplacé par des
+tirages de part et d'autre de 0, l'intervalle direct seul suffirait à « établi »).
+Point 3 : aux bornes, la journée de `rich_world(2)` exclue à l'étape 5 dans le groupe de
+référence, sans colonne, vaut 0 dans chaque colonne de parcours ; `d_s = s²_ε / n_s`,
+`n_s` compté avec les montées exclues ; un D+ avant et un D− avant absents prennent la
+moyenne de leur période (posés à la main dans les données : une table valide ne laisse
+manquer ni eux, ni la pente, ni l'heure ; le log du gain ne manque qu'à un gain nul, que
+le régime par le gain exclut des longues et du ski et que l'étape 2 retire des côtes :
+seules l'altitude et la FC peuvent manquer) ; la `h̄` absente sous la FC linéaire ; les
+covariables d'une journée exclue à l'étape 5 prises sur toutes ses montées de M-P, dont
+une hors de la réserve de M-S. Point 4 : les prémisses de `rich_run`, vérifiées par un
+test. Point 5 : la ligne de régime du résumé de la puissance, écrite en dur, sur un
+résultat posé à la main. Point 6 : la première sortie après minuit, aussi à +09:00.
+8 tests neufs (cas paramétrés comptés), environ 3 s de plus sur les fichiers touchés.
+Les 12 contre-épreuves (P6a à P6j, les « puis » à part), en worktrees détachés :
+toutes rougissent par leur assertion ; P6h rougit aussi deux tests qui lisent
+`rich_run`, P6i les deux tests du lot 1 qui lisent la ligne du résumé ; P6j, jouée au
+fuseau de la machine (Europe/Paris), rougit le seul cas à +09:00. Correction du lot 1 :
+il avait 53 contre-épreuves (chaque « puis » à part), 52 rouges et P5a-1 verte, et non 52
+et 51. `just check` complet, tous les extras : N = 12 203 (12 198 réussis, 5 sautés).
+
 ### 2026-11-15 · M5-3 — Profils de démo
 
 - Cinq personnages inventés (`mountain_perf/demo/`, `0022`) : un export Garmin, des GPX et des
