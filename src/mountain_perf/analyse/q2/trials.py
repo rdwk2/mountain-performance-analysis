@@ -23,8 +23,8 @@ from typing import Any
 
 from mountain_perf.analyse.inference.autocorrelation import residual_autocorrelation
 from mountain_perf.analyse.inference.base import (
+    FractionInterval,
     InferenceError,
-    Interval,
     child_rng,
     percentile_interval,
 )
@@ -37,6 +37,7 @@ from mountain_perf.analyse.inference.linear import (
     whiten,
 )
 from mountain_perf.analyse.inference.readings import (
+    Bounded,
     Reading,
     bonferroni_level,
     holm,
@@ -281,7 +282,7 @@ def imputed_bounds(
 # --- les lignes -----------------------------------------------------------------
 
 
-def _pair(interval: Interval | None) -> tuple[float, float] | None:
+def _pair(interval: Bounded | None) -> tuple[float, float] | None:
     return None if interval is None else (interval.low, interval.high)
 
 
@@ -357,7 +358,7 @@ class Fitted:
     inverse: InverseFit | None = None
     draws: tuple[float, ...] = ()
     removed: int = 0
-    inverse_interval: Interval | None = None
+    inverse_interval: FractionInterval | None = None
 
 
 @dataclass(frozen=True)
@@ -471,7 +472,7 @@ def _with_inverse(
     )
 
 
-def _direct_interval(fitted: Fitted, level: float) -> Interval:
+def _direct_interval(fitted: Fitted, level: float) -> FractionInterval:
     d = fitted.direct
     return fraction_interval(student_interval(d.b, d.se, d.df, level))
 

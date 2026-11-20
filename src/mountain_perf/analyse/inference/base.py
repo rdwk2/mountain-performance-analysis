@@ -1,6 +1,7 @@
 """Les communs du paquet d'inférence (AN3-1, ``docs/decisions/0021``) : l'erreur,
-l'intervalle, le quantile par statistique d'ordre, l'intervalle percentile, les
-générateurs dérivés d'une graine, et les contrôles d'entrée partagés."""
+l'intervalle, celui de la fraction par an (AN3-4), le quantile par statistique
+d'ordre, l'intervalle percentile, les générateurs dérivés d'une graine, et les
+contrôles d'entrée partagés."""
 
 from __future__ import annotations
 
@@ -35,6 +36,30 @@ class Interval:
             )
         if self.low > self.high:
             raise InferenceError(f"Interval : low > high ({self.low} > {self.high})")
+
+
+@dataclass(frozen=True)
+class FractionInterval:
+    """Un intervalle fermé ``[low ; high]`` sur l'échelle de la fraction par an
+    (AN3-4) : ``exp(365,25 · b) − 1`` vaut +∞ à la limite, si bien qu'une borne peut
+    valoir +∞ (la borne haute, ou les deux) ; ``nan``, une borne basse −∞ et
+    ``low > high`` sont refusés. Les intervalles des pentes restent des
+    :class:`Interval`, aux bornes finies."""
+
+    low: float
+    high: float
+
+    def __post_init__(self) -> None:
+        if math.isnan(self.low) or math.isnan(self.high):
+            raise InferenceError(
+                f"FractionInterval : borne nan ({self.low}, {self.high})"
+            )
+        if self.low == -math.inf:
+            raise InferenceError("FractionInterval : borne basse −∞")
+        if self.low > self.high:
+            raise InferenceError(
+                f"FractionInterval : low > high ({self.low} > {self.high})"
+            )
 
 
 def as_vector(values: object, name: str, min_size: int = 1) -> FloatArray:

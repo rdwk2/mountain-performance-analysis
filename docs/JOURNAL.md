@@ -16,6 +16,38 @@ Backtest (à partir de M4) : métrique avant → après.
 
 ---
 
+### 2026-11-20 · AN3-4, la borne haute infinie de la fraction par an
+Le défaut : `just q2 puissance` s'arrêtait sur `OverflowError` (`math.expm1` dans
+`fraction_per_year`) : un tirage du bootstrap de `b_inv` vaut `−d*/k*`, un `k*` proche
+de 0 le rend énorme, les plus petits seuils de la grille prennent des percentiles
+proches du tirage extrême, et `expm1(365,25 · b)` déborde au-delà d'environ 1,943 log par
+jour ; `estimate_draw` ne rattrapait pas l'exception, le pool tombait. Le chemin du réel
+(`q2/trials.py`) avait la même exposition. La décision de la conception, acceptée par
+rdw : `exp(365,25 · b) − 1` vaut +∞ à la limite ; une borne haute qui déborde est une
+borne haute infinie, ni une erreur ni un tirage en échec (le compter raté retirerait des
+comptes les tirages qui se lisent « non tranché »). Le code : `fraction_per_year` rend
+`math.inf` au débordement (une pente `nan` ou infinie reste refusée) ; un type à part,
+`FractionInterval` (`inference/base.py`), pour l'échelle de la fraction par an : borne
+haute, ou les deux, à +∞ admises, `nan`, borne basse −∞ et `low > high` refusés ;
+`Interval` ne change pas. `fraction_interval` et `fraction_per_year_interval` le
+rendent ; les lectures (`readings.py`, `bounded_reading`) l'acceptent sans changer de
+règle. « Établi » à borne haute infinie : « la tendance est d'au moins … %/an … ».
+Sorties : `essais.csv` écrit `inf`, `essais.jsonl` `null` (règle inchangée),
+`provenance.json` `null` (`json_text` écrit `null` pour tout flottant non fini, au lieu
+de `Infinity` ; ce sont les fractions des bornes, § 9.6), `puissance.csv` `inf` pour un
+biais infini. Les tests : `fraction_per_year` à 2,0, 1,9 et −5 ; l'intervalle de
+fraction ; la puissance, cas A (« non tranché », sens 0, estimation finie) et cas B
+(« établi », sens +1) sous un espion du bootstrap ; la phrase « d'au moins » écrite en
+dur ; le chemin du réel de bout en bout (`inf`, `null`, aucun `Infinity` relu par un
+décodeur strict) ; et un test de plus, `null` dans `provenance.json` pour une borne
++∞. Sept tests neufs, environ 11 s. Les contre-épreuves B1 à B7 (B4 en deux), chacune
+seule en worktree détaché, sans bytecode, sur le seul fichier nommé : toutes rouges par
+l'assertion du test neuf visé (B2 jouée avec le débordement de `main` rattrapé dans
+`estimate_draw` : seule, sans débordement, elle n'aurait rien à rattraper).
+`just check` complet, vert : N = 11 741 (11 712 réussis, 29 sautés), 40 min. Rangé : `src/mountain_perf/analyse/inference/`
+(`base.py`, `linear.py`, `readings.py`), `src/mountain_perf/analyse/q2/` (`model.py`,
+`trials.py`, `results.py`), les tests de ces modules.
+
 ### 2026-11-17 · AN3-3b — Le code de Q2 : données, modèle, puissance, essais
 Le paquet `analyse/q2/` (`0023`), Python pur, sans numpy : les données (journées,
 appareil principal, exclusions au premier motif, normale de repos de Q2, `e_s`, `r`),

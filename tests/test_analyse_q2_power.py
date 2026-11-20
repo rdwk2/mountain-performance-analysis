@@ -926,3 +926,87 @@ def test_the_simulated_reading_reads_the_inverse_interval(
     outcome = estimate_draw(rich, 1, data, (alpha,), child_rng(7, 7))
     assert calls == [9]
     assert outcome.readings == (Reading.UNDECIDED,)
+
+
+def _heavy_tail_outcome(
+    monkeypatch: pytest.MonkeyPatch,
+    world: PowerWorld,
+    draws: tuple[float, ...],
+    alphas: tuple[float, ...],
+) -> Outcome:
+    """``estimate_draw`` sur ``world`` (scénario 1, ses ``y`` et ses ``h̄``), le
+    bootstrap de ``b_inv`` remplacé par un espion qui rend ``draws`` ; un
+    ``OverflowError`` est un échec du test, pas une erreur."""
+    from mountain_perf.analyse.q2.model import InverseDraws
+    from mountain_perf.analyse.q2.power import SimulatedData
+
+    def spy(inverse: Any, count: int, rng: Any) -> InverseDraws:
+        return InverseDraws(draws, 0)
+
+    monkeypatch.setattr(power, "fixed_v_bootstrap", spy)
+    units = list(world.units)
+    data = SimulatedData(y=tuple(u.y for u in units), h_bar=tuple(_world_h_bar(world)))
+    try:
+        return estimate_draw(world, 1, data, alphas, child_rng(7, 7))
+    except OverflowError as error:
+        pytest.fail(f"le débordement de la fraction doit rendre +∞ : {error}")
+
+
+def _k_interval_excludes_zero(world: PowerWorld) -> tuple[Any, Any]:
+    """La prémisse : l'intervalle à 95 % de ``k̂`` du monde ne contient pas 0 (calculé
+    ici, Student à 95 %) ; rend l'ajustement direct et sa matrice."""
+    from mountain_perf.analyse.inference.linear import student_interval
+    from mountain_perf.analyse.q2.model import (
+        build_design,
+        fit_direct,
+        fit_inverse,
+        inverse_design,
+        stage_one,
+    )
+
+    params = world.parameters
+    units = list(world.units)
+    design = build_design(
+        units, world.spec, stage_one(units, model.Measure.MP), params, knots=world.knots
+    )
+    inverse = fit_inverse(inverse_design(design, units), params)
+    k = student_interval(inverse.k, inverse.se_k, inverse.df, 0.95)
+    assert not k.low <= 0.0 <= k.high
+    return fit_direct(design, params), design
+
+
+def test_an3_4_a_heavy_tailed_b_inv_reads_undecided(
+    monkeypatch: pytest.MonkeyPatch, rich: PowerWorld
+) -> None:
+    """AN3-4, cas A : sur le monde de « l'estimation simulée est l'estimateur du
+    réel », dont l'intervalle à 95 % de ``k̂`` exclut 0, des tirages de ``b_inv`` pour
+    moitié à −0,001 et pour moitié à 5,0 (une fraction par an qui déborde) : à chaque
+    seuil, la lecture est « non tranché », le sens 0, et l'estimation est finie (le
+    tirage n'est pas en échec). Contre ``OverflowError`` qui fait tomber le pool
+    (B1), le tirage compté en échec (B2), ``nan`` au lieu de +∞ (B3)."""
+    _k_interval_excludes_zero(rich)
+    alphas = (0.2, 0.05, 0.001)
+    draws = (-0.001,) * 5 + (5.0,) * 5
+    outcome = _heavy_tail_outcome(monkeypatch, rich, draws, alphas)
+    assert math.isfinite(outcome.estimate)
+    assert outcome.readings == (Reading.UNDECIDED,) * 3
+    assert outcome.directions == (0, 0, 0)
+
+
+def test_an3_4_an_infinite_upper_bound_can_read_established(
+    monkeypatch: pytest.MonkeyPatch, rich: PowerWorld
+) -> None:
+    """AN3-4, cas B : les tirages de ``b_inv`` pour moitié à +0,001 et pour moitié à
+    5,0. Prémisse : au seuil 0,2, la borne basse de l'intervalle direct est au-dessus
+    de 0. À ce seuil, l'intervalle inverse, ouvert jusqu'à +∞, laisse « établi », le
+    sens +1. Contre B1, B3 (``nan`` ne se lit jamais « établi »)."""
+    from mountain_perf.analyse.inference.linear import student_interval
+
+    direct, _ = _k_interval_excludes_zero(rich)
+    alpha = 0.2
+    low = student_interval(direct.b, direct.se, direct.df, 1.0 - alpha).low
+    assert math.expm1(365.25 * low) > 0.0
+    draws = (0.001,) * 5 + (5.0,) * 5
+    outcome = _heavy_tail_outcome(monkeypatch, rich, draws, (alpha,))
+    assert outcome.readings == (Reading.ESTABLISHED,)
+    assert outcome.directions == (1,)

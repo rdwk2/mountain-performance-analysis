@@ -21,7 +21,7 @@ pytest.importorskip("numpy")
 pytest.importorskip("scipy")
 
 from fixtures.q2_world import at, make_climb, make_day, small_world
-from mountain_perf.analyse.inference.base import Interval, child_rng
+from mountain_perf.analyse.inference.base import FractionInterval, Interval, child_rng
 from mountain_perf.analyse.inference.readings import Reading
 from mountain_perf.analyse.q2 import model
 from mountain_perf.analyse.q2.data import Q2Day, Q2Motif, q2_data
@@ -681,3 +681,30 @@ def test_the_ms_stage_one_at_a_known_reserve() -> None:
     assert stage.df == 1
     assert stage.sigma2 == pytest.approx(0.01, rel=1e-9)
     assert stage.d == pytest.approx((0.0025, 0.0025), rel=1e-9)
+
+
+def test_an3_4_established_with_an_infinite_upper_bound() -> None:
+    """AN3-4 : la lecture bornée sur un direct de 1 % à 5 % et un inverse de 2 % à
+    +∞, sans périodes déclarées : « établi », la phrase « d'au moins » écrite en dur,
+    sans « inf » ; sur un direct de −1 % à 1 % et un inverse de −2 % à +∞ : « non
+    tranché ». Contre la phrase écrite avec la borne infinie (« comprise entre 1,0 et
+    inf », B5)."""
+    result, sentence = bounded_reading(
+        FractionInterval(0.01, 0.05),
+        FractionInterval(0.02, math.inf),
+        None,
+        0.05,
+        False,
+    )
+    assert result is Reading.ESTABLISHED
+    assert sentence == (
+        "la tendance est d'au moins 1,0 %/an (régressions directe et inverse) ;"
+        " exploratoire"
+    )
+    assert bounded_reading(
+        FractionInterval(-0.01, 0.01),
+        FractionInterval(-0.02, math.inf),
+        None,
+        0.05,
+        False,
+    ) == (Reading.UNDECIDED, "les données ne tranchent pas")

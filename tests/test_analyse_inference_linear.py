@@ -374,3 +374,24 @@ def test_student_pvalue_at_one_degree_of_freedom() -> None:
     assert 2.0 * (0.5 - math.atan(2.0) / math.pi) == pytest.approx(
         0.2951672353008665, rel=1e-12
     )
+
+
+def test_an3_4_fraction_per_year_overflows_to_plus_infinity() -> None:
+    """AN3-4 : ``exp(365,25 · b) − 1`` vaut +∞ à la limite. À ``b = 2,0`` (au-delà de
+    log(DBL_MAX) / 365,25 ≈ 1,943), ``math.inf`` ; à ``b = 1,9``, la valeur finie
+    ``math.expm1(365,25 · 1,9)`` calculée ici ; à ``b = −5``, −1 à la précision
+    machine ; ``fraction_per_year_interval`` sur ``[1,9 ; 2,0]`` rend une borne basse
+    finie et une borne haute +∞. Contre ``OverflowError`` laissée passer (B1) et
+    ``nan`` rendu au lieu de +∞ (B3)."""
+    try:
+        at_two = fraction_per_year(2.0)
+    except OverflowError as error:
+        pytest.fail(f"le débordement doit rendre +∞, pas lever : {error}")
+    assert at_two == math.inf
+    expected = math.expm1(365.25 * 1.9)
+    assert math.isfinite(expected)
+    assert fraction_per_year(1.9) == expected
+    assert fraction_per_year(-5.0) == pytest.approx(-1.0, abs=1e-15)
+    yearly = fraction_per_year_interval(Interval(1.9, 2.0))
+    assert yearly.low == expected
+    assert yearly.high == math.inf

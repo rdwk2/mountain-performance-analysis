@@ -26,6 +26,7 @@ from functools import partial
 from typing import Any
 
 from mountain_perf.analyse.inference.base import (
+    FractionInterval,
     InferenceError,
     Interval,
     order_quantile,
@@ -38,7 +39,7 @@ from mountain_perf.analyse.inference.linear import (
     ols,
     student_interval,
 )
-from mountain_perf.analyse.inference.readings import Reading, reading
+from mountain_perf.analyse.inference.readings import Bounded, Reading, reading
 from mountain_perf.analyse.inference.reml import RemlFit, reml_fit, three_component_cov
 from mountain_perf.analyse.inference.spline import natural_cubic_basis
 from mountain_perf.analyse.normals import integer_parameter
@@ -867,15 +868,16 @@ def _delta_text(delta: float) -> str:
 
 
 def bounded_reading(
-    direct: Interval | None,
-    inverse: Interval | None,
+    direct: Bounded | None,
+    inverse: Bounded | None,
     k_interval: Interval | None,
     delta: float,
     periods_declared: bool,
 ) -> tuple[Reading, str]:
     """La lecture et sa phrase (§ 7.4), sur l'échelle de la fraction par an : les
     deux intervalles (bornée), le direct seul (M-S, sensibilités), ou l'inverse seul
-    (S18). Bornée : « non tranché » si ``k_interval`` contient 0."""
+    (S18). Bornée : « non tranché » si ``k_interval`` contient 0. Une borne haute +∞
+    se compare comme les autres ; « établi » s'écrit alors « d'au moins … » (AN3-4)."""
     intervals = [i for i in (direct, inverse) if i is not None]
     if not intervals:
         raise ValueError("au moins un intervalle est attendu")
@@ -902,6 +904,10 @@ def bounded_reading(
         low = min(i.low for i in intervals)
         high = max(i.high for i in intervals)
         suffix = _DISCOVERY_SUFFIX if periods_declared else "exploratoire"
+        if high == math.inf:
+            return result, (
+                f"la tendance est d'au moins {percent(low)} %/an {which} ; {suffix}"
+            )
         return result, (
             f"la tendance est comprise entre {percent(low)} et {percent(high)} %/an "
             f"{which} ; {suffix}"
@@ -911,9 +917,12 @@ def bounded_reading(
     return result, UNDECIDED_SENTENCE
 
 
-def fraction_interval(interval: Interval) -> Interval:
-    """L'intervalle d'une pente en log par jour, en fraction par an."""
-    return Interval(fraction_per_year(interval.low), fraction_per_year(interval.high))
+def fraction_interval(interval: Interval) -> FractionInterval:
+    """L'intervalle d'une pente en log par jour, en fraction par an ; la borne haute
+    (ou les deux) vaut +∞ quand la fraction déborde (AN3-4)."""
+    return FractionInterval(
+        fraction_per_year(interval.low), fraction_per_year(interval.high)
+    )
 
 
 # --- κ (S19, S20) --------------------------------------------------------------
