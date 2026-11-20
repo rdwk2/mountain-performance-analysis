@@ -8,7 +8,7 @@ from __future__ import annotations
 import math
 from collections import Counter
 from collections.abc import Sequence
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta, timezone
 
 import pytest
 
@@ -560,19 +560,25 @@ def test_each_excluding_journal_type_excludes_the_day(journal_type: str) -> None
     assert data.days[LONG] == ()
 
 
-def test_the_first_outing_just_after_midnight() -> None:
+PLUS9 = timezone(timedelta(hours=9))
+"""Un décalage loin de l'Europe (correctifs de la PR #52, lot 2, point 6)."""
+
+
+@pytest.mark.parametrize("tz", [PLUS2, PLUS9], ids=["+02:00", "+09:00"])
+def test_the_first_outing_just_after_midnight(tz: timezone) -> None:
     """Correctifs de la PR #52, 3.3 (avec C18) : la première activité du jour D part à
-    00 h 30 (+02:00 ; sans montée, d'un autre produit), la montée longue à 14 h 00, le
-    milieu de la demi-heure la plus basse à 10 h 00 : la première sortie est celle de
-    00 h 30, prise au jour local de son départ (Q-47) : ``fc_repos_apres_sortie``. À
-    jouer sous ``TZ=UTC`` et ``TZ=Europe/Paris``. Contre le jour de la première sortie
-    pris au fuseau de la machine (P3e, sous ``TZ=UTC`` : 00 h 30 +02:00 y est la
-    veille)."""
-    early = at(MAY_6, 0, 30, tz=PLUS2)
-    climb_start = at(MAY_6, 14, tz=PLUS2)
+    00 h 30 (sans montée, d'un autre produit), la montée longue à 14 h 00, le milieu
+    de la demi-heure la plus basse à 10 h 00, tous au même décalage : la première
+    sortie est celle de 00 h 30, prise au jour local de son départ (Q-47) :
+    ``fc_repos_apres_sortie``. Contre le jour de la première sortie pris au fuseau de
+    la machine (P3e, P6j) : à +02:00, la faute ne rougit que sous ``TZ=UTC`` (00 h 30
+    +02:00 y est la veille) ; à +09:00 (lot 2, point 6), 00 h 30 est la veille sous
+    UTC comme sous tout fuseau européen, sans toucher au fuseau du processus."""
+    early = at(MAY_6, 0, 30, tz=tz)
+    climb_start = at(MAY_6, 14, tz=tz)
     activities = [q2_activity("c1", climb_start), q2_activity("f0", early, product=9)]
-    rows = day_range(MAY_6 - timedelta(days=20), 20, tz=PLUS2)
-    rows.append(q2_day_row(MAY_6, midpoint=at(MAY_6, 10, 0, tz=PLUS2), tz=PLUS2))
+    rows = day_range(MAY_6 - timedelta(days=20), 20, tz=tz)
+    rows.append(q2_day_row(MAY_6, midpoint=at(MAY_6, 10, 0, tz=tz), tz=tz))
     tables = q2_tables(activities, [q2_climb("c1", climb_start)], rows)
     (day,) = _data(tables).days[LONG]
     assert day.step5 is Q2Motif.RESTING_AFTER

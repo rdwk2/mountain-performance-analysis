@@ -17,7 +17,7 @@ import sys
 import textwrap
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
@@ -623,6 +623,63 @@ def test_the_power_summary_line_of_a_regime(power_run: PowerRun) -> None:
         f"{power} ; calibration : {calibrated}"
     )
     assert power_run.out.splitlines()[0] == expected
+
+
+def test_the_power_summary_line_written_out(capsys: pytest.CaptureFixture[str]) -> None:
+    """Correctifs de la PR #52, lot 2, point 5 : la ligne d'un régime du résumé de la
+    puissance, écrite en dur, sur un résultat posé à la main : un modèle de 31
+    journées, 9 colonnes, retraits 1 et 2 ; quatre tirages par ``b``, au scénario (1)
+    3 « établi » sur 4 à δ et 4 sur 4 à 7,5 %, 1 « établi » au seul seuil nominal sur
+    4 à ``b = 0`` (25 % : la calibration se déclenche ; 0 au seuil suivant, 0,8 · 0,05
+    retenu). Contre ``n`` et ``p`` échangés (P6i), et toute autre mise en forme."""
+    _extras()
+    from types import SimpleNamespace
+
+    from mountain_perf.analyse.inference.power import Outcome
+    from mountain_perf.analyse.inference.readings import Reading
+    from mountain_perf.analyse.q2.parameters import Q2_PARAMETER_SPECS
+    from mountain_perf.analyse.q2.power import (
+        PowerResult,
+        RegimePower,
+        alpha_grid,
+        power_grids,
+        power_summary,
+    )
+    from mountain_perf.schemas import ParameterSet
+    from mountain_perf.schemas.processed import ClimbRegime
+
+    long = ClimbRegime.LONG_CLIMB
+    established = Outcome(0.0002, (Reading.ESTABLISHED,) * 8, (1,) * 8)
+    undecided = Outcome(0.0001, (Reading.UNDECIDED,) * 8, (0,) * 8)
+    nominal = Outcome(
+        0.0, (Reading.ESTABLISHED,) + (Reading.UNDECIDED,) * 7, (1,) + (0,) * 7
+    )
+    params = ParameterSet(Q2_PARAMETER_SPECS, {})
+    grids = power_grids(params)
+    outcomes: dict[int, list[list[Outcome]]] = {}
+    for scenario in (1, 2, 3, 4):
+        lines = []
+        for fraction in grids.fractions[scenario]:
+            if fraction == 0.0 and scenario in (1, 2):
+                lines.append([nominal] + [undecided] * 3)
+            elif scenario == 1 and fraction == 0.05:
+                lines.append([established] * 3 + [undecided])
+            elif scenario == 1 and fraction == 0.075:
+                lines.append([established] * 4)
+            else:
+                lines.append([undecided] * 4)
+        outcomes[scenario] = lines
+    alphas = alpha_grid(long, params)
+    summary = power_summary(grids, outcomes, alphas, params, long_climbs=True)
+    world = SimpleNamespace(spec=SimpleNamespace(n=31, p=9, withdrawals=(1, 2)))
+    regime = RegimePower(long, cast(Any, world), summary, None, alphas)
+    result = PowerResult(grids, (regime,))
+    cli._print_power(result, params)
+    assert capsys.readouterr().out.splitlines()[0] == (
+        "long_climb : 31 journées, 9 colonnes, retraits 1-2 ; plus petit effet "
+        "visible à 80 % : 7,5 %/an ; puissance à 5 %/an : 0,75 ; calibration : "
+        "déclenchée (0.04000000000000001)"
+    )
 
 
 @pytest.mark.parametrize("processus", [1, 2, 3])

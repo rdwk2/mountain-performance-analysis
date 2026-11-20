@@ -585,9 +585,10 @@ BOUNDS_DAYS = {
     "avant": date(2025, 3, 1),
 }
 """Les journées de manque du monde des bornes : deux exclues à l'étape 5 (l'une
-« autre », l'autre dans un groupe qui a sa colonne), trois sans groupe (exclues aux
-étapes 1 à 3 ; l'une sans altitude, une autre sans FC), une dans la suite, une
-``avant``."""
+« autre », dont une montée est à ``h − r ≤ 0`` ; l'autre dans un groupe qui a sa
+colonne, avec une montée exclue le même jour), trois sans groupe (exclues aux étapes
+1 à 3, d'une seule montée ; l'une sans altitude, une autre sans FC), une dans la
+suite, une ``avant``."""
 
 
 def _lone_climb(ref: str, when: Any, lat: float, **changes: Any) -> Any:
@@ -613,7 +614,9 @@ def _bounds_world() -> Tables:
     deux journées exclues à l'étape 5 ont un statut de FC de repos ``provisional``.
     La journée dans un groupe à colonne a sa montée sur le parcours qui n'est pas celui
     de la première journée (ce dernier est la référence : aucune journée de
-    l'échantillon n'est « autre »)."""
+    l'échantillon n'est « autre »), et une montée exclue (un pic) le même jour ; la
+    seconde montée de la journée « autre » a une FC de 48 bpm, sous sa normale de
+    repos (50) : hors de la réserve de M-S (correctifs de la PR #52, lot 2)."""
     from fixtures.q2_world import ROUTES, WORLD_START, q2_day_row
     from mountain_perf.schemas.days import RestingHrStatus
 
@@ -630,9 +633,12 @@ def _bounds_world() -> Tables:
         if name == "autre":
             climbs += [
                 _lone_climb(ref, when, 47.1),
-                _lone_climb(ref, when, 47.2, offset_s=4000.0, gain_m=380.0),
+                _lone_climb(ref, when, 47.2, offset_s=4000.0, gain_m=380.0, h=48.0),
             ]
         elif name == "colonne":
+            climbs.append(
+                _lone_climb(ref, when, 47.8, offset_s=5000.0, flags=[ClimbFlag.SPIKE])
+            )
             climbs.append(
                 q2_climb(
                     ref,
@@ -702,10 +708,20 @@ def test_the_bounds_end_to_end(monkeypatch: pytest.MonkeyPatch) -> None:
     imputée ni comptée. Les deux pentes rendues sont celles de la GLS sur les matrices
     de l'espion. Contre : la moyenne de période donnée à une journée « autre » exclue
     à l'étape 5 (P2a), les bornes échangées (P2b), une grandeur d'une montée exclue
-    perdue (P2c)."""
+    perdue (P2c).
+
+    Lot 2 des correctifs : la variance connue de chaque journée imputée, relue sur la
+    diagonale de la covariance passée à la GLS, vaut ``s²_ε / n_s`` (``s²_ε`` : la
+    variance de l'étage 1), ``n_s`` compté ici (les montées de sa journée des étapes
+    1 à 4 et ses montées exclues : 2 pour les deux journées exclues à l'étape 5, 1
+    pour les autres) (point 3.2, contre P6d) ;
+    un D+ avant et un D− avant absents (retirés à la main des données : une table
+    valide ne les laisse pas manquer) prennent la moyenne de leur période (point 3.3,
+    contre P6e) ; les covariables de la journée « autre » sont les moyennes de ses
+    deux montées, dont celle hors de la réserve de M-S (point 3.5, contre P6g)."""
     from mountain_perf.analyse.inference.linear import fraction_per_year, gls
     from mountain_perf.analyse.q2 import model
-    from mountain_perf.analyse.q2.data import Period
+    from mountain_perf.analyse.q2.data import Period, Q2Motif
     from mountain_perf.analyse.q2.model import heart_rate_columns
 
     calls: list[tuple[list[list[float]], list[float], list[list[float]], int]] = []
@@ -718,12 +734,31 @@ def test_the_bounds_end_to_end(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(trials, "date_effect_at", spy)
     params = _params(min_residual_df=10)
     data = q2_data(_bounds_world(), PERIODS, params)
+    # Point 3.3 : un D+ avant absent (journée sans groupe) et un D− avant absent
+    # (journée sans FC), posés à la main dans les données.
+    missing_before = {
+        BOUNDS_DAYS["sans_groupe"]: "preceding_ascent_m",
+        BOUNDS_DAYS["sans_fc"]: "preceding_descent_m",
+    }
+    data = dataclasses.replace(
+        data,
+        excluded=tuple(
+            dataclasses.replace(c, **{missing_before[c.day]: cast(Any, None)})
+            if c.day in missing_before
+            else c
+            for c in data.excluded
+        ),
+    )
     estimation = q2_trials(data, params, {})
     principal = estimation.principal
     assert principal is not None
     spec, design = principal.spec, principal.design
     # Les conditions du monde : aucun retrait (l'étape 5 s'applique, la spline est au
-    # modèle) ; la journée « autre » sans groupe, l'autre dans un groupe à colonne.
+    # modèle) ; la journée « autre » sans groupe, l'autre dans un groupe à colonne ;
+    # la seconde montée de la journée « autre » hors de la réserve de M-S.
+    (other_day,) = [d for d in spec.days if d.day == BOUNDS_DAYS["autre"]]
+    assert other_day.step5 is not None
+    assert other_day.reserve == (None, Q2Motif.MS_RESERVE)
     assert spec.withdrawals == ()
     assert "fc_1" in design.columns
     groups = dict(zip([d.day for d in spec.days], spec.groups, strict=True))
@@ -762,7 +797,7 @@ def test_the_bounds_end_to_end(monkeypatch: pytest.MonkeyPatch) -> None:
     lone = (400.0, 0.2, 1200.0, 120.0, 80.0, 8.0)
     second = (380.0, 0.2, 1190.0, 120.0, 80.0, 8.0 + 4000.0 / 3600.0)
     expected_means = {
-        "autre": (_day_means([lone, second]), 146.0, disc),
+        "autre": (_day_means([lone, second]), (146.0 + 48.0) / 2, disc),
         "colonne": (
             _day_means([(750.0, 0.18, 1375.0, 200.0, 150.0, 8.0)]),
             141.0,
@@ -778,6 +813,16 @@ def test_the_bounds_end_to_end(monkeypatch: pytest.MonkeyPatch) -> None:
     rows_high = {round(row[k]): y for row, y in zip(x_high, y_high, strict=True)}
     assert len(x_low) == design.n + len(expected_means)
     assert bound["journees_imputees"] == len(expected_means)
+    positions = {round(row[k]): i for i, row in enumerate(x_low)}
+    reml = principal.direct.reml
+    climb_counts = {
+        "autre": 2,
+        "colonne": 2,
+        "sans_groupe": 1,
+        "sans_altitude": 1,
+        "sans_fc": 1,
+        "suite": 1,
+    }
     expected_low_y: dict[int, float] = {}
     expected_high_y: dict[int, float] = {}
     for name, (means, h, period) in expected_means.items():
@@ -787,6 +832,12 @@ def test_the_bounds_end_to_end(monkeypatch: pytest.MonkeyPatch) -> None:
         log_gain, grade, altitude, d_plus, d_minus, hour = means
         if name == "sans_altitude":
             altitude = mean_of(period, "altitude")
+        if name == "sans_groupe":
+            d_plus = mean_of(period, "d_plus_avant")
+            assert d_plus > 0.0
+        if name == "sans_fc":
+            d_minus = mean_of(period, "d_moins_avant")
+            assert d_minus > 0.0
         heart = mean_h(period) if h is None else h
         fc_1, fc_2 = heart_rate_columns([heart], design.knots)[0]
         angle = 2.0 * math.pi * day.timetuple().tm_yday / 365.25
@@ -833,6 +884,13 @@ def test_the_bounds_end_to_end(monkeypatch: pytest.MonkeyPatch) -> None:
         expected_high_y[t] = fitted - sign * sigma
         assert low == pytest.approx(expected_low_y[t], rel=1e-10), name
         assert rows_high[t] == pytest.approx(expected_high_y[t], rel=1e-10), name
+        # Lot 2, point 3.2 : ``d_s = s²_ε / n_s``, sur la diagonale de ``V``
+        # (``V_ss = d_s + τ̂² + s²_u``), la même aux deux bornes.
+        i = positions[t]
+        for v in (v_low, v_high):
+            assert v[i][i] - reml.tau2 - reml.s2u == pytest.approx(
+                principal.sigma2 / climb_counts[name], rel=1e-9
+            ), name
     # 5 : la journée ``avant`` n'est ni imputée ni comptée dans les parts.
     assert (BOUNDS_DAYS["avant"] - origin).days not in rows_low
     n_disc, n_after = len(kept(disc)), len(kept(after))
@@ -1348,3 +1406,144 @@ def test_the_bounds_impute_e_s_and_a_column_absent_from_a_period(
         row = rows[(day - origin).days]
         assert row[columns.index("e_s")] == pytest.approx(e_s, rel=EXACT), name
     assert rows[(BOUNDS_DAYS["suite"] - origin).days][columns.index(column)] == 0.0
+
+
+# --- correctifs de la PR #52, lot 2 ---------------------------------------------------
+
+RICH_STEP5_DAY = date(2025, 4, 16)
+"""La journée de ``rich_world`` exclue à l'étape 5 en découverte, dans le groupe de la
+première journée (la référence : sans colonne au modèle)."""
+
+
+def _bounds_rows(
+    monkeypatch: pytest.MonkeyPatch,
+    data: Any,
+    fitted: Any,
+    params: ParameterSet,
+) -> tuple[dict[str, object], list[list[float]]]:
+    """Les bornes de ``fitted`` et la matrice de leur première GLS (un espion de
+    ``date_effect_at``)."""
+    from mountain_perf.analyse.q2 import model
+
+    calls: list[list[list[float]]] = []
+    original = model.date_effect_at
+
+    def spy(X: Any, y: Any, V: Any, date_column: int) -> Any:  # noqa: N803
+        calls.append([list(r) for r in X])
+        return original(X, y, V, date_column)
+
+    monkeypatch.setattr(trials, "date_effect_at", spy)
+    bound = trials.bounds(trials._Context(data, params, {}, 1), fitted)
+    return bound, (calls[0] if calls else [])
+
+
+def test_the_rich_run_world_does_what_it_must(rich_run: Run) -> None:
+    """Correctifs de la PR #52, lot 2, point 4 : les prémisses des tests qui lisent
+    ``rich_run`` : aucun retrait au principal M-P (la spline de la FC au modèle), au
+    moins une journée exclue à l'étape 5 (elle s'applique), ``e_s`` au modèle. Contre
+    ``rich_run`` construit sur un monde plus petit, où le 3ᵉ retrait joue (P6h)."""
+    principal = rich_run.estimation.principal
+    assert principal is not None
+    spec = principal.spec
+    assert spec.withdrawals == ()
+    assert spec.step5_applied
+    sample = {u.day.day for u in principal.units}
+    step5 = [d.day for d in spec.days if d.step5 is not None]
+    assert step5
+    assert not set(step5) & sample
+    assert "e_s" in principal.design.columns
+    assert {"fc_1", "fc_2"} <= set(principal.design.columns)
+
+
+def test_a_step5_day_of_a_group_without_column(
+    monkeypatch: pytest.MonkeyPatch, rich_run: Run
+) -> None:
+    """Correctifs de la PR #52, lot 2, point 3.1 (le quatrième cas du point 1) : sur
+    ``rich_world(2)`` à ``[periodes]``, la journée du 2025-04-16, exclue à l'étape 5,
+    est du groupe 0, le groupe de la première journée, sans colonne au modèle (aucune
+    journée de l'échantillon n'est « autre », Q-49 (h)) ; aux bornes (déclenchées ici
+    par ``bounds_trigger = 0,05`` : les parts sont 1/8 et 1/33), sa ligne imputée vaut
+    0 dans chaque colonne de parcours, et la journée exclue à l'étape 5 de la suite,
+    du groupe 1, vaut 1 dans la sienne. Contre une journée d'un groupe sans colonne
+    qui reçoit 1 dans la première colonne de parcours (P6c)."""
+    principal = rich_run.estimation.principal
+    assert principal is not None
+    spec, design = principal.spec, principal.design
+    (day,) = [d for d in spec.days if d.day == RICH_STEP5_DAY]
+    assert spec.step5_applied
+    assert day.step5 is not None
+    assert RICH_STEP5_DAY not in {u.day.day for u in principal.units}
+    assert spec.group_of(RICH_STEP5_DAY) == 0
+    assert 0 not in spec.route_columns
+    routes = [c for c in design.columns if c.startswith("parcours_")]
+    assert routes == ["parcours_1"]
+    bound, matrix = _bounds_rows(
+        monkeypatch, rich_run.data, principal, _params(bounds_trigger=0.05)
+    )
+    assert bound["statut"] == "declenchees"
+    assert bound["journees_imputees"] == 2
+    k = design.columns.index("date")
+    origin = min(design.days[0], RICH_STEP5_DAY)
+    rows = {round(r[k]): r for r in matrix}
+    row = rows[(RICH_STEP5_DAY - origin).days]
+    assert [row[design.columns.index(c)] for c in routes] == [0.0]
+    after = rows[(date(2025, 9, 10) - origin).days]
+    assert after[design.columns.index("parcours_1")] == 1.0
+
+
+def _linear_heart_rate_world() -> Tables:
+    """``rich_world(2, days=38)`` (le 3ᵉ retrait joue : la FC linéaire au modèle) et
+    trois journées de manque au début de la découverte, d'une montée longue chacune,
+    sans groupe : la première sans FC, les deux autres marquées d'un pic."""
+    from fixtures.q2_world import rich_world
+
+    tables = rich_world(2, days=38)
+    used = {a.start_time.date() for a in tables.activities}
+    added = (date(2025, 4, 1), date(2025, 4, 2), date(2025, 4, 3))
+    assert not used & set(added)
+    activities, climbs = list(tables.activities), list(tables.climbs)
+    for i, day in enumerate(added):
+        when = at(day, 7)
+        ref = f"m{i}"
+        activities.append(q2_activity(ref, when))
+        if i == 0:
+            climbs.append(q2_climb(ref, when, gain_m=700.0, h=None))
+        else:
+            climbs.append(q2_climb(ref, when, gain_m=700.0, flags=[ClimbFlag.SPIKE]))
+    return dataclasses.replace(
+        tables, activities=tuple(activities), climbs=tuple(climbs)
+    )
+
+
+def test_a_missing_h_bar_under_the_linear_heart_rate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Correctifs de la PR #52, lot 2, point 3.4 : sur un monde où le 3ᵉ retrait joue
+    (la colonne ``fc`` linéaire au modèle, pas la spline), à ``[periodes]`` et bornes
+    déclenchées, la journée imputée du 2025-04-01, sans FC, a dans sa colonne ``fc``
+    la moyenne de sa période parmi les journées gardées : la moyenne, sur les
+    journées de la découverte de l'échantillon, de la moyenne des FC de leurs
+    montées, faite ici. Contre la ``h̄`` absente laissée absente, prise à 0 (P6f)."""
+    from mountain_perf.analyse.q2.data import Period
+
+    params = _params()
+    data = q2_data(_linear_heart_rate_world(), PERIODS, params)
+    spec = model_spec(data.days[LONG], Measure.MP, LONG, params)
+    assert 3 in spec.withdrawals
+    fitted = trials._fit(spec, params)
+    design = fitted.design
+    assert "fc" in design.columns
+    assert not {"fc_1", "fc_2"} & set(design.columns)
+    bound, matrix = _bounds_rows(monkeypatch, data, fitted, params)
+    assert bound["statut"] == "declenchees"
+    discovery = [u for u in fitted.units if u.day.period is Period.DISCOVERY]
+    assert discovery
+    expected = sum(sum(c.h for c in u.climbs) / len(u.climbs) for u in discovery) / len(
+        discovery
+    )
+    k = design.columns.index("date")
+    origin = min(design.days[0], date(2025, 4, 1))
+    rows = {round(r[k]): r for r in matrix}
+    row = rows[(date(2025, 4, 1) - origin).days]
+    assert expected > 100.0
+    assert row[design.columns.index("fc")] == pytest.approx(expected, rel=1e-12)

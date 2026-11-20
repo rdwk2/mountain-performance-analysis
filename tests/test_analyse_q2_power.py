@@ -857,3 +857,72 @@ def test_a_calibration_between_the_first_two_thresholds() -> None:
     summary = _summary({1: first})
     assert summary.calibration.triggered is True
     assert summary.calibration.alpha == pytest.approx(0.04, rel=EXACT)
+
+
+# --- correctifs de la PR #52, lot 2 ---------------------------------------------------
+
+
+@pytest.mark.parametrize(("established", "expected"), [(2, False), (1, True)])
+def test_undecided_expected_reads_under_strictly(
+    established: int, expected: bool
+) -> None:
+    """Correctifs de la PR #52, lot 2, point 1 (dans la forme de C19) : « sous
+    ``power_target_undecided`` » (0,5) se lit au sens strict (§ 8.4 et § 5.2 du
+    brief). Quatre tirages par ``b`` posés à la main ; à δ (5 %), 2 « établi » positifs
+    sur 4 (puissance 0,5 exactement) : ``non_tranche_attendu`` faux ; 1 sur 4 (0,25) :
+    vrai. Contre la lecture au sens large, puissance au plus le seuil (P6a)."""
+    grids = power_grids(_params())
+    at_delta = math.log(1.05) / 365.25
+    first = [
+        [_outcome(at_delta, 1)] * established + [_outcome(0.0)] * (4 - established)
+        if f == 0.05
+        else [_outcome(0.0)] * 4
+        for f in grids.fractions[1]
+    ]
+    summary = _summary({1: first})
+    assert summary.power_at_delta == established / 4
+    assert summary.undecided_expected is expected
+
+
+def test_the_simulated_reading_reads_the_inverse_interval(
+    monkeypatch: pytest.MonkeyPatch, rich: PowerWorld
+) -> None:
+    """Correctifs de la PR #52, lot 2, point 2 : ``estimate_draw`` sur le monde de
+    « l'estimation simulée est l'estimateur du réel », le bootstrap de ``b_inv``
+    remplacé par un espion qui rend des tirages de part et d'autre de 0 (la moitié à
+    −0,001, la moitié à +0,001). Prémisse : au seuil 0,2, l'intervalle direct seul
+    suffirait à « établi » (sa borne basse au-dessus de 0). La lecture rendue à ce
+    seuil est « non tranché » : l'intervalle inverse contient 0. Contre la lecture
+    prise sur le seul intervalle direct (P5a-1, P6b)."""
+    from mountain_perf.analyse.inference.linear import student_interval
+    from mountain_perf.analyse.q2.model import (
+        InverseDraws,
+        build_design,
+        fit_direct,
+        fraction_interval,
+        stage_one,
+    )
+    from mountain_perf.analyse.q2.power import SimulatedData
+
+    calls: list[int] = []
+
+    def straddle(inverse: Any, count: int, rng: Any) -> InverseDraws:
+        calls.append(count)
+        return InverseDraws((-0.001,) * 50 + (0.001,) * 50, 0)
+
+    monkeypatch.setattr(power, "fixed_v_bootstrap", straddle)
+    params = rich.parameters
+    units = list(rich.units)
+    data = SimulatedData(y=tuple(u.y for u in units), h_bar=tuple(_world_h_bar(rich)))
+    design = build_design(
+        units, rich.spec, stage_one(units, model.Measure.MP), params, knots=rich.knots
+    )
+    direct = fit_direct(design, params)
+    alpha = 0.2
+    alone = fraction_interval(
+        student_interval(direct.b, direct.se, direct.df, 1.0 - alpha)
+    )
+    assert alone.low > 0.0
+    outcome = estimate_draw(rich, 1, data, (alpha,), child_rng(7, 7))
+    assert calls == [9]
+    assert outcome.readings == (Reading.UNDECIDED,)
