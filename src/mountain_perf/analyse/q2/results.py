@@ -15,11 +15,13 @@ les montées exclues, celles retenues, et le 90ᵉ centile de la part hors mouve
 
 Python pur : ce module n'importe que la bibliothèque standard, ``analyse/q2/``,
 ``analyse/inference/`` (par ses fonctions), ``mountain_perf.codec`` (le journal
-chaîné) et ``mountain_perf.schemas``.
+chaîné), ``mountain_perf.schemas`` et ``TablesMatch`` de
+``mountain_perf.analyse.results`` (la relecture, AN3-5).
 """
 
 from __future__ import annotations
 
+import contextlib
 import csv
 import dataclasses
 import hashlib
@@ -28,7 +30,7 @@ import json
 import math
 import re
 import shutil
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, timedelta
 from pathlib import Path
@@ -58,6 +60,7 @@ from mountain_perf.analyse.q2.trials import (
     Q2Estimation,
     TrialRow,
 )
+from mountain_perf.analyse.results import TablesMatch
 from mountain_perf.codec import canonical_bytes, content_hash
 from mountain_perf.schemas import ParameterSet
 from mountain_perf.schemas.processed import ClimbRegime, ProcessedProvenance
@@ -114,7 +117,8 @@ PERIOD_ORDER: tuple[Period, ...] = (
 
 class Q2ResultsError(ValueError):
     """Un résultat de Q2 ne s'écrit pas : le dossier existe déjà, ou
-    ``essais.jsonl`` ne se relit pas ; rien n'est écrit."""
+    ``essais.jsonl`` ne se relit pas ; rien n'est écrit. Ou un dossier
+    d'estimation ne se relit pas (:func:`read_estimation`, AN3-5)."""
 
 
 # --- CSV et JSON -----------------------------------------------------------------
@@ -938,3 +942,485 @@ def write_estimation_results(
     )
     files = estimation_files(estimation, data, figure, html)
     return write_folder(data_dir, RESULTS_DIR, files, document, generated_on)
+
+
+# --- la relecture d'un résultat d'estimation (AN3-5) ------------------------------
+
+INT_COLUMNS: tuple[str, ...] = (
+    "indice",
+    "n_journees",
+    "n_montees",
+    "p",
+    "tirages_retires",
+    "montees_retirees",
+)
+"""Les colonnes d'``essais.csv`` relues en entiers."""
+FLOAT_COLUMNS: tuple[str, ...] = (
+    "niveau",
+    "estimation_fraction",
+    "intervalle_fraction_bas",
+    "intervalle_fraction_haut",
+    "inverse_fraction",
+    "intervalle_inverse_fraction_bas",
+    "intervalle_inverse_fraction_haut",
+    "p_valeur",
+    "kappa",
+    "intervalle_kappa_bas",
+    "intervalle_kappa_haut",
+    "tau2",
+    "s2u",
+    "phi",
+)
+"""Les colonnes d'``essais.csv`` relues en flottants (``inf`` compris)."""
+BOOL_COLUMNS: tuple[str, ...] = (
+    "k_contient_zero",
+    "holm_rejet",
+    "tau2_a_zero",
+    "s2u_a_zero",
+    "phi_a_la_borne_basse",
+    "phi_a_la_borne_haute",
+    "phi_identifie",
+    "variante_effective",
+    "exploratoire",
+)
+"""Les colonnes d'``essais.csv`` relues en booléens (``true``, ``false``) ; les
+autres colonnes restent du texte."""
+REGIME_ORDER: tuple[str, ...] = ("long_climb", "short_climb", "ski_touring")
+"""L'ordre des mises en garde de la puissance, par régime."""
+_LONG = "long_climb"
+_BIAS_SCENARIO = "4"
+_CALCULATED = "calculee"
+_FLUX_KEY: tuple[str, ...] = ("regime", "mesure", "periode", "etape", "motif")
+
+
+@dataclass(frozen=True)
+class StoredEstimation:
+    """Un dossier d'estimation de Q2 relu : son chemin, sa date de génération, la
+    valeur ``tables`` de son ``provenance.json``, telle que relue, et ce document
+    entier."""
+
+    folder: Path
+    generated_on: date
+    tables: object
+    document: Mapping[str, object]
+
+
+@dataclass(frozen=True)
+class LatestEstimation:
+    """L'estimation retenue par :func:`latest_estimation`, ce qu'elle dit des tables
+    actuelles, et le compte des dossiers illisibles."""
+
+    estimation: StoredEstimation
+    match: TablesMatch
+    unreadable: int
+
+
+@dataclass(frozen=True)
+class RegimeWarning:
+    """Les mises en garde d'un régime calculé, lues dans la puissance que nomme
+    l'estimation : la part de « établi » à effet nul simulé (scénario 1), le seuil
+    nominal, le message de la puissance, et, aux montées longues seulement, le biais
+    du scénario 4 à ``delta``."""
+
+    regime: str
+    established_at_zero: float | None
+    nominal_level: float | None
+    message: str | None
+    bias_at_delta: float | None
+
+
+@dataclass(frozen=True)
+class EstimationReading:
+    """Ce que la page « Q2 » montre d'un dossier d'estimation, relu sans recalcul.
+    ``power`` vaut ``None`` si la puissance nommée manque ou a changé, ou si aucune
+    n'est nommée (``power_folder`` vaut alors ``None``)."""
+
+    trials: tuple[Mapping[str, object], ...]
+    figure_html: str | None
+    flux: tuple[Mapping[str, object], ...]
+    autocorrelation: tuple[Mapping[str, object], ...]
+    period: Mapping[str, str] | None
+    bounds: Mapping[str, object]
+    power_folder: str | None
+    power: tuple[RegimeWarning, ...] | None
+    delta: float | None
+
+
+def _stored_estimation(folder: Path) -> StoredEstimation | None:
+    """Le dossier relu, ou ``None`` s'il est illisible."""
+    try:
+        document = json.loads((folder / PROVENANCE_FILE).read_bytes().decode("utf-8"))
+    except (OSError, UnicodeDecodeError, ValueError):
+        return None
+    if not isinstance(document, dict) or "tables" not in document:
+        return None
+    written = document.get("genere_le")
+    if not isinstance(written, str):
+        return None
+    try:
+        generated_on = date.fromisoformat(written)
+    except ValueError:
+        return None
+    if generated_on.isoformat() != folder.name.split("_", 1)[0]:
+        return None
+    if not (folder / TRIALS_FILE).is_file():
+        return None
+    return StoredEstimation(folder, generated_on, document["tables"], document)
+
+
+def stored_estimations(data_dir: Path) -> tuple[tuple[StoredEstimation, ...], int]:
+    """Les dossiers d'estimation de Q2 sous ``data_dir``, triés par nom, et le compte
+    des illisibles. Seuls les dossiers au nom de ``RESULT_NAME`` sont considérés
+    (``puissance/``, les dossiers temporaires et tout autre nom sont ignorés, sans être
+    comptés) ; l'un d'eux est illisible si ``provenance.json`` manque ou ne se lit pas
+    (UTF-8, JSON), n'est pas un objet, n'a pas ``tables``, si ``genere_le`` n'est pas
+    une date ``AAAA-MM-JJ`` égale au préfixe du nom, ou si ``essais.csv`` manque."""
+    root = data_dir / RESULTS_DIR
+    if not root.is_dir():
+        return (), 0
+    folders = sorted(
+        (
+            path
+            for path in root.iterdir()
+            if path.is_dir() and RESULT_NAME.fullmatch(path.name)
+        ),
+        key=lambda path: path.name,
+    )
+    estimations: list[StoredEstimation] = []
+    unreadable = 0
+    for folder in folders:
+        stored = _stored_estimation(folder)
+        if stored is None:
+            unreadable += 1
+        else:
+            estimations.append(stored)
+    return tuple(estimations), unreadable
+
+
+def latest_estimation(
+    data_dir: Path, current: ProcessedProvenance | None
+) -> LatestEstimation | None:
+    """La dernière estimation de Q2, à la règle de Q1 (``latest_result``) : parmi les
+    dossiers des tables actuelles (``current``, écrite comme ``provenance.json``
+    l'écrit), sinon parmi tous, la ``genere_le`` la plus récente ; à égalité, le
+    ``provenance.json`` écrit le plus tard ; puis le nom le plus grand. ``None`` sans
+    dossier lisible."""
+    estimations, unreadable = stored_estimations(data_dir)
+    if not estimations:
+        return None
+    if current is None:
+        match, candidates = TablesMatch.UNKNOWN, estimations
+    else:
+        written = json.loads(json.dumps(dataclasses.asdict(current)))
+        same = tuple(e for e in estimations if e.tables == written)
+        match = TablesMatch.SAME if same else TablesMatch.DIFFERENT
+        candidates = same or estimations
+    latest = max(
+        candidates,
+        key=lambda e: (e.generated_on, _written_ns(e.folder), e.folder.name),
+    )
+    return LatestEstimation(latest, match, unreadable)
+
+
+@contextlib.contextmanager
+def _reading(label: str) -> Iterator[None]:
+    """Toute erreur de lecture sous ``label`` (le fichier) devient
+    :class:`Q2ResultsError`, qui le nomme."""
+    try:
+        yield
+    except Q2ResultsError:
+        raise
+    except (
+        OSError,
+        KeyError,
+        IndexError,
+        ValueError,
+        TypeError,
+        AttributeError,
+    ) as error:
+        raise Q2ResultsError(f"{label} : ne se relit pas ({error!r})") from error
+
+
+def _object(value: object, what: str) -> Mapping[str, object]:
+    if not isinstance(value, dict):
+        raise TypeError(f"{what} n'est pas un objet")
+    return value
+
+
+def _number(value: object, what: str) -> float | None:
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        raise TypeError(f"{what} n'est pas un nombre")
+    return float(value)
+
+
+def _text_or_none(value: object, what: str) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise TypeError(f"{what} n'est pas un texte")
+    return value
+
+
+def _csv_rows(
+    path: Path, label: str, columns: Sequence[str], *, required: bool
+) -> list[dict[str, str]] | None:
+    """Les lignes d'un CSV, réduites à ``columns`` ; ``None`` s'il manque et n'est pas
+    exigé ; :class:`Q2ResultsError` s'il lui manque une colonne ou une case."""
+    if not required and not path.exists():
+        return None
+    rows: list[dict[str, str]] = []
+    with _reading(label), path.open(encoding="utf-8", newline="") as stream:
+        reader = csv.DictReader(stream)
+        header = reader.fieldnames or []
+        missing = [c for c in columns if c not in header]
+        if missing:
+            raise Q2ResultsError(f"{label} : colonnes absentes : {', '.join(missing)}")
+        for number, row in enumerate(reader, start=2):
+            values = [row.get(c) for c in columns]
+            if any(v is None for v in values):
+                raise Q2ResultsError(f"{label}, ligne {number} : cases manquantes")
+            rows.append({c: str(v) for c, v in zip(columns, values, strict=True)})
+    return rows
+
+
+def _trial_value(column: str, text: str, where: str) -> object:
+    """Une case d'``essais.csv`` relue (``cell`` à l'envers)."""
+    if text == "":
+        return None
+    try:
+        if column in BOOL_COLUMNS:
+            if text in ("true", "false"):
+                return text == "true"
+            raise ValueError(text)
+        if column in INT_COLUMNS:
+            return int(text)
+        if column in FLOAT_COLUMNS:
+            return float(text)
+    except ValueError as error:
+        raise Q2ResultsError(
+            f"{where}, colonne {column} : case illisible « {text} »"
+        ) from error
+    return text
+
+
+def _trials(path: Path, label: str) -> tuple[Mapping[str, object], ...]:
+    columns = trial_columns()
+    rows = _csv_rows(path, label, columns, required=True) or []
+    return tuple(
+        {c: _trial_value(c, row[c], f"{label}, ligne {number}") for c in columns}
+        for number, row in enumerate(rows, start=2)
+    )
+
+
+def flux_summary(rows: Sequence[Mapping[str, str]]) -> tuple[dict[str, object], ...]:
+    """Les lignes de ``flux.csv`` sommées sur les mois : une ligne par (``regime``,
+    ``mesure``, ``periode``, ``etape``, ``motif``), dans l'ordre de première
+    apparition, ``journees`` et ``montees`` sommées, ``valeur`` à ``None`` ; une ligne
+    dont ``valeur`` n'est pas vide (``hors_mouvement``) passe seule, sans être
+    sommée, ``valeur`` en flottant. Chaque ligne rendue a ces cinq clés, puis
+    ``journees``, ``montees`` et ``valeur``."""
+    order: list[tuple[str, ...] | int] = []
+    sums: dict[tuple[str, ...], list[int]] = {}
+    alone: dict[int, dict[str, object]] = {}
+    for index, row in enumerate(rows):
+        key = tuple(row[c] for c in _FLUX_KEY)
+        days, climbs = int(row["journees"]), int(row["montees"])
+        if row["valeur"] != "":
+            order.append(index)
+            alone[index] = {
+                **dict(zip(_FLUX_KEY, key, strict=True)),
+                "journees": days,
+                "montees": climbs,
+                "valeur": float(row["valeur"]),
+            }
+            continue
+        if key not in sums:
+            order.append(key)
+            sums[key] = [0, 0]
+        sums[key][0] += days
+        sums[key][1] += climbs
+    lines: list[dict[str, object]] = []
+    for item in order:
+        if isinstance(item, int):
+            lines.append(alone[item])
+            continue
+        lines.append(
+            {
+                **dict(zip(_FLUX_KEY, item, strict=True)),
+                "journees": sums[item][0],
+                "montees": sums[item][1],
+                "valeur": None,
+            }
+        )
+    return tuple(lines)
+
+
+def _autocorrelation(
+    rows: Sequence[Mapping[str, str]],
+) -> tuple[dict[str, object], ...]:
+    return tuple(
+        {
+            "regime": row["regime"],
+            "mesure": row["mesure"],
+            "de": int(row["de"]),
+            "a": None if row["a"] == "" else int(row["a"]),
+            "paires": int(row["paires"]),
+            "correlation": None
+            if row["correlation"] == ""
+            else float(row["correlation"]),
+        }
+        for row in rows
+    )
+
+
+def _read_period(document: Mapping[str, object]) -> Mapping[str, str] | None:
+    value = document.get("periode")
+    if value is None:
+        return None
+    period = _object(value, "periode")
+    start, end = period["debut"], period["fin"]
+    if not isinstance(start, str) or not isinstance(end, str):
+        raise TypeError("periode : debut et fin ne sont pas des dates")
+    date.fromisoformat(start)
+    date.fromisoformat(end)
+    return {"debut": start, "fin": end}
+
+
+def _read_bounds(document: Mapping[str, object]) -> Mapping[str, object]:
+    value = document.get("bornes")
+    if value is None:
+        return {}
+    bounds = _object(value, "bornes")
+    for regime, entry in bounds.items():
+        _object(entry, f"bornes.{regime}")
+    return dict(bounds)
+
+
+def _bias(path: Path, label: str, delta: float) -> float | None:
+    rows = _csv_rows(path, label, POWER_COLUMNS, required=False)
+    if rows is None:
+        return None
+    with _reading(label):
+        for row in rows:
+            if (
+                row["regime"] == _LONG
+                and row["scenario"] == _BIAS_SCENARIO
+                and float(row["b_fraction_par_an"]) == delta
+            ):
+                bias = row["biais_fraction_par_an"]
+                return None if bias == "" else float(bias)
+    return None
+
+
+def _power(
+    data_dir: Path, document: Mapping[str, object], label: str
+) -> tuple[str | None, tuple[RegimeWarning, ...] | None, float | None]:
+    """La puissance que nomme l'estimation : ``(dossier, mises en garde, delta)`` ;
+    sans puissance nommée, ``(None, None, None)`` ; nommée mais absente ou changée
+    (empreinte), ``(dossier, None, None)``."""
+    if "puissance" not in document:
+        return None, None, None
+    with _reading(label):
+        named = _object(document["puissance"], "puissance")
+        name, digest = named["dossier"], named["empreinte"]
+        if not isinstance(name, str) or not isinstance(digest, str):
+            raise TypeError("puissance : dossier et empreinte ne sont pas des textes")
+    if not RESULT_NAME.fullmatch(name):
+        return name, None, None
+    folder = data_dir / POWER_DIR / name
+    try:
+        raw = (folder / PROVENANCE_FILE).read_bytes()
+    except OSError:
+        return name, None, None
+    if hashlib.sha256(raw).hexdigest() != digest:
+        return name, None, None
+    power_label = (POWER_DIR / name / PROVENANCE_FILE).as_posix()
+    warnings: list[RegimeWarning] = []
+    with _reading(power_label):
+        power = _object(json.loads(raw.decode("utf-8")), "provenance")
+        parameters = _object(power["parametres"], "parametres")
+        delta = _number(parameters["delta"], "parametres.delta")
+        if delta is None:
+            raise TypeError("parametres.delta est vide")
+        regimes = _object(power["regimes"], "regimes")
+        for regime in REGIME_ORDER:
+            if regime not in regimes:
+                continue
+            entry = _object(regimes[regime], f"regimes.{regime}")
+            if entry.get("statut") != _CALCULATED:
+                continue
+            at_zero = _object(entry["a_zero"], f"regimes.{regime}.a_zero")
+            first = _object(at_zero["1"], f"regimes.{regime}.a_zero.1")
+            levels = entry["seuils"]
+            if not isinstance(levels, list):
+                raise TypeError(f"regimes.{regime}.seuils n'est pas une liste")
+            warnings.append(
+                RegimeWarning(
+                    regime,
+                    _number(first["p_etabli"], "p_etabli"),
+                    _number(levels[0], "seuils"),
+                    _text_or_none(entry["message"], "message"),
+                    None,
+                )
+            )
+    csv_label = (POWER_DIR / name / POWER_FILE).as_posix()
+    read = tuple(
+        dataclasses.replace(
+            warning, bias_at_delta=_bias(folder / POWER_FILE, csv_label, delta)
+        )
+        if warning.regime == _LONG
+        else warning
+        for warning in warnings
+    )
+    return name, read, delta
+
+
+def read_estimation(data_dir: Path, estimation: StoredEstimation) -> EstimationReading:
+    """Relit un dossier d'estimation, sans rien recalculer : les essais typés, la
+    figure (``None`` si elle ne s'ouvre pas), le flux sommé sur les mois,
+    l'autocorrélation, la période, les bornes, et la puissance que nomme
+    ``provenance.json``, à son empreinte. ``flux.csv`` ou ``autocorrelation.csv``
+    absent : ``()`` ; ``puissance.csv`` absent : les biais à ``None``. Tout fichier mal
+    formé lève :class:`Q2ResultsError`, qui nomme le fichier ; aucune autre exception
+    n'en sort."""
+    folder = estimation.folder
+    base = f"{RESULTS_DIR.as_posix()}/{folder.name}"
+    trials = _trials(folder / TRIALS_FILE, f"{base}/{TRIALS_FILE}")
+    figure_html: str | None
+    with _reading(f"{base}/{FIGURE_HTML}"):
+        try:
+            figure_html = (folder / FIGURE_HTML).read_text(encoding="utf-8")
+        except OSError:
+            figure_html = None
+    flux_label = f"{base}/{FLUX_FILE}"
+    flux_read = _csv_rows(folder / FLUX_FILE, flux_label, FLUX_COLUMNS, required=False)
+    with _reading(flux_label):
+        flux = () if flux_read is None else flux_summary(flux_read)
+    auto_label = f"{base}/{AUTOCORRELATION_FILE}"
+    auto_read = _csv_rows(
+        folder / AUTOCORRELATION_FILE,
+        auto_label,
+        AUTOCORRELATION_COLUMNS,
+        required=False,
+    )
+    with _reading(auto_label):
+        autocorrelation = () if auto_read is None else _autocorrelation(auto_read)
+    provenance_label = f"{base}/{PROVENANCE_FILE}"
+    document = estimation.document
+    with _reading(provenance_label):
+        period = _read_period(document)
+        bounds = _read_bounds(document)
+    power_folder, power, delta = _power(data_dir, document, provenance_label)
+    return EstimationReading(
+        trials=trials,
+        figure_html=figure_html,
+        flux=flux,
+        autocorrelation=autocorrelation,
+        period=period,
+        bounds=bounds,
+        power_folder=power_folder,
+        power=power,
+        delta=delta,
+    )
