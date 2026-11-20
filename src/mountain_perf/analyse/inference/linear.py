@@ -14,6 +14,7 @@ import scipy.stats
 
 from mountain_perf.analyse.inference.base import (
     FloatArray,
+    FractionInterval,
     InferenceError,
     Interval,
     as_matrix,
@@ -163,15 +164,22 @@ def student_interval(estimate: float, se: float, df: int, level: float) -> Inter
 
 def fraction_per_year(b_per_day: float) -> float:
     """La tendance en fraction par an (0,05 = 5 %) d'une pente en log par jour :
-    ``expm1(365,25 · b_per_day)``."""
+    ``expm1(365,25 · b_per_day)`` ; ``math.inf`` quand le calcul déborde (sa limite,
+    AN3-4)."""
     if not math.isfinite(b_per_day):
         raise InferenceError(f"b_per_day : une pente finie est attendue ({b_per_day})")
-    return math.expm1(365.25 * b_per_day)
+    try:
+        return math.expm1(365.25 * b_per_day)
+    except OverflowError:
+        return math.inf
 
 
-def fraction_per_year_interval(interval: Interval) -> Interval:
-    """``fraction_per_year`` sur chaque borne (la transformation est croissante)."""
-    return Interval(fraction_per_year(interval.low), fraction_per_year(interval.high))
+def fraction_per_year_interval(interval: Interval) -> FractionInterval:
+    """``fraction_per_year`` sur chaque borne (la transformation est croissante) ;
+    la borne haute, ou les deux, peuvent valoir +∞."""
+    return FractionInterval(
+        fraction_per_year(interval.low), fraction_per_year(interval.high)
+    )
 
 
 def whiten(

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import math
 import os
 from datetime import date, timedelta
 from pathlib import Path
@@ -51,6 +52,7 @@ from mountain_perf.analyse.q2.power import (
 from mountain_perf.analyse.q2.results import (
     FLUX_COLUMNS,
     POWER_DIR,
+    PROVENANCE_FILE,
     Q2ResultsError,
     StoredPower,
     append_trials,
@@ -847,3 +849,43 @@ def test_the_figure_page_carries_the_points_the_curve_and_the_band(
     assert points["x"] == [p.day.isoformat() for p in figure.points]
     assert points["y"] == pytest.approx([p.residual for p in figure.points], rel=EXACT)
     assert points["mode"] == "markers"
+
+
+def test_an3_4_an_infinite_bound_fraction_is_null_in_the_provenance(
+    tmp_path: Path,
+) -> None:
+    """AN3-4 : une fraction par an des bornes (§ 9.6) qui vaut +∞ s'écrit ``null``
+    dans ``provenance.json`` ; le fichier se relit en JSON standard (aucun
+    ``Infinity``), la fraction finie à côté telle quelle. Contre ``json.dumps`` qui
+    écrirait ``Infinity``."""
+    data = q2_data(c3_tables(), PERIODS, DEFAULTS)
+    estimation = dataclasses.replace(
+        _estimation(data),
+        bounds={
+            "statut": "declenchees",
+            "b_basse_fraction": 0.01,
+            "b_haute_fraction": math.inf,
+        },
+    )
+    written = write_estimation_results(
+        tmp_path,
+        estimation,
+        data,
+        None,
+        "<p>x</p>",
+        c3_tables().provenance,
+        DEFAULTS,
+        StoredPower(tmp_path / "puissance" / "2026-11-15_aaaaaaaaaaaa", "f" * 64, {}),
+        commit=COMMIT,
+        package_version="0.0.1",
+        generated_on=date(2026, 11, 20),
+    )
+    text = (written / PROVENANCE_FILE).read_text(encoding="utf-8")
+    assert "Infinity" not in text
+
+    def refuse(name: str) -> object:
+        raise AssertionError(f"constante JSON non standard : {name}")
+
+    document = json.loads(text, parse_constant=refuse)
+    assert document["bornes"]["b_haute_fraction"] is None
+    assert document["bornes"]["b_basse_fraction"] == 0.01

@@ -8,7 +8,16 @@ import enum
 import math
 from collections.abc import Sequence
 
-from mountain_perf.analyse.inference.base import InferenceError, Interval
+from mountain_perf.analyse.inference.base import (
+    FractionInterval,
+    InferenceError,
+    Interval,
+)
+
+type Bounded = Interval | FractionInterval
+"""Un intervalle que les lectures acceptent : celui d'une pente (bornes finies) ou
+celui de la fraction par an (borne haute +∞ possible, AN3-4) ; les règles sont les
+mêmes, +∞ compris."""
 
 
 def _check_alpha(alpha: float) -> None:
@@ -53,14 +62,14 @@ class Reading(enum.Enum):
     UNDECIDED = "non tranché"
 
 
-def _intervals(intervals: Sequence[Interval]) -> tuple[Interval, ...]:
+def _intervals(intervals: Sequence[Bounded]) -> tuple[Bounded, ...]:
     result = tuple(intervals)
     if not result:
         raise InferenceError("intervals : la suite est vide")
     return result
 
 
-def direction(intervals: Sequence[Interval]) -> int:
+def direction(intervals: Sequence[Bounded]) -> int:
     """``+1`` si tous les intervalles ont ``low > 0``, ``−1`` si tous ont
     ``high < 0`` (au sens strict), ``0`` sinon."""
     checked = _intervals(intervals)
@@ -71,7 +80,7 @@ def direction(intervals: Sequence[Interval]) -> int:
     return 0
 
 
-def reading(intervals: Sequence[Interval], delta: float) -> Reading:
+def reading(intervals: Sequence[Bounded], delta: float) -> Reading:
     """La lecture d'intervalles sur l'échelle de la lecture, ``delta > 0`` sur la même
     échelle : « établi » si chacun exclut 0 au sens strict, tous du même côté ; sinon
     « absence d'effet utile » si chacun tient dans ``]−delta ; +delta[`` ; sinon « non

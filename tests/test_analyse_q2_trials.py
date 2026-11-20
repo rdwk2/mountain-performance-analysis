@@ -1547,3 +1547,88 @@ def test_a_missing_h_bar_under_the_linear_heart_rate(
     row = rows[(date(2025, 4, 1) - origin).days]
     assert expected > 100.0
     assert row[design.columns.index("fc")] == pytest.approx(expected, rel=1e-12)
+
+
+def _strict_json(text: str) -> Any:
+    """``text`` décodé en JSON standard : ``Infinity``, ``-Infinity`` et ``NaN``
+    échouent par assertion."""
+    import json
+
+    def refuse(name: str) -> Any:
+        raise AssertionError(f"constante JSON non standard : {name}")
+
+    return json.loads(text, parse_constant=refuse)
+
+
+def test_an3_4_the_real_path_keeps_an_infinite_inverse_bound(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Any
+) -> None:
+    """AN3-4, le chemin du réel : ``rich_world(2)`` à ``[periodes]``, le bootstrap de
+    ``b_inv`` du principal remplacé par un espion qui rend des tirages pour moitié à
+    −0,001 et pour moitié à 5,0. Prémisse : l'intervalle à 95 % de ``k̂`` du principal
+    exclut 0 (sinon aucun bootstrap). L'exécution va au bout ; le principal est estimé,
+    « non tranché », la borne haute de son intervalle inverse vaut +∞ ; sa case
+    d'``essais.csv`` vaut ``inf`` ; sa valeur dans ``essais.jsonl`` vaut ``null`` ;
+    aucun fichier JSON écrit (``essais.jsonl``, ``provenance.json``) ne contient de
+    constante non standard. Contre l'intervalle tourné en « non estimable » (B6) et
+    la borne écrite ``Infinity`` dans ``essais.jsonl`` (B7)."""
+    import csv
+    from pathlib import Path
+
+    from fixtures.q2_world import rich_world
+    from mountain_perf.analyse.inference.linear import student_interval
+    from mountain_perf.analyse.q2.model import InverseDraws
+    from mountain_perf.analyse.q2.results import (
+        JOURNAL,
+        TRIALS_FILE,
+        StoredPower,
+        append_trials,
+        write_estimation_results,
+    )
+
+    calls: list[int] = []
+
+    def heavy_tail(inverse: Any, parameters: Any, rng: Any, workers: int = 1) -> Any:
+        k = student_interval(inverse.k, inverse.se_k, inverse.df, 0.95)
+        assert not k.low <= 0.0 <= k.high
+        calls.append(workers)
+        return InverseDraws((-0.001,) * 5 + (5.0,) * 5, 0)
+
+    monkeypatch.setattr(trials, "inverse_bootstrap", heavy_tail)
+    tables = rich_world(2)
+    params = _params()
+    data = q2_data(tables, PERIODS, params)
+    try:
+        estimation = q2_trials(data, params, {})
+    except OverflowError as error:
+        pytest.fail(f"le débordement de la fraction doit rendre +∞ : {error}")
+    assert calls
+    row = _row(estimation, "P")
+    assert row.statut == "estime"
+    assert row.lecture == "non tranché"
+    assert row.intervalle_inverse_fraction is not None
+    assert row.intervalle_inverse_fraction[1] == math.inf
+    assert "inf" not in (row.phrase or "")
+    folder = write_estimation_results(
+        tmp_path,
+        estimation,
+        data,
+        None,
+        "<p>x</p>",
+        tables.provenance,
+        params,
+        StoredPower(tmp_path / "puissance" / "2026-11-15_aaaaaaaaaaaa", "f" * 64, {}),
+        commit="0" * 40,
+        package_version="0.0.1",
+        generated_on=date(2026, 11, 20),
+    )
+    with (folder / TRIALS_FILE).open(encoding="utf-8", newline="") as stream:
+        (principal,) = [r for r in csv.DictReader(stream) if r["essai"] == "P"]
+    assert principal["intervalle_inverse_fraction_haut"] == "inf"
+    append_trials(tmp_path, "e1", "0" * 40, estimation.rows)
+    lines = (tmp_path / JOURNAL).read_text(encoding="utf-8").splitlines()
+    records = [_strict_json(line) for line in lines]
+    (essai,) = [r["essai"] for r in records if r["essai"]["essai"] == "P"]
+    assert essai["intervalle_inverse_fraction"][1] is None
+    for path in Path(folder).glob("*.json"):
+        _strict_json(path.read_text(encoding="utf-8"))

@@ -141,9 +141,29 @@ def csv_text(columns: Sequence[str], rows: Iterable[Sequence[object]]) -> str:
     return buffer.getvalue()
 
 
+def _finite_or_null(value: object) -> object:
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    if isinstance(value, Mapping):
+        return {k: _finite_or_null(v) for k, v in value.items()}
+    if isinstance(value, list | tuple):
+        return [_finite_or_null(v) for v in value]
+    return value
+
+
 def json_text(document: object) -> str:
-    """Un JSON trié, indenté, sans échappement ASCII."""
-    return json.dumps(document, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+    """Un JSON trié, indenté, sans échappement ASCII ; un flottant non fini (une
+    fraction par an +∞, AN3-4) s'écrit ``null``, jamais ``Infinity`` ni ``NaN``."""
+    return (
+        json.dumps(
+            _finite_or_null(document),
+            ensure_ascii=False,
+            indent=2,
+            sort_keys=True,
+            allow_nan=False,
+        )
+        + "\n"
+    )
 
 
 def sha256_text(text: str) -> str:

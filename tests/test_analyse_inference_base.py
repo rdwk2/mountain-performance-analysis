@@ -22,6 +22,7 @@ import numpy
 
 from mountain_perf.analyse import inference
 from mountain_perf.analyse.inference.base import (
+    FractionInterval,
     InferenceError,
     Interval,
     child_rng,
@@ -249,3 +250,22 @@ def test_t1_acceptances_next_to_the_bounds() -> None:
     child_rng(0)
     child_rng(0, 0)
     ols(numpy.array([[1.0], [1.0]]), [1.0, 2.0])
+
+
+def test_an3_4_the_fraction_interval_admits_plus_infinity() -> None:
+    """AN3-4 : l'intervalle de la fraction par an accepte une borne haute +∞, et les
+    deux bornes à +∞ (tout l'intervalle déborde) ; il refuse ``nan`` à chaque borne,
+    une borne basse −∞ et une borne basse au-dessus de la borne haute. Contre un
+    intervalle qui laisse passer ``nan`` ou −∞ (B4)."""
+    open_ended = FractionInterval(0.01, math.inf)
+    assert (open_ended.low, open_ended.high) == (0.01, math.inf)
+    overflowed = FractionInterval(math.inf, math.inf)
+    assert (overflowed.low, overflowed.high) == (math.inf, math.inf)
+    for low, high in [
+        (math.nan, 1.0),
+        (0.0, math.nan),
+        (-math.inf, 0.0),
+        (2.0, 1.0),
+    ]:
+        with pytest.raises(InferenceError, match=r"^FractionInterval :"):
+            FractionInterval(low, high)
