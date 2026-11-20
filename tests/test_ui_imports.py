@@ -31,9 +31,9 @@ RUNS_BACKTEST_MODULES = (
     "mountain_perf.backtest.segments",
 )
 """Les modules purs de ``backtest/`` que ``runs.py`` peut importer (M5-2)."""
-PISTE_PAGES = ("recuperation.py", "q1.py")
-"""Les pages de la piste analyse (AN2-3), chemins sous ``ui/`` : elles seules peuvent
-importer ``mountain_perf.analyse``, et seulement dans leurs fonctions ;
+PISTE_PAGES = ("recuperation.py", "q1.py", "q2.py")
+"""Les pages de la piste analyse (AN2-3, AN3-5), chemins sous ``ui/`` : elles seules
+peuvent importer ``mountain_perf.analyse``, et seulement dans leurs fonctions ;
 ``mountain_perf.backtest`` leur reste refusé."""
 
 
