@@ -3,9 +3,9 @@
 L'interface ([`0016`](../decisions/0016-interface-v0.md)) est une appli Streamlit
 locale, sur `MPA_DATA_DIR`, avec les extras `tableau` et `analyse`. Elle ne calcule rien
 (règle 7 de [`CLAUDE.md`](../../CLAUDE.md)) : ce qu'elle montre vient des fonctions mêmes de
-`mperf` et de la bibliothèque. Cinq pages : « projection » et « sortie » (M5 ; la courbe
+`mperf` et de la bibliothèque. Six pages : « projection » et « sortie » (M5 ; la courbe
 à l'origine, OG-UI), « La fenêtre » (OG-UI), « récupération » et « Q1 » (la piste
-analyse, AN2-3).
+analyse, AN2-3), « Q2 » (AN3-5).
 
 ```bash
 just ui
@@ -57,7 +57,9 @@ puis `http://localhost:8501` dans le navigateur.
   ([`0019`](../decisions/0019-table-jours-et-normales.md), section AN2-3). Les six
   mesures de la nuit et du repos, chacune contre sa normale et sa plage : un point plein
   pour une valeur admise dans la normale, un point creux pour une valeur écartée (la
-  raison au survol), un trait gris en pied quand il n'y a pas de valeur ; la normale en
+  raison au survol), un trait gris en pied quand il n'y a pas de valeur (sur la SpO2 de
+  la nuit, aussi un trait gris sur toute la hauteur, et le compte des nuits sans
+  valeur dans le titre) ; la normale en
   pointillé quand sa fenêtre mêle l'avant et l'après d'une rupture ou d'un jour
   incertain. Puis le journal (`journal.csv`) en rubans, l'activité du jour (durées par
   famille, charge selon Garmin), et, à part, la HRV selon Garmin. Par défaut les 8
@@ -66,3 +68,14 @@ puis `http://localhost:8501` dans le navigateur.
 - **La page « Q1 »** : la dernière figure écrite par `just q1`, telle quelle, avec sa
   date, et un avertissement si elle ne vient pas des tables actuelles
   ([`0015`](../decisions/0015-figure-de-q1.md), section AN2-3).
+- **La page « Q2 »** : le dernier résultat de `just q2`, sans rien recalculer
+  ([`0023`](../decisions/0023-code-de-q2.md), précisions d'AN3-5) : sa date et la
+  période des montées, et un avertissement s'il ne vient pas des tables actuelles ; la
+  lecture principale (la phrase de l'essai principal, « données insuffisantes pour
+  juger un effet de 5 %/an » si sa puissance le dit, les régressions directe et inverse
+  avec leurs intervalles, les bornes d'exclusion) ; les mises en garde lues dans la
+  puissance qu'il nomme (la part de « établi » à effet nul simulé et le seuil nominal,
+  le biais sous l'erreur de mesure de la FC, la dépendance à la covariance estimée) ;
+  la figure, descriptive ; le tableau des autres essais (les sensibilités sont
+  rapportées, jamais promues) ; repliés, le flux et l'autocorrélation. Exploratoire,
+  sans verdict.

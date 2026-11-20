@@ -371,7 +371,8 @@ src/mountain_perf/     le code de la bibliothèque
                        exclusions, normale de repos) ; routes.py (parcours) ;
                        model.py (budget, étages 1 et 2, inverse, lecture bornée) ;
                        power.py (simulation de puissance) ; trials.py (les 24
-                       essais) ; figure.py ; results.py (flux, dossiers, essais.jsonl)
+                       essais) ; figure.py ; results.py (flux, dossiers, essais.jsonl,
+                       relecture)
   ui/                  interface — appelle la bibliothèque, ne calcule rien (M5) ;
                        extra tableau, seul importeur de streamlit (0016)
     app.py             point d'entrée ; PAGES, une ligne par page
@@ -383,6 +384,7 @@ src/mountain_perf/     le code de la bibliothèque
     recuperation.py    la page récupération et le cache des tables, AN2-3 ; importe
                        analyse dans ses fonctions seulement
     q1.py              la page Q1 : la dernière figure de just q1, AN2-3
+    q2.py              la page Q2 : le dernier résultat de just q2, AN3-5
   demo/                profils de démo (M5-3, 0022) : personnages, parcours, FIT et export
                        Garmin inventés, jours ; constantes.py, tous les nombres ; la
                        construction par les vraies commandes

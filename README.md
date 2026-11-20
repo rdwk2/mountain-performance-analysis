@@ -50,7 +50,7 @@ modèle que s'il fait baisser l'erreur mesurée, ou avec une justification écri
 
 `just ui` lance une appli Streamlit locale sur le dossier des données (`MPA_DATA_DIR`), à
 ouvrir sur `http://localhost:8501` : le serveur n'écoute que la machine, sans télémétrie. Elle ne calcule rien : ce qu'elle
-montre vient des fonctions mêmes de `mperf` et de la bibliothèque. Cinq pages :
+montre vient des fonctions mêmes de `mperf` et de la bibliothèque. Six pages :
 
 - **projection** : un préparé (un GPX) et une courbe (à l'origine de la course par
   défaut, sur une plage de dates, ou un fichier) donnent le profil avec les passages,
@@ -64,7 +64,10 @@ montre vient des fonctions mêmes de `mperf` et de la bibliothèque. Cinq pages 
 - **récupération** (piste analyse) : la table `jours`, six mesures de la nuit et du
   repos, chacune contre sa normale et sa plage, puis le journal de l'athlète et
   l'activité du jour ; exploratoire : aucune alerte, aucun verdict ;
-- **Q1** : la dernière figure écrite par `just q1`, telle quelle, avec sa date.
+- **Q1** : la dernière figure écrite par `just q1`, telle quelle, avec sa date ;
+- **Q2** : le dernier résultat écrit par `just q2` : la lecture principale et ses
+  intervalles, les mises en garde de sa puissance, la figure, le tableau des
+  autres essais ; exploratoire, sans verdict.
 
 Le détail de chaque page : [`docs/commandes/ui.md`](docs/commandes/ui.md).
 
@@ -152,7 +155,7 @@ dans [les pages des commandes](docs/commandes/README.md).
   « récupération » et « Q1 » ; AN3 commencée : la FC décalée de chaque montée
   (AN3-1a), les outils d'inférence (AN3-1), les positions des bornes de chaque
   montée et la demi-heure de FC la plus basse du jour (AN3-3a), le code de Q2, sa
-  puissance et ses essais (AN3-3b).
+  puissance et ses essais (AN3-3b), sa page (AN3-5).
 
 Le détail, jalon par jalon : [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
