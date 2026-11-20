@@ -37,6 +37,7 @@ sont au statut « acceptée » :
 - [0020 — L'origine glissante : la règle d'estimation à l'origine](decisions/0020-origine-glissante.md)
 - [0021 — L'inférence de la piste analyse](decisions/0021-inference-de-la-piste.md)
 - [0022 — Profils de démo](decisions/0022-profils-de-demo.md)
+- [0023 — Le code de Q2](decisions/0023-code-de-q2.md)
 
 Autres documents :
 

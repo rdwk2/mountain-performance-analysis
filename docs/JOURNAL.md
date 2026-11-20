@@ -16,6 +16,82 @@ Backtest (à partir de M4) : métrique avant → après.
 
 ---
 
+### 2026-11-17 · AN3-3b — Le code de Q2 : données, modèle, puissance, essais
+Le paquet `analyse/q2/` (`0023`), Python pur, sans numpy : les données (journées,
+appareil principal, exclusions au premier motif, normale de repos de Q2, `e_s`, `r`),
+les groupes de parcours, le budget et ses cinq retraits, les deux étages (étage 1 centré
+par journée, étage 2 en GLS à covariance REML), la régression inverse et la lecture
+bornée, `κ`, la simulation de puissance (bootstrap de `b_inv` à `V` fixée, Q-45), les 24
+essais (Holm, sensibilités vérifiées, bornes, autocorrélation), la figure, les deux
+dossiers de résultats et le journal chaîné `essais.jsonl`. `whiten` et `student_pvalue`
+dans `analyse/inference/linear.py` ; `q2_figure_html` dans `analyse/plot.py` ; la table
+`[periodes]` d'`athlete.toml` (`read_periods`). `mperf q2 puissance` et `mperf q2` (refusée
+sans résultat de puissance des mêmes tables), un fil BLAS posé avant tout import ; la
+recette `q2`, refusée par le hook. Cinq commits (données ; modèle et inférence ;
+puissance, flux et commande de puissance ; essais, journal, figure et estimation ;
+textes de l'annexe D). Tests des cas C1 à C24 ; 166 tests neufs dans les fichiers de Q2,
+3 min 13 s (13 s de plus que la borne de trois minutes accordée). Les 46 contre-épreuves
+du § 13.3, toutes rouges, jouées en worktrees détachés ; contre C20, les n° 24 (graine),
+25 et 43 rougissent seules ; « variables BLAS posées seulement pour N > 1 » ne rougit pas
+C20 (son processus neuf pose les variables avant numpy) mais rougit le test des valeurs
+à `--processus 1`. Écarts au brief, acceptés par la conception : C20 en deux exécutions
+neuves (processus, ordre des lignes et `PYTHONHASHSEED` changés ensemble) ; les grilles
+de puissance réduites par les seuls tests de bout en bout ; les champs de `TrialRow` aux
+noms français des colonnes. Vérifications allégées, décision de rdw, écart à la règle 2 :
+lint, types et suite ciblée avant les commits 1 à 4 ; un `just check` complet, tous les
+extras, avant le commit 5 (N = 12 112 tests réussis ou sautés ; un délai de Hypothesis
+sous charge, rejoué seul, vert) ; l'étape sans extra de la CI, verte. Aucun chiffre tiré
+des données : rien n'a été lancé sur le réel. Rangé : `src/mountain_perf/analyse/q2/`,
+`tests/test_analyse_q2_*.py`, `tests/test_cli_q2.py`, `tests/fixtures/q2_world.py`,
+`tests/fixtures/q2_run.py`. Après la fusion, chez rdw : `just process`, puis
+`just q2 puissance --processus <N>` ; l'estimation après le plan v2.
+
+**Correctifs (2026-11-19)**, décidés par la conception après la relecture C et un
+balayage par mutations. Le défaut : aux bornes, une journée exclue à l'étape 5 recevait
+la moyenne de sa période pour ses indicatrices de parcours dès que son groupe était
+« autre » ; elle garde désormais le groupe que `route_groups` lui rend (0 partout pour
+« autre » ou un groupe sans colonne, 1 dans sa colonne), et seule une journée sans
+groupe prend la moyenne de sa période. Les tests : les bornes de bout en bout (un espion
+sur leur GLS) ; un monde riche, `rich_world` (45 journées de trois montées, aucun
+retrait aux seuils par défaut, l'étape 5 qui exclut deux journées, l'inverse bien
+identifiée) ; les défauts des paramètres, les exclusions, la première sortie après
+minuit, les colonnes après chaque retrait, les égalités aux bornes, l'estimation simulée
+contre l'estimateur du réel, la liaison des tirages, les comptes de la puissance, les
+sensibilités, les lignes non estimées, la provenance, la figure, la commande. 83 tests
+neufs, 31 s de plus sur les fichiers touchés. Retouches : `plot.py` importe la figure de
+Q2 sous `TYPE_CHECKING`, deux docstrings, `folder_name` retirée. Les 52 contre-épreuves
+(P2a à P5o, les « puis » jouées séparément), en worktrees détachés : 51 rougissent par
+leur assertion ; P5a-1 (la lecture bornée de l'estimation simulée sans l'intervalle
+inverse) survit : aux seuils du test, la lecture sur le seul direct est la même. Un test
+retiré, rouge sur le code : une puissance à δ d'exactement 0,5 donne `non_tranche_attendu`
+faux (comparaison stricte), le correctif l'attend vrai ; à trancher par la conception.
+`just check` complet, tous les extras : N = 12 195 (12 190 réussis, 5 sautés).
+
+**Correctifs, lot 2 (2026-11-20)**, décidés par la conception après la vérification du
+lot 1, une relecture bornée et un second balayage par mutations ; des tests seuls,
+`src/` inchangé. Point 1 : « non tranché attendu » se lit au sens strict (le test retiré
+au lot 1 remis : à δ, 2 « établi » sur 4 donnent faux, 1 sur 4 vrai). Point 2 :
+l'estimation simulée lit l'intervalle inverse (le bootstrap de `b_inv` remplacé par des
+tirages de part et d'autre de 0, l'intervalle direct seul suffirait à « établi »).
+Point 3 : aux bornes, la journée de `rich_world(2)` exclue à l'étape 5 dans le groupe de
+référence, sans colonne, vaut 0 dans chaque colonne de parcours ; `d_s = s²_ε / n_s`,
+`n_s` compté avec les montées exclues ; un D+ avant et un D− avant absents prennent la
+moyenne de leur période (posés à la main dans les données : une table valide ne laisse
+manquer ni eux, ni la pente, ni l'heure ; le log du gain ne manque qu'à un gain nul, que
+le régime par le gain exclut des longues et du ski et que l'étape 2 retire des côtes :
+seules l'altitude et la FC peuvent manquer) ; la `h̄` absente sous la FC linéaire ; les
+covariables d'une journée exclue à l'étape 5 prises sur toutes ses montées de M-P, dont
+une hors de la réserve de M-S. Point 4 : les prémisses de `rich_run`, vérifiées par un
+test. Point 5 : la ligne de régime du résumé de la puissance, écrite en dur, sur un
+résultat posé à la main. Point 6 : la première sortie après minuit, aussi à +09:00.
+8 tests neufs (cas paramétrés comptés), environ 3 s de plus sur les fichiers touchés.
+Les 12 contre-épreuves (P6a à P6j, les « puis » à part), en worktrees détachés :
+toutes rougissent par leur assertion ; P6h rougit aussi deux tests qui lisent
+`rich_run`, P6i les deux tests du lot 1 qui lisent la ligne du résumé ; P6j, jouée au
+fuseau de la machine (Europe/Paris), rougit le seul cas à +09:00. Correction du lot 1 :
+il avait 53 contre-épreuves (chaque « puis » à part), 52 rouges et P5a-1 verte, et non 52
+et 51. `just check` complet, tous les extras : N = 12 203 (12 198 réussis, 5 sautés).
+
 ### 2026-11-15 · M5-3 — Profils de démo
 
 - Cinq personnages inventés (`mountain_perf/demo/`, `0022`) : un export Garmin, des GPX et des

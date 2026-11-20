@@ -97,3 +97,17 @@ résultat de la piste doit se refaire au tirage près.
 - **À revisiter** : le temps d'un REML (quelques dixièmes de seconde sur quelques
   dizaines de lignes) si une question demande des millions d'ajustements ;
   Bell-McCaffrey si un plan l'emploie.
+
+## Note du 2026-11-15 (AN3-3b) — ce qui était laissé à l'appelant
+
+Deux fonctions s'ajoutent à `linear.py`, dont Q2 a besoin hors de la clôture de
+numpy : `whiten(X, y, V)`, le blanchiment par le facteur de Cholesky de `V` (la
+régression de Huber sur des données corrélées), et `student_pvalue(estimate, se, df)`,
+la p-valeur bilatérale de Student (les p-valeurs que prend `holm`). Le code de Q2
+(`0023`) les appelle ; il n'importe ni numpy ni scipy. C'est un paquet,
+`analyse/q2/`, et non le module `analyse/q2.py` que la Décision annonçait.
+
+La puissance : la conception a mesuré, sur six jeux inventés, l'écart entre le
+bootstrap à `V` fixée et à `V` réestimée (`0023`) : sans sens constant. La puissance
+rapportée se dit donc « approchée », et non « un peu optimiste » (Conventions,
+« Puissance »).

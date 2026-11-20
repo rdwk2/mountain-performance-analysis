@@ -28,6 +28,8 @@ from mountain_perf.analyse.inference.linear import (
     gls_operator,
     ols,
     student_interval,
+    student_pvalue,
+    whiten,
 )
 from test_analyse_inference_base import assert_frozen
 
@@ -301,3 +303,74 @@ def test_t10_acceptances_next_to_the_bounds() -> None:
     """T10, acceptations juste à côté : ``df = 1``, pente nulle."""
     student_interval(1.0, 1.0, 1, 0.95)
     assert fraction_per_year(0.0) == 0.0
+
+
+# --- AN3-3b : whiten et student_pvalue (cas C17) ------------------------------
+
+
+def test_c17_whiten_solves_with_the_lower_factor() -> None:
+    """C17 : ``V = [[4, 2], [2, 2]]``, ``L = [[2, 0], [1, 1]]`` ; ``L⁻¹y = (3, 2)``,
+    ``L⁻¹X = [[1/2, 0], [1/2, 1]]`` (``L⁻ᵀ`` donnerait d'autres nombres)."""
+    x_w, y_w = whiten([[1.0, 0.0], [1.0, 1.0]], [6.0, 5.0], [[4.0, 2.0], [2.0, 2.0]])
+    assert y_w.tolist() == pytest.approx([3.0, 2.0], rel=EXACT)
+    assert x_w.tolist()[0] == pytest.approx([0.5, 0.0], abs=EXACT)
+    assert x_w.tolist()[1] == pytest.approx([0.5, 1.0], rel=EXACT)
+
+
+def test_c17_ols_of_whitened_data_is_gls() -> None:
+    """Les MCO des données blanchies redonnent ``gls(X, y, V).coef``."""
+    rng = numpy.random.default_rng(7)
+    n = 12
+    X = numpy.column_stack([numpy.ones(n), numpy.arange(n), rng.normal(size=n)])  # noqa: N806
+    y = rng.normal(size=n)
+    a = rng.normal(size=(n, n))
+    V = a @ a.T + n * numpy.eye(n)  # noqa: N806
+    x_w, y_w = whiten(X, y, V)
+    assert ols(x_w, y_w).coef.tolist() == pytest.approx(
+        gls(X, y, V).coef.tolist(), abs=1e-10
+    )
+
+
+def test_c17_whiten_refusals() -> None:
+    with pytest.raises(InferenceError, match="2 valeurs pour 3 lignes"):
+        whiten([[1.0], [1.0], [1.0]], [1.0, 2.0], numpy.eye(3))
+    with pytest.raises(InferenceError, match="symétrique"):
+        whiten([[1.0], [1.0]], [1.0, 2.0], [[1.0, 0.5], [0.0, 1.0]])
+    with pytest.raises(InferenceError, match="définie positive"):
+        whiten([[1.0], [1.0]], [1.0, 2.0], [[1.0, 2.0], [2.0, 1.0]])
+    with pytest.raises(InferenceError, match="2 × 2 attendue"):
+        whiten([[1.0], [1.0]], [1.0, 2.0], numpy.eye(3))
+
+
+def test_c17_student_pvalue() -> None:
+    """C17 : ``t = 2``, 10 ddl → 0,0733880347707404 ; symétrique en signe."""
+    assert student_pvalue(2.0, 1.0, 10) == pytest.approx(0.0733880347707404, rel=EXACT)
+    assert student_pvalue(-2.0, 1.0, 10) == student_pvalue(2.0, 1.0, 10)
+    assert student_pvalue(0.0, 1.0, 3) == 1.0
+
+
+@pytest.mark.parametrize(
+    ("estimate", "se", "df", "match"),
+    [
+        (1.0, 0.0, 10, "se"),
+        (1.0, math.inf, 10, "se"),
+        (math.nan, 1.0, 10, "estimate"),
+        (1.0, 1.0, 0, "df"),
+        (1.0, 1.0, True, "df"),
+    ],
+)
+def test_c17_student_pvalue_refusals(
+    estimate: float, se: float, df: int, match: str
+) -> None:
+    with pytest.raises(InferenceError, match=match):
+        student_pvalue(estimate, se, df)
+
+
+def test_student_pvalue_at_one_degree_of_freedom() -> None:
+    """Correctifs de la PR #52, 3.10 : ``df = 1`` est accepté ; Student à 1 degré de
+    liberté est la loi de Cauchy : ``2·(1/2 − arctan(2)/π) = 0,2951672353008665``.
+    Contre un ``student_pvalue`` qui refuse ``df = 1`` (P3v)."""
+    assert student_pvalue(2.0, 1.0, 1) == pytest.approx(0.2951672353008665, rel=1e-12)
+    assert 2.0 * (0.5 - math.atan(2.0) / math.pi) == pytest.approx(
+        0.2951672353008665, rel=1e-12
+    )

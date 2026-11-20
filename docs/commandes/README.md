@@ -15,6 +15,7 @@ qu'elle lit et écrit, et sa sortie d'exemple quand elle en a une.
 - [`just project`](project.md) — les temps de passage d'un préparé, avec la courbe à
   l'origine de la course
 - [`just q1`](q1.md) — la figure de Q1
+- [`just q2`](q2.md) — Q2 : la puissance, puis l'estimation
 - [`just ui`](ui.md) — l'interface
 - [`just demo`](demo.md) — les profils de démo, des données inventées pour essayer l'interface
 
@@ -23,8 +24,8 @@ données, ci-dessous ; l'installation est dans le [README](../../README.md).
 
 ## Utilisation : `mperf`
 
-Neuf sous-commandes, installées par `uv sync` ; `ingest`, `tables` et `q1` demandent en
-plus leur extra (`ingest`, `analyse`) ; `demo` demande les extras `ingest`, `analyse` et
+Dix sous-commandes, installées par `uv sync` ; `ingest`, `tables`, `q1` et `q2`
+demandent en plus leur extra (`ingest`, `analyse`) ; `demo` demande les extras `ingest`, `analyse` et
 `tableau`. Les exemples de ces pages ont été exécutés depuis la
 racine du dépôt, sur des fixtures synthétiques commitées
 ([`tests/fixtures/`](../../tests/fixtures/README.md)) ; celui du backtest, sur le monde
@@ -37,12 +38,13 @@ Windows. L'ingestion (`mperf ingest`, qui lit les FIT) demande en plus l'extra `
 (fitdecode, [`0011`](../decisions/0011-bibliotheques-analyse.md)) :
 `uv sync --locked --extra ingest`, ou `just ingest`, qui l'installe de lui-même ; sans
 lui, les tests qui lisent des FIT se sautent. L'écriture des tables de `processed/` en
-Parquet, la figure de Q1 et les outils d'inférence de la piste demandent l'extra
+Parquet, la figure de Q1, les outils d'inférence de la piste et Q2 demandent l'extra
 `analyse` (pyarrow, plotly, numpy et scipy,
 [`0014`](../decisions/0014-montees-et-tables.md),
 [`0015`](../decisions/0015-figure-de-q1.md),
 [`0021`](../decisions/0021-inference-de-la-piste.md)) :
-`uv sync --locked --extra analyse`, ou `just process` et `just q1` ; sans lui, les
+`uv sync --locked --extra analyse`, ou `just process`, `just q1` et `just q2` ; sans
+lui, les
 tests qui écrivent du Parquet, rendent la figure ou calculent une inférence se sautent.
 L'interface demande l'extra `tableau` (Streamlit,
 [`0016`](../decisions/0016-interface-v0.md)) : `uv sync --locked --extra tableau`, ou
@@ -58,7 +60,10 @@ enregistré (`just backtest` : manifeste, courbe, registre, rapports), à l'inge
 écrits), aux tables (`just process` :
 l'ingestion, puis `interim/activities/`, `interim/days/`, `athlete.toml` et `journal.csv`
 lus, `processed/` écrit), à la figure
-de Q1 (`just q1` : `processed/` lu, `resultats/Q1/` écrit), à la courbe personnelle
+de Q1 (`just q1` : `processed/` lu, `resultats/Q1/` écrit), à Q2 (`just q2` :
+`processed/` et `athlete.toml` lus, avec, pour l'estimation, le dernier résultat de
+puissance et `resultats/essais.jsonl` ; `resultats/Q2/` et `resultats/essais.jsonl`
+écrits), à la courbe personnelle
 (`just curve` : `interim/activities/` lu, `reference/` écrit) et à l'interface
 (`just ui` : `routes/`, `sorties/`, `reference/`, `interim/activities/`, `processed/` et
 `resultats/Q1/` lus ; `routes/` et `sorties/` écrits par l'ajout d'un fichier) et à la

@@ -21,13 +21,17 @@ point : la date, la VAM, l'enveloppe des horloges, le nombre de montées, ``Σ G
 
 Le rendu est déterministe : les identifiants des figures sont fixés, et la même figure
 donne les mêmes octets.
+
+La figure de Q2 (AN3-3b, ``docs/decisions/0023``, Q-38) se rend aussi ici
+(:func:`q2_figure_html`) : les résidus partiels de la date, la courbe lissée et sa bande
+simultanée, le dernier tronçon marqué provisoire.
 """
 
 from __future__ import annotations
 
 import html
 import math
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import plotly.graph_objects as go
 import plotly.io as pio
@@ -48,6 +52,11 @@ from mountain_perf.schemas.processed import (
     ClimbRegime,
     GradeStratum,
 )
+
+if TYPE_CHECKING:
+    # Une annotation seulement : importer ``plot`` ne charge ni ``q2/model.py`` ni
+    # ``inference/`` (la figure de Q1 importe ``plot``).
+    from mountain_perf.analyse.q2.figure import Q2Figure
 
 PANEL_TITLES: dict[ClimbRegime, str] = {
     ClimbRegime.LONG_CLIMB: "(a) montées longues",
@@ -308,4 +317,82 @@ def figure_html(figure: Q1Figure) -> str:
         f'<script type="text/javascript">{get_plotlyjs()}</script>\n'
         "</head>\n<body>\n"
         f"{header}\n" + "\n".join(parts) + "\n</body>\n</html>\n"
+    )
+
+
+Q2_LEGEND = (
+    "Résidus partiels de la date, montées longues ; courbe lissée et bande simultanée"
+    " à 95 % ; descriptive, sans verdict ; la bande ignore la corrélation entre"
+    " journées : sans doute trop étroite ; dernier tronçon provisoire."
+)
+"""La légende de la figure de Q2, mot pour mot (§ 10.5)."""
+Q2_NO_FIGURE = "Pas de figure : l'essai principal n'est pas estimé."
+"""La phrase de ``figure.html`` quand le principal n'est pas estimé."""
+Q2_DIV_ID = "q2-principale"
+
+
+def _q2_figure(figure: Q2Figure) -> Any:
+    days = [c.day.isoformat() for c in figure.curve]
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scatter(
+            x=days + days[::-1],
+            y=[c.high for c in figure.curve] + [c.low for c in figure.curve][::-1],
+            fill="toself",
+            fillcolor="rgba(117, 112, 179, 0.2)",
+            line={"width": 0},
+            hoverinfo="skip",
+            name="bande simultanée à 95 %",
+        )
+    )
+    for provisional, dash, name in (
+        (False, "solid", "courbe lissée"),
+        (True, "dot", "dernier tronçon, provisoire"),
+    ):
+        part = [c for c in figure.curve if c.provisional is provisional]
+        fig.add_trace(
+            go.Scatter(
+                x=[c.day.isoformat() for c in part],
+                y=[c.estimate for c in part],
+                mode="lines",
+                line={"color": "#7570b3", "dash": dash},
+                name=name,
+            )
+        )
+    fig.add_trace(
+        go.Scatter(
+            x=[p.day.isoformat() for p in figure.points],
+            y=[p.residual for p in figure.points],
+            mode="markers",
+            marker={"color": "#1b9e77", "size": 7},
+            name="journées",
+        )
+    )
+    fig.update_layout(
+        xaxis={"type": "date", "title": "date"},
+        yaxis={"title": "résidu partiel (log de la VAM)"},
+        template="plotly_white",
+    )
+    return fig
+
+
+def q2_figure_html(figure: Q2Figure | None) -> str:
+    """La page HTML de la figure de Q2 ; sans figure, une phrase le dit."""
+    if figure is None:
+        body = f"<p>{html.escape(Q2_NO_FIGURE)}</p>"
+        script = ""
+    else:
+        body = f"<p>{html.escape(Q2_LEGEND)}</p>\n" + pio.to_html(
+            _q2_figure(figure),
+            full_html=False,
+            include_plotlyjs=False,
+            div_id=Q2_DIV_ID,
+            config={"displaylogo": False},
+        )
+        script = f'<script type="text/javascript">{get_plotlyjs()}</script>\n'
+    return (
+        '<!DOCTYPE html>\n<html lang="fr">\n<head>\n<meta charset="utf-8">\n'
+        "<title>Q2 — l'efficience en montée</title>\n"
+        f"{script}</head>\n<body>\n<h1>Q2 — l'efficience en montée</h1>\n"
+        f"{body}\n</body>\n</html>\n"
     )

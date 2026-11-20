@@ -19,7 +19,8 @@ Elle ingère déjà les activités et les données journalières (sommeil, HRV, 
 repos, Body Battery, indicateurs de Garmin) des exports Garmin (`mperf ingest`), tire
 des activités les tables des activités et des montées, et des jours la table `jours`,
 avec les normales de six mesures (`mperf tables`), puis la figure descriptive de sa
-première question, la vitesse ascensionnelle à terrain comparable (`mperf q1`).
+première question, la vitesse ascensionnelle à terrain comparable (`mperf q1`), et le
+code de la deuxième, l'efficience en montée (`mperf q2`).
 
 ![La chaîne de mountain-performance-analysis sur des données synthétiques : courbe allure↔pente, profil d'un tracé avec temps de passage projetés par v0 et réalisés, écart mesuré tous les 250 m](docs/img/chaine.svg)
 
@@ -134,6 +135,7 @@ dans [les pages des commandes](docs/commandes/README.md).
 | [`just process`](docs/commandes/process.md) | l'ingestion, puis les tables des activités, des montées, des variantes et des jours | `MPA_DATA_DIR` |
 | [`just project`](docs/commandes/project.md) | les temps de passage d'un préparé de `MPA_DATA_DIR/routes/` ; avec `--at`, la courbe à l'origine de la course | `MPA_DATA_DIR` |
 | [`just q1`](docs/commandes/q1.md) | la figure de Q1 | `MPA_DATA_DIR` |
+| [`just q2`](docs/commandes/q2.md) | Q2 : la puissance, puis l'estimation et ses vingt-quatre essais | `MPA_DATA_DIR` |
 | [`just ui`](docs/commandes/ui.md) | l'interface | `MPA_DATA_DIR` |
 | [`just demo`](docs/commandes/demo.md) | l'interface sur un personnage inventé, construit à la demande | — |
 
@@ -149,7 +151,8 @@ dans [les pages des commandes](docs/commandes/README.md).
   journalières, les tables de `processed/`, la figure de Q1, les pages
   « récupération » et « Q1 » ; AN3 commencée : la FC décalée de chaque montée
   (AN3-1a), les outils d'inférence (AN3-1), les positions des bornes de chaque
-  montée et la demi-heure de FC la plus basse du jour (AN3-3a).
+  montée et la demi-heure de FC la plus basse du jour (AN3-3a), le code de Q2, sa
+  puissance et ses essais (AN3-3b).
 
 Le détail, jalon par jalon : [`docs/ROADMAP.md`](docs/ROADMAP.md).
 

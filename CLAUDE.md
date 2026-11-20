@@ -36,7 +36,7 @@ Python. Usage personnel d'abord, projet portfolio ensuite. Le repo est public.
    (`docs/decisions/0022`). Claude Code ne lit ni n'écrit rien
    sous `MPA_DATA_DIR` : le hook de `.claude/settings.json` le refuse, et les
    commandes sur les données réelles (`just ingest`, `just process`, `just q1`,
-   `just backtest`, `just curve`, `just project`, `mperf project … --at`, `just ui`,
+   `just q2`, `just backtest`, `just curve`, `just project`, `mperf project … --at`, `just ui`,
    et `streamlit run`, que le hook refuse aussi) sont lancées par l'humain. `just demo`
    aussi, que le hook refuse.
 
@@ -134,6 +134,8 @@ just backtest-rolling 28,56,all --covered-threshold … --coverage-tolerance …
 just ingest     # raw/garmin/ → interim/activities/ et interim/days/, extra ingest (AN1-1, AN2-0, AN2-1) ; MPA_DATA_DIR
 just process    # raw/ → interim/ → processed/ : ingest, puis mperf tables, extras ingest et analyse (AN1-2b)
 just q1         # processed/ → resultats/Q1/<date>_<empreinte>/ : la figure de Q1, extra analyse (AN1-2c)
+just q2 puissance --processus 8  # processed/ → resultats/Q2/puissance/ : la puissance de Q2, avant toute estimation (AN3-3b)
+just q2         # processed/ → resultats/Q2/<date>_<empreinte>/ et resultats/essais.jsonl : les 24 essais de Q2 (AN3-3b)
 just curve nom --from AAAA-MM-JJ --to AAAA-MM-JJ --athlete x  # une courbe allure↔pente depuis interim/ (M6b-1) ; MPA_DATA_DIR/reference/<nom>.csv
 just curve nom --at AAAA-MM-JJ --athlete x  # la courbe de la règle à l'origine (OG-1)
 just project course.gpx --at AAAA-MM-JJ  # la projection avec la courbe à l'origine d'une course (OG-UI) ; préparé de MPA_DATA_DIR/routes/
@@ -323,7 +325,7 @@ src/mountain_perf/     le code de la bibliothèque
     stability.py       variantes déclarées, appariement en temps, stabilité (AN1-2b) ;
                        paramètres de chaque variante (AN1-2c)
     athlete.py         table [analyse] d'athlete.toml : V_ref, produits barométriques
-                       (AN1-2b)
+                       (AN1-2b) ; table [periodes], les périodes de Q2 (AN3-3b)
     journal.py         lecture de journal.csv, tenu à la main : événements, empreinte,
                        types par jour ; Python pur (AN2-2)
     normals.py         normales, plages, segments, ruptures de rang et de version,
@@ -353,15 +355,23 @@ src/mountain_perf/     le code de la bibliothèque
     results.py         dossier de résultats de Q1 : CSV, provenance, écriture jamais
                        réécrite ; Python pur (AN1-2c) ; relecture des résultats, le
                        dernier, sa comparaison aux tables actuelles (AN2-3)
-    plot.py            rendu HTML de la figure de Q1 ; seul importeur de plotly (AN1-2c)
+    plot.py            rendu HTML de la figure de Q1 ; seul importeur de plotly (AN1-2c) ;
+                       la figure de Q2 (AN3-3b)
     inference/         outils d'inférence, sans rien de propre à une question ; seul
                        importeur de numpy et de scipy (AN3-1, `0021`) : base.py ;
-                       linear.py (MCO, GLS, Student) ; reml.py (covariance à trois
+                       linear.py (MCO, GLS, Student ; blanchiment, p-valeur,
+                       AN3-3b) ; reml.py (covariance à trois
                        composantes) ; readings.py (Holm, Bonferroni, lectures) ;
                        autocorrelation.py ; clusters.py (CR2, bootstrap sauvage par
                        grappes) ; bootstrap.py (paramétrique, résidus, max-t) ;
                        robust.py (Huber) ; spline.py ; power.py (puissance, seuil
                        calibré)
+    q2/                le code de Q2, Python pur, sans numpy (AN3-3b, `0023`) :
+                       parameters.py (seuils, graine) ; data.py (journées,
+                       exclusions, normale de repos) ; routes.py (parcours) ;
+                       model.py (budget, étages 1 et 2, inverse, lecture bornée) ;
+                       power.py (simulation de puissance) ; trials.py (les 24
+                       essais) ; figure.py ; results.py (flux, dossiers, essais.jsonl)
   ui/                  interface — appelle la bibliothèque, ne calcule rien (M5) ;
                        extra tableau, seul importeur de streamlit (0016)
     app.py             point d'entrée ; PAGES, une ligne par page
@@ -387,6 +397,7 @@ src/mountain_perf/     le code de la bibliothèque
                        mperf tables : interim/activities/ → processed/ (AN1-2b) ;
                        interim/days/ et journal.csv → jours, son résumé (AN2-2) ;
                        mperf q1 : processed/ → resultats/Q1/ (AN1-2c) ;
+                       mperf q2 [puissance] : processed/ → resultats/Q2/ (AN3-3b) ;
                        mperf curve <nom> : interim/ → reference/<nom>.csv (M6b) ;
                        --at : la règle à l'origine (OG-1) ;
                        mperf demo <personnage> : demo/<personnage>/, --interface (M5-3)

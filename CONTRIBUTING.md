@@ -58,7 +58,8 @@ Code, ouvert dans un clone du dépôt, n'y touche pas : le hook de
 outils de fichiers sous ce dossier, qu'il connaît par `MPA_DATA_DIR` (l'environnement,
 sinon le `.env` du clone), et ses commandes qui le nomment ou qui écrivent dans les
 données ; les commandes sur les données réelles (`just ingest`, `just process`,
-`just q1`, `just backtest`, `just curve`, `just ui`) sont lancées par l'humain. `just demo`,
+`just q1`, `just q2`, `just backtest`, `just curve`, `just ui`) sont lancées par
+l'humain. `just demo`,
 qui construit un dossier de démo (des données inventées,
 [`docs/commandes/demo.md`](docs/commandes/demo.md)) puis lance l'interface, l'est aussi. C'est
 un garde-fou, pas une enceinte : une commande qui atteint le dossier sans le nommer n'est pas vue. Les

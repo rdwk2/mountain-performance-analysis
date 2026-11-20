@@ -4138,6 +4138,226 @@ def _run_q1() -> int:
     return 0
 
 
+Q2_EXTRA_ERROR = (
+    "Erreur : Q2 demande l'extra analyse. Installer : uv sync --extra analyse"
+)
+"""Le message de ``mperf q2`` sans numpy, scipy, pyarrow ou plotly."""
+
+Q2_MODIFIED_TREE_ERROR = (
+    "Erreur : un fichier suivi du code exécuté est modifié : mperf q2 écrit le "
+    "commit du code dans ses résultats (CHARTE, § 10). Committer ou annuler la "
+    "modification."
+)
+"""Le message de ``mperf q2`` sur un clone modifié."""
+
+Q2_NO_POWER_ERROR = (
+    "Erreur : aucun résultat de mperf q2 puissance pour ces tables : lancer just q2 "
+    "puissance d'abord (la puissance se calcule avant toute estimation, 0023)"
+)
+"""Le message de ``mperf q2`` sans résultat de puissance des mêmes tables."""
+
+Q2_EXTRAS = ("numpy", "scipy", "pyarrow", "plotly")
+"""Les bibliothèques de l'extra ``analyse`` dont ``mperf q2`` dit l'absence."""
+
+BLAS_THREAD_VARIABLES = ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS")
+"""Les variables qui fixent les fils de calcul matriciel (Q-50 (b))."""
+
+
+def _single_thread_blas() -> None:
+    """Un fil BLAS partout (Q-50 (b)) : les trois variables à ``"1"``, en écrasant une
+    valeur déjà posée ; les processus « spawn » en héritent."""
+    for name in BLAS_THREAD_VARIABLES:
+        os.environ[name] = "1"
+
+
+def _processes(text: str) -> int:
+    """``--processus`` : un entier d'au moins 1."""
+    try:
+        value = int(text)
+    except ValueError:
+        value = 0
+    if value < 1:
+        raise argparse.ArgumentTypeError(f"un entier ≥ 1 est attendu ({text!r})")
+    return value
+
+
+def _withdrawals(withdrawals: Sequence[int]) -> str:
+    return "-".join(str(w) for w in withdrawals) or "aucun"
+
+
+def _run_q2(mode: str | None, processus: int) -> int:
+    """``mperf q2 puissance`` et ``mperf q2`` (AN3-3b, ``docs/decisions/0023``), dans
+    cet ordre : un fil BLAS (avant tout import) ; les imports, l'absence de l'extra
+    ``analyse`` dite ; ``MPA_DATA_DIR`` et l'état git, un clone modifié refusé ; les
+    tables, les périodes, les données de Q2 ; pour l'estimation, la garde du résultat
+    de puissance ; le calcul et les écritures ; le résumé."""
+    _single_thread_blas()
+    try:
+        from mountain_perf.analyse.inference.base import child_rng
+        from mountain_perf.analyse.parquet import ProcessedError, read_tables
+        from mountain_perf.analyse.plot import q2_figure_html
+        from mountain_perf.analyse.q2 import parameters as q2_parameters
+        from mountain_perf.analyse.q2 import power as q2_power
+        from mountain_perf.analyse.q2 import results as q2_results
+        from mountain_perf.analyse.q2.data import Q2Error, q2_data
+        from mountain_perf.analyse.q2.figure import FIGURE_KEY, q2_figure_data
+        from mountain_perf.analyse.q2.model import Measure, model_spec
+        from mountain_perf.analyse.q2.trials import q2_trials
+    except ModuleNotFoundError as error:
+        if (error.name or "").split(".")[0] not in Q2_EXTRAS:
+            raise
+        print(Q2_EXTRA_ERROR, file=sys.stderr)
+        return 1
+    from mountain_perf import gitstate
+    from mountain_perf.analyse.athlete import AthleteError, read_periods
+
+    try:
+        folder = data_dir()
+        state = gitstate.git_state(_package_directory())
+        if state.modified:
+            print(Q2_MODIFIED_TREE_ERROR, file=sys.stderr)
+            return 1
+        tables = read_tables(folder)
+        parameters = q2_parameters.q2_parameters()
+        data = q2_data(tables, read_periods(folder), parameters)
+        specs = {
+            (regime, measure): model_spec(
+                data.days[regime], measure, regime, parameters
+            )
+            for regime in q2_parameters.Q2_REGIMES
+            for measure in Measure
+        }
+        if mode is None:
+            power = q2_results.latest_power(folder, tables.provenance)
+            if power is None:
+                print(Q2_NO_POWER_ERROR, file=sys.stderr)
+                return 1
+            q2_results.check_trials(folder)
+            estimation = q2_trials(data, parameters, power.levels, processus)
+            figure = (
+                None
+                if estimation.principal is None
+                else q2_figure_data(
+                    estimation.principal.direct,
+                    parameters,
+                    child_rng(q2_parameters.Q2_ROOT_SEED, *FIGURE_KEY),
+                )
+            )
+            written = q2_results.write_estimation_results(
+                folder,
+                estimation,
+                data,
+                figure,
+                q2_figure_html(figure),
+                tables.provenance,
+                parameters,
+                power,
+                commit=state.commit,
+                package_version=mountain_perf.__version__,
+                generated_on=_today(),
+            )
+            try:
+                q2_results.append_trials(
+                    folder, written.name, state.commit, estimation.rows
+                )
+            except (OSError, q2_results.Q2ResultsError) as error:
+                raise q2_results.Q2ResultsError(
+                    f"le dossier {written.name} est écrit, essais.jsonl ne l'est pas"
+                    f" ({error})"
+                ) from error
+            _print_estimation(estimation.rows)
+            _print_other_commit(tables.provenance.commit, state.commit)
+            print(f"-> {(q2_results.RESULTS_DIR / written.name).as_posix()}/")
+            return 0
+        result = q2_power.run_power(data, parameters, processus)
+        written = q2_results.write_power_results(
+            folder,
+            result,
+            data,
+            specs,
+            tables.provenance,
+            parameters,
+            commit=state.commit,
+            package_version=mountain_perf.__version__,
+            generated_on=_today(),
+        )
+    except (
+        ConfigError,
+        gitstate.GitStateError,
+        ProcessedError,
+        AthleteError,
+        Q2Error,
+        q2_results.Q2ResultsError,
+        OSError,
+    ) as error:
+        print(f"Erreur : {error}", file=sys.stderr)
+        return 1
+    _print_power(result, parameters)
+    _print_other_commit(tables.provenance.commit, state.commit)
+    print(f"-> {(q2_results.POWER_DIR / written.name).as_posix()}/")
+    return 0
+
+
+def _print_other_commit(tables_commit: str, commit: str) -> None:
+    if tables_commit != commit:
+        print(
+            f"Tables écrites par un autre commit ({tables_commit[:12]}) : "
+            "relancer just process si leur calcul a changé."
+        )
+
+
+def _print_estimation(rows: Sequence[Any]) -> None:
+    """Le résumé de ``mperf q2`` : une ligne par essai, la phrase du principal, le
+    journal."""
+    for row in rows:
+        detail = row.lecture if row.statut == "estime" else row.motif
+        print(f"{row.essai} : {row.statut} — {detail or ''}".rstrip(" —"))
+    principal = rows[0]
+    if principal.phrase:
+        print(f"Principal : {principal.phrase}")
+    print(f"{len(rows)} essais ajoutés à resultats/essais.jsonl")
+
+
+def _print_power(result: Any, parameters: Any) -> None:
+    """Le résumé de ``mperf q2 puissance`` : par régime simulé, ses comptes ; jamais
+    ``b̂``."""
+    from mountain_perf.analyse.q2.model import percent
+
+    target = percent(parameters["power_target_visible"]).removesuffix(",0")
+    delta = percent(parameters["delta"]).removesuffix(",0")
+    for regime in result.regimes:
+        if regime.summary is None:
+            print(f"{regime.regime.value} : puissance non calculée ({regime.reason})")
+            continue
+        world, summary = regime.world, regime.summary
+        visible = (
+            "hors de la grille"
+            if summary.smallest_visible is None
+            else f"{percent(summary.smallest_visible)} %/an"
+        )
+        power = (
+            "—"
+            if summary.power_at_delta is None
+            else f"{summary.power_at_delta:.2f}".replace(".", ",")
+        )
+        calibration = summary.calibration
+        if not calibration.triggered:
+            calibrated = "non déclenchée"
+        elif calibration.alpha is None:
+            calibrated = "non calibrable"
+        else:
+            calibrated = f"déclenchée ({calibration.alpha!r})"
+        print(
+            f"{regime.regime.value} : {world.spec.n} journées, {world.spec.p} "
+            f"colonnes, retraits {_withdrawals(world.spec.withdrawals)} ; plus petit "
+            f"effet visible à {target} % : {visible} ; puissance à {delta} %/an : "
+            f"{power} ; calibration : {calibrated}"
+        )
+        if summary.insufficient:
+            print(f"données insuffisantes pour juger un effet de {delta} %/an")
+    print("puissance approchée : covariance fixée dans la simulation (0023)")
+
+
 CURVE_NAME_PATTERN = r"[A-Za-z0-9][A-Za-z0-9_.-]*"
 """Le nom d'une courbe (M6b), base de ``reference/<nom>.csv`` : un nom de fichier, sans
 dossier ni extension."""
@@ -4712,6 +4932,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         "q1",
         help="Écrire la figure de Q1 sous MPA_DATA_DIR/resultats/Q1 (AN1-2c)",
     )
+    q2_parser = commands.add_parser(
+        "q2", help="Q2 : la puissance (puissance), puis l'estimation"
+    )
+    q2_parser.add_argument("mode", nargs="?", choices=["puissance"])
+    q2_parser.add_argument(
+        "--processus",
+        type=_processes,
+        default=1,
+        metavar="N",
+        help="processus de calcul ; le résultat n'en dépend pas",
+    )
     curve_parser = commands.add_parser(
         "curve",
         help=(
@@ -4869,6 +5100,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _run_tables()
         if args.command == "q1":
             return _run_q1()
+        if args.command == "q2":
+            return _run_q2(args.mode, args.processus)
         if args.command == "curve":
             return _run_curve(args)
         if args.command == "backtest":
