@@ -1137,6 +1137,7 @@ def _reading(label: str) -> Iterator[None]:
         ValueError,
         TypeError,
         AttributeError,
+        csv.Error,
     ) as error:
         raise Q2ResultsError(f"{label} : ne se relit pas ({error!r})") from error
 
@@ -1319,7 +1320,8 @@ def _power(
 ) -> tuple[str | None, tuple[RegimeWarning, ...] | None, float | None]:
     """La puissance que nomme l'estimation : ``(dossier, mises en garde, delta)`` ;
     sans puissance nommée, ``(None, None, None)`` ; nommée mais absente ou changée
-    (empreinte), ``(dossier, None, None)``."""
+    (empreinte), ``(dossier, None, None)``, comme un nom qui n'est pas un nom de
+    résultat (``RESULT_NAME``), traité comme une puissance absente."""
     if "puissance" not in document:
         return None, None, None
     with _reading(label):

@@ -592,6 +592,53 @@ def test_r9_a_named_folder_without_provenance_reads_no_power(tmp_path: Path) -> 
     assert reading.power_folder == POWER_NAME
 
 
+def _valid_power_at(folder: Path) -> str:
+    """Un ``provenance.json`` de puissance valide écrit dans ``folder`` ; rend son
+    empreinte."""
+    document = {
+        "genere_le": "2026-01-01",
+        "tables": TABLES,
+        "parametres": {"delta": 0.05, "alpha": 0.05},
+        "regimes": {"long_climb": _regime()},
+    }
+    _write(folder / PROVENANCE_FILE, json_text(document))
+    return hashlib.sha256((folder / PROVENANCE_FILE).read_bytes()).hexdigest()
+
+
+def _parent_name(data: Path) -> tuple[str, str]:
+    name = "../2026-01-01_eeeeeeeeeeee"
+    return name, _valid_power_at(data / RESULTS_DIR / "2026-01-01_eeeeeeeeeeee")
+
+
+def _null_name(data: Path) -> tuple[str, str]:
+    return "2026-01-01_eeee\u0000eeeeeeee", "0" * 64
+
+
+def _absolute_name(data: Path) -> tuple[str, str]:
+    folder = data / "ailleurs" / "2026-01-01_eeeeeeeeeeee"
+    return str(folder), _valid_power_at(folder)
+
+
+@pytest.mark.parametrize("name_of", [_parent_name, _null_name, _absolute_name])
+def test_r17_a_power_name_that_is_not_a_result_name_reads_no_power(
+    tmp_path: Path, name_of: Any
+) -> None:
+    """La garde du nom de puissance : un nom qui n'est pas un nom de résultat
+    (``RESULT_NAME``) est traité comme une puissance absente ; la lecture reste sous
+    ``resultats/Q2/puissance/`` (ni ``..``, ni chemin absolu, même vers une puissance
+    valide à la bonne empreinte), et aucun nom ne fait sortir autre chose que
+    ``Q2ResultsError`` (un caractère nul ne lève pas ``ValueError``)."""
+    _power(tmp_path, OLDER_POWER)
+    name, digest = name_of(tmp_path)
+    folder = _estimation(
+        tmp_path, "2026-01-02_aaaaaaaaaaaa", extra=_named(digest, name)
+    )
+    reading = _read(tmp_path, folder)
+    assert reading.power is None
+    assert reading.power_folder == name
+    assert reading.delta is None
+
+
 def test_r10_the_bias_of_scenario_4_at_delta_for_long_climbs_only(
     tmp_path: Path,
 ) -> None:
@@ -760,12 +807,18 @@ def test_r15_a_malformed_json_or_csv_is_a_q2_results_error(
             csv_text(FLUX_COLUMNS, [["l", "c", "s", "m", 1, "x", "", 1, None]]),
         ),
         (FIGURE_HTML, b"\xff\xfe<p>"),
+        pytest.param(TRIALS_FILE, None, id="case-trop-longue"),
     ],
 )
 def test_r15_a_malformed_csv_of_the_estimation_is_a_q2_results_error(
-    tmp_path: Path, file: str, text: str | bytes
+    tmp_path: Path, file: str, text: str | bytes | None
 ) -> None:
+    """Un fichier mal formé de l'estimation lève ``Q2ResultsError``, qui le nomme ;
+    dont une case de plus de 131 072 caractères (la limite par défaut de
+    ``csv.field_size_limit``), que ``csv`` refuse par ``csv.Error``."""
     folder = _estimation(tmp_path, "2026-01-02_aaaaaaaaaaaa")
+    if text is None:
+        text = _cells(phrase="x" * 131_073)
     if isinstance(text, bytes):
         (folder / file).write_bytes(text)
     else:
