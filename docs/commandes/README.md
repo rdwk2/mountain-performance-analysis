@@ -65,8 +65,8 @@ de Q1 (`just q1` : `processed/` lu, `resultats/Q1/` écrit), à Q2 (`just q2` :
 puissance et `resultats/essais.jsonl` ; `resultats/Q2/` et `resultats/essais.jsonl`
 écrits), à la courbe personnelle
 (`just curve` : `interim/activities/` lu, `reference/` écrit) et à l'interface
-(`just ui` : `routes/`, `sorties/`, `reference/`, `interim/activities/`, `processed/` et
-`resultats/Q1/` lus ; `routes/` et `sorties/` écrits par l'ajout d'un fichier) et à la
+(`just ui` : `routes/`, `sorties/`, `reference/`, `interim/activities/`, `processed/`,
+`resultats/Q1/` et `resultats/Q2/` lus ; `routes/` et `sorties/` écrits par l'ajout d'un fichier) et à la
 projection (`just project` : `routes/` lu ; avec `--at`, `interim/activities/` aussi, comme
 `mperf project … --at`) ; `mperf demo` ne le lit pas : il écrit dans
 `demo/<personnage>/` ([`demo.md`](demo.md)) ; les autres commandes ne le lisent pas, les tests non plus

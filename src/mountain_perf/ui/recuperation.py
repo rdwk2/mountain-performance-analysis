@@ -79,7 +79,9 @@ MEASURES_CAPTION = (
     "trait gris en pied, pas de valeur. Normale : trait plein, en pointillé quand sa "
     "fenêtre mêle l'avant et l'après d'une rupture (trait vertical) ou d'un jour "
     "incertain (fond gris) ; un repère et un trait vertical seuls : une normale isolée "
-    "(un seul jour de son segment sur la période)."
+    "(un seul jour de son segment sur la période). Sur la SpO2 de la nuit, un trait "
+    "gris sur toute la hauteur marque aussi chaque nuit sans valeur, et le titre en "
+    "donne le compte."
 )
 LOAD_CAPTION = (
     "Charge : point plein, la somme des charges selon Garmin ; point creux, une charge "
@@ -108,6 +110,9 @@ _EDGE_SHAPES = {
     "range": ["triangle-down", "triangle-up"],
 }
 _RIBBON_HEIGHT = 22
+_NIGHT_SPO2 = "night_spo2"
+"""La mesure dont les nuits sans valeur se marquent sur toute la hauteur (AN3-5) ;
+sa valeur, comparée sans importer ``analyse`` au premier niveau."""
 
 
 def _tooltip(fields: Sequence[str]) -> list[dict[str, str]]:
@@ -257,13 +262,39 @@ def _uncertain(name: str, view: Any) -> dict[str, Any] | None:
     )
 
 
+def _missing_title(title: str, count: int) -> str:
+    """Le titre du panneau, avec le compte des nuits sans valeur s'il y en a."""
+    if count == 0:
+        return title
+    if count == 1:
+        return f"{title} ; 1 nuit sans valeur sur la période"
+    return f"{title} ; {count} nuits sans valeur sur la période"
+
+
 def measure_spec(view: Any, panel: Any, *, labels: bool = False) -> dict[str, Any]:
-    """Le graphique d'une mesure (U7)."""
+    """Le graphique d'une mesure (U7) ; sur la SpO2 de la nuit, chaque nuit sans
+    valeur aussi en trait gris sur toute la hauteur, sous les normales et les valeurs
+    (sauf panneau vide), et leur compte dans le titre (AN3-5)."""
     p = panel.measure.value
     domain = panel.domain
     dash = {"field": "trait", "type": "nominal", "scale": _DASH, "legend": None}
     normal_color = COLORS["normale"]
+    tooltip = _tooltip(POINT_TOOLTIP)
+    missing = (
+        [pt for pt in panel.points if pt["marque"] == "pied"]
+        if p == _NIGHT_SPO2
+        else []
+    )
     layers: list[dict[str, Any] | None] = [_uncertain(f"{p}-incertains", view)]
+    if domain is not None:
+        layers.append(
+            _layer(
+                f"{p}-nuits-sans-valeur",
+                missing,
+                {"type": "rule", "color": COLORS["pied"], "opacity": 0.35},
+                {"x": _x("midi"), "tooltip": tooltip},
+            )
+        )
     layers += [
         _layer(
             f"{p}-plage",
@@ -311,7 +342,6 @@ def measure_spec(view: Any, panel: Any, *, labels: bool = False) -> dict[str, An
             {"x": _x("debut"), "tooltip": _tooltip(("Rupture",))},
         ),
     ]
-    tooltip = _tooltip(POINT_TOOLTIP)
     if domain is not None:
         full = [pt for pt in panel.points if pt["marque"] == "plein"]
         hollow = [
@@ -369,7 +399,8 @@ def measure_spec(view: Any, panel: Any, *, labels: bool = False) -> dict[str, An
             },
         )
     )
-    return _chart(view, panel.title, PANEL_HEIGHT, layers, labels=labels)
+    title = _missing_title(panel.title, len(missing))
+    return _chart(view, title, PANEL_HEIGHT, layers, labels=labels)
 
 
 def journal_spec(view: Any) -> dict[str, Any]:

@@ -377,7 +377,7 @@ def test_the_page_line_of_pages() -> None:
     """La ligne de ``PAGES`` du § 6.5 : ``st.Page(outing_page, title="Sortie",
     url_path="sortie")``, après la projection, puis la page « La fenêtre » (OG-UI) ;
     puis les deux pages de la piste analyse (AN2-3, annexe A.6), « Récupération » et
-    « Q1 »."""
+    « Q1 », et la page « Q2 » (AN3-5)."""
     tree = ast.parse(APP.read_text(encoding="utf-8"))
     pages = [
         node
@@ -399,4 +399,5 @@ def test_the_page_line_of_pages() -> None:
         ("window_page", {"title": "La fenêtre", "url_path": "fenetre"}),
         ("recuperation_page", {"title": "Récupération", "url_path": "recuperation"}),
         ("q1_page", {"title": "Q1", "url_path": "q1"}),
+        ("q2_page", {"title": "Q2", "url_path": "q2"}),
     ]

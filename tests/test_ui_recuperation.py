@@ -13,6 +13,7 @@ import shutil
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from datetime import date
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -31,15 +32,22 @@ from fixtures.recovery_world import (
     write_world,
 )
 from mountain_perf.analyse import parquet
-from mountain_perf.analyse.recovery import RecoveryView, recovery_view
+from mountain_perf.analyse.normals import NormalMeasure
+from mountain_perf.analyse.recovery import (
+    MeasurePanel,
+    RecoveryView,
+    recovery_view,
+)
 from mountain_perf.analyse.results import FIGURE_FILE, PROVENANCE_FILE, RESULTS_DIR
 from mountain_perf.analyse.tables import Tables
 from mountain_perf.config import data_dir
 from mountain_perf.schemas.processed import DayRow
 from mountain_perf.ui.recuperation import (
     COLORS,
+    MEASURES_CAPTION,
     PERIOD_ALL,
     garmin_spec,
+    measure_spec,
     page_specs,
 )
 
@@ -52,7 +60,7 @@ MEASURE_TITLES = [
     "Sommeil mesuré (h)",
     "Stress de la nuit",
     "Respiration de la nuit (resp./min)",
-    "SpO2 de la nuit (%)",
+    "SpO2 de la nuit (%) ; 56 nuits sans valeur sur la période",
 ]
 VALUE_SUFFIXES = (
     "-valeurs-pleines",
@@ -270,7 +278,10 @@ def test_the_garmin_hrv_has_its_own_color(base: Tables) -> None:
 
 def test_an_empty_panel_says_so_and_keeps_the_margin(base: Tables) -> None:
     chart = page_specs(_view(base))[6]
-    assert chart["title"]["text"] == "SpO2 de la nuit (%)"
+    assert (
+        chart["title"]["text"]
+        == "SpO2 de la nuit (%) ; 56 nuits sans valeur sur la période"
+    )
     names = [layer["name"] for layer in chart["layer"]]
     assert "night_spo2-axe-vide" in names
     assert "night_spo2-panneau-vide" in names
@@ -864,7 +875,9 @@ def test_the_recovery_page_says_what_the_annex_says(base: Tables) -> None:
         "bord ; trait gris en pied, pas de valeur. Normale : trait plein, en pointillé "
         "quand sa fenêtre mêle l'avant et l'après d'une rupture (trait vertical) ou "
         "d'un jour incertain (fond gris) ; un repère et un trait vertical seuls : une "
-        "normale isolée (un seul jour de son segment sur la période).",
+        "normale isolée (un seul jour de son segment sur la période). Sur la SpO2 "
+        "de la nuit, un trait gris sur toute la hauteur marque aussi chaque nuit sans "
+        "valeur, et le titre en donne le compte.",
         "Charge : point plein, la somme des charges selon Garmin ; point creux, une "
         "charge minorée (des activités du jour sont sans charge) ; trait gris en "
         "pied, aucune activité du jour n'en a.",
@@ -901,3 +914,148 @@ def test_the_q1_page_title_frame_and_unknown_warning(
         "est celle du dernier just q1."
     ]
     assert frames == [(("<p>figure</p>",), {"height": 1100, "scrolling": True})]
+
+
+# AN3-5 : les nuits sans SpO2 visibles (§ 7 du brief), S1 à S5. Des panneaux inventés,
+# passés à ``measure_spec`` ; S3 lit aussi les panneaux du monde inventé.
+
+SPO2_TITLE = "SpO2 de la nuit (%)"
+MISSING_SUFFIX = "-nuits-sans-valeur"
+NEW_SENTENCE = (
+    " Sur la SpO2 de la nuit, un trait gris sur toute la hauteur marque aussi chaque "
+    "nuit sans valeur, et le titre en donne le compte."
+)
+
+
+def _point(day: int, mark: str) -> dict[str, Any]:
+    return {
+        "midi": f"2000-02-{day:02d}T12:00:00",
+        "marque": mark,
+        "hors": None,
+        "y": None if mark == "pied" else 95.0,
+    }
+
+
+def _panel(
+    marks: Sequence[str],
+    *,
+    measure: NormalMeasure = NormalMeasure.NIGHT_SPO2,
+    empty: bool = False,
+) -> MeasurePanel:
+    """Un panneau inventé : un point par jour, à partir du 1er février 2000."""
+    points = tuple(_point(i + 1, mark) for i, mark in enumerate(marks))
+    normal = (
+        {
+            "midi": "2000-02-01T12:00:00",
+            "normale": 95.0,
+            "bas": 94.0,
+            "haut": 96.0,
+            "suite": 0,
+            "trait": "plein",
+        },
+    )
+    return MeasurePanel(
+        measure=measure,
+        title=SPO2_TITLE,
+        unit="%",
+        points=points,
+        normal_lines=() if empty else normal,
+        isolated=(),
+        ruptures=(),
+        domain=None if empty else (90.0, 99.0),
+    )
+
+
+def _fake_view(uncertain: bool = True) -> Any:
+    return SimpleNamespace(
+        x_domain=("2000-02-01T00:00:00", "2000-02-10T00:00:00"),
+        uncertain=(
+            ({"debut": "2000-02-02T00:00:00", "fin": "2000-02-03T00:00:00"},)
+            if uncertain
+            else ()
+        ),
+    )
+
+
+MARKS_3 = ["plein", "pied", "creux", "pied", "plein", "pied", "plein"]
+
+
+def test_s1_the_nights_without_value_on_the_spo2_panel() -> None:
+    chart = measure_spec(_fake_view(), _panel(MARKS_3))
+    names = [layer["name"] for layer in chart["layer"]]
+    assert names[:3] == [
+        "night_spo2-incertains",
+        "night_spo2-nuits-sans-valeur",
+        "night_spo2-plage",
+    ]
+    assert names.index("night_spo2-nuits-sans-valeur") < names.index(
+        "night_spo2-valeurs-pleines"
+    )
+    (layer,) = _named(chart, MISSING_SUFFIX)
+    assert [record["midi"] for record in layer["data"]["values"]] == [
+        "2000-02-02T12:00:00",
+        "2000-02-04T12:00:00",
+        "2000-02-06T12:00:00",
+    ]
+    assert layer["mark"] == {"type": "rule", "color": COLORS["pied"], "opacity": 0.35}
+    assert set(layer["encoding"]) == {"x", "tooltip"}
+    assert layer["encoding"]["x"]["field"] == "midi"
+    assert layer["encoding"]["x"]["type"] == "temporal"
+    (foot,) = _named(chart, "-valeurs-en-pied")
+    assert layer["data"] == foot["data"]
+    assert layer["encoding"]["tooltip"] == foot["encoding"]["tooltip"]
+    assert chart["title"]["text"] == (
+        "SpO2 de la nuit (%) ; 3 nuits sans valeur sur la période"
+    )
+
+
+def test_s1_without_uncertain_day_the_layer_is_first() -> None:
+    chart = measure_spec(_fake_view(uncertain=False), _panel(MARKS_3))
+    assert chart["layer"][0]["name"] == "night_spo2-nuits-sans-valeur"
+
+
+def test_s1_bis_one_night_without_value() -> None:
+    chart = measure_spec(_fake_view(), _panel(["plein", "pied", "plein"]))
+    assert chart["title"]["text"] == (
+        "SpO2 de la nuit (%) ; 1 nuit sans valeur sur la période"
+    )
+    (layer,) = _named(chart, MISSING_SUFFIX)
+    assert len(layer["data"]["values"]) == 1
+
+
+def test_s2_without_missing_night_nothing_changes() -> None:
+    chart = measure_spec(_fake_view(), _panel(["plein", "creux", "plein"]))
+    assert not _named(chart, MISSING_SUFFIX)
+    assert chart["title"]["text"] == SPO2_TITLE
+
+
+def test_s3_the_other_panels_are_unchanged(base: Tables) -> None:
+    for measure in NormalMeasure:
+        if measure is NormalMeasure.NIGHT_SPO2:
+            continue
+        chart = measure_spec(_fake_view(), _panel(MARKS_3, measure=measure))
+        assert not _named(chart, MISSING_SUFFIX), measure
+        assert chart["title"]["text"] == SPO2_TITLE, measure
+    for everything in (False, True):
+        view = _view(base, everything=everything)
+        for panel, chart in zip(view.panels, page_specs(view)[1:7], strict=True):
+            missing = _named(chart, MISSING_SUFFIX)
+            if panel.measure is NormalMeasure.NIGHT_SPO2:
+                continue
+            assert not missing, panel.measure
+            assert chart["title"]["text"] == panel.title
+
+
+def test_s4_the_caption_says_it() -> None:
+    assert MEASURES_CAPTION.endswith(NEW_SENTENCE)
+
+
+def test_s5_an_empty_spo2_panel_counts_without_a_layer() -> None:
+    chart = measure_spec(_fake_view(), _panel(["pied", "pied"], empty=True))
+    assert not _named(chart, MISSING_SUFFIX)
+    assert chart["title"]["text"] == (
+        "SpO2 de la nuit (%) ; 2 nuits sans valeur sur la période"
+    )
+    assert _sentence(chart) == (
+        "SpO2 de la nuit (%) : aucune valeur ni normale sur la période"
+    )

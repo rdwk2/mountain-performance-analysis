@@ -168,6 +168,24 @@ ouvre l'extra `tableau`.
   des noms de couche uniques sur la page (deux couches du même nom mêlent leurs
   données) ; la virgule décimale (`config.locale`).
 
+## AN3-5 — la page de Q2 (2026-11-20)
+
+- **Une page, une ligne de `PAGES`** : « Q2 » (`ui/q2.py`, `0023`), une page de la
+  piste, listée dans `PISTE_PAGES` ; comme « Q1 », elle importe `analyse` dans sa
+  fonction seulement, et ni plotly ni pyarrow : la figure est le HTML écrit par
+  `just q2`.
+- **Ce qu'elle lit** : le dernier dossier d'estimation, relu par
+  `analyse/q2/results.py` à la règle de « Q1 », et la puissance que ce dossier nomme,
+  jamais la plus récente. Elle ne recalcule rien : les phrases viennent d'`essais.csv`
+  et de la puissance, les nombres sont mis en forme seulement.
+- **Sans verdict** (charte § 8) : ni couleur, ni « significatif » ; les sensibilités
+  dans le tableau des essais, jamais mises en avant.
+- **La démo** : les profils de démo n'ont pas de résultat de Q2 ; la page y dit comment
+  en faire un, et `tests/test_ui_demo_pages.py` l'attend.
+- **La page récupération** : sur la SpO2 de la nuit, un trait gris sur toute la
+  hauteur pour chaque nuit sans valeur, et leur compte dans le titre ; le trait gris
+  en pied, seul, se voyait mal.
+
 ## OG-UI — la courbe à l'origine sur les pages (2026-11-13)
 
 Les pages projection et sortie proposent trois sources de courbe : à l'origine (par défaut), sur
