@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import struct
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import pytest
 
@@ -26,7 +27,15 @@ from fixtures.fit_activity import (
     activity_fit,
     semicircles,
 )
-from fixtures.fit_writer import ENUM, STRING, FieldDef, FitWriter, fit_crc
+from fixtures.fit_writer import (
+    BYTE,
+    ENUM,
+    STRING,
+    UINT8,
+    FieldDef,
+    FitWriter,
+    fit_crc,
+)
 from mountain_perf.ingest.fit import (
     SEMICIRCLE_DEG,
     FitRead,
@@ -915,11 +924,28 @@ def test_read_fit_is_the_recording_of_the_detailed_reading() -> None:
         (3630, None),  # F4 : pas un multiple de 60
         (50400 + 60, None),  # F5 : hors plage
         (-43200, -43200),  # F6 : borne basse
+        (50400, 50400),  # borne haute (correctifs de la PR #55)
     ],
 )
 def test_f2_to_f6_local_offset(written: int, expected: int | None) -> None:
     data = activity_fit(_SAMPLES, local_offset_s=written)
     assert _detailed(data).local_offset_s == expected
+
+
+def test_the_offset_is_read_in_the_first_activity_message() -> None:
+    data = activity_fit(_SAMPLES, local_offset_s=7200, second_activity_offset_s=3600)
+    assert _detailed(data).local_offset_s == 7200
+
+
+def test_without_an_activity_message_there_is_no_offset() -> None:
+    assert (
+        _detailed(activity_fit(_SAMPLES, activity_message=False)).local_offset_s is None
+    )
+
+
+def test_without_the_activity_timestamp_there_is_no_offset() -> None:
+    data = activity_fit(_SAMPLES, local_offset_s=3600, activity_timestamp=False)
+    assert _detailed(data).local_offset_s is None
 
 
 def test_f7_malformed_event_data_is_tolerated() -> None:
@@ -965,6 +991,47 @@ def test_f10_a_malformed_lap_field_is_tolerated() -> None:
         activity_fit(_SAMPLES, malformed_extra=((19, 7),)), tolerant=True
     )
     assert detailed.skipped == (SkippedField("lap", 7),)
+
+
+@pytest.mark.parametrize(
+    ("options", "skipped"),
+    [
+        ({"malformed_extra": ((19, 250),)}, None),
+        ({"malformed_extra": ((20, 3),)}, None),
+        (
+            {
+                "malformed_extra": ((19, 7),),
+                "free_fields": ((19, FieldDef(250, UINT8), 0),),
+            },
+            (SkippedField("lap", 7),),
+        ),
+        (
+            {
+                "malformed_extra": ((19, 7),),
+                "free_fields": ((19, FieldDef(8, BYTE, 4), bytes(4)),),
+            },
+            (SkippedField("lap", 7),),
+        ),
+    ],
+    ids=[
+        "champ-inconnu-du-profil",
+        "uint8-sur-un-octet",
+        "champ-inconnu-bien-forme",
+        "octets-declares-sans-alerte",
+    ],
+)
+def test_the_malformed_field_rule_at_its_edges(
+    options: dict[str, Any], skipped: tuple[SkippedField, ...] | None
+) -> None:
+    """Un champ inconnu du profil n'est jamais malformé : une alerte sur lui refuse le
+    fichier ; un ``uint8`` déclaré sur un octet n'est pas malformé (l'alerte reste
+    seule) ; un champ inconnu bien formé, ou déclaré en octets sans alerte, ne change
+    rien aux champs sautés."""
+    data = activity_fit(_SAMPLES, **options)
+    if skipped is None:
+        _refused_tolerant(data)
+    else:
+        assert _detailed(data, tolerant=True).skipped == skipped
 
 
 def test_f11_two_malformed_fields_are_both_skipped() -> None:

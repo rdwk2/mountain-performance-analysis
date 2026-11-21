@@ -822,11 +822,18 @@ def test_sources_report() -> None:
         "matched_by_fit_start",
         "ambiguous",
         "retired_garmin_device",
+        "possible_duplicates",
+        "shared_file_entries",
         "default_timezone_entries",
         "strava_recordings_without_elevation",
     ):
         with pytest.raises(ContractError, match=name):
             sources(**{name: -1})
+    for name in ("possible_duplicates", "shared_file_entries"):
+        with pytest.raises(ContractError, match=name):
+            sources(**{name: 8})
+    both = sources(possible_duplicates=7, shared_file_entries=7)
+    assert (both.possible_duplicates, both.shared_file_entries) == (7, 7)
     with pytest.raises(ContractError, match="tolerated"):
         sources(tolerated=[tolerated()])
     second = tolerated(message="lap", field_number=7)

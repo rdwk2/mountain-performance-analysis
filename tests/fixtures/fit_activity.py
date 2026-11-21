@@ -155,6 +155,10 @@ def activity_fit(
     local_offset_s: int | None = None,
     malformed_event_data: bool = False,
     malformed_extra: tuple[tuple[int, int], ...] = (),
+    activity_message: bool = True,
+    activity_timestamp: bool = True,
+    second_activity_offset_s: int | None = None,
+    free_fields: tuple[tuple[int, FieldDef, int | bytes], ...] = (),
 ) -> bytes:
     """Un FIT d'activité : ``file_id``, ``device_info``, événements, ``record`` (avec
     ``record_fields``), sessions (décalage, sport, sous-sport ou ``None``, temps écoulé,
@@ -187,6 +191,17 @@ def activity_fit(
     couple (numéro global du message, numéro du champ), à la fin du fichier, une
     définition de ce message à ce seul champ, ``UINT32`` sur 1 octet, et un message de
     données (l'octet 0). Sans eux, les octets ne changent pas.
+
+    Correctifs de la PR #55 : ``activity_message`` faux n'écrit aucun message
+    ``activity`` (ni définition ni donnée) ; ``activity_timestamp`` faux l'écrit sans
+    son champ 253 (avec ``local_offset_s``, le champ 5 garde sa valeur) ;
+    ``second_activity_offset_s`` écrit, juste après le premier, un second message
+    ``activity`` de même définition, au champ 5 à ``fit_time(start + 60 s) +
+    second_activity_offset_s`` (demande ``local_offset_s``) ; ``free_fields`` : pour
+    chaque (numéro global du message, définition de champ, valeur brute), à la fin du
+    fichier, après ``malformed_extra``, une définition de ce message à ce seul champ
+    (type local 12) et un message de données à cette valeur. Sans eux, les octets ne
+    changent pas.
     """
     if malformed_event_data and timer_triggers is not None:
         raise ValueError("malformed_event_data exclut timer_triggers")
@@ -325,17 +340,27 @@ def activity_fit(
             ),
         )
     activity_time = fit_time(start + timedelta(seconds=60))
-    if local_offset_s is None:
-        w.define(7, ACTIVITY, (FieldDef(253, UINT32), FieldDef(1, UINT16)))
-        w.data(7, (activity_time, len(sessions)))
+    if second_activity_offset_s is not None and local_offset_s is None:
+        raise ValueError("second_activity_offset_s demande local_offset_s")
+    stamp: tuple[FieldDef, ...] = (FieldDef(253, UINT32),) if activity_timestamp else ()
+    stamp_value: tuple[int, ...] = (activity_time,) if activity_timestamp else ()
+    if not activity_message:
+        pass
+    elif local_offset_s is None:
+        w.define(7, ACTIVITY, (*stamp, FieldDef(1, UINT16)))
+        w.data(7, (*stamp_value, len(sessions)))
     else:
-        w.define(
-            7,
-            ACTIVITY,
-            (FieldDef(253, UINT32), FieldDef(1, UINT16), FieldDef(5, UINT32)),
-        )
-        w.data(7, (activity_time, len(sessions), activity_time + local_offset_s))
+        w.define(7, ACTIVITY, (*stamp, FieldDef(1, UINT16), FieldDef(5, UINT32)))
+        w.data(7, (*stamp_value, len(sessions), activity_time + local_offset_s))
+        if second_activity_offset_s is not None:
+            w.data(
+                7,
+                (*stamp_value, len(sessions), activity_time + second_activity_offset_s),
+            )
     for global_number, field_number in malformed_extra:
         w.define(11, global_number, (FieldDef(field_number, UINT32, size=1),))
         w.data(11, (0,))
+    for global_number, definition, value in free_fields:
+        w.define(12, global_number, (definition,))
+        w.data(12, (value,))
     return w.to_bytes(corrupt_crc=corrupt_crc)

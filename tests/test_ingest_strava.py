@@ -3,19 +3,25 @@ archives inventées, écrites par ``fixtures.strava_archive`` (règle 1)."""
 
 from __future__ import annotations
 
+import ast
+import dataclasses
 import gzip
 import hashlib
 import io
 import json
+import struct
 import sys
 import zipfile
+import zlib
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 import pytest
 
+from fixtures import strava_archive
 from fixtures.strava_archive import STRAVA_HEADER, mark_encrypted, write_strava_export
+from mountain_perf.ingest import strava
 from mountain_perf.ingest.strava import (
     MemberAbsent,
     MemberFit,
@@ -127,6 +133,8 @@ ACQUISITION = "raw/strava/s1/acquisition.json"
          f"{ACQUISITION} : retrieved_at doit être un instant ISO 8601 avec fuseau."),
         (json.dumps({"retrieved_at": 5}).encode(),
          f"{ACQUISITION} : retrieved_at doit être un instant ISO 8601 avec fuseau."),
+        (json.dumps({"retrieved_at": "hier"}).encode(),
+         f"{ACQUISITION} : retrieved_at doit être un instant ISO 8601 avec fuseau."),
         (json.dumps({"retrieved_at": AT, "timezone": "Mars/Olympus"}).encode(),
          f"{ACQUISITION} : timezone doit être un nom de fuseau IANA connu, par "
          "exemple « Europe/Paris »."),
@@ -224,6 +232,28 @@ def test_an_unreadable_index_stops(tmp_path: Path) -> None:
     assert _error(folder) == f"{ZIP} : activities.csv illisible dans l'archive."
 
 
+def _corrupt_deflate(folder: Path, member: str) -> None:
+    """Corrompt le flux deflate du membre ``member`` de ``export_1.zip`` (un type de
+    bloc réservé en tête) : sa lecture lève ``zlib.error``."""
+    path = folder / "export_1.zip"
+    data = bytearray(path.read_bytes())
+    with zipfile.ZipFile(io.BytesIO(bytes(data))) as archive:
+        info = archive.getinfo(member)
+    assert info.compress_type == zipfile.ZIP_DEFLATED
+    offset = info.header_offset
+    name_len, extra_len = struct.unpack("<HH", data[offset + 26 : offset + 30])
+    data[offset + 30 + name_len + extra_len] = 0xFF
+    path.write_bytes(bytes(data))
+    with zipfile.ZipFile(path) as archive, pytest.raises(zlib.error):
+        archive.read(member)
+
+
+def test_a_corrupt_deflated_index_stops(tmp_path: Path) -> None:
+    folder = _write(tmp_path)
+    _corrupt_deflate(folder, "activities.csv")
+    assert _error(folder) == f"{ZIP} : activities.csv illisible dans l'archive."
+
+
 def test_an_index_that_is_not_utf8_stops(tmp_path: Path) -> None:
     folder = _write(tmp_path)
     _replace_zip(folder, {"activities.csv": b"Activity ID\xff\n"})
@@ -314,6 +344,7 @@ def test_activity_dates(tmp_path: Path, text: str, instant: datetime | None) -> 
         ("Elevation Gain", "-1", "ascent_m", None, True),
         ("Elevation Loss", "798.25", "descent_m", 798.25, False),
         ("Max Heart Rate", "251", "max_hr_bpm", None, True),
+        ("Average Heart Rate", "250", "average_hr_bpm", 250.0, False),
         ("Average Heart Rate", "141", "average_hr_bpm", 141.0, False),
     ],
 )
@@ -328,6 +359,81 @@ def test_numbers(
     (row,) = _load(tmp_path, [_row(**{column: text})]).rows
     assert getattr(row, field) == value
     assert (IndexField(field) in row.omitted_fields) is omitted
+
+
+def test_the_omitted_fields_are_sorted_by_value(tmp_path: Path) -> None:
+    (row,) = _load(
+        tmp_path, [_row(**{"Elapsed Time": "0", "Elevation Gain": "abc"})]
+    ).rows
+    assert row.omitted_fields == (IndexField.ASCENT, IndexField.ELAPSED_DURATION)
+
+
+def test_the_read_columns_are_exactly_these(tmp_path: Path) -> None:
+    """Les colonnes d'``activities.csv`` que le lecteur lit (§ 6.3 (b), règle 1) : les
+    rangs des constantes, les noms qu'ils portent dans la copie de l'en-tête des tests,
+    les rangs des nombres, les champs d'une ligne gardée, et aucun indice de colonne
+    écrit autrement que par ces noms."""
+    columns = {
+        name: value for name, value in vars(strava).items() if name.startswith("_COL_")
+    }
+    assert columns == {
+        "_COL_ID": 0,
+        "_COL_DATE": 1,
+        "_COL_TYPE": 3,
+        "_COL_FILE": 12,
+        "_COL_ELAPSED": 15,
+        "_COL_MOVING": 16,
+        "_COL_DISTANCE": 17,
+        "_COL_ASCENT": 20,
+        "_COL_DESCENT": 21,
+        "_COL_MAX_HR": 30,
+        "_COL_AVG_HR": 31,
+    }
+    assert [strava_archive.STRAVA_HEADER[rank] for rank in columns.values()] == [
+        "Activity ID",
+        "Activity Date",
+        "Activity Type",
+        "Filename",
+        "Elapsed Time",
+        "Moving Time",
+        "Distance",
+        "Elevation Gain",
+        "Elevation Loss",
+        "Max Heart Rate",
+        "Average Heart Rate",
+    ]
+    assert [rank for rank, *_ in strava._NUMBER_COLUMNS] == [15, 16, 17, 20, 21, 31, 30]
+    assert [field.name for field in dataclasses.fields(strava.StravaRow)] == [
+        "activity_ref",
+        "source_activity_type",
+        "start_utc",
+        "elapsed_duration_s",
+        "moving_duration_s",
+        "distance_m",
+        "ascent_m",
+        "descent_m",
+        "average_hr_bpm",
+        "max_hr_bpm",
+        "omitted_fields",
+        "filename",
+    ]
+    tree = ast.parse(Path(strava.__file__).read_text(encoding="utf-8"))
+    indices = [
+        node.slice
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Subscript)
+        and isinstance(node.value, ast.Name)
+        and node.value.id == "fields"
+    ]
+    assert indices
+    assert {index.id for index in indices if isinstance(index, ast.Name)} <= {
+        "_COL_ID",
+        "_COL_DATE",
+        "_COL_TYPE",
+        "_COL_FILE",
+        "column",
+    }
+    assert all(isinstance(index, ast.Name) for index in indices)
 
 
 def test_the_read_ranks_of_the_doubled_names(tmp_path: Path) -> None:
@@ -364,6 +470,12 @@ def test_unusable_rows(tmp_path: Path) -> None:
     assert [row.activity_ref for row in export.rows] == ["strava-9005"]
 
 
+def test_an_identifier_with_a_letter_is_unusable(tmp_path: Path) -> None:
+    export = _load(tmp_path, [_row("12a")])
+    assert export.rows == ()
+    assert export.refused == (RefusedEntry(0, RefusalReason.UNUSABLE_ENTRY),)
+
+
 def test_bad_filename_kept_without_file(tmp_path: Path) -> None:
     export = _load(
         tmp_path,
@@ -372,11 +484,13 @@ def test_bad_filename_kept_without_file(tmp_path: Path) -> None:
             _row("9002", Filename="activities/9002.fit.gz"),
             _row("9003", Filename="C:\\x.fit.gz"),
             _row("9004", Filename=""),
+            _row("9005", Filename="activities/a.fit.gz/../x"),
         ],
     )
     assert [row.filename for row in export.rows] == [
         None,
         "activities/9002.fit.gz",
+        None,
         None,
         None,
     ]
@@ -477,7 +591,20 @@ def test_strava_entry(
 ) -> None:
     export = _load(
         tmp_path,
-        [_row(**{"Activity Date": date, "Elevation Gain": "12.5"})],
+        [
+            _row(
+                **{
+                    "Activity Date": date,
+                    "Elapsed Time": "3600",
+                    "Moving Time": "3300",
+                    "Distance": "10450.5",
+                    "Elevation Gain": "12.5",
+                    "Elevation Loss": "798.25",
+                    "Average Heart Rate": "141",
+                    "Max Heart Rate": "172",
+                }
+            )
+        ],
         timezone=zone,
     )
     (row,) = export.rows
@@ -488,7 +615,16 @@ def test_strava_entry(
     assert by_default is default
     assert entry.activity_ref == row.activity_ref
     assert entry.source_activity_type == "Run"
-    assert entry.ascent_m == 12.5
+    assert (
+        entry.elapsed_duration_s,
+        entry.moving_duration_s,
+        entry.distance_m,
+        entry.ascent_m,
+        entry.descent_m,
+        entry.average_hr_bpm,
+        entry.max_hr_bpm,
+    ) == (3600.0, 3300.0, 10450.5, 12.5, 798.25, 141.0, 172.0)
+    assert entry.omitted_fields == ()
     assert (entry.elevation_corrected, entry.training_load) == (None, None)
     assert entry.has_recording is False
     assert entry.source == export.index_source
@@ -553,3 +689,22 @@ def test_members_read_has_three_outcomes(tmp_path: Path) -> None:
         assert members.read("activities/2.fit.gz") == MemberNotGzip(fit)
         assert members.read("activities/3.fit.gz") == MemberAbsent()
         assert members.read("profile.csv") == MemberAbsent()
+    with pytest.raises(RuntimeError):
+        members.read("activities/1.fit.gz")
+
+
+def test_a_corrupt_deflated_member_is_absent(tmp_path: Path) -> None:
+    folder = _write(tmp_path, [_row("9606", Filename="activities/9606.fit.gz")])
+    path = folder / "export_1.zip"
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(path) as old, zipfile.ZipFile(buffer, "w") as new:
+        new.writestr("activities.csv", old.read("activities.csv"), zipfile.ZIP_STORED)
+        new.writestr(
+            "activities/9606.fit.gz",
+            gzip.compress(b"un FIT invente", mtime=0),
+            zipfile.ZIP_DEFLATED,
+        )
+    path.write_bytes(buffer.getvalue())
+    _corrupt_deflate(folder, "activities/9606.fit.gz")
+    with StravaMembers(load_strava_export(folder)) as members:
+        assert members.read("activities/9606.fit.gz") == MemberAbsent()
