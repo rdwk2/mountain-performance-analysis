@@ -321,6 +321,8 @@ def test_wf_sources() -> None:
         matched_by_fit_start=1,
         ambiguous=0,
         retired_garmin_device=1,
+        possible_duplicates=0,
+        shared_file_entries=0,
         default_timezone_entries=0,
         strava_recordings_without_elevation=1,
         tolerated=(),
@@ -347,6 +349,9 @@ WF_LINES = [
     "  Appariées à Garmin : 3 (empreinte 1, identité 1, départ du FIT 1)",
     "  Ambiguës : 0",
     "  FIT d'un appareil Garmin absents de Garmin, retirés : 1",
+    "  Sans enregistrement, dans la période d'un export Garmin (doublons "
+    "possibles) : 0",
+    "  Fichier partagé avec une autre entrée, laissées sans enregistrement : 0",
     "  Datées par le fuseau par défaut : 0",
     "  Enregistrements sans altitude : 1",
 ]
@@ -642,6 +647,8 @@ def test_wl_limits(capsys: pytest.CaptureFixture[str]) -> None:
         matched_by_fit_start=0,
         ambiguous=0,
         retired_garmin_device=0,
+        possible_duplicates=1,
+        shared_file_entries=0,
         default_timezone_entries=0,
         strava_recordings_without_elevation=0,
         tolerated=(

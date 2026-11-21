@@ -1944,6 +1944,8 @@ _SOURCES_COUNTS = (
     "matched_by_fit_start",
     "ambiguous",
     "retired_garmin_device",
+    "possible_duplicates",
+    "shared_file_entries",
     "default_timezone_entries",
     "strava_recordings_without_elevation",
 )
@@ -1966,9 +1968,20 @@ class SourcesReport:
     - ``matched_by_fit_start`` — sans unité — … par le départ du FIT seul, fabricant
       ``garmin`` des deux côtés.
     - ``ambiguous`` — sans unité — les FIT Strava non appariés dont une clé désignait
-      plusieurs activités.
+      plusieurs activités Garmin, ou une activité Garmin que d'autres FIT Strava
+      désignaient aussi (à l'une des trois passes).
     - ``retired_garmin_device`` — sans unité — les FIT Strava d'un appareil Garmin, non
-      appariés, partis dans la période d'un export Garmin : retirés de la source.
+      appariés, partis dans la période d'un export Garmin : retirés de la source. Une
+      ambiguë d'un appareil Garmin partie dans cette période compte dans les deux.
+    - ``possible_duplicates`` — sans unité — les entrées Strava sans enregistrement
+      dont le départ de la ligne est dans la période d'au moins un export Garmin
+      (bornes comprises) : la limite de la règle 3 rendue visible, ces entrées peuvent
+      doubler une sortie que Garmin porte (``0013``, précision 28).
+    - ``shared_file_entries`` — sans unité — les entrées Strava laissées sans
+      enregistrement parce que leur fichier ``.fit.gz``, lu, est aussi celui d'une
+      entrée précédente du même export (par identifiant croissant) : seule la première
+      reçoit l'enregistrement. Une même entrée peut compter ici et dans
+      ``possible_duplicates``.
     - ``default_timezone_entries`` — sans unité — les entrées Strava datées par le
       fuseau par défaut (``Europe/Paris``).
     - ``strava_recordings_without_elevation`` — sans unité — les enregistrements Strava
@@ -1979,6 +1992,7 @@ class SourcesReport:
     Invariants
     ----------
     - comptes ``>= 0`` ;
+    - ``possible_duplicates`` et ``shared_file_entries`` ``<= strava_entries`` ;
     - ``tolerated`` en tuple, trié par (nom, message, numéro), sans doublon ;
     - sans export Strava (``strava_exports == 0``), tous les comptes sont nuls et
       ``tolerated`` est vide (``empty()``).
@@ -2005,6 +2019,8 @@ class SourcesReport:
     matched_by_fit_start: int
     ambiguous: int
     retired_garmin_device: int
+    possible_duplicates: int
+    shared_file_entries: int
     default_timezone_entries: int
     strava_recordings_without_elevation: int
     tolerated: tuple[ToleratedFile, ...]
@@ -2014,6 +2030,13 @@ class SourcesReport:
             value = getattr(self, name)
             if value < 0:
                 raise ContractError(f"{name} doit être >= 0, reçu {value}.")
+        for name in ("possible_duplicates", "shared_file_entries"):
+            value = getattr(self, name)
+            if value > self.strava_entries:
+                raise ContractError(
+                    f"{name} doit être <= strava_entries ({self.strava_entries}), "
+                    f"reçu {value}."
+                )
         require_immutable_sequence(self.tolerated, "tolerated")
         _require_strictly_sorted(
             [(item.name, item.message, item.field_number) for item in self.tolerated],
@@ -2029,4 +2052,4 @@ class SourcesReport:
     @classmethod
     def empty(cls) -> SourcesReport:
         """Le rapport sans export Strava : tous les comptes à 0, ``tolerated`` vide."""
-        return cls(0, 0, 0, 0, 0, 0, 0, 0, 0, ())
+        return cls(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, ())

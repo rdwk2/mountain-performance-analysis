@@ -15,8 +15,8 @@ dossiers de ``raw/`` étant laissés aux autres sources :
 contient un seul ``.fit``). L'existence d'une activité se décide sur l'export le plus
 récent dont la période couvre son départ ; son entrée vient de cet export ; son FIT
 aussi, ou, s'il y manque ou ne s'y lit pas, du plus récent export où il se lit. Ne lit
-que ``raw/garmin/``, qu'il n'écrit jamais, et n'écrit que sous ``interim/`` ; deux
-ingestions des mêmes fichiers écrivent les mêmes octets.
+que ``raw/garmin/`` et ``raw/strava/`` (AN1-3), qu'il n'écrit jamais, et n'écrit que
+sous ``interim/`` ; deux ingestions des mêmes fichiers écrivent les mêmes octets.
 """
 
 import dataclasses
@@ -766,7 +766,11 @@ def ingest_export(data_dir: Path) -> IngestionSummary:
        (``_retiring_export``) ; sinon, une entrée Strava (``strava_entry``, le décalage
        de son FIT s'il en a un) ;
     5 quater. l'enregistrement des entrées Strava dont le FIT a une identité, par une
-       seconde lecture tolérante ;
+       seconde lecture tolérante ; un même fichier nommé par plusieurs de ces entrées
+       d'un export ne donne l'enregistrement qu'à la première, par identifiant
+       croissant : les autres restent sans enregistrement, comptées
+       (``shared_file_entries``) ; les entrées Strava sans enregistrement parties dans
+       la période d'un export Garmin sont comptées (``possible_duplicates``) ;
     7. l'index : les entrées gardées et les entrées Strava, ``has_recording`` vrai pour
        celles qui ont reçu un enregistrement, triées par (instant de départ,
        identifiant) ; les exports de toutes les sources, par instant d'acquisition ;
@@ -990,6 +994,7 @@ def ingest_export(data_dir: Path) -> IngestionSummary:
         strava_entries[ref] = entry
 
     strava_recordings: list[ActivityRecording] = []
+    shared_file_entries = 0
     for position, held in enumerate(strava):
         refs = [
             ref
@@ -998,9 +1003,14 @@ def ingest_export(data_dir: Path) -> IngestionSummary:
         ]
         if not refs:
             continue
+        recorded_files: set[str] = set()
         with StravaMembers(held) as strava_members:
             for ref in refs:
                 filename = strava_rows[position][ref].filename or ""
+                if filename in recorded_files:
+                    shared_file_entries += 1
+                    continue
+                recorded_files.add(filename)
                 fit_member = strava_members.read(filename)
                 if not isinstance(fit_member, MemberFit):
                     continue
@@ -1015,6 +1025,14 @@ def ingest_export(data_dir: Path) -> IngestionSummary:
                     continue
                 strava_recordings.append(detailed.recording)
     strava_recorded = {recording.activity_ref for recording in strava_recordings}
+    possible_duplicates = sum(
+        ref not in strava_recorded
+        and any(
+            _covers(export, strava_rows[strava_decisive[ref]][ref].start_utc)
+            for export in exports
+        )
+        for ref in strava_entries
+    )
 
     kept = sorted(
         [
@@ -1117,6 +1135,8 @@ def ingest_export(data_dir: Path) -> IngestionSummary:
             matched_by_fit_start=sum(rank == 2 for rank, _ in matched.values()),
             ambiguous=len(ambiguous),
             retired_garmin_device=retired_garmin_device,
+            possible_duplicates=possible_duplicates,
+            shared_file_entries=shared_file_entries,
             default_timezone_entries=default_timezone_entries,
             strava_recordings_without_elevation=sum(
                 recording.elevation is None for recording in strava_recordings

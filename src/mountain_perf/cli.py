@@ -3958,6 +3958,14 @@ def _run_ingest() -> int:
             "  FIT d'un appareil Garmin absents de Garmin, retirés : "
             f"{sources.retired_garmin_device}"
         )
+        print(
+            "  Sans enregistrement, dans la période d'un export Garmin (doublons "
+            f"possibles) : {sources.possible_duplicates}"
+        )
+        print(
+            "  Fichier partagé avec une autre entrée, laissées sans enregistrement : "
+            f"{sources.shared_file_entries}"
+        )
         print(f"  Datées par le fuseau par défaut : {sources.default_timezone_entries}")
         print(
             "  Enregistrements sans altitude : "

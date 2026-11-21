@@ -8073,6 +8073,8 @@ un élément par champ.
 | `matched_by_fit_start` | `int` | — |
 | `ambiguous` | `int` | — |
 | `retired_garmin_device` | `int` | — |
+| `possible_duplicates` | `int` | — |
+| `shared_file_entries` | `int` | — |
 | `default_timezone_entries` | `int` | — |
 | `strava_recordings_without_elevation` | `int` | — |
 | `tolerated` | `tuple[ToleratedFile, ...]` | — |
@@ -8092,9 +8094,20 @@ archives Strava ont apporté, et comment elles se sont fusionnées à Garmin.
 - `matched_by_fit_start` — sans unité — … par le départ du FIT seul, fabricant
   `garmin` des deux côtés.
 - `ambiguous` — sans unité — les FIT Strava non appariés dont une clé désignait
-  plusieurs activités.
+  plusieurs activités Garmin, ou une activité Garmin que d'autres FIT Strava
+  désignaient aussi (à l'une des trois passes).
 - `retired_garmin_device` — sans unité — les FIT Strava d'un appareil Garmin, non
-  appariés, partis dans la période d'un export Garmin : retirés de la source.
+  appariés, partis dans la période d'un export Garmin : retirés de la source. Une
+  ambiguë d'un appareil Garmin partie dans cette période compte dans les deux.
+- `possible_duplicates` — sans unité — les entrées Strava sans enregistrement
+  dont le départ de la ligne est dans la période d'au moins un export Garmin
+  (bornes comprises) : la limite de la règle 3 rendue visible, ces entrées peuvent
+  doubler une sortie que Garmin porte (`0013`, précision 28).
+- `shared_file_entries` — sans unité — les entrées Strava laissées sans
+  enregistrement parce que leur fichier `.fit.gz`, lu, est aussi celui d'une
+  entrée précédente du même export (par identifiant croissant) : seule la première
+  reçoit l'enregistrement. Une même entrée peut compter ici et dans
+  `possible_duplicates`.
 - `default_timezone_entries` — sans unité — les entrées Strava datées par le
   fuseau par défaut (`Europe/Paris`).
 - `strava_recordings_without_elevation` — sans unité — les enregistrements Strava
@@ -8105,6 +8118,7 @@ archives Strava ont apporté, et comment elles se sont fusionnées à Garmin.
 #### Invariants
 
 - comptes `>= 0` ;
+- `possible_duplicates` et `shared_file_entries` `<= strava_entries` ;
 - `tolerated` en tuple, trié par (nom, message, numéro), sans doublon ;
 - sans export Strava (`strava_exports == 0`), tous les comptes sont nuls et
   `tolerated` est vide (`empty()`).

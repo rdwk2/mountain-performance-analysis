@@ -774,6 +774,8 @@ def sources(**changes: Any) -> SourcesReport:
         "matched_by_fit_start": 1,
         "ambiguous": 0,
         "retired_garmin_device": 1,
+        "possible_duplicates": 0,
+        "shared_file_entries": 0,
         "default_timezone_entries": 0,
         "strava_recordings_without_elevation": 1,
         "tolerated": (tolerated(),),
@@ -836,7 +838,7 @@ def test_sources_report() -> None:
 
 def test_without_a_strava_export_the_sources_report_is_empty() -> None:
     empty = SourcesReport.empty()
-    assert empty == SourcesReport(0, 0, 0, 0, 0, 0, 0, 0, 0, ())
+    assert empty == SourcesReport(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, ())
     with pytest.raises(ContractError, match="sans export Strava"):
         dataclasses.replace(empty, strava_entries=1)
     with pytest.raises(ContractError, match="sans export Strava"):
