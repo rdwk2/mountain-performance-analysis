@@ -16,6 +16,39 @@ Backtest (à partir de M4) : métrique avant → après.
 
 ---
 
+### 2026-11-20 · AN3-5 — La page de Q2
+La page « Q2 » de l'interface (`ui/q2.py`, une ligne de `PAGES` après « Q1 ») montre le
+dernier résultat de `mperf q2` sans rien recalculer : l'en-tête (date, période des
+montées, avertissement si le résultat ne vient pas des tables actuelles), la lecture
+principale (la phrase de `P`, le message de la puissance, les régressions directe et
+inverse avec leurs intervalles, les bornes d'exclusion), les mises en garde (lues dans
+la puissance que le résultat nomme, sauf la dépendance à la covariance estimée, lue
+dans l'essai principal), la figure écrite, le tableau des 23 autres essais, et, repliés,
+le flux et l'autocorrélation. Sans verdict ; les nombres sont mis en forme seulement
+(une décimale, signe explicite, virgule décimale). La relecture vit dans
+`analyse/q2/results.py` : `stored_estimations` et `latest_estimation` (la règle de Q1,
+seuls les dossiers au nom de `RESULT_NAME`, un dossier sans `essais.csv` illisible),
+`read_estimation` (essais typés, flux sommé sur les mois, puissance nommée vérifiée à
+son empreinte, toute erreur rendue `Q2ResultsError`). Sur la page récupération, la SpO2
+de la nuit marque chaque nuit sans valeur d'un trait gris sur toute la hauteur et en
+donne le compte dans son titre ; `tests/fixtures/recovery_charts.json` change pour son
+seul graphique SpO2 de la clé `toute`, modifié par un script hors du dépôt qui applique
+la règle du brief. Les profils de démo n'ont pas de résultat de Q2 : la page y dit
+comment en faire un. Les tests : R1 à R16, U1 à U17, S1 à S5, toutes les valeurs
+inventées ; les contre-épreuves F1 à F27, chacune seule en worktree détaché, sans
+bytecode, sur ses seuls tests nommés : toutes tuées. Vérifications allégées, décision
+de rdw et écart à la règle 2 : avant les commits 1 à 3, ruff, mypy et les seuls
+fichiers de tests touchés ou qui importent les modules changés ; le `just check`
+complet une fois, avant le commit 4, vert : N = 12 319 (12 314 réussis, 5
+sautés), 46 min. Rangé : `src/mountain_perf/analyse/q2/results.py`,
+`src/mountain_perf/ui/` (`q2.py`, `app.py`, `recuperation.py`), leurs tests, les textes
+de l'annexe D (README, `CLAUDE.md`, `ROADMAP`, `docs/commandes/`, `0016`, `0023`).
+Après la relecture (une C) et un balayage mutmut : `csv.Error` rendu `Q2ResultsError` ;
+la garde du nom de puissance testée et dite ; l'ordre de la page, le tableau des
+essais, les mises en garde et les messages de la relecture tenus par des tests de plus.
+Puis la relecture bornée de ces correctifs : l'aide d'ordre de la page et U10 bis
+renforcés, et la phrase des mises en garde de cette entrée corrigée.
+
 ### 2026-11-20 · AN3-4, la borne haute infinie de la fraction par an
 Le défaut : `just q2 puissance` s'arrêtait sur `OverflowError` (`math.expm1` dans
 `fraction_per_year`) : un tirage du bootstrap de `b_inv` vaut `−d*/k*`, un `k*` proche

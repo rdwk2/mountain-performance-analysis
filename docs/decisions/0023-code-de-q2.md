@@ -100,3 +100,14 @@ charte compte chaque estimation comme un essai.
   tables ne compte pas : après `just process`, la puissance se relance.
 - **À revisiter** : le plan v2 (après le contrôle réel) peut fixer le cinquième retrait, la
   valeur critique, une vingt-cinquième sensibilité ; une note datée le dira ici.
+
+## Précisions d'AN3-5 (2026-11-20)
+
+- **La relecture** : `stored_estimations` et `latest_estimation` relisent
+  `resultats/Q2/` comme `analyse/results.py` relit `resultats/Q1/` (les tables
+  actuelles d'abord, puis la date, l'écriture, le nom) ; seuls comptent les dossiers
+  au nom de `RESULT_NAME` : `puissance/` n'est ni lu ni compté illisible ; un
+  dossier sans `essais.csv` est illisible (Q1 n'exige que `provenance.json`).
+  `read_estimation` relit les essais, la figure, le flux (sommé sur les mois),
+  l'autocorrélation et la puissance que nomme `provenance.json` (`puissance.dossier`),
+  à son empreinte : une puissance absente ou changée ne se remplace pas par une autre.

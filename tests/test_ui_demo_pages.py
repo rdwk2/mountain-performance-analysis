@@ -127,18 +127,37 @@ def _q1() -> None:
     q1_page()
 
 
+def _q2() -> None:
+    from mountain_perf.ui.q2 import q2_page
+
+    q2_page()
+
+
+Q2_NO_RESULT = (
+    "Aucun résultat de Q2 dans resultats/Q2/ : lancer just q2 puissance, puis just q2."
+)
+"""L'information de la page « Q2 » sans résultat (§ 6.2 du brief AN3-5)."""
+
+
 @pytest.mark.parametrize("name", CHARACTER_NAMES)
-@pytest.mark.parametrize("page", [_recovery, _q1], ids=["recuperation", "q1"])
+@pytest.mark.parametrize(
+    ("page", "infos"),
+    [(_recovery, []), (_q1, []), (_q2, [Q2_NO_RESULT])],
+    ids=["recuperation", "q1", "q2"],
+)
 def test_the_piste_pages(
     name: str,
     page: Callable[[], None],
+    infos: list[str],
     tmp_path_factory: pytest.TempPathFactory,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Les pages récupération et Q1 : la table et le journal existent, la figure de Q1
-    aussi ; aucune exception, aucune erreur, aucune information."""
+    """Les pages récupération, Q1 et Q2 : la table et le journal existent, la figure
+    de Q1 aussi ; aucune exception, aucune erreur. Aucune information, sauf sur la
+    page Q2 : les profils de démo n'ont pas de résultat de Q2 (AN3-5), elle dit
+    comment en faire un."""
     _on(name, tmp_path_factory, monkeypatch)
     at = _app(page)
     assert not at.exception
     assert not at.error
-    assert [info.value for info in at.info] == []
+    assert [info.value for info in at.info] == infos
