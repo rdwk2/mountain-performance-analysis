@@ -978,8 +978,9 @@ def test_raw_without_a_garmin_export_stops_the_ingestion(
     with pytest.raises(IngestError) as error:
         ingest_export(tmp_path)
     assert str(error.value) == (
-        "raw/garmin/ ne contient aucun export : chacun se range dans "
-        "raw/garmin/<export>/, avec son acquisition.json."
+        "raw/ ne contient aucun export : un export Garmin se range dans "
+        "raw/garmin/<export>/, une archive Strava dans raw/strava/<export>/, chacun "
+        "avec son acquisition.json."
     )
 
 

@@ -212,14 +212,15 @@ def test_mperf_help_lists_the_ingest_subcommand_as_in_the_brief(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """La ligne d'aide de la sous-commande ``ingest``, dans ``mperf --help``, recopiée
-    telle quelle (§ 5.8 du brief AN1-1 ; AN2-0 : les exports de ``raw/garmin/``)."""
+    telle quelle (§ 5.8 du brief AN1-1 ; AN2-0 : les exports de ``raw/garmin/`` ;
+    AN1-3 : et les archives Strava)."""
     monkeypatch.setenv("COLUMNS", "200")
     with pytest.raises(SystemExit) as stop:
         main(["--help"])
     assert stop.value.code == 0
     assert (
-        "Ingérer les exports Garmin de MPA_DATA_DIR/raw/garmin dans "
-        "MPA_DATA_DIR/interim (AN1-1, AN2-0)" in capsys.readouterr().out
+        "Ingérer les exports Garmin et Strava de MPA_DATA_DIR/raw dans "
+        "MPA_DATA_DIR/interim (AN1-1, AN2-0, AN1-3)" in capsys.readouterr().out
     )
 
 

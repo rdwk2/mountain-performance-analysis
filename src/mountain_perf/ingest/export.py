@@ -1,6 +1,11 @@
-"""L'ingestion des exports Garmin : ``raw/garmin/`` → ``interim/activities/`` (AN1-1,
-AN2-0, ``docs/decisions/0013``). Demande l'extra ``ingest`` : il lit les FIT par
+"""L'ingestion des exports Garmin et des archives Strava : ``raw/garmin/`` et
+``raw/strava/`` → ``interim/activities/`` (AN1-1, AN2-0, AN1-3,
+``docs/decisions/0013``). Demande l'extra ``ingest`` : il lit les FIT par
 ``mountain_perf.ingest.fit``.
+
+Les archives Strava (AN1-3, précisions 25 à 30) se lisent par
+``mountain_perf.ingest.strava`` ; leurs activités se fusionnent à celles de Garmin,
+Garmin d'abord (``ingest_export``, étapes 3 bis à 5 quater).
 
 Plusieurs exports, chacun dans son dossier sous ``raw/garmin/`` (AN2-0), les autres
 dossiers de ``raw/`` étant laissés aux autres sources :
@@ -22,6 +27,7 @@ import lzma
 import zipfile
 import zlib
 from collections import Counter
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from itertools import pairwise
@@ -34,9 +40,25 @@ from mountain_perf.ingest.days import (
     build_days,
     load_export_days,
 )
-from mountain_perf.ingest.fit import FitRefusedError, read_fit
+from mountain_perf.ingest.fit import FitRefusedError, read_fit, read_fit_detailed
 from mountain_perf.ingest.index import IndexReadError, read_index
 from mountain_perf.ingest.interim import write_activities, write_days
+from mountain_perf.ingest.strava import (
+    FIT_KIND,
+    FIT_SUFFIX,
+    INDEX_MEMBER,
+    STRAVA_DIR,
+    MemberAbsent,
+    MemberFit,
+    MemberNotGzip,
+    StravaExport,
+    StravaExportError,
+    StravaMembers,
+    StravaRow,
+    load_strava_export,
+    strava_entry,
+    strava_export_dirs,
+)
 from mountain_perf.ingest.views import activity_view
 from mountain_perf.schemas import (
     ActivityIndex,
@@ -53,6 +75,8 @@ from mountain_perf.schemas import (
     RefusedFile,
     RetiredActivity,
     SourceRef,
+    SourcesReport,
+    ToleratedFile,
     ViewRefusal,
     ViewRefusalCount,
     require_export_name,
@@ -119,10 +143,15 @@ class IngestionSummary:
     - ``activities`` — entrées de l'index écrit ;
     - ``recordings`` — enregistrements écrits ;
     - ``refused_files`` — fichiers de ``raw/garmin/<export>/activity_fit/`` refusés,
-      avant la lecture de leur FIT ou par elle, chacun une fois ;
-    - ``refused_entries`` — entrées des fichiers d'index refusées, tous exports ;
-    - ``entries_without_archive`` — entrées de l'index écrit dont aucun export n'a de
-      fichier de ``activity_fit/`` à ce nom sans extension ;
+      avant la lecture de leur FIT ou par elle, et FIT des archives Strava refusés
+      (AN1-3), chacun une fois ;
+    - ``refused_entries`` — entrées des fichiers d'index refusées, tous exports, toutes
+      sources ;
+    - ``entries_without_archive`` — entrées Garmin de l'index écrit dont aucun export
+      n'a de fichier de ``activity_fit/`` à ce nom sans extension, et entrées Strava
+      dont aucun membre n'est lu (``Filename`` vide ou mal formé, autre suffixe que
+      ``.fit.gz``, membre absent du zip ; un membre présent, même refusé, est une
+      archive, AN1-3) ;
     - ``mismatches`` — enregistrements en désaccord avec leur entrée ;
     - ``view_refusals`` — les entrées sans vue ``Activity``, comptées par (motif, type),
       celles du rapport ;
@@ -132,7 +161,10 @@ class IngestionSummary:
     - ``fit_differences`` — activités dont deux exports portent des FIT différents ;
     - ``recordings_from_other_export`` — enregistrements tirés d'un autre export que
       l'entrée de leur activité ;
-    - ``days`` — ce que l'ingestion des jours a fait (AN2-1).
+    - ``days`` — ce que l'ingestion des jours a fait (AN2-1) ;
+    - ``sources`` — le rapport des sources écrit (``sources.json``), ``None`` sans
+      export Strava (AN1-3) ;
+    - ``strava_exports`` — les noms des exports Strava, pour le résumé (AN1-3).
     """
 
     exports: tuple[ExportReport, ...]
@@ -148,6 +180,8 @@ class IngestionSummary:
     fit_differences: int
     recordings_from_other_export: int
     days: DaysSummary
+    sources: SourcesReport | None = None
+    strava_exports: tuple[str, ...] = ()
 
 
 def _label(name: str) -> str:
@@ -222,14 +256,15 @@ def export_dirs(raw: Path) -> list[Path]:
     chaque dossier direct de ``raw/garmin/`` ; un fichier de ``raw/garmin/``, et tout
     autre dossier de ``raw/`` (une autre source), sont ignorés.
 
+    ``raw/garmin/`` absent, ou sans dossier : ``[]`` (AN1-3 : une archive Strava peut
+    être la seule source ; ``ingest_export`` s'arrête s'il n'y a aucun export).
+
     Lève ``IngestError`` : un export laissé à plat, l'ancienne disposition, dans
     ``raw/`` ou dans ``raw/garmin/`` (son ``acquisition.json``, ou sinon son dossier
     ``activities/`` : « raw/acquisition.json : un export Garmin se range dans son
-    dossier, raw/garmin/<export>/ ; ranger celui-ci dans le sien. ») ; aucun dossier
-    dans ``raw/garmin/``, ou ``raw/garmin/`` absent (« raw/garmin/ ne contient aucun
-    export : chacun se range dans raw/garmin/<export>/, avec son acquisition.json. ») ;
-    un nom de dossier que ``require_export_name`` refuse (« raw/garmin/<nom>/ : le nom
-    d'un export est fait de lettres et de chiffres ASCII, de « _ », « . » ou « - ». »).
+    dossier, raw/garmin/<export>/ ; ranger celui-ci dans le sien. ») ; un nom de
+    dossier que ``require_export_name`` refuse (« raw/garmin/<nom>/ : le nom d'un
+    export est fait de lettres et de chiffres ASCII, de « _ », « . » ou « - ». »).
     """
     garmin = raw / GARMIN_DIR
     _misplaced(raw, "raw/")
@@ -241,11 +276,6 @@ def export_dirs(raw: Path) -> list[Path]:
         if garmin.is_dir()
         else []
     )
-    if not dirs:
-        raise IngestError(
-            f"raw/{GARMIN_DIR}/ ne contient aucun export : chacun se range dans "
-            f"raw/{GARMIN_DIR}/<export>/, avec son {ACQUISITION_FILE}."
-        )
     for path in dirs:
         try:
             require_export_name(path.name)
@@ -394,22 +424,309 @@ def _mismatch(
     )
 
 
+# ---------------------------------------------------------------------------
+# Les archives Strava (AN1-3)
+# ---------------------------------------------------------------------------
+
+
+NO_EXPORT = (
+    f"raw/ ne contient aucun export : un export Garmin se range dans "
+    f"raw/{GARMIN_DIR}/<export>/, une archive Strava dans raw/{STRAVA_DIR}/<export>/, "
+    f"chacun avec son {ACQUISITION_FILE}."
+)
+"""Le message d'``IngestError`` quand ``raw/`` ne porte ni export Garmin ni archive
+Strava (AN1-3)."""
+
+
+def _check_names(garmin: list[Path], strava: list[Path]) -> None:
+    """Aucun export dans les deux sources ; un même nom de dossier dans les deux (le
+    premier en ordre croissant) : ``IngestError`` (AN1-3)."""
+    if not garmin and not strava:
+        raise IngestError(NO_EXPORT)
+    common = sorted({path.name for path in garmin} & {path.name for path in strava})
+    if common:
+        name = common[0]
+        raise IngestError(
+            f"raw/{GARMIN_DIR}/{name}/ et raw/{STRAVA_DIR}/{name}/ : même nom "
+            "d'export ; le rapport nomme les exports par leur nom seul : renommer "
+            "l'un des deux dossiers."
+        )
+
+
+def _check_instants(garmin: list[_Export], strava: list[StravaExport]) -> None:
+    """Deux exports au même instant d'acquisition, toutes sources confondues (C2) :
+    ``IngestError``, qui nomme les deux dossiers (Garmin avant Strava, puis par nom)."""
+    labelled = sorted(
+        [(export.retrieved_at, _label(export.name)) for export in garmin]
+        + [
+            (export.retrieved_at, f"raw/{STRAVA_DIR}/{export.name}")
+            for export in strava
+        ]
+    )
+    for (first_at, first), (second_at, second) in pairwise(labelled):
+        if first_at == second_at:
+            raise IngestError(
+                f"{first}/ et {second}/ : même instant d'acquisition ; l'ordre des "
+                "exports serait indéterminé."
+            )
+
+
+def _strava_covers(export: StravaExport, start: datetime) -> bool:
+    return export.period_start is not None and (
+        export.period_start <= start <= export.retrieved_at
+    )
+
+
+def _strava_existence(
+    strava: list[StravaExport], rows: list[dict[str, StravaRow]]
+) -> tuple[dict[str, int], list[RetiredActivity]]:
+    """L'existence entre exports Strava (rangés par instant d'acquisition), la règle de
+    la précision 15 : pour chaque activité, l'export Strava le plus récent dont la
+    période couvre son départ décide ; absente de lui, elle est retirée ; présente, sa
+    ligne vient de lui (« décisive »). Ni les champs ni les FIT ne se comparent entre
+    exports Strava."""
+    latest: dict[str, int] = {}
+    for position, found in enumerate(rows):
+        for ref in found:
+            latest[ref] = position
+    decisive: dict[str, int] = {}
+    retired: list[RetiredActivity] = []
+    for ref, position in latest.items():
+        start = rows[position][ref].start_utc
+        chosen = max(
+            i for i, export in enumerate(strava) if _strava_covers(export, start)
+        )
+        if chosen == position:
+            decisive[ref] = position
+        else:
+            retired.append(RetiredActivity(ref, strava[chosen].name))
+    return decisive, retired
+
+
+@dataclass(frozen=True)
+class _StravaIdentity:
+    """Ce que la passe d'identité garde d'un FIT Strava lu (C6) : l'empreinte du FIT
+    décompressé, l'identité de son premier ``file_id``, son départ, son décalage local ;
+    pas l'enregistrement."""
+
+    fit_hash: bytes
+    manufacturer: str | None
+    product: int | None
+    time_created: datetime | None
+    start: datetime
+    local_offset_s: int | None
+
+
+@dataclass(frozen=True)
+class _GarminKeys:
+    """Les clés d'appariement d'une activité Garmin gardée : les empreintes des membres
+    ``.fit`` de toutes ses archives lisibles (calculées avant leur lecture), et, si
+    elle a un enregistrement, son identité (fabricant, produit, création, départ)."""
+
+    hashes: frozenset[bytes]
+    identity: tuple[str | None, int | None, datetime | None, datetime] | None
+
+
+def _pair(
+    strava_keys: dict[str, set[object]], garmin_keys: dict[str, set[object]]
+) -> tuple[dict[str, str], set[str]]:
+    """Une passe de l'appariement (D5), un pour un par activités : ``(s, g)`` est une
+    paire si les clés de ``s`` ne désignent que ``g`` et si ``g`` n'est désignée que
+    par ``s`` ; une activité Strava qui désigne au moins une activité Garmin sans
+    former de paire est ambiguë à cette passe."""
+    by_key: dict[object, set[str]] = {}
+    for garmin, keys in garmin_keys.items():
+        for key in keys:
+            by_key.setdefault(key, set()).add(garmin)
+    candidates = {
+        strava: set().union(*(by_key.get(key, set()) for key in keys))
+        for strava, keys in strava_keys.items()
+    }
+    designers: dict[str, set[str]] = {}
+    for strava, found in candidates.items():
+        for garmin in found:
+            designers.setdefault(garmin, set()).add(strava)
+    pairs: dict[str, str] = {}
+    ambiguous: set[str] = set()
+    for strava, found in candidates.items():
+        if len(found) == 1:
+            (garmin,) = found
+            if designers[garmin] == {strava}:
+                pairs[strava] = garmin
+                continue
+        if found:
+            ambiguous.add(strava)
+    return pairs, ambiguous
+
+
+def _hash_key(identity: _StravaIdentity) -> set[object]:
+    return {identity.fit_hash}
+
+
+def _garmin_hash_key(keys: _GarminKeys) -> set[object]:
+    return set(keys.hashes)
+
+
+def _identity_key(identity: _StravaIdentity) -> set[object]:
+    values = (identity.manufacturer, identity.product, identity.time_created)
+    if any(value is None for value in values):
+        return set()
+    return {(*values, identity.start)}
+
+
+def _garmin_identity_key(keys: _GarminKeys) -> set[object]:
+    if keys.identity is None or any(value is None for value in keys.identity):
+        return set()
+    return {keys.identity}
+
+
+def _fit_start_key(identity: _StravaIdentity) -> set[object]:
+    return {identity.start} if identity.manufacturer == "garmin" else set()
+
+
+def _garmin_fit_start_key(keys: _GarminKeys) -> set[object]:
+    if keys.identity is None or keys.identity[0] != "garmin":
+        return set()
+    return {keys.identity[3]}
+
+
+def _match_strava(
+    identities: dict[str, _StravaIdentity], garmin: dict[str, _GarminKeys]
+) -> tuple[dict[str, tuple[int, str]], set[str]]:
+    """L'appariement (D5) des activités Strava décisives qui ont une identité avec les
+    activités Garmin gardées, en trois passes : (a) l'empreinte du FIT ; (b) fabricant,
+    produit, création et départ ; (c) le départ seul, fabricant ``garmin`` des deux
+    côtés. Rend, pour chaque activité Strava appariée, sa passe (0, 1, 2) et l'activité
+    Garmin ; et les activités Strava non appariées qui ont été ambiguës à une passe."""
+    passes: tuple[
+        tuple[
+            Callable[[_StravaIdentity], set[object]],
+            Callable[[_GarminKeys], set[object]],
+        ],
+        ...,
+    ] = (
+        (_hash_key, _garmin_hash_key),
+        (_identity_key, _garmin_identity_key),
+        (_fit_start_key, _garmin_fit_start_key),
+    )
+    matched: dict[str, tuple[int, str]] = {}
+    taken: set[str] = set()
+    ambiguous: set[str] = set()
+    for rank, (strava_key, garmin_key) in enumerate(passes):
+        pairs, found = _pair(
+            {s: strava_key(item) for s, item in identities.items() if s not in matched},
+            {g: garmin_key(keys) for g, keys in garmin.items() if g not in taken},
+        )
+        for strava, partner in pairs.items():
+            matched[strava] = (rank, partner)
+            taken.add(partner)
+        ambiguous |= found
+    return matched, ambiguous - set(matched)
+
+
+def _retiring_export(start: datetime, garmin: list[_Export]) -> str | None:
+    """L'export Garmin le plus récent dont la période couvre ``start``, ou ``None``
+    (D6, (g) 2)."""
+    covering = [export.name for export in garmin if _covers(export, start)]
+    return covering[-1] if covering else None
+
+
+@dataclass(frozen=True)
+class _MemberOutcome:
+    """La première lecture d'un membre ``.fit.gz`` d'un export Strava : présent dans le
+    zip (lu, même refusé), et l'identité de son FIT s'il se lit."""
+
+    present: bool
+    identity: _StravaIdentity | None
+
+
+def _member_name(export: StravaExport, filename: str) -> str:
+    return f"{STRAVA_DIR}/{export.name}/{export.archive.name}/{filename}"
+
+
+def _fit_source(export: StravaExport, filename: str, raw: bytes) -> SourceRef:
+    return SourceRef(
+        FIT_KIND, filename.rsplit("/", 1)[-1], _sha256(raw), export.retrieved_at
+    )
+
+
+def _is_fit(row: StravaRow) -> bool:
+    return row.filename is not None and row.filename.lower().endswith(FIT_SUFFIX)
+
+
+def _first_reading(
+    members: StravaMembers,
+    export: StravaExport,
+    filename: str,
+    ref: str,
+    read: list[ReadFile],
+    refused_files: list[RefusedFile],
+    tolerated: set[ToleratedFile],
+) -> _MemberOutcome:
+    """La première lecture d'un membre ``.fit.gz`` (étape 5 bis) : absent, rien (C9) ;
+    pas un gzip, lu et refusé ``NOT_A_GZIP_FIT`` ; sinon lu par la lecture tolérante,
+    son refus inscrit, ou son identité et ses champs sautés gardés (C6)."""
+    found = members.read(filename)
+    if isinstance(found, MemberAbsent):
+        return _MemberOutcome(False, None)
+    name = _member_name(export, filename)
+    read.append(ReadFile(name, _sha256(found.raw)))
+    if isinstance(found, MemberNotGzip):
+        refused_files.append(RefusedFile(name, RefusalReason.NOT_A_GZIP_FIT))
+        return _MemberOutcome(True, None)
+    try:
+        detailed = read_fit_detailed(
+            found.fit,
+            activity_ref=ref,
+            source=_fit_source(export, filename, found.raw),
+            tolerant=True,
+        )
+    except FitRefusedError as error:
+        refused_files.append(RefusedFile(name, error.reason))
+        return _MemberOutcome(True, None)
+    device = detailed.recording.device
+    tolerated.update(
+        ToleratedFile(name, device.manufacturer, skipped.message, skipped.field_number)
+        for skipped in detailed.skipped
+    )
+    return _MemberOutcome(
+        True,
+        _StravaIdentity(
+            fit_hash=hashlib.sha256(found.fit).digest(),
+            manufacturer=device.manufacturer,
+            product=device.product,
+            time_created=device.time_created,
+            start=detailed.recording.start_time,
+            local_offset_s=detailed.local_offset_s,
+        ),
+    )
+
+
 def ingest_export(data_dir: Path) -> IngestionSummary:
-    """Ingère les exports de ``data_dir/raw/garmin/`` et écrit
-    ``data_dir/interim/activities/``, puis ``data_dir/interim/days/``.
+    """Ingère les exports de ``data_dir/raw/garmin/`` et les archives de
+    ``data_dir/raw/strava/`` (AN1-3), et écrit ``data_dir/interim/activities/``, puis
+    ``data_dir/interim/days/``.
 
     Dans cet ordre :
 
-    1. les dossiers d'exports (``export_dirs``) ; puis, pour chacun par nom croissant,
-       ``_load`` : l'instant d'acquisition, l'index (chaque entrée gardée porte la
-       provenance de son fichier d'index), une entrée gardée partie après l'instant
-       d'acquisition, les noms des fichiers de ``activity_fit/`` ;
-    2. les exports, triés par instant d'acquisition ; deux instants égaux :
-       ``IngestError`` (« raw/garmin/<a>/ et raw/garmin/<b>/ : même instant
-       d'acquisition ; l'ordre des exports serait indéterminé. », ``a`` et ``b`` par nom
-       croissant) ; puis les familles journalières de chaque export, dans l'ordre des
-       instants (``load_export_days``) : leur refus devient ``IngestError``, au même
-       message (« raw/garmin/<export>/ : … ; acquisition.json est faux. ») ;
+    1. les dossiers d'exports Garmin (``export_dirs``) et Strava
+       (``strava_export_dirs`` ; une ``StravaExportError`` devient ``IngestError``, au
+       même message) ; aucun export dans les deux : ``IngestError`` (``NO_EXPORT``) ; un
+       même nom de dossier dans les deux : ``IngestError`` (« raw/garmin/<x>/ et
+       raw/strava/<x>/ : même nom d'export ; … ») ; puis, pour chaque export Garmin par
+       nom croissant, ``_load`` : l'instant d'acquisition, l'index (chaque entrée gardée
+       porte la provenance de son fichier d'index), une entrée gardée partie après
+       l'instant d'acquisition, les noms des fichiers de ``activity_fit/`` ;
+    1 bis. chaque export Strava, par nom croissant (``load_strava_export``) ;
+    2. les exports, triés par instant d'acquisition ; deux instants égaux, toutes
+       sources confondues (C2) : ``IngestError`` (« raw/garmin/<a>/ et raw/garmin/<b>/ :
+       même instant d'acquisition ; l'ordre des exports serait indéterminé. », ``a`` et
+       ``b`` par nom croissant ; de même « raw/strava/<a>/ et raw/strava/<b>/ … » et
+       « raw/garmin/<a>/ et raw/strava/<b>/ … ») ; puis les familles journalières de
+       chaque export Garmin, dans l'ordre des instants (``load_export_days``) : leur
+       refus devient ``IngestError``, au même message (« raw/garmin/<export>/ : … ;
+       acquisition.json est faux. ») ; sans export Garmin, chaque export Strava entre
+       aux jours sans fichier journalier (C8) ;
     3. l'existence de chaque activité : sur l'export le plus récent dont la période
        (du premier départ de ses entrées gardées à son instant d'acquisition, bornes
        comprises) couvre son départ, lu dans l'export le plus récent qui la porte ;
@@ -433,31 +750,59 @@ def ingest_export(data_dir: Path) -> IngestionSummary:
        distincts de ses archives (deux ou plus : un FIT différent) ; les champs
        d'``IndexDifference`` où l'entrée d'un autre export qui la porte diffère de celle
        de l'export décisif (le départ par son instant et son décalage) ;
-    7. l'index : les entrées gardées, ``has_recording`` vrai pour celles qui ont reçu un
-       enregistrement, triées par (instant de départ, identifiant) ; les exports, par
-       instant d'acquisition ;
+    3 bis. l'existence entre exports Strava (``_strava_existence``) ; les activités
+       Strava retirées s'ajoutent aux retirées ;
+    5 bis. l'identité des FIT Strava (C6) : pour chaque activité Strava décisive, par
+       identifiant croissant, dont le ``Filename`` finit par ``.fit.gz``, un seul
+       ``StravaMembers`` par export ; un membre nommé par plusieurs lignes se lit une
+       fois ; absent : rien (une entrée sans archive, C9) ; pas un gzip : lu et refusé
+       ``NOT_A_GZIP_FIT`` ; sinon ``read_fit_detailed(..., tolerant=True)`` : son refus
+       inscrit au rapport, ou son identité et ses champs sautés gardés, sans
+       l'enregistrement ;
+    5 ter. l'appariement (``_match_strava``) avec les activités Garmin gardées (leurs
+       empreintes de membres, leur identité si elles ont un enregistrement) ; puis, pour
+       chaque activité Strava décisive : appariée, pas d'entrée (Garmin d'abord) ; non
+       appariée, d'un FIT ``garmin`` parti dans la période d'un export Garmin : retirée
+       (``_retiring_export``) ; sinon, une entrée Strava (``strava_entry``, le décalage
+       de son FIT s'il en a un) ;
+    5 quater. l'enregistrement des entrées Strava dont le FIT a une identité, par une
+       seconde lecture tolérante ;
+    7. l'index : les entrées gardées et les entrées Strava, ``has_recording`` vrai pour
+       celles qui ont reçu un enregistrement, triées par (instant de départ,
+       identifiant) ; les exports de toutes les sources, par instant d'acquisition ;
     8. les refus de vue (``activity_view``), comptés par (motif, type de la source) ;
        les désaccords d'un enregistrement avec son entrée (au-delà de
        ``MISMATCH_TOLERANCE_S``), triés par identifiant ;
-    9. le rapport ;
+    9. le rapport ; s'il y a un export Strava, le rapport des sources
+       (``SourcesReport``, C5) ;
     10. les jours (``build_days``), calculés en entier ;
     11. ``write_activities`` ; puis ``write_days``. Si ``write_days`` échoue
         (``OSError``), ``interim/activities/`` est déjà neuf : ``IngestError``
         (``DAYS_NOT_IN_PLACE``), de cause l'``OSError``.
 
-    Les étapes 3 à 9 sont celles d'AN2-0, inchangées. Une erreur avant
-    ``write_activities`` n'écrit rien.
+    Les étapes 3 à 9 sont celles d'AN2-0, inchangées pour Garmin ; les FIT Garmin se
+    lisent toujours strictement (``read_fit``). Une erreur avant ``write_activities``
+    n'écrit rien.
     """
+    raw = data_dir / "raw"
+    garmin_dirs = export_dirs(raw)
+    try:
+        strava_dirs = strava_export_dirs(raw)
+    except StravaExportError as error:
+        raise IngestError(str(error)) from None
+    _check_names(garmin_dirs, strava_dirs)
     exports = sorted(
-        (_load(path) for path in export_dirs(data_dir / "raw")),
+        (_load(path) for path in garmin_dirs),
         key=lambda export: (export.retrieved_at, export.name),
     )
-    for first, second in pairwise(exports):
-        if first.retrieved_at == second.retrieved_at:
-            raise IngestError(
-                f"{_label(first.name)}/ et {_label(second.name)}/ : même instant "
-                "d'acquisition ; l'ordre des exports serait indéterminé."
-            )
+    try:
+        strava = sorted(
+            (load_strava_export(path) for path in strava_dirs),
+            key=lambda export: (export.retrieved_at, export.name),
+        )
+    except StravaExportError as error:
+        raise IngestError(str(error)) from None
+    _check_instants(exports, strava)
     daily: list[ExportDays] = []
     for export in exports:
         try:
@@ -470,6 +815,8 @@ def ingest_export(data_dir: Path) -> IngestionSummary:
             )
         except ExportDaysError as error:
             raise IngestError(str(error)) from None
+    if not exports:
+        daily = [ExportDays(export.name, export.retrieved_at, ()) for export in strava]
 
     latest: dict[str, int] = {}
     for position, export in enumerate(exports):
@@ -519,6 +866,7 @@ def ingest_export(data_dir: Path) -> IngestionSummary:
 
     recordings: list[ActivityRecording] = []
     recording_export: dict[str, int] = {}
+    garmin_hashes: dict[str, frozenset[bytes]] = {}
     fit_differences = 0
     for ref in sorted(decisive):
         candidates = archives.get(ref, {})
@@ -527,6 +875,7 @@ def ingest_export(data_dir: Path) -> IngestionSummary:
             for item in candidates.values()
             if item.member is not None
         }
+        garmin_hashes[ref] = frozenset(members)
         fit_differences += len(members) > 1
         order = sorted(
             candidates, key=lambda position: (position != decisive[ref], -position)
@@ -562,17 +911,135 @@ def ingest_export(data_dir: Path) -> IngestionSummary:
             if any(_differs(entry, other, field) for other in others):
                 differences[field] += 1
 
+    garmin_keys = {ref: _GarminKeys(garmin_hashes[ref], None) for ref in decisive}
+    for recording in recordings:
+        device = recording.device
+        garmin_keys[recording.activity_ref] = _GarminKeys(
+            garmin_hashes[recording.activity_ref],
+            (
+                device.manufacturer,
+                device.product,
+                device.time_created,
+                recording.start_time,
+            ),
+        )
+    strava_rows = [{row.activity_ref: row for row in export.rows} for export in strava]
+    strava_decisive, strava_retired = _strava_existence(strava, strava_rows)
+    retired.extend(strava_retired)
+    tolerated: set[ToleratedFile] = set()
+    identities: dict[str, _StravaIdentity] = {}
+    with_member: set[str] = set()
+    for position, held in enumerate(strava):
+        prefix = f"{STRAVA_DIR}/{held.name}"
+        read.append(ReadFile(f"{prefix}/{ACQUISITION_FILE}", held.acquisition_hash))
+        read.append(ReadFile(f"{prefix}/{held.archive.name}", held.archive_hash))
+        read.append(
+            ReadFile(
+                f"{prefix}/{held.archive.name}/{INDEX_MEMBER}",
+                held.index_source.content_hash,
+            )
+        )
+        rows = strava_rows[position]
+        wanted = [
+            ref
+            for ref in sorted(strava_decisive)
+            if strava_decisive[ref] == position and _is_fit(rows[ref])
+        ]
+        if not wanted:
+            continue
+        outcomes: dict[str, _MemberOutcome] = {}
+        with StravaMembers(held) as strava_members:
+            for ref in wanted:
+                filename = rows[ref].filename or ""
+                if filename not in outcomes:
+                    outcomes[filename] = _first_reading(
+                        strava_members,
+                        held,
+                        filename,
+                        ref,
+                        read,
+                        refused_files,
+                        tolerated,
+                    )
+                outcome = outcomes[filename]
+                if outcome.present:
+                    with_member.add(ref)
+                if outcome.identity is not None:
+                    identities[ref] = outcome.identity
+
+    matched, ambiguous = _match_strava(identities, garmin_keys)
+    strava_entries: dict[str, IndexedActivity] = {}
+    retired_garmin_device = 0
+    default_timezone_entries = 0
+    for ref in sorted(strava_decisive):
+        if ref in matched:
+            continue
+        held = strava[strava_decisive[ref]]
+        row = strava_rows[strava_decisive[ref]][ref]
+        identity = identities.get(ref)
+        if identity is not None and identity.manufacturer == "garmin":
+            retiring = _retiring_export(row.start_utc, exports)
+            if retiring is not None:
+                retired.append(RetiredActivity(ref, retiring))
+                retired_garmin_device += 1
+                continue
+        entry, by_default = strava_entry(
+            row, held, None if identity is None else identity.local_offset_s
+        )
+        default_timezone_entries += by_default
+        strava_entries[ref] = entry
+
+    strava_recordings: list[ActivityRecording] = []
+    for position, held in enumerate(strava):
+        refs = [
+            ref
+            for ref in sorted(strava_entries)
+            if strava_decisive[ref] == position and ref in identities
+        ]
+        if not refs:
+            continue
+        with StravaMembers(held) as strava_members:
+            for ref in refs:
+                filename = strava_rows[position][ref].filename or ""
+                fit_member = strava_members.read(filename)
+                if not isinstance(fit_member, MemberFit):
+                    continue
+                try:
+                    detailed = read_fit_detailed(
+                        fit_member.fit,
+                        activity_ref=ref,
+                        source=_fit_source(held, filename, fit_member.raw),
+                        tolerant=True,
+                    )
+                except FitRefusedError:
+                    continue
+                strava_recordings.append(detailed.recording)
+    strava_recorded = {recording.activity_ref for recording in strava_recordings}
+
     kept = sorted(
-        (
+        [
             dataclasses.replace(
                 exports[position].entries[ref],
                 has_recording=ref in recording_export,
             )
             for ref, position in decisive.items()
-        ),
+        ]
+        + [
+            dataclasses.replace(entry, has_recording=ref in strava_recorded)
+            for ref, entry in strava_entries.items()
+        ],
         key=lambda entry: (entry.start_time.timestamp(), entry.activity_ref),
     )
-    index = ActivityIndex(tuple(kept), tuple(export.index_source for export in exports))
+    index = ActivityIndex(
+        tuple(kept),
+        tuple(
+            sorted(
+                [export.index_source for export in exports]
+                + [export.index_source for export in strava],
+                key=lambda source: source.retrieved_at,
+            )
+        ),
+    )
 
     refusals: Counter[tuple[ViewRefusal, str]] = Counter()
     for entry in index.entries:
@@ -591,6 +1058,10 @@ def ingest_export(data_dir: Path) -> IngestionSummary:
         mismatch = _mismatch(recording, exports[decisive[ref]].entries[ref])
         if mismatch is not None:
             found.append(mismatch)
+    for recording in strava_recordings:
+        mismatch = _mismatch(recording, strava_entries[recording.activity_ref])
+        if mismatch is not None:
+            found.append(mismatch)
     mismatches = tuple(sorted(found, key=lambda mismatch: mismatch.activity_ref))
     index_differences = tuple(
         FieldDifferenceCount(field, differences[field])
@@ -600,15 +1071,31 @@ def ingest_export(data_dir: Path) -> IngestionSummary:
         position != decisive[ref] for ref, position in recording_export.items()
     )
     export_reports = tuple(
-        ExportReport(
-            name=export.name,
-            index=export.index_source,
-            period_start=export.period_start,
-            entries=len(export.entries),
-            refused_entries=export.refused,
-            archives=len(export.archives),
+        sorted(
+            [
+                ExportReport(
+                    name=export.name,
+                    index=export.index_source,
+                    period_start=export.period_start,
+                    entries=len(export.entries),
+                    refused_entries=export.refused,
+                    archives=len(export.archives),
+                )
+                for export in exports
+            ]
+            + [
+                ExportReport(
+                    name=export.name,
+                    index=export.index_source,
+                    period_start=export.period_start,
+                    entries=len(export.rows),
+                    refused_entries=export.refused,
+                    archives=export.named_files,
+                )
+                for export in strava
+            ],
+            key=lambda item: item.index.retrieved_at,
         )
-        for export in exports
     )
     report = IngestionReport(
         exports=export_reports,
@@ -621,8 +1108,33 @@ def ingest_export(data_dir: Path) -> IngestionSummary:
         fit_differences=fit_differences,
         recordings_from_other_export=from_other,
     )
+    sources = (
+        SourcesReport(
+            strava_exports=len(strava),
+            strava_entries=len(strava_entries),
+            matched_by_hash=sum(rank == 0 for rank, _ in matched.values()),
+            matched_by_identity=sum(rank == 1 for rank, _ in matched.values()),
+            matched_by_fit_start=sum(rank == 2 for rank, _ in matched.values()),
+            ambiguous=len(ambiguous),
+            retired_garmin_device=retired_garmin_device,
+            default_timezone_entries=default_timezone_entries,
+            strava_recordings_without_elevation=sum(
+                recording.elevation is None for recording in strava_recordings
+            ),
+            tolerated=tuple(
+                sorted(
+                    tolerated,
+                    key=lambda item: (item.name, item.message, item.field_number),
+                )
+            ),
+        )
+        if strava
+        else None
+    )
     days = build_days(daily)
-    write_activities(data_dir, index, recordings, report)
+    write_activities(
+        data_dir, index, [*recordings, *strava_recordings], report, sources
+    )
     try:
         write_days(data_dir, days.records, days.history, days.report)
     except OSError as error:
@@ -630,12 +1142,16 @@ def ingest_export(data_dir: Path) -> IngestionSummary:
     return IngestionSummary(
         exports=export_reports,
         activities=len(index.entries),
-        recordings=len(recordings),
+        recordings=len(recordings) + len(strava_recordings),
         refused_files=len(refused_files),
-        refused_entries=sum(len(export.refused) for export in exports),
+        refused_entries=sum(len(export.refused) for export in exports)
+        + sum(len(held.refused) for held in strava),
         entries_without_archive=sum(
-            entry.activity_ref not in all_stems for entry in index.entries
-        ),
+            entry.activity_ref not in all_stems
+            for entry in index.entries
+            if entry.activity_ref not in strava_entries
+        )
+        + sum(ref not in with_member for ref in strava_entries),
         mismatches=len(mismatches),
         view_refusals=view_refusals,
         retired=len(retired),
@@ -643,4 +1159,6 @@ def ingest_export(data_dir: Path) -> IngestionSummary:
         fit_differences=fit_differences,
         recordings_from_other_export=from_other,
         days=days.summary,
+        sources=sources,
+        strava_exports=tuple(export.name for export in strava),
     )
