@@ -1,7 +1,9 @@
-# `just ingest` — l'ingestion des exports Garmin
+# `just ingest` — l'ingestion des exports Garmin et des archives Strava
 
 `just ingest` lance `mperf ingest` avec l'extra `ingest` : il lit les exports Garmin
-rangés sous `MPA_DATA_DIR/raw/garmin/` et écrit `MPA_DATA_DIR/interim/activities/`
+rangés sous `MPA_DATA_DIR/raw/garmin/` et les archives Strava rangées sous
+`MPA_DATA_DIR/raw/strava/` (voir « Les archives Strava », plus bas), et écrit
+`MPA_DATA_DIR/interim/activities/`
 ([`0013`](../decisions/0013-ingestion-et-interim.md)) et
 `MPA_DATA_DIR/interim/days/` ([`0018`](../decisions/0018-donnees-journalieres.md)).
 Chaque export a son
@@ -85,3 +87,65 @@ refusés, les révisions, les dégradations et les écarts à part entre exports
 blocs de Training Status et ceux sans instant propre. Pas d'exemple ici : sur les
 exports réels, ces nombres
 restent hors du dépôt ([`docs/analyse/CHARTE.md`](../analyse/CHARTE.md), § 10).
+
+## Les archives Strava
+
+L'archive que Strava envoie sur demande (« Télécharger vos données ») se range telle
+quelle, jamais décompressée ni retouchée, dans son dossier, `raw/strava/<export>/`
+(les mêmes caractères qu'un export Garmin ; un même nom sous `raw/garmin/` et
+`raw/strava/` arrête l'ingestion), à côté de son `acquisition.json`, écrit à la main :
+
+```json
+{"retrieved_at": "2026-11-20T10:45:00+01:00", "timezone": "Europe/Paris"}
+```
+
+`timezone`, facultatif, est le fuseau de l'athlète (un nom IANA) : il date les
+activités dont aucun FIT ne donne l'heure locale ; sans lui, `Europe/Paris`, et la
+sortie compte ces activités. Aucun export ne se retire.
+
+Dans l'archive, seuls `activities.csv` et les fichiers que sa colonne `Filename` nomme
+s'ouvrent ; le reste (profil, messages, médias…) porte des données personnelles et ne
+se lit jamais. D'`activities.csv`, l'en-tête se vérifie en entier (un en-tête
+différent arrête l'ingestion : la forme de l'archive a changé) et ne se lisent que
+l'identifiant, la date, le type, le fichier, les durées, la distance, le D+ et le D− et
+les FC moyenne et maximale. Chaque activité a pour identifiant `strava-<id>`. Seuls les
+FIT (`.fit.gz`) donnent un enregistrement : une activité que Strava décrit par un GPX
+ou un TCX a une entrée sans enregistrement. L'archive ne porte **pas de données de
+santé** : sans export Garmin, la table `jours` n'a pas de ligne, et les pages qui en
+vivent (la récupération) restent vides. Une montre qui ne mesure pas l'altitude ne
+donne pas de montées, donc rien pour la courbe : l'altitude que Strava affiche vient
+d'un modèle de terrain, et l'archive ne la porte pas.
+
+**Garmin d'abord.** Une activité que l'archive Strava et un export Garmin portent tous
+deux (reliées par l'empreinte du FIT, sinon par l'appareil et le départ du FIT, sinon,
+pour une montre Garmin, par le départ seul) n'a qu'une entrée, celle de Garmin. Un FIT
+d'une montre Garmin que Garmin ne porte pas, parti dans la période d'un export Garmin,
+est retiré de la source (supprimé dans Garmin Connect). Le reste devient une entrée
+Strava. Deux limites : une ligne Strava sans FIT lisible (sans fichier, GPX, membre
+absent, pas gzip, FIT refusé) ne se relie à rien, et fait une seconde entrée si un
+export Garmin porte la même sortie ; un FIT Garmin refusé dont la copie Strava se lit
+reste, dans Garmin, sans enregistrement. **L'identifiant change** : une activité venue
+de Strava seul qu'un export Garmin plus récent porte devient l'entrée Garmin, sous son
+identifiant Garmin ; un manifeste cite donc une activité par son identifiant Garmin.
+**« Ride » de Strava est hors de la table des types** : il désigne la route comme le
+VTT ; un VTT venu de Strava seul n'a pas de vue `MTB`.
+
+Un FIT de l'archive que la lecture stricte refuse pour un seul défaut — une définition
+de champ dont la taille n'est pas un multiple de son type, sur un champ qu'aucun
+contrat ne lit ou sur le champ `data` des événements — est gardé par une seconde
+lecture, le CRC toujours vérifié ([`0011`](../decisions/0011-bibliotheques-analyse.md),
+[`0013`](../decisions/0013-ingestion-et-interim.md), précision 30). Un FIT d'un export
+Garmin reste lu strictement.
+
+La sortie donne, après les lignes des activités, s'il y a une archive Strava, un bloc
+« Strava » : les exports Strava, les entrées venues de Strava, les activités appariées
+à Garmin (par l'empreinte, par l'identité, par le départ du FIT), les ambiguës, les FIT
+d'un appareil Garmin retirés, les entrées datées par le fuseau par défaut, les
+enregistrements sans altitude ; puis, s'il y en a, les FIT lus par tolérance, une ligne
+par champ sauté. La ligne d'une archive Strava, dans la liste des exports, porte
+« (Strava) » et compte ses fichiers nommés. Ces comptes sont aussi dans
+`interim/activities/sources.json`, écrit seulement s'il y a une archive Strava.
+
+Avant de ranger une archive Strava dans le dossier des données d'un athlète dont des
+estimations sont en cours (Q2), s'assurer qu'elles sont finies : l'ingestion change
+`processed/`.

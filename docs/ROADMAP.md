@@ -31,7 +31,8 @@ analyse les données d'entraînement, de récupération et de sommeil de l'athl�
   AN1 (activités et montées) livré : son codec commun, l'ingestion des activités
   (`just ingest`), les horloges du moteur rendues communes (le temps de mouvement),
   les tables de `processed/` et la commande qui régénère `interim/` et `processed/`
-  (`just process`), la figure de Q1 (`just q1`). AN2 (données journalières et tableau
+  (`just process`), la figure de Q1 (`just q1`) ; l'ingestion d'une archive Strava
+  (AN1-3, écrite par le moteur). AN2 (données journalières et tableau
   de bord) : l'ingestion lit plusieurs exports (AN2-0) et les données
   journalières, avec leurs vues (AN2-1) ; `mperf tables` en tire la table `jours`, avec
   les normales de six mesures, et lit le journal de l'athlète (AN2-2) ; l'interface la
@@ -368,6 +369,8 @@ documentation.
   de ses variantes (`docs/decisions/0015`)
 - figure descriptive de Q1 : la vitesse ascensionnelle à pente, gain et altitude
   comparables (la durée comparable se lit en gain, `docs/decisions/0014`)
+- AN1-3 : l'ingestion d'une archive Strava (écrite par le moteur, avec l'accord de la
+  piste)
 
 **Fini quand** : une commande régénère `interim/` et `processed/` depuis `raw/`, les
 vues du moteur se calculent depuis `interim/`, et la figure de Q1 se recalcule.
