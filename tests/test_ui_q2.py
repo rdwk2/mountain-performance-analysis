@@ -24,6 +24,7 @@ pytest.importorskip("scipy")
 
 import streamlit as st
 from streamlit.testing.v1 import AppTest
+from streamlit.testing.v1.element_tree import Block, Expander
 
 from fixtures.recovery_world import base_tables, world_tables, write_world
 from mountain_perf.analyse.q2.results import (
@@ -435,17 +436,27 @@ def _shown(node: Any) -> tuple[str, str]:
         return "iframe", str(node.proto.srcdoc)
     if node.type == "dataframe":
         return "dataframe", f"{len(node.value)} lignes"
-    if node.type == "expander":
+    if isinstance(node, Expander):
         return "expander", str(node.label)
-    return node.type, str(node.value)
+    if node.type in SHOWN:
+        return node.type, str(node.value)
+    return node.type, str(getattr(node, "value", ""))
 
 
 def _page(at: AppTest) -> list[tuple[str, str]]:
     """Les éléments rendus de ``at.main``, parcourus récursivement dans l'ordre
-    d'affichage : la suite ``(type, texte)`` ; le texte d'un ``iframe`` est son
-    ``srcdoc``, celui d'un tableau son nombre de lignes, celui d'un replié son
-    titre."""
-    return [_shown(node) for node in at.main if node.type in SHOWN]
+    d'affichage : la suite ``(type, texte)``. Elle garde tout nœud qui n'est pas un
+    bloc (``Block``), et les repliés (``Expander``), qui entrent avec leur titre avant
+    leurs enfants ; les autres blocs (conteneurs, colonnes…) restent dehors, leurs
+    enfants entrent. Le texte d'un ``iframe`` est son ``srcdoc``, celui d'un tableau
+    son nombre de lignes, celui d'un replié son titre ; un type hors de ``SHOWN``
+    entre avec sa valeur s'il en a une, sinon un texte vide : rien d'autre n'y
+    échappe."""
+    return [
+        _shown(node)
+        for node in at.main
+        if isinstance(node, Expander) or not isinstance(node, Block)
+    ]
 
 
 def _records(table: Any) -> list[dict[str, object]]:
@@ -830,13 +841,13 @@ def test_u10_bis_the_order_and_whole_lines_of_the_table(base: Tables) -> None:
             intervalle_fraction=None,
             lecture=None,
         ),
-        _bis_trial("S-b", 2, famille="sensibilite", regime="long_climb"),
+        _bis_trial("S-e", 2, famille="sensibilite", regime="long_climb"),
     ]
     _result(_current(base), trials=essais_csv(trials))
     at = _app()
     assert not at.exception
     rows = _table(at).to_dict("records")
-    assert [row["Essai"] for row in rows] == ["S-b", "S-c", "S-d"]
+    assert [row["Essai"] for row in rows] == ["S-e", "S-c", "S-d"]
     assert rows[1] == {
         "Essai": "S-c",
         "Famille": "secondaire",
