@@ -77,9 +77,9 @@ def require_activity_ref(ref: str, name: str = "activity_ref") -> None:
 
 
 def require_export_name(name: str) -> None:
-    """Le nom d'un export, celui de son dossier sous ``raw/garmin/`` : lettres et
-    chiffres ASCII, ``_``, ``.``, ``-``, ni ``.`` ni ``..`` ; sinon
-    ``ContractError``."""
+    """Le nom d'un export, celui de son dossier sous ``raw/garmin/`` ou
+    ``raw/strava/`` (AN1-3) : lettres et chiffres ASCII, ``_``, ``.``, ``-``, ni ``.``
+    ni ``..`` ; sinon ``ContractError``."""
     if not _REF.fullmatch(name) or name in (".", ".."):
         raise ContractError(
             "le nom d'un export doit être fait de lettres et de chiffres ASCII, de "
@@ -451,12 +451,14 @@ class IndexField(StrEnum):
 INDEX_FIELD_DESCRIPTIONS: Mapping[IndexField, str] = MappingProxyType(
     {
         IndexField.ELAPSED_DURATION: (
-            "Temps écoulé (elapsedDuration ; Strava : Elapsed Time)."
+            "Temps écoulé (elapsedDuration ; Strava : la seconde colonne Elapsed Time)."
         ),
         IndexField.MOVING_DURATION: (
             "Temps en mouvement (movingDuration ; Strava : Moving Time)."
         ),
-        IndexField.DISTANCE: "Distance de la source (distance ; Strava : Distance).",
+        IndexField.DISTANCE: (
+            "Distance de la source (distance ; Strava : la seconde colonne Distance)."
+        ),
         IndexField.ASCENT: "D+ de la source (elevationGain ; Strava : Elevation Gain).",
         IndexField.DESCENT: (
             "D− de la source (elevationLoss ; Strava : Elevation Loss)."
@@ -465,7 +467,9 @@ INDEX_FIELD_DESCRIPTIONS: Mapping[IndexField, str] = MappingProxyType(
             "Altitude recalée par Garmin Connect (elevationCorrected)."
         ),
         IndexField.AVERAGE_HR: "FC moyenne (averageHR ; Strava : Average Heart Rate).",
-        IndexField.MAX_HR: "FC maximale (maxHR ; Strava : Max Heart Rate).",
+        IndexField.MAX_HR: (
+            "FC maximale (maxHR ; Strava : la seconde colonne Max Heart Rate)."
+        ),
         IndexField.TRAINING_LOAD: (
             "Charge de l'activité selon Garmin (activityTrainingLoad)."
         ),
@@ -558,7 +562,8 @@ class IndexedActivity:
 
     Champs
     ------
-    - ``activity_ref`` — sans unité — identifiant de l'activité dans la source.
+    - ``activity_ref`` — sans unité — identifiant de l'activité dans la source ; pour
+      une entrée Strava, ``strava-<id>`` (AN1-3).
     - ``source_activity_type`` — sans unité — type de la source, tel quel
       (``activityType.typeKey`` ; pour Strava, la colonne ``Activity Type``).
     - ``start_time`` — instant — départ, *aware*, dans son fuseau local à décalage
@@ -596,7 +601,9 @@ class IndexedActivity:
 
     Producteur
     ----------
-    Le lecteur de l'index de l'ingestion (``mountain_perf.ingest.index``).
+    Le lecteur de l'index de l'ingestion (``mountain_perf.ingest.index``) ; pour une
+    entrée Strava, ``mountain_perf.ingest.strava`` (``strava_entry``) et
+    ``mountain_perf.ingest.export`` (AN1-3).
 
     Consommateurs
     -------------
@@ -611,9 +618,12 @@ class IndexedActivity:
     - ``distance_m`` est celle de la source, ni 2D ni 3D garantie ;
     - quand ``elevation_corrected`` est vrai, ``ascent_m`` et ``descent_m`` viennent du
       modèle de terrain de Garmin : ils ne se comparent pas au canal d'altitude de
-      l'enregistrement, que la correction ne change pas ;
-    - ``moving_duration_s`` est le temps en mouvement de Garmin (un algorithme non
-      publié, à seuil de vitesse) : la piste calcule le sien ;
+      l'enregistrement, que la correction ne change pas ; pour une entrée Strava
+      (``elevation_corrected`` absent), ils peuvent venir d'un modèle de terrain de
+      Strava (une montre sans altitude), sans que rien ne le dise (AN1-3) ;
+    - ``moving_duration_s`` est le temps en mouvement de la source (Garmin : un
+      algorithme non publié, à seuil de vitesse ; Strava : le sien) : la piste calcule
+      le sien ;
     - ``training_load`` est un algorithme de Garmin, non publié ; son absence n'est
       pas une charge nulle ;
     - les valeurs ne sont pas recalculées depuis l'enregistrement ;
@@ -1714,9 +1724,13 @@ class RetiredActivity:
 
     Non promis
     ----------
-    La cause n'est pas connue : une activité supprimée dans Garmin Connect, ou une
-    entrée que l'export décisif a refusée (ses entrées refusées sont dans son
-    ``ExportReport``).
+    La cause n'est pas connue : une activité supprimée dans Garmin Connect (ou dans
+    Strava, entre deux archives Strava), ou une entrée que l'export décisif a refusée
+    (ses entrées refusées sont dans son ``ExportReport``). Pour un FIT Strava d'un
+    appareil Garmin, aussi : une activité que Garmin porte sans enregistrement (sans
+    archive, ou dont le FIT refusé n'a pas les mêmes octets), que l'appariement ne
+    relie pas (``0013``, précision 27, le cas « manque »), ou un FIT ambigu
+    (``SourcesReport.ambiguous``).
     """
 
     activity_ref: str

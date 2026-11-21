@@ -306,7 +306,8 @@ src/mountain_perf/     le code de la bibliothèque
                        read_days_report (AN2-1) ; l'empreinte des octets lus (OG-1)
     index.py           read_index : l'index d'un export
     strava.py          lecteur d'un export Strava (AN1-3) ; n'importe ni fit ni export
-    fit.py             read_fit : le lecteur FIT, lecture stricte
+    fit.py             read_fit : le lecteur FIT, lecture stricte ; read_fit_detailed :
+                       la lecture tolérante bornée, des seuls FIT Strava (AN1-3)
     families.py        read_family : un fichier d'une famille journalière, depuis ses
                        octets ; plages, codes, descripteurs de colonnes (AN2-1)
     days.py            load_export_days, build_days : les familles de tous les exports

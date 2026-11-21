@@ -407,9 +407,10 @@ réelle, sans chiffre ici (règle 1).*
     (`RefusalReason.NOT_A_GZIP_FIT`), et des descriptions élargies à la source Strava,
     sans changer leur sens pour Garmin (les noms sous `raw/strava/` :
     `ExportReport.name`, `ReadFile.name`, `IngestionReport.read`,
-    `DaysExportReport.name` ; `ExportReport.archives` ; `RetiredActivity` ;
-    `IndexedActivity.start_time` et `source_activity_type` ; sept descriptions
-    d'`IndexField` ; au regard de la précision 22) ne changent pas le sens des
+    `DaysExportReport.name` ; `ExportReport.archives` ; `RetiredActivity` et son
+    « Non promis » ; `IndexedActivity.activity_ref`, `start_time`,
+    `source_activity_type`, son producteur et son « Non promis » ; sept
+    descriptions d'`IndexField` ; au regard de la précision 22) ne changent pas le sens des
     documents écrits avant : ils se relisent tels quels. Un champ ajouté, retiré,
     retypé ou redéfini d'un contrat existant, ou la définition changée d'une valeur
     d'énumération, demandent toujours un numéro neuf.
@@ -449,17 +450,28 @@ réelle, sans chiffre ici (règle 1).*
     récent porte devient l'entrée Garmin : son `activity_ref` change, et tout ce qui
     la cite (manifestes, registre, positions des parcours, `deja_vu.csv`) se relit à
     l'identifiant Garmin.** **Deux limites dites** : une ligne Strava sans FIT lisible
-    (sans fichier, GPX, membre absent, pas gzip, FIT refusé) ne s'apparie à rien et
-    devient une entrée Strava, même si un export Garmin porte la même sortie (deux
-    entrées) ; un FIT Garmin refusé dont la copie Strava se lit par tolérance
-    s'apparie, et l'activité reste sans enregistrement (« Garmin d'abord »).
+    (sans fichier, `Filename` d'une autre forme qu'`activities/<nom>`, GPX, membre
+    absent, pas gzip, FIT refusé) ne s'apparie à rien et devient une entrée Strava,
+    même si un export Garmin porte la même sortie (deux entrées) ; un FIT Garmin
+    refusé dont la copie Strava se lit par tolérance s'apparie, et l'activité reste
+    sans enregistrement (« Garmin d'abord »). **Le cas « manque »** : une activité
+    Garmin sans enregistrement — sans archive, ou dont le FIT est refusé et n'a pas
+    les mêmes octets que sa copie Strava — n'a que les empreintes de ses membres
+    pour l'appariement ; sa copie Strava ne s'y relie pas et, d'un appareil Garmin
+    et partie dans la période d'un export Garmin, elle est retirée comme « absente
+    de Garmin » alors que Garmin porte l'activité, qui reste sans enregistrement.
 28. **Le rapport.** `sources.json` (`SourcesReport`), écrit seulement s'il y a un
     export Strava ; les noms des fichiers lus partent de `raw/`
     (`strava/<export>/<zip>/…`) ; un `.fit.gz` absent du zip : une entrée sans
     archive ; présent mais pas gzip : `NOT_A_GZIP_FIT`. Un `Filename` d'une autre
     forme que `activities/<nom>` : la ligne est gardée, sans fichier ; un membre nommé
-    par plusieurs lignes se lit une fois. Entre exports Strava, ni les champs ni les
-    FIT ne se comparent.
+    par plusieurs lignes se lit une fois ; si plusieurs de ces lignes deviennent des
+    entrées, seule la première, par identifiant croissant, reçoit l'enregistrement,
+    les autres restent sans enregistrement (`shared_file_entries`). `sources.json`
+    compte aussi les entrées Strava sans enregistrement parties dans la période d'un
+    export Garmin (`possible_duplicates`) : des doublons possibles, la première
+    limite de la précision 27 rendue visible ; une même entrée peut compter dans les
+    deux. Entre exports Strava, ni les champs ni les FIT ne se comparent.
 29. **Sans export Garmin.** Le rapport des jours nomme les exports Strava, sans jour ;
     `jours` n'a pas de ligne, et l'instant d'acquisition des tables est celui du
     dernier export Strava.

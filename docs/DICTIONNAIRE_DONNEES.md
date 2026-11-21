@@ -6931,14 +6931,14 @@ Un échantillon gardé n'est pas garanti juste : seulement conforme au contrat.
 
 | Membre | Valeur | Description |
 |---|---|---|
-| `ELAPSED_DURATION` | `elapsed_duration_s` | Temps écoulé (elapsedDuration ; Strava : Elapsed Time). |
+| `ELAPSED_DURATION` | `elapsed_duration_s` | Temps écoulé (elapsedDuration ; Strava : la seconde colonne Elapsed Time). |
 | `MOVING_DURATION` | `moving_duration_s` | Temps en mouvement (movingDuration ; Strava : Moving Time). |
-| `DISTANCE` | `distance_m` | Distance de la source (distance ; Strava : Distance). |
+| `DISTANCE` | `distance_m` | Distance de la source (distance ; Strava : la seconde colonne Distance). |
 | `ASCENT` | `ascent_m` | D+ de la source (elevationGain ; Strava : Elevation Gain). |
 | `DESCENT` | `descent_m` | D− de la source (elevationLoss ; Strava : Elevation Loss). |
 | `ELEVATION_CORRECTED` | `elevation_corrected` | Altitude recalée par Garmin Connect (elevationCorrected). |
 | `AVERAGE_HR` | `average_hr_bpm` | FC moyenne (averageHR ; Strava : Average Heart Rate). |
-| `MAX_HR` | `max_hr_bpm` | FC maximale (maxHR ; Strava : Max Heart Rate). |
+| `MAX_HR` | `max_hr_bpm` | FC maximale (maxHR ; Strava : la seconde colonne Max Heart Rate). |
 | `TRAINING_LOAD` | `training_load` | Charge de l'activité selon Garmin (activityTrainingLoad). |
 
 Champ facultatif de l'index qu'une valeur inutilisable a fait omettre.
@@ -7111,7 +7111,8 @@ Une activité de l'index d'un export, telle que la source la décrit.
 
 #### Champs
 
-- `activity_ref` — sans unité — identifiant de l'activité dans la source.
+- `activity_ref` — sans unité — identifiant de l'activité dans la source ; pour
+  une entrée Strava, `strava-<id>` (AN1-3).
 - `source_activity_type` — sans unité — type de la source, tel quel
   (`activityType.typeKey` ; pour Strava, la colonne `Activity Type`).
 - `start_time` — instant — départ, *aware*, dans son fuseau local à décalage
@@ -7149,7 +7150,9 @@ Une activité de l'index d'un export, telle que la source la décrit.
 
 #### Producteur
 
-Le lecteur de l'index de l'ingestion (`mountain_perf.ingest.index`).
+Le lecteur de l'index de l'ingestion (`mountain_perf.ingest.index`) ; pour une
+entrée Strava, `mountain_perf.ingest.strava` (`strava_entry`) et
+`mountain_perf.ingest.export` (AN1-3).
 
 #### Consommateurs
 
@@ -7164,9 +7167,12 @@ piste (AN1-2).
 - `distance_m` est celle de la source, ni 2D ni 3D garantie ;
 - quand `elevation_corrected` est vrai, `ascent_m` et `descent_m` viennent du
   modèle de terrain de Garmin : ils ne se comparent pas au canal d'altitude de
-  l'enregistrement, que la correction ne change pas ;
-- `moving_duration_s` est le temps en mouvement de Garmin (un algorithme non
-  publié, à seuil de vitesse) : la piste calcule le sien ;
+  l'enregistrement, que la correction ne change pas ; pour une entrée Strava
+  (`elevation_corrected` absent), ils peuvent venir d'un modèle de terrain de
+  Strava (une montre sans altitude), sans que rien ne le dise (AN1-3) ;
+- `moving_duration_s` est le temps en mouvement de la source (Garmin : un
+  algorithme non publié, à seuil de vitesse ; Strava : le sien) : la piste calcule
+  le sien ;
 - `training_load` est un algorithme de Garmin, non publié ; son absence n'est
   pas une charge nulle ;
 - les valeurs ne sont pas recalculées depuis l'enregistrement ;
@@ -7973,9 +7979,13 @@ L'ingestion de plusieurs exports.
 
 #### Non promis
 
-La cause n'est pas connue : une activité supprimée dans Garmin Connect, ou une
-entrée que l'export décisif a refusée (ses entrées refusées sont dans son
-`ExportReport`).
+La cause n'est pas connue : une activité supprimée dans Garmin Connect (ou dans
+Strava, entre deux archives Strava), ou une entrée que l'export décisif a refusée
+(ses entrées refusées sont dans son `ExportReport`). Pour un FIT Strava d'un
+appareil Garmin, aussi : une activité que Garmin porte sans enregistrement (sans
+archive, ou dont le FIT refusé n'a pas les mêmes octets), que l'appariement ne
+relie pas (`0013`, précision 27, le cas « manque »), ou un FIT ambigu
+(`SourcesReport.ambiguous`).
 
 ---
 

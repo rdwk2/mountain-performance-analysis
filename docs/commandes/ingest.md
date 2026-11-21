@@ -32,7 +32,8 @@ famille ou une série qu'il n'a pas, ou les segments de la nuit, peuvent venir d
 récent des autres exports qui les porte, si leurs fenêtres s'accordent (même début de la
 fenêtre du jour, même nuit à la seconde ; pour les segments, leurs durées aussi).
 
-Dans `interim/activities/`, l'ingestion écrit trois choses :
+Dans `interim/activities/`, l'ingestion écrit trois choses, et une quatrième s'il y
+a une archive Strava :
 
 - l'index des activités, avec la provenance de chaque export ;
 - un enregistrement par activité dont un FIT se lit : un canal par grandeur, chacun
@@ -40,7 +41,10 @@ Dans `interim/activities/`, l'ingestion écrit trois choses :
 - le rapport de l'ingestion : par export, sa période et ses entrées ; les fichiers lus
   et refusés, les entrées de l'index refusées, les activités retirées de la source,
   les activités sans vue `Activity`, les désaccords entre un FIT et son entrée, et ce
-  qui diffère d'un export à l'autre (champs de l'index, FIT).
+  qui diffère d'un export à l'autre (champs de l'index, FIT) ;
+- avec une archive Strava, le rapport des sources (`sources.json`) : ce que les
+  archives Strava ont apporté et comment elles se sont fusionnées à Garmin (voir
+  « Les archives Strava »).
 
 Dans `interim/days/`, trois choses aussi :
 
@@ -96,7 +100,7 @@ quelle, jamais décompressée ni retouchée, dans son dossier, `raw/strava/<expo
 `raw/strava/` arrête l'ingestion), à côté de son `acquisition.json`, écrit à la main :
 
 ```json
-{"retrieved_at": "2026-11-20T10:45:00+01:00", "timezone": "Europe/Paris"}
+{"retrieved_at": "<instant ISO 8601 avec fuseau>", "timezone": "<nom de fuseau IANA>"}
 ```
 
 `timezone`, facultatif, est le fuseau de l'athlète (un nom IANA) : il date les
@@ -121,12 +125,15 @@ deux (reliées par l'empreinte du FIT, sinon par l'appareil et le départ du FIT
 pour une montre Garmin, par le départ seul) n'a qu'une entrée, celle de Garmin. Un FIT
 d'une montre Garmin que Garmin ne porte pas, parti dans la période d'un export Garmin,
 est retiré de la source (supprimé dans Garmin Connect). Le reste devient une entrée
-Strava. Deux limites : une ligne Strava sans FIT lisible (sans fichier, GPX, membre
-absent, pas gzip, FIT refusé) ne se relie à rien, et fait une seconde entrée si un
-export Garmin porte la même sortie ; un FIT Garmin refusé dont la copie Strava se lit
-reste, dans Garmin, sans enregistrement. **L'identifiant change** : une activité venue
-de Strava seul qu'un export Garmin plus récent porte devient l'entrée Garmin, sous son
-identifiant Garmin ; un manifeste cite donc une activité par son identifiant Garmin.
+Strava. Deux limites : une ligne Strava sans FIT lisible (sans fichier, `Filename`
+d'une autre forme qu'`activities/<nom>`, GPX, membre absent, pas gzip, FIT refusé)
+ne se relie à rien, et fait une seconde entrée si un export Garmin porte la même
+sortie — la sortie compte ces doublons possibles : les entrées sans enregistrement
+parties dans la période d'un export Garmin ; un FIT Garmin refusé dont la copie
+Strava se lit reste, dans Garmin, sans enregistrement. **L'identifiant change** : une
+activité venue de Strava seul qu'un export Garmin plus récent porte devient l'entrée
+Garmin, sous son identifiant Garmin ; un manifeste cite donc une activité par son
+identifiant Garmin.
 **« Ride » de Strava est hors de la table des types** : il désigne la route comme le
 VTT ; un VTT venu de Strava seul n'a pas de vue `MTB`.
 
@@ -140,7 +147,10 @@ Garmin reste lu strictement.
 La sortie donne, après les lignes des activités, s'il y a une archive Strava, un bloc
 « Strava » : les exports Strava, les entrées venues de Strava, les activités appariées
 à Garmin (par l'empreinte, par l'identité, par le départ du FIT), les ambiguës, les FIT
-d'un appareil Garmin retirés, les entrées datées par le fuseau par défaut, les
+d'un appareil Garmin retirés, les entrées sans enregistrement parties dans la
+période d'un export Garmin (doublons possibles), les entrées laissées sans
+enregistrement parce que leur fichier est celui d'une autre entrée (seule la
+première a l'enregistrement), les entrées datées par le fuseau par défaut, les
 enregistrements sans altitude ; puis, s'il y en a, les FIT lus par tolérance, une ligne
 par champ sauté. La ligne d'une archive Strava, dans la liste des exports, porte
 « (Strava) » et compte ses fichiers nommés. Ces comptes sont aussi dans
