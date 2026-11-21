@@ -11,6 +11,7 @@ import streamlit as st
 from mountain_perf.ui.fenetre import window_page
 from mountain_perf.ui.projection import projection_page
 from mountain_perf.ui.q1 import q1_page
+from mountain_perf.ui.q2 import q2_page
 from mountain_perf.ui.recuperation import recuperation_page
 from mountain_perf.ui.sortie import outing_page
 
@@ -20,6 +21,7 @@ PAGES = [
     st.Page(window_page, title="La fenêtre", url_path="fenetre"),
     st.Page(recuperation_page, title="Récupération", url_path="recuperation"),
     st.Page(q1_page, title="Q1", url_path="q1"),
+    st.Page(q2_page, title="Q2", url_path="q2"),
 ]
 
 st.set_page_config(page_title="mountain-performance-analysis", layout="wide")

@@ -90,14 +90,14 @@ def test_claude_md_names_the_reading_commands_in_rule_1() -> None:
 
 def test_the_usage_documents() -> None:
     ui = _text(COMMANDS / "ui.md")
-    assert "Cinq pages : " in ui
+    assert "Six pages : " in ui
     assert "- **La page « La fenêtre »** : " in ui
     project = _text(COMMANDS / "project.md")
     assert "| `--at AAAA-MM-JJ` | le jour de la course : " in project
     (curve,) = [line for line in project.split("\n") if line.startswith("| `--curve ")]
     assert "**obligatoire**" not in curve
     readme = _text(ROOT / "README.md")
-    assert "Cinq pages :" in readme
+    assert "Six pages :" in readme
     assert "| [`just project`](docs/commandes/project.md) | " in readme
     commands = _text(COMMANDS / "README.md")
     assert "- [`just project`](project.md) — " in commands
@@ -109,7 +109,7 @@ def test_the_data_folder_names_interim_for_the_pages() -> None:
     flat = " ".join(_text(COMMANDS / "README.md").split())
     assert (
         "(`just ui` : `routes/`, `sorties/`, `reference/`, `interim/activities/`, "
-        "`processed/` et `resultats/Q1/` lus ;"
+        "`processed/`, `resultats/Q1/` et `resultats/Q2/` lus ;"
     ) in flat
     assert (
         "écrits par l'ajout d'un fichier) et à la projection (`just " + "project` : "

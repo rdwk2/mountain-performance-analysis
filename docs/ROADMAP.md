@@ -39,7 +39,7 @@ analyse les données d'entraînement, de récupération et de sommeil de l'athl�
   livrée. AN3 (Q2, l'efficience en montée) est commencée : la FC décalée de chaque
   montée (AN3-1a), les outils d'inférence (AN3-1), les positions des bornes de
   chaque montée et la demi-heure de FC la plus basse du jour (AN3-3a), le code de
-  Q2, sa puissance et ses essais (AN3-3b).
+  Q2, sa puissance et ses essais (AN3-3b), sa page (AN3-5).
 
 ---
 
@@ -415,4 +415,6 @@ précisions d'AN3-1a) ; puis les outils d'inférence (AN3-1, `0021`). AN3-3a : d
 données de plus pour Q2, les positions des bornes de chaque montée et l'instant de la
 demi-heure de FC la plus basse du jour (`0014`, précisions d'AN3-3a ; `0019`). AN3-3b :
 le code de Q2, `mperf q2 puissance` puis `mperf q2`, les vingt-quatre essais et leur
-journal (`0023`). Suivent le contrôle réel et le plan v2, puis la page.
+journal (`0023`). Le contrôle réel, le plan v2 et l'estimation se font hors du dépôt.
+AN3-5 : la page de Q2 (`ui/q2.py`, `0016`, `0023`) ; sur la page récupération, les
+nuits sans SpO2 rendues visibles.
