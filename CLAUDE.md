@@ -131,7 +131,7 @@ just dictionary # régénère docs/DICTIONNAIRE_DONNEES.md depuis les docstrings
 just backtest courbe.csv  # backtest enregistré des cinq modèles, rapport D15 (M4b-5, M4c-2) ; MPA_DATA_DIR/reference/
 just backtest courbe.csv --sensitivity  # puis la sensibilité D13, enregistrée, rapport sensibilite-<n>.txt (M4d-3)
 just backtest-rolling 28,56,all --covered-threshold … --coverage-tolerance …  # le backtest glissant (OG-2), lancé par l'humain
-just ingest     # raw/garmin/ → interim/activities/ et interim/days/, extra ingest (AN1-1, AN2-0, AN2-1) ; MPA_DATA_DIR
+just ingest     # raw/garmin/ et raw/strava/ → interim/activities/ et interim/days/, extra ingest (AN1-1, AN2-0, AN2-1, AN1-3) ; MPA_DATA_DIR
 just process    # raw/ → interim/ → processed/ : ingest, puis mperf tables, extras ingest et analyse (AN1-2b)
 just q1         # processed/ → resultats/Q1/<date>_<empreinte>/ : la figure de Q1, extra analyse (AN1-2c)
 just q2 puissance --processus 8  # processed/ → resultats/Q2/puissance/ : la puissance de Q2, avant toute estimation (AN3-3b)
@@ -294,8 +294,9 @@ src/mountain_perf/     le code de la bibliothèque
     correspondence.py  activity_refs : les trois contrôles de correspondance (OG-2)
     rolling.py         le backtest glissant : préparation, figement, parts, évaluation (OG-2)
     student_t.py       la table des quantiles de Student, recopiée (OG-2)
-  ingest/              ingestion Garmin, `raw/` → `interim/` (piste analyse, AN1-1 ;
-                       M6b) ; seul `fit.py` importe l'extra `ingest` (`0011`, `0013`)
+  ingest/              ingestion Garmin et Strava, `raw/garmin/` et `raw/strava/` →
+                       `interim/` (piste analyse, AN1-1 ; M6b ; AN1-3) ; seul `fit.py`
+                       importe l'extra `ingest` (`0011`, `0013`)
     types.py           SOURCE_TYPE_SPORTS : types de la source → Sport
     views.py           activity_view, stream_view : vues Activity et TrackPointStream ;
                        `trace_view`, la trace du moteur, commune avec la piste
@@ -304,6 +305,7 @@ src/mountain_perf/     le code de la bibliothèque
                        interim/days/ : write_days, read_days, read_training_status,
                        read_days_report (AN2-1) ; l'empreinte des octets lus (OG-1)
     index.py           read_index : l'index d'un export
+    strava.py          lecteur d'un export Strava (AN1-3) ; n'importe ni fit ni export
     fit.py             read_fit : le lecteur FIT, lecture stricte
     families.py        read_family : un fichier d'une famille journalière, depuis ses
                        octets ; plages, codes, descripteurs de colonnes (AN2-1)
@@ -312,8 +314,9 @@ src/mountain_perf/     le code de la bibliothèque
                        entre exports, Training Status, rapport (AN2-1)
     day_views.py       les vues des jours, lues par M7 et par la piste : instant propre,
                        seuils en arguments (AN2-1)
-    export.py          ingest_export : les exports de raw/garmin/ → interim/activities/
-                       (AN1-1, AN2-0), puis interim/days/ (AN2-1)
+    export.py          ingest_export : les exports de raw/garmin/ et raw/strava/ →
+                       interim/activities/ (AN1-1, AN2-0, AN1-3), puis interim/days/
+                       (AN2-1)
   analyse/             tables de `processed/`, figures et méthodes statistiques de la
                        piste analyse (AN1) ; Python pur, sauf `parquet.py` (pyarrow),
                        `plot.py` (plotly) et `inference/` (numpy, scipy), seuls
@@ -392,8 +395,8 @@ src/mountain_perf/     le code de la bibliothèque
                        --curve, --no-reference : scores de v0 brut (M4b-2) ;
                        mperf backtest <manifeste.json> --curve : backtest enregistré, rapport D15 (M4b-5) ;
                        cinq modèles (M4c-2) ; --sensitivity : sensibilité D13 (M4d-3) ;
-                       mperf ingest : raw/garmin/ → interim/activities/ (AN1-1, AN2-0)
-                       et interim/days/ (AN2-1) ;
+                       mperf ingest : raw/garmin/ et raw/strava/ → interim/activities/
+                       (AN1-1, AN2-0, AN1-3) et interim/days/ (AN2-1) ;
                        mperf tables : interim/activities/ → processed/ (AN1-2b) ;
                        interim/days/ et journal.csv → jours, son résumé (AN2-2) ;
                        mperf q1 : processed/ → resultats/Q1/ (AN1-2c) ;
@@ -421,8 +424,9 @@ Les données réelles vivent **hors du repo**, sous `MPA_DATA_DIR` :
 
 ```
 $MPA_DATA_DIR/
-  raw/          exports bruts — IMMUABLES : raw/garmin/<export>/, un dossier par export
-                Garmin, jamais retiré (AN2-0) ; raw/<source>/ (CHARTE, § 12)
+  raw/          exports bruts — IMMUABLES : raw/garmin/<export>/ et raw/strava/<export>/,
+                un dossier par export Garmin ou archive Strava, jamais retiré (AN2-0,
+                AN1-3) ; raw/<source>/ (CHARTE, § 12)
   interim/      parsé et normalisé — régénérable depuis raw/
   processed/    prêt à l'analyse — régénérable
   routes/       tracés préparés (GPX), ajoutés à la main ou par l'interface (M5)

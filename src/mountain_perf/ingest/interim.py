@@ -22,6 +22,7 @@ from mountain_perf.schemas import (
     DayRecord,
     DaysReport,
     IngestionReport,
+    SourcesReport,
     TrainingStatusHistory,
     require_activity_ref,
 )
@@ -34,11 +35,12 @@ INTERIM_DOCUMENT_FIRST_FORMAT: Mapping[type, int] = MappingProxyType(
         DayRecord: 2,
         TrainingStatusHistory: 2,
         DaysReport: 2,
+        SourcesReport: 2,
     }
 )
 """Les types admis en documents d'``interim/``, et le premier format qui connaît
-chacun : les types des jours (AN2-1) entrent au format 2, sans changer
-``INTERIM_FORMAT_VERSION``."""
+chacun : les types des jours (AN2-1) et le rapport des sources (AN1-3) entrent au
+format 2, sans changer ``INTERIM_FORMAT_VERSION``."""
 
 ACTIVITIES_DIR = Path("interim") / "activities"
 """Le dossier des documents des activités, relatif à ``MPA_DATA_DIR``."""
@@ -49,6 +51,10 @@ INDEX_FILE = "index.json"
 REPORT_FILE = "report.json"
 """Le document du rapport des activités de la dernière ingestion
 (``IngestionReport``)."""
+
+SOURCES_FILE = "sources.json"
+"""Le document du rapport des sources (``SourcesReport``, AN1-3), écrit seulement s'il
+y a au moins un export Strava."""
 
 RECORDINGS_DIR = "recordings"
 """Le dossier des enregistrements, un document par activité (``ActivityRecording``)."""
@@ -121,10 +127,12 @@ def write_activities(
     index: ActivityIndex,
     recordings: Iterable[ActivityRecording],
     report: IngestionReport,
+    sources: SourcesReport | None = None,
 ) -> None:
     """Écrit ``interim/activities/`` sous ``data_dir`` : l'index, un document par
-    enregistrement, le rapport ; une écriture interrompue laisse l'ancien dossier
-    intact.
+    enregistrement, le rapport, et, si ``sources`` n'est pas ``None``, le rapport des
+    sources (``sources.json``, juste après le rapport, AN1-3) ; ``None``, rien de plus
+    n'est écrit. Une écriture interrompue laisse l'ancien dossier intact.
 
     Dans cet ordre : supprime ``interim/activities.nouveau/`` et
     ``interim/activities.ancien/`` s'ils restent d'une écriture interrompue ; écrit tout
@@ -161,6 +169,8 @@ def write_activities(
         if expected:
             raise ValueError(_MISSING_RECORDING)
         (new / REPORT_FILE).write_bytes(encode_interim(report))
+        if sources is not None:
+            (new / SOURCES_FILE).write_bytes(encode_interim(sources))
     except BaseException:
         _remove(new)
         raise
@@ -202,6 +212,16 @@ def read_report(data_dir: Path) -> IngestionReport:
     ``InterimError`` (« report.json manque dans interim/ : lancer `mperf ingest`. »)."""
     data = _read_document(data_dir / ACTIVITIES_DIR / REPORT_FILE)
     return decode_interim(data, IngestionReport)
+
+
+def read_sources(data_dir: Path) -> SourcesReport:
+    """Le rapport des sources de la dernière ingestion (AN1-3) ; fichier absent (pas
+    d'export Strava) : ``SourcesReport.empty()``."""
+    try:
+        data = (data_dir / ACTIVITIES_DIR / SOURCES_FILE).read_bytes()
+    except FileNotFoundError:
+        return SourcesReport.empty()
+    return decode_interim(data, SourcesReport)
 
 
 def read_recording(data_dir: Path, activity_ref: str) -> ActivityRecording:

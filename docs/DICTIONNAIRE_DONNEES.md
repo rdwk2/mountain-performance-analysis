@@ -163,6 +163,8 @@
 - `ExportReport`
 - `RetiredActivity`
 - `FieldDifferenceCount`
+- `ToleratedFile`
+- `SourcesReport`
 - `IngestionReport`
 - `DayFamily`
 - `DayState`
@@ -6929,14 +6931,14 @@ Un échantillon gardé n'est pas garanti juste : seulement conforme au contrat.
 
 | Membre | Valeur | Description |
 |---|---|---|
-| `ELAPSED_DURATION` | `elapsed_duration_s` | Temps écoulé (elapsedDuration). |
-| `MOVING_DURATION` | `moving_duration_s` | Temps en mouvement (movingDuration). |
-| `DISTANCE` | `distance_m` | Distance de la source (distance). |
-| `ASCENT` | `ascent_m` | D+ de la source (elevationGain). |
-| `DESCENT` | `descent_m` | D− de la source (elevationLoss). |
+| `ELAPSED_DURATION` | `elapsed_duration_s` | Temps écoulé (elapsedDuration ; Strava : Elapsed Time). |
+| `MOVING_DURATION` | `moving_duration_s` | Temps en mouvement (movingDuration ; Strava : Moving Time). |
+| `DISTANCE` | `distance_m` | Distance de la source (distance ; Strava : Distance). |
+| `ASCENT` | `ascent_m` | D+ de la source (elevationGain ; Strava : Elevation Gain). |
+| `DESCENT` | `descent_m` | D− de la source (elevationLoss ; Strava : Elevation Loss). |
 | `ELEVATION_CORRECTED` | `elevation_corrected` | Altitude recalée par Garmin Connect (elevationCorrected). |
-| `AVERAGE_HR` | `average_hr_bpm` | FC moyenne (averageHR). |
-| `MAX_HR` | `max_hr_bpm` | FC maximale (maxHR). |
+| `AVERAGE_HR` | `average_hr_bpm` | FC moyenne (averageHR ; Strava : Average Heart Rate). |
+| `MAX_HR` | `max_hr_bpm` | FC maximale (maxHR ; Strava : Max Heart Rate). |
 | `TRAINING_LOAD` | `training_load` | Charge de l'activité selon Garmin (activityTrainingLoad). |
 
 Champ facultatif de l'index qu'une valeur inutilisable a fait omettre.
@@ -6977,6 +6979,7 @@ Un champ absent de la source n'est pas « omis » : il est seulement absent.
 | `NOT_IN_INDEX` | `not_in_index` | FIT dont l'activité n'est pas dans l'index de son export. |
 | `DUPLICATE_ENTRY` | `duplicate_entry` | Entrée de l'index d'un export dont l'identifiant apparaît plus d'une fois dans ce fichier : toutes ses entrées y sont refusées. |
 | `UNUSABLE_ENTRY` | `unusable_entry` | Entrée de l'index sans identifiant, type ou départ utilisables. |
+| `NOT_A_GZIP_FIT` | `not_a_gzip_fit` | Fichier .fit.gz qu'une ligne de l'index Strava nomme, présent dans le zip de l'export, qui ne se décompresse pas en gzip. |
 
 Motif pour lequel l'ingestion refuse un fichier ou une entrée de l'index.
 
@@ -6986,7 +6989,8 @@ Valeurs décrites dans `REFUSAL_REASON_DESCRIPTIONS`.
 
 #### Invariants
 
-Énumération fermée.
+Énumération fermée (AN1-3 : `NOT_A_GZIP_FIT`, sans numéro de format neuf,
+`0013`, précision 24).
 
 #### Producteur
 
@@ -7109,9 +7113,11 @@ Une activité de l'index d'un export, telle que la source la décrit.
 
 - `activity_ref` — sans unité — identifiant de l'activité dans la source.
 - `source_activity_type` — sans unité — type de la source, tel quel
-  (`activityType.typeKey`).
+  (`activityType.typeKey` ; pour Strava, la colonne `Activity Type`).
 - `start_time` — instant — départ, *aware*, dans son fuseau local à décalage
-  fixe (heure locale de la source moins son heure UTC).
+  fixe (heure locale de la source moins son heure UTC ; pour une entrée Strava sans
+  décalage lu d'un FIT, le décalage, à son départ, du fuseau `timezone` de
+  l'export, ou d'`Europe/Paris` (AN1-3)).
 - `elapsed_duration_s` — secondes — temps écoulé, `> 0`, si présent.
 - `moving_duration_s` — secondes — temps en mouvement, `>= 0`, si présent.
 - `distance_m` — mètres — distance de la source, `>= 0`, si présente.
@@ -7708,7 +7714,7 @@ Un fichier d'un export lu par l'ingestion.
 #### Champs
 
 - `name` — sans unité — chemin relatif à `raw/`, séparé par `/`
-  (`garmin/<export>/…`, AN2-0).
+  (`garmin/<export>/…` ou `strava/<export>/…`, AN2-0, AN1-3).
 - `content_hash` — sans unité — `sha256` du contenu, hexadécimal minuscule.
 
 #### Invariants
@@ -7897,14 +7903,17 @@ Un export lu par l'ingestion (AN2-0).
 
 #### Champs
 
-- `name` — sans unité — le nom de son dossier sous `raw/garmin/`.
+- `name` — sans unité — le nom de son dossier sous `raw/garmin/` ou
+  `raw/strava/` (AN1-3).
 - `index` — sans unité — la provenance de son fichier d'index : nom, empreinte,
   instant d'acquisition de l'export.
 - `period_start` — instant — le premier départ de ses entrées gardées, stocké en
   UTC ; absent s'il n'en garde aucune.
 - `entries` — sans unité — ses entrées gardées, `>= 0`.
 - `refused_entries` — sans unité — ses entrées refusées, triées par rang.
-- `archives` — sans unité — les fichiers de son `activity_fit/`, `>= 0`.
+- `archives` — sans unité — les fichiers de son `activity_fit/` ; pour un
+  export Strava, ses lignes gardées dont le `Filename` a la forme
+  `activities/<nom>` (AN1-3), `>= 0`.
 
 #### Invariants
 
@@ -7940,6 +7949,10 @@ export peut avoir été pris sur une partie de l'historique seulement.
 
 Une activité qu'un export ancien porte, mais que l'export décisif, le plus récent
 dont la période couvre son départ, ne porte pas : elle n'est pas ingérée (AN2-0).
+Pour Strava (AN1-3, `0013`, précision 27) : aussi un FIT Strava d'un appareil
+Garmin que l'appariement ne relie à aucune activité Garmin, parti dans la période
+d'un export Garmin ; `export` est alors l'export Garmin le plus récent dont la
+période couvre son départ.
 
 #### Champs
 
@@ -8003,6 +8016,115 @@ diffèrent.
 
 ---
 
+## `ToleratedFile`
+
+*`mountain_perf.schemas.interim` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `name` | `str` | — |
+| `manufacturer` | `str \| None` | — |
+| `message` | `str` | — |
+| `field_number` | `int` | — |
+
+Un champ sauté d'un FIT Strava gardé par la lecture tolérante bornée (AN1-3,
+`0013`, précision 30).
+
+#### Champs
+
+- `name` — sans unité — le FIT, chemin relatif à `raw/`, séparé par `/`
+  (`strava/<export>/<zip>/activities/<nom>`).
+- `manufacturer` — sans unité — le fabricant de son premier `file_id`, tel que
+  le lecteur FIT le lit, s'il est présent.
+- `message` — sans unité — le message du champ sauté, du nom que le profil FIT
+  lui donne (« event », « unknown_233 »).
+- `field_number` — sans unité — le numéro du champ dans sa définition.
+
+#### Invariants
+
+`name` comme dans `ReadFile` ; `manufacturer` non vide s'il est présent ;
+`message` non vide ; `0 <= field_number <= 255`.
+
+#### Producteur
+
+L'ingestion d'une archive Strava.
+
+#### Consommateurs
+
+`SourcesReport` ; `mperf ingest`, qui en affiche une ligne par élément.
+
+#### Non promis
+
+La valeur du champ sauté n'est pas gardée ; un FIT dont plusieurs champs sautent a
+un élément par champ.
+
+---
+
+## `SourcesReport`
+
+*`mountain_perf.schemas.interim` · dataclass gelée*
+
+| Champ | Type | Défaut |
+|---|---|---|
+| `strava_exports` | `int` | — |
+| `strava_entries` | `int` | — |
+| `matched_by_hash` | `int` | — |
+| `matched_by_identity` | `int` | — |
+| `matched_by_fit_start` | `int` | — |
+| `ambiguous` | `int` | — |
+| `retired_garmin_device` | `int` | — |
+| `default_timezone_entries` | `int` | — |
+| `strava_recordings_without_elevation` | `int` | — |
+| `tolerated` | `tuple[ToleratedFile, ...]` | — |
+
+Le rapport des sources de la dernière ingestion (document
+`interim/activities/sources.json`, AN1-3, `0013`, précision 28) : ce que les
+archives Strava ont apporté, et comment elles se sont fusionnées à Garmin.
+
+#### Champs
+
+- `strava_exports` — sans unité — les exports Strava lus.
+- `strava_entries` — sans unité — les entrées de l'index venues de Strava.
+- `matched_by_hash` — sans unité — les activités Strava appariées par
+  l'empreinte du FIT.
+- `matched_by_identity` — sans unité — … par l'identité (fabricant, produit,
+  création) et le départ du FIT.
+- `matched_by_fit_start` — sans unité — … par le départ du FIT seul, fabricant
+  `garmin` des deux côtés.
+- `ambiguous` — sans unité — les FIT Strava non appariés dont une clé désignait
+  plusieurs activités.
+- `retired_garmin_device` — sans unité — les FIT Strava d'un appareil Garmin, non
+  appariés, partis dans la période d'un export Garmin : retirés de la source.
+- `default_timezone_entries` — sans unité — les entrées Strava datées par le
+  fuseau par défaut (`Europe/Paris`).
+- `strava_recordings_without_elevation` — sans unité — les enregistrements Strava
+  écrits sans canal d'altitude.
+- `tolerated` — sans unité — les FIT Strava gardés par la lecture tolérante, un
+  élément par champ sauté, triés par (nom, message, numéro).
+
+#### Invariants
+
+- comptes `>= 0` ;
+- `tolerated` en tuple, trié par (nom, message, numéro), sans doublon ;
+- sans export Strava (`strava_exports == 0`), tous les comptes sont nuls et
+  `tolerated` est vide (`empty()`).
+
+#### Producteur
+
+L'ingestion (`mountain_perf.ingest.export`), s'il y a au moins un export Strava.
+
+#### Consommateurs
+
+`mperf ingest`, qui en affiche le bloc « Strava » ; la vérification de
+l'ingestion.
+
+#### Non promis
+
+Absent d'`interim/activities/` quand il n'y a pas d'export Strava : son lecteur
+rend alors `SourcesReport.empty()`. Aucun instant d'exécution.
+
+---
+
 ## `IngestionReport`
 
 *`mountain_perf.schemas.interim` · dataclass gelée*
@@ -8028,7 +8150,7 @@ Le rapport des activités de la dernière ingestion (document
 - `exports` — sans unité — les exports lus, par instant d'acquisition croissant
   (AN2-0).
 - `read` — sans unité — les fichiers lus, triés par nom
-  (`garmin/<export>/…`).
+  (`garmin/<export>/…` ou `strava/<export>/…`).
 - `refused_files` — sans unité — les fichiers refusés, triés par nom.
 - `retired` — sans unité — les activités retirées de la source, triées par
   identifiant (AN2-0).
@@ -10044,7 +10166,8 @@ Un export, vu par l'ingestion des jours.
 
 #### Champs
 
-- `name` — sans unité — le nom de son dossier sous `raw/garmin/`.
+- `name` — sans unité — le nom de son dossier sous `raw/garmin/` ou
+  `raw/strava/` (AN1-3).
 - `retrieved_at` — instant — son instant d'acquisition, stocké en UTC.
 - `first_day`, `last_day` — date — premier et dernier jour de ses fichiers
   journaliers ; absents s'il n'en a pas.

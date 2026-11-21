@@ -46,8 +46,8 @@ backtest curve *options:
 backtest-rolling windows *options:
     uv run mperf backtest "{{env_var('MPA_DATA_DIR')}}/reference/manifeste.json" --rolling {{windows}} {{options}}
 
-# Ingestion des exports Garmin (AN1-1, AN2-0, AN2-1, docs/decisions/0013 et 0018) :
-# MPA_DATA_DIR/raw/garmin → MPA_DATA_DIR/interim/activities et MPA_DATA_DIR/interim/days,
+# Ingestion des exports Garmin et des archives Strava (AN1-1, AN2-0, AN2-1, AN1-3, docs/decisions/0013 et 0018) :
+# MPA_DATA_DIR/raw/garmin et MPA_DATA_DIR/raw/strava → MPA_DATA_DIR/interim/activities et MPA_DATA_DIR/interim/days,
 # avec l'extra ingest (fitdecode, pour les FIT).
 ingest:
     uv run --extra ingest mperf ingest

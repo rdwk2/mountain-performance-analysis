@@ -18,6 +18,7 @@ from mountain_perf.ingest.interim import (
     read_index,
     read_recording,
     read_report,
+    read_sources,
     write_activities,
 )
 from mountain_perf.schemas import (
@@ -34,6 +35,8 @@ from mountain_perf.schemas import (
     RefusalReason,
     RefusedEntry,
     RetiredActivity,
+    SourcesReport,
+    ToleratedFile,
     TrainingStatusHistory,
     ViewRefusal,
     ViewRefusalCount,
@@ -89,6 +92,7 @@ def test_format_and_types() -> None:
         DayRecord: 2,
         TrainingStatusHistory: 2,
         DaysReport: 2,
+        SourcesReport: 2,
     }
 
 
@@ -124,6 +128,58 @@ def test_write_then_read(tmp_path: Path) -> None:
     assert read_report(tmp_path) == REPORT
     assert read_recording(tmp_path, "11") == recording()
     assert (root / "index.json").read_bytes() == encode_interim(INDEX)
+
+
+SOURCES = SourcesReport(
+    strava_exports=1,
+    strava_entries=2,
+    matched_by_hash=1,
+    matched_by_identity=0,
+    matched_by_fit_start=0,
+    ambiguous=0,
+    retired_garmin_device=1,
+    default_timezone_entries=1,
+    strava_recordings_without_elevation=0,
+    tolerated=(
+        ToleratedFile(
+            "strava/s1/export_1.zip/activities/9.fit.gz", "coros", "event", 3
+        ),
+    ),
+)
+
+
+def test_without_sources_the_files_and_bytes_are_those_of_before(
+    tmp_path: Path,
+) -> None:
+    """Sans ``sources`` (AN1-3), la liste des fichiers et leurs octets sont ceux
+    d'avant : rien de plus n'est écrit."""
+    write_activities(tmp_path, INDEX, [recording()], REPORT)
+    root = tmp_path / ACTIVITIES_DIR
+    assert sorted(p.name for p in root.iterdir()) == [
+        "index.json",
+        "recordings",
+        "report.json",
+    ]
+    assert (root / "report.json").read_bytes() == encode_interim(REPORT)
+    assert read_sources(tmp_path) == SourcesReport.empty()
+
+
+def test_with_sources_the_report_of_the_sources_is_written(tmp_path: Path) -> None:
+    write_activities(tmp_path, INDEX, [recording()], REPORT, SOURCES)
+    root = tmp_path / ACTIVITIES_DIR
+    assert sorted(p.name for p in root.iterdir()) == [
+        "index.json",
+        "recordings",
+        "report.json",
+        "sources.json",
+    ]
+    assert (root / "sources.json").read_bytes() == encode_interim(SOURCES)
+    assert read_sources(tmp_path) == SOURCES
+    assert read_report(tmp_path) == REPORT
+
+
+def test_read_sources_without_interim_is_the_empty_report(tmp_path: Path) -> None:
+    assert read_sources(tmp_path) == SourcesReport.empty()
 
 
 def test_rewriting_replaces_everything(tmp_path: Path) -> None:

@@ -90,6 +90,13 @@ statsmodels (`MixedLM`).
 - *Lecture stricte* : contrôle CRC et gestion d'erreurs en mode `RAISE` (fitdecode les
   met par défaut en simple avertissement). Un fichier refusé est signalé et écarté,
   jamais lu à moitié. Sur un export réel examiné, tous les FIT passent ce contrôle.
+  *Précision d'AN1-3 (`0013`, précision 30) : une seule exception, pour les FIT d'une
+  archive Strava seulement — une seconde lecture, le CRC toujours strict, garde un FIT
+  dont la lecture stricte échoue sur une définition de champ dont la taille n'est pas
+  un multiple de son type, si ce champ n'est lu par aucun contrat ou n'est que le
+  champ `data` du message `event` ; chaque fichier ainsi lu est compté dans
+  `sources.json`. Mesuré sur une archive réelle : des FIT d'une montre d'une autre
+  marque portent ce défaut sur `event.data`.*
 - *Unités aux frontières* : conversions à la lecture, unités dans les noms (positions
   de semicircles en degrés, `*_deg` ; altitude en mètres, `*_m` ; et la source de
   l'altitude dite : `enhanced_altitude`, ou `altitude` à défaut).

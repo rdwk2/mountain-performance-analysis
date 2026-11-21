@@ -319,7 +319,9 @@ def test_an_empty_table_is_said(base: Tables) -> None:
     at = _app(_recovery)
     assert not at.exception
     assert [info.value for info in at.info] == [
-        "La table jours n'a aucune ligne : lancer just process."
+        "La table jours n'a aucune ligne : aucun export ne porte de données "
+        "journalières (une archive Strava n'en a pas), ou interim/ n'est pas à jour : "
+        "lancer just process."
     ]
     assert not at.get("vega_lite_chart")
 
