@@ -409,11 +409,11 @@ réelle, sans chiffre ici (règle 1).*
     `ExportReport.name`, `ReadFile.name`, `IngestionReport.read`,
     `DaysExportReport.name` ; `ExportReport.archives` ; `RetiredActivity` et son
     « Non promis » ; `IndexedActivity.activity_ref`, `start_time`,
-    `source_activity_type`, son producteur et son « Non promis » ; sept
-    descriptions d'`IndexField` ; au regard de la précision 22) ne changent pas le sens des
-    documents écrits avant : ils se relisent tels quels. Un champ ajouté, retiré,
-    retypé ou redéfini d'un contrat existant, ou la définition changée d'une valeur
-    d'énumération, demandent toujours un numéro neuf.
+    `source_activity_type`, son producteur et son « Non promis » ; sept descriptions
+    d'`IndexField` ; au regard de la précision 22) ne changent pas le sens des documents
+    écrits avant : ils se relisent tels quels. Un champ ajouté, retiré, retypé ou
+    redéfini d'un contrat existant, ou la définition changée d'une valeur d'énumération,
+    demandent toujours un numéro neuf.
 25. **Les exports Strava.** `raw/strava/<export>/` : l'archive de Strava telle
     qu'envoyée (un seul `.zip`, jamais décompressé ni retouché) et `acquisition.json`
     (la forme de la précision 9, plus la clé facultative `timezone`, un nom IANA,
@@ -466,12 +466,13 @@ réelle, sans chiffre ici (règle 1).*
     archive ; présent mais pas gzip : `NOT_A_GZIP_FIT`. Un `Filename` d'une autre
     forme que `activities/<nom>` : la ligne est gardée, sans fichier ; un membre nommé
     par plusieurs lignes se lit une fois ; si plusieurs de ces lignes deviennent des
-    entrées, seule la première, par identifiant croissant, reçoit l'enregistrement,
-    les autres restent sans enregistrement (`shared_file_entries`). `sources.json`
-    compte aussi les entrées Strava sans enregistrement parties dans la période d'un
-    export Garmin (`possible_duplicates`) : des doublons possibles, la première
-    limite de la précision 27 rendue visible ; une même entrée peut compter dans les
-    deux. Entre exports Strava, ni les champs ni les FIT ne se comparent.
+    entrées, seule la première, par identifiant croissant (l'ordre des chaînes
+    `strava-<id>`), reçoit l'enregistrement, les autres restent sans enregistrement
+    (`shared_file_entries`). `sources.json` compte aussi les entrées Strava sans
+    enregistrement parties dans la période d'un export Garmin (`possible_duplicates`) :
+    des doublons possibles, la première limite de la précision 27 rendue visible ; une
+    même entrée peut compter dans les deux. Entre exports Strava, ni les champs ni les
+    FIT ne se comparent.
 29. **Sans export Garmin.** Le rapport des jours nomme les exports Strava, sans jour ;
     `jours` n'a pas de ligne, et l'instant d'acquisition des tables est celui du
     dernier export Strava.

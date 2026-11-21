@@ -28,8 +28,9 @@ montre Garmin absent de Garmin, sinon une entrée `strava-<id>`. Le lecteur FIT 
 une lecture tolérante bornée, pour les seuls FIT Strava (`0011`, `0013`, précision
 30). Pas de numéro de format neuf : `sources.json` (écrit seulement avec Strava) et
 `NOT_A_GZIP_FIT` (`0013`, précisions 24 à 30). Garmin seul s'écrit à l'octet comme sur
-`7bbeddb`, sur un monde synthétique (empreintes relevées dans un arbre détaché) ; Strava seul passe `ingest`,
-`tables`, `q1` et la page récupération. Les contre-épreuves du brief jouées, une à une.
+`7bbeddb`, sur un monde synthétique (empreintes relevées dans un arbre détaché) ; Strava
+seul passe `ingest`, `tables`, `q1` et la page récupération. Les contre-épreuves du
+brief jouées, une à une.
 Conclusion : Strava entre sans rien changer pour Garmin seul. Rangé dans
 `src/mountain_perf/ingest/{strava,export,fit}.py`, `schemas/interim.py`,
 `docs/commandes/ingest.md`, branche `an1/strava`.

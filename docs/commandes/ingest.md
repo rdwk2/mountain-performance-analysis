@@ -36,7 +36,9 @@ Dans `interim/activities/`, l'ingestion écrit trois choses, et une quatrième s
 a une archive Strava :
 
 - l'index des activités, avec la provenance de chaque export ;
-- un enregistrement par activité dont un FIT se lit : un canal par grandeur, chacun
+- un enregistrement par activité dont un FIT se lit (pour une archive Strava, un fichier
+  nommé par plusieurs lignes ne le donne qu'à la première ; un FIT Garmin refusé reste
+  sans enregistrement, même si sa copie Strava se lit) : un canal par grandeur, chacun
   avec ses instants, sans interpolation ;
 - le rapport de l'ingestion : par export, sa période et ses entrées ; les fichiers lus
   et refusés, les entrées de l'index refusées, les activités retirées de la source,

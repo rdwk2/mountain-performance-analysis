@@ -1993,9 +1993,9 @@ class SourcesReport:
       doubler une sortie que Garmin porte (``0013``, précision 28).
     - ``shared_file_entries`` — sans unité — les entrées Strava laissées sans
       enregistrement parce que leur fichier ``.fit.gz``, lu, est aussi celui d'une
-      entrée précédente du même export (par identifiant croissant) : seule la première
-      reçoit l'enregistrement. Une même entrée peut compter ici et dans
-      ``possible_duplicates``.
+      entrée précédente du même export (par identifiant croissant (l'ordre des chaînes
+      ``strava-<id>``)) : seule la première reçoit l'enregistrement. Une même entrée
+      peut compter ici et dans ``possible_duplicates``.
     - ``default_timezone_entries`` — sans unité — les entrées Strava datées par le
       fuseau par défaut (``Europe/Paris``).
     - ``strava_recordings_without_elevation`` — sans unité — les enregistrements Strava
