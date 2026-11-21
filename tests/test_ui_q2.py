@@ -27,7 +27,11 @@ from streamlit.testing.v1 import AppTest
 
 from fixtures.recovery_world import base_tables, world_tables, write_world
 from mountain_perf.analyse.q2.results import (
+    AUTOCORRELATION_COLUMNS,
+    AUTOCORRELATION_FILE,
     FIGURE_HTML,
+    FLUX_COLUMNS,
+    FLUX_FILE,
     POWER_COLUMNS,
     POWER_DIR,
     POWER_FILE,
@@ -85,6 +89,10 @@ EXPANDERS = [
     "L'autocorrélation des résidus, par écart en jours",
 ]
 UNREADABLE_1 = "Dossiers de résultats illisibles, ignorés : 1."
+UNKNOWN = (
+    "Comparaison impossible : les tables actuelles ne se relisent pas. Le résultat "
+    "est celui du dernier just q2."
+)
 PHI_BULLET = (
     "- Les intervalles dépendent de la covariance estimée entre journées (portée "
     "φ̂ = 7,4 jours aux montées longues)."
@@ -231,6 +239,102 @@ def _power(data: Path) -> str:
     return hashlib.sha256((folder / PROVENANCE_FILE).read_bytes()).hexdigest()
 
 
+FLUX_ROWS: list[list[object]] = [
+    [
+        "long_climb",
+        "commun",
+        "suite",
+        "2026-01",
+        1,
+        "appareil_non_principal",
+        2,
+        3,
+        None,
+    ],
+    ["long_climb", "M-P", "suite", "", "hors_mouvement", "", 0, 0, 0.25],
+    [
+        "long_climb",
+        "commun",
+        "suite",
+        "2026-02",
+        1,
+        "appareil_non_principal",
+        1,
+        1,
+        None,
+    ],
+    ["short_climb", "commun", "suite", "2026-02", 2, "trop_courte", 4, 6, None],
+]
+"""``flux.csv`` inventé : deux mois d'une même clé, à sommer, et une ligne
+``hors_mouvement``."""
+EXPECTED_FLUX = [
+    {
+        "regime": "long_climb",
+        "mesure": "commun",
+        "periode": "suite",
+        "etape": "1",
+        "motif": "appareil_non_principal",
+        "journees": 3,
+        "montees": 4,
+        "valeur": None,
+    },
+    {
+        "regime": "long_climb",
+        "mesure": "M-P",
+        "periode": "suite",
+        "etape": "hors_mouvement",
+        "motif": "",
+        "journees": 0,
+        "montees": 0,
+        "valeur": 0.25,
+    },
+    {
+        "regime": "short_climb",
+        "mesure": "commun",
+        "periode": "suite",
+        "etape": "2",
+        "motif": "trop_courte",
+        "journees": 4,
+        "montees": 6,
+        "valeur": None,
+    },
+]
+"""Le flux sommé sur les mois, à la règle du § 5.2."""
+AUTOCORRELATION_ROWS: list[list[object]] = [
+    ["long_climb", "M-P", 1, 7, 12, 0.21],
+    ["long_climb", "M-P", 8, 14, 9, -0.04],
+    ["long_climb", "M-P", 15, None, 5, None],
+]
+"""``autocorrelation.csv`` inventé ; la dernière classe, ``a`` vide."""
+EXPECTED_AUTOCORRELATION = [
+    {
+        "regime": "long_climb",
+        "mesure": "M-P",
+        "de": 1,
+        "a": 7,
+        "paires": 12,
+        "correlation": 0.21,
+    },
+    {
+        "regime": "long_climb",
+        "mesure": "M-P",
+        "de": 8,
+        "a": 14,
+        "paires": 9,
+        "correlation": -0.04,
+    },
+    {
+        "regime": "long_climb",
+        "mesure": "M-P",
+        "de": 15,
+        "a": None,
+        "paires": 5,
+        "correlation": None,
+    },
+]
+"""L'autocorrélation typée, à la règle du § 5.2."""
+
+
 def _result(
     tables: object,
     *,
@@ -264,6 +368,14 @@ def _result(
     )
     if figure:
         (folder / FIGURE_HTML).write_text(FIGURE, encoding="utf-8", newline="")
+    (folder / FLUX_FILE).write_text(
+        csv_text(FLUX_COLUMNS, FLUX_ROWS), encoding="utf-8", newline=""
+    )
+    (folder / AUTOCORRELATION_FILE).write_text(
+        csv_text(AUTOCORRELATION_COLUMNS, AUTOCORRELATION_ROWS),
+        encoding="utf-8",
+        newline="",
+    )
     return folder
 
 
@@ -303,6 +415,51 @@ def _table(at: AppTest, index: int = 0) -> Any:
     return at.dataframe[index].value
 
 
+SHOWN = (
+    "title",
+    "subheader",
+    "caption",
+    "markdown",
+    "info",
+    "warning",
+    "error",
+    "iframe",
+    "dataframe",
+    "expander",
+)
+"""Les types d'éléments que la page emploie, comme les nomme l'arbre d'``AppTest``."""
+
+
+def _shown(node: Any) -> tuple[str, str]:
+    if node.type == "iframe":
+        return "iframe", str(node.proto.srcdoc)
+    if node.type == "dataframe":
+        return "dataframe", f"{len(node.value)} lignes"
+    if node.type == "expander":
+        return "expander", str(node.label)
+    return node.type, str(node.value)
+
+
+def _page(at: AppTest) -> list[tuple[str, str]]:
+    """Les éléments rendus de ``at.main``, parcourus récursivement dans l'ordre
+    d'affichage : la suite ``(type, texte)`` ; le texte d'un ``iframe`` est son
+    ``srcdoc``, celui d'un tableau son nombre de lignes, celui d'un replié son
+    titre."""
+    return [_shown(node) for node in at.main if node.type in SHOWN]
+
+
+def _records(table: Any) -> list[dict[str, object]]:
+    """Les lignes d'un tableau rendu ; ``AppTest`` rend ``None`` en ``NaN`` : un
+    ``NaN`` relu y redevient ``None``, pour comparer à la règle du § 5.2."""
+    return [
+        {
+            key: None if isinstance(value, float) and math.isnan(value) else value
+            for key, value in row.items()
+        }
+        for row in table.to_dict("records")
+    ]
+
+
 # --- U1 à U3 : l'en-tête -------------------------------------------------------------
 
 
@@ -316,6 +473,11 @@ def test_u1_without_result_asks_for_just_q2() -> None:
 
 
 def test_u2_a_whole_result_of_the_current_tables(base: Tables) -> None:
+    """Un résultat complet des tables actuelles : les légendes, les sous-titres et
+    les repliés dans l'ordre ; la suite entière de la page, dans l'ordre d'affichage
+    (le titre, l'en-tête, chaque sous-titre suivi de ce que son bloc affiche, la
+    figure, le tableau, les deux repliés), rien d'autre ; et le contenu des deux
+    tableaux repliés : le flux sommé sur les mois, l'autocorrélation typée."""
     _result(_current(base))
     at = _app()
     assert not at.exception
@@ -333,6 +495,31 @@ def test_u2_a_whole_result_of_the_current_tables(base: Tables) -> None:
     assert [expander.label for expander in at.expander] == EXPANDERS
     (frame,) = _iframes(at)
     assert frame.proto.srcdoc == FIGURE
+    assert _page(at) == [
+        ("title", "Q2"),
+        ("caption", HEADER),
+        ("caption", EXPLORATORY),
+        ("subheader", "La lecture principale"),
+        ("markdown", "**Les données ne tranchent pas.**"),
+        ("markdown", "Données insuffisantes pour juger un effet de 5 %/an."),
+        ("markdown", DIRECT),
+        ("markdown", INVERSE),
+        ("caption", "Mention : optimiste."),
+        ("subheader", "Les mises en garde"),
+        ("markdown", WARNINGS),
+        ("subheader", "La figure"),
+        ("iframe", FIGURE),
+        ("caption", FIGURE_CAPTION),
+        ("subheader", "Les essais"),
+        ("caption", TRIALS_CAPTION),
+        ("dataframe", "23 lignes"),
+        ("expander", EXPANDERS[0]),
+        ("dataframe", "3 lignes"),
+        ("expander", EXPANDERS[1]),
+        ("dataframe", "3 lignes"),
+    ]
+    assert _records(_table(at, 1)) == EXPECTED_FLUX
+    assert _records(_table(at, 2)) == EXPECTED_AUTOCORRELATION
 
 
 def test_u3_tables_of_another_run_warn(base: Tables) -> None:
@@ -352,10 +539,7 @@ def test_u3_unreadable_tables_say_the_comparison_is_impossible() -> None:
     _result({"commit": "autre"})
     at = _app()
     assert not at.exception
-    assert _values(at.warning) == [
-        "Comparaison impossible : les tables actuelles ne se relisent pas. Le "
-        "résultat est celui du dernier just q2."
-    ]
+    assert _values(at.warning) == [UNKNOWN]
     assert _values(at.subheader) == SUBHEADERS
 
 
@@ -517,8 +701,13 @@ def test_u8_without_the_power_the_rest_is_shown(base: Tables) -> None:
     assert len(_table(at)) == 23
 
 
-def test_u16_phi_at_an_edge(base: Tables) -> None:
-    principal = _principal(phi_a_la_borne_haute=True)
+@pytest.mark.parametrize(
+    ("low", "high"), [(True, False), (False, True)], ids=["basse", "haute"]
+)
+def test_u16_phi_at_an_edge(base: Tables, low: bool, high: bool) -> None:
+    """``φ̂`` à l'une ou l'autre borne de sa plage (l'autre drapeau faux) : la puce
+    finit par « , à une borne de sa plage »."""
+    principal = _principal(phi_a_la_borne_basse=low, phi_a_la_borne_haute=high)
     _result(_current(base), trials=essais_csv(_trials(principal)))
     at = _app()
     assert not at.exception
@@ -526,6 +715,16 @@ def test_u16_phi_at_an_edge(base: Tables) -> None:
         "\n- Les intervalles dépendent de la covariance estimée entre journées "
         "(portée φ̂ = 7,4 jours aux montées longues, à une borne de sa plage)."
     )
+
+
+def test_u16_without_phi_no_phi_bullet(base: Tables) -> None:
+    """Un ``P`` sans ``phi`` (case vide), la puissance lue : les puces des régimes et
+    du biais, sans la puce ``φ̂``."""
+    _result(_current(base), trials=essais_csv(_trials(_principal(phi=None))))
+    at = _app()
+    assert not at.exception
+    assert _values(at.markdown)[-1] == WARNINGS.removesuffix("\n" + PHI_BULLET)
+    assert not [m for m in _values(at.markdown) if "φ̂" in m]
 
 
 def test_u17_no_power_named(base: Tables) -> None:
@@ -588,6 +787,71 @@ def test_u10_the_trials_table(base: Tables) -> None:
     assert by_name["S-MP-ski"]["Niveau"] == "99,5 %"
     assert by_name["S-MP-ski"]["Régime"] == "Ski de randonnée"
     assert by_name["S-MS-longues"]["Niveau"] == "99 %"
+
+
+def _bis_trial(name: str, index: int, **changes: Any) -> TrialRow:
+    values: dict[str, Any] = {
+        "essai": name,
+        "indice": index,
+        "famille": "secondaire",
+        "regime": "short_climb",
+        "mesure": "M-P",
+        "statut": "estime",
+        "niveau": 0.99,
+        "estimation_fraction": 0.12,
+        "intervalle_fraction": (-0.05, 0.3),
+        "lecture": "non_tranche",
+    }
+    values.update(changes)
+    return TrialRow(**values)
+
+
+def test_u10_bis_the_order_and_whole_lines_of_the_table(base: Tables) -> None:
+    """Le tableau des essais : écrits dans ``essais.csv`` dans le désordre de leur
+    ``indice`` (3, 1, 4, 2 ; ``P`` à l'indice 1, pas en premier), rendus dans l'ordre
+    d'``indice``, sans ``P`` ; une ligne ``estime`` comparée entière (l'inverse, son
+    intervalle, la lecture ; « Statut » = « estimé », sans son motif) ; un essai
+    ``non_estimable`` sans motif : « Statut » = « non estimable »."""
+    trials = [
+        _bis_trial(
+            "S-c",
+            3,
+            inverse_fraction=0.237,
+            intervalle_inverse_fraction=(-0.062, 0.412),
+            motif="un motif inventé",
+        ),
+        _principal(indice=1),
+        _bis_trial(
+            "S-d",
+            4,
+            statut="non_estimable",
+            niveau=None,
+            estimation_fraction=None,
+            intervalle_fraction=None,
+            lecture=None,
+        ),
+        _bis_trial("S-b", 2, famille="sensibilite", regime="long_climb"),
+    ]
+    _result(_current(base), trials=essais_csv(trials))
+    at = _app()
+    assert not at.exception
+    rows = _table(at).to_dict("records")
+    assert [row["Essai"] for row in rows] == ["S-b", "S-c", "S-d"]
+    assert rows[1] == {
+        "Essai": "S-c",
+        "Famille": "secondaire",
+        "Régime": "Côtes",
+        "Mesure": "M-P",
+        "Estimation": "+12,0 %",
+        "Intervalle": "de −5,0 % à +30,0 %",
+        "Inverse": "+23,7 %",
+        "Intervalle inverse": "de −6,2 % à +41,2 %",
+        "Niveau": "99 %",
+        "Lecture": "non_tranche",
+        "Statut": "estimé",
+        "Mention": "",
+    }
+    assert rows[2]["Statut"] == "non estimable"
 
 
 def _texts(at: AppTest) -> list[str]:
@@ -692,6 +956,9 @@ def test_u14_only_unreadable_folders_are_counted() -> None:
 
 
 def test_u15_an_unreadable_cell_stops_the_page_after_the_header() -> None:
+    """Une case illisible : l'en-tête (sans période), l'avertissement des tables, la
+    légende des illisibles, puis l'erreur, le message de ``Q2ResultsError``, dans cet
+    ordre (la suite entière de la page), et rien après."""
     text = essais_csv(_trials()).replace("0.237", "abc", 1)
     _result({"commit": "autre"}, trials=text)
     broken = data_dir() / RESULTS_DIR / "2026-01-01_bbbbbbbbbbbb"
@@ -708,6 +975,22 @@ def test_u15_an_unreadable_cell_stops_the_page_after_the_header() -> None:
     (error,) = _values(at.error)
     assert "resultats/Q2/2026-01-02_aaaaaaaaaaaa/essais.csv" in error
     assert "estimation_fraction" in error
+    assert _page(at) == [
+        ("title", "Q2"),
+        (
+            "caption",
+            "Résultat du 02/01/2026 (resultats/Q2/2026-01-02_aaaaaaaaaaaa/), tel que "
+            "just q2 l'a écrit.",
+        ),
+        ("caption", EXPLORATORY),
+        ("warning", UNKNOWN),
+        ("caption", UNREADABLE_1),
+        (
+            "error",
+            "resultats/Q2/2026-01-02_aaaaaaaaaaaa/essais.csv, ligne 2, colonne "
+            "estimation_fraction : case illisible « abc »",
+        ),
+    ]
     assert not at.subheader
     assert not at.markdown
     assert not _iframes(at)

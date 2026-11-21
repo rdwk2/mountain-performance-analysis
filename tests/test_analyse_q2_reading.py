@@ -211,6 +211,29 @@ def test_r1_only_result_names_are_read_and_counted(tmp_path: Path) -> None:
     assert latest.estimation.document["tables"] == TABLES
 
 
+def test_r1_two_unreadable_and_names_that_are_not_result_names(tmp_path: Path) -> None:
+    """Le compte des illisibles s'additionne (deux dossiers, compte 2) ; un nom qui
+    commence comme un nom de résultat sans en être un (``… - copie``, lisible par
+    ailleurs) et un fichier au nom de résultat sont ignorés, sans être comptés :
+    ``RESULT_NAME.fullmatch``, des dossiers seulement."""
+    root = tmp_path / RESULTS_DIR
+    _estimation(tmp_path, "2026-01-02_aaaaaaaaaaaa")
+    _estimation(tmp_path, "2026-01-03_bbbbbbbbbbbb")
+    _no_trials(_estimation(tmp_path, "2026-01-04_cccccccccccc"))
+    _not_json(_estimation(tmp_path, "2026-01-05_dddddddddddd"))
+    _estimation(tmp_path, "2026-01-02_aaaaaaaaaaaa - copie")
+    (root / "2026-01-06_aaaaaaaaaaaa").write_text("x", encoding="utf-8")
+    estimations, unreadable = stored_estimations(tmp_path)
+    assert [e.folder.name for e in estimations] == [
+        "2026-01-02_aaaaaaaaaaaa",
+        "2026-01-03_bbbbbbbbbbbb",
+    ]
+    assert unreadable == 2
+    latest = latest_estimation(tmp_path, None)
+    assert latest is not None
+    assert latest.unreadable == 2
+
+
 def test_r1_without_results_dir_nothing(tmp_path: Path) -> None:
     assert stored_estimations(tmp_path) == ((), 0)
     assert latest_estimation(tmp_path, None) is None
@@ -508,6 +531,24 @@ def test_r7_two_off_moving_rows_are_not_summed() -> None:
     ]
 
 
+def test_r7_the_order_of_first_appearance() -> None:
+    """Les lignes rendues suivent l'ordre de première apparition : une ligne
+    ``hors_mouvement`` en premier reste première, et deux clés sommées gardent leur
+    ordre du fichier (l'étape 2 avant l'étape 1), qui n'est pas l'ordre trié."""
+    off = ["long_climb", "M-P", "suite", "", "hors_mouvement", "", 2, 5, 0.25]
+    two = ["long_climb", "commun", "suite", "2026-01", 2, "trop_courte", 1, 2, None]
+    one = ["long_climb", "commun", "suite", "2026-01", 1, "appareil", 3, 4, None]
+    two_later = [*two[:3], "2026-02", *two[4:6], 5, 6, None]
+    one_later = [*one[:3], "2026-02", *one[4:6], 7, 8, None]
+    summary = flux_summary(_flux_rows([off, two, one, two_later, one_later]))
+    assert [(s["etape"], s["motif"], s["journees"], s["montees"]) for s in summary] == [
+        ("hors_mouvement", "", 2, 5),
+        ("2", "trop_courte", 6, 8),
+        ("1", "appareil", 10, 12),
+    ]
+    assert [s["valeur"] for s in summary] == [0.25, None, None]
+
+
 def test_r7_the_flux_is_read_from_its_file(tmp_path: Path) -> None:
     folder = _estimation(tmp_path, "2026-01-02_aaaaaaaaaaaa")
     _write(folder / FLUX_FILE, csv_text(FLUX_COLUMNS, FLUX_CASE))
@@ -769,6 +810,29 @@ def _power_csv_without_column(data: Path) -> dict[str, object]:
     return _named(digest)
 
 
+def _named_folder_not_text(data: Path) -> dict[str, object]:
+    return {"puissance": {"dossier": 20260101, "empreinte": _power(data)}}
+
+
+def _named_digest_not_text(data: Path) -> dict[str, object]:
+    _power(data)
+    return {"puissance": {"dossier": POWER_NAME, "empreinte": 0}}
+
+
+def _p_etabli_text(data: Path) -> dict[str, object]:
+    a_zero = {"1": {"p_etabli": "0.03", "p_absence_effet_utile": 0.0}}
+    return _named(_power(data, regimes={"long_climb": _regime(a_zero=a_zero)}))
+
+
+def _a_zero_1_not_object(data: Path) -> dict[str, object]:
+    a_zero = {"1": [0.03, 0.0]}
+    return _named(_power(data, regimes={"long_climb": _regime(a_zero=a_zero)}))
+
+
+def _seuils_not_list(data: Path) -> dict[str, object]:
+    return _named(_power(data, regimes={"long_climb": _regime(seuils=0.05)}))
+
+
 @pytest.mark.parametrize(
     ("spoil", "file"),
     [
@@ -784,11 +848,20 @@ def _power_csv_without_column(data: Path) -> dict[str, object]:
         (_bound_entry_not_object, "2026-01-02_aaaaaaaaaaaa/provenance.json"),
         (_period_not_dates, "2026-01-02_aaaaaaaaaaaa/provenance.json"),
         (_power_csv_without_column, "puissance/2026-01-01_eeeeeeeeeeee/puissance.csv"),
+        (_named_folder_not_text, "2026-01-02_aaaaaaaaaaaa/provenance.json"),
+        (_named_digest_not_text, "2026-01-02_aaaaaaaaaaaa/provenance.json"),
+        (_p_etabli_text, "puissance/2026-01-01_eeeeeeeeeeee/provenance.json"),
+        (_a_zero_1_not_object, "puissance/2026-01-01_eeeeeeeeeeee/provenance.json"),
+        (_seuils_not_list, "puissance/2026-01-01_eeeeeeeeeeee/provenance.json"),
     ],
 )
 def test_r15_a_malformed_json_or_csv_is_a_q2_results_error(
     tmp_path: Path, spoil: Any, file: str
 ) -> None:
+    """Un JSON ou un CSV mal formé (dont un ``dossier`` ou une ``empreinte`` de
+    puissance qui n'est pas un texte, un ``p_etabli`` écrit en texte, un
+    ``a_zero["1"]`` qui n'est pas un objet, des ``seuils`` qui ne sont pas une liste)
+    lève ``Q2ResultsError``, qui nomme le fichier, et aucune autre exception."""
     folder = _estimation(tmp_path, "2026-01-02_aaaaaaaaaaaa", extra=spoil(tmp_path))
     with pytest.raises(Q2ResultsError) as raised:
         _read(tmp_path, folder)
@@ -826,6 +899,69 @@ def test_r15_a_malformed_csv_of_the_estimation_is_a_q2_results_error(
     with pytest.raises(Q2ResultsError) as raised:
         _read(tmp_path, folder)
     assert f"resultats/Q2/2026-01-02_aaaaaaaaaaaa/{file}" in str(raised.value)
+
+
+TRIALS_LABEL = "resultats/Q2/2026-01-02_aaaaaaaaaaaa/essais.csv"
+
+
+def _without(*dropped: str) -> str:
+    """``essais.csv`` de ``_cells()``, sans les colonnes ``dropped``."""
+    header, line = list(csv.reader(_cells().splitlines()))
+    kept = [i for i, column in enumerate(header) if column not in dropped]
+    return csv_text([header[i] for i in kept], [[line[i] for i in kept]])
+
+
+def _short_line(folder: Path) -> None:
+    _write(folder / TRIALS_FILE, ",".join(trial_columns()) + "\nP,0\n")
+
+
+def _two_missing(folder: Path) -> None:
+    _write(folder / TRIALS_FILE, _without("phrase", "statut"))
+
+
+@pytest.mark.parametrize(
+    ("spoil", "message"),
+    [
+        (_short_line, f"{TRIALS_LABEL}, ligne 2 : cases manquantes"),
+        (_two_missing, f"{TRIALS_LABEL} : colonnes absentes : statut, phrase"),
+    ],
+)
+def test_r15_the_exact_messages_of_a_malformed_csv(
+    tmp_path: Path, spoil: Any, message: str
+) -> None:
+    """Les messages que promet le § 5.2, exacts : une ligne trop courte, la deuxième
+    du fichier (« <fichier>, ligne 2 : cases manquantes », les lignes comptées depuis
+    l'en-tête) ; deux colonnes manquantes (« <fichier> : colonnes absentes : … »,
+    nommées dans l'ordre des colonnes attendues, séparées par une virgule)."""
+    folder = _estimation(tmp_path, "2026-01-02_aaaaaaaaaaaa")
+    spoil(folder)
+    with pytest.raises(Q2ResultsError) as raised:
+        _read(tmp_path, folder)
+    assert str(raised.value) == message
+
+
+def test_r15_trials_that_are_not_utf8_name_the_file(tmp_path: Path) -> None:
+    """Un ``essais.csv`` qui n'est pas de l'UTF-8 (un octet ``0xff``) lève
+    ``Q2ResultsError``, qui le nomme."""
+    folder = _estimation(tmp_path, "2026-01-02_aaaaaaaaaaaa")
+    (folder / TRIALS_FILE).write_bytes(_cells().encode("utf-8") + b"\xff\n")
+    with pytest.raises(Q2ResultsError) as raised:
+        _read(tmp_path, folder)
+    assert TRIALS_LABEL in str(raised.value)
+
+
+def test_r15_an_unreadable_b_of_the_power_csv_names_the_file(tmp_path: Path) -> None:
+    """La case ``b_fraction_par_an`` de la ligne ``long_climb``, scénario 4, de
+    ``puissance.csv`` qui ne se relit pas (``abc``) lève ``Q2ResultsError``, qui
+    nomme ``puissance.csv``."""
+    rows: list[list[object]] = [
+        ["long_climb", 4, "abc", 3, 0, 0.6, 0.0, 0.1, 0.6, 0.0, 1.1, -0.007]
+    ]
+    digest = _power(tmp_path, rows=rows)
+    folder = _estimation(tmp_path, "2026-01-02_aaaaaaaaaaaa", extra=_named(digest))
+    with pytest.raises(Q2ResultsError) as raised:
+        _read(tmp_path, folder)
+    assert f"resultats/Q2/puissance/{POWER_NAME}/puissance.csv" in str(raised.value)
 
 
 def test_r16_the_autocorrelation(tmp_path: Path) -> None:
@@ -884,6 +1020,9 @@ def written(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 
 def test_r11_a_folder_written_by_mperf_q2_reads_back(written: Path) -> None:
+    """Un dossier écrit par la vraie commande se relit sans erreur : 24 essais, la
+    puissance lue, dont le ``RegimeWarning`` des montées longues et son biais à
+    ``delta`` (non ``None``), la figure, le flux et l'autocorrélation."""
     latest = latest_estimation(written, None)
     assert latest is not None
     assert latest.unreadable == 0
@@ -899,3 +1038,6 @@ def test_r11_a_folder_written_by_mperf_q2_reads_back(written: Path) -> None:
     assert reading.autocorrelation
     assert reading.autocorrelation[-1]["a"] is None
     assert all(type(r["de"]) is int for r in reading.autocorrelation)
+    long_climb = [w for w in reading.power if w.regime == "long_climb"]
+    assert len(long_climb) == 1
+    assert long_climb[0].bias_at_delta is not None
