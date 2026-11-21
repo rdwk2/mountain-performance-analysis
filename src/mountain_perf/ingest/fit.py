@@ -4,12 +4,16 @@ module qui importe fitdecode (extra ``ingest``), et son unique enveloppe typée.
 Les valeurs de fitdecode n'en sortent pas : ``read_fit`` rend un ``ActivityRecording``,
 et chaque valeur lue passe par une petite conversion contrôlée (``isinstance``). Lecture
 stricte : CRC et erreurs de décodage lèvent, un fichier refusé n'est jamais lu à moitié.
-Ne lit ni numéro de série, ni numéro ANT, ni aucun identifiant d'appareil ou de capteur
-(règle 1).
+Une seule exception, pour les seuls FIT d'une archive Strava (AN1-3,
+``read_fit_detailed(..., tolerant=True)``, ``0013``, précision 30) : la lecture
+tolérante bornée de ``_decode``. Ne lit ni numéro de série, ni numéro ANT, ni aucun
+identifiant d'appareil ou de capteur (règle 1).
 """
 
 import io
 import math
+import re
+import warnings
 from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -17,6 +21,7 @@ from datetime import datetime
 from typing import Any
 
 import fitdecode
+import fitdecode.types
 
 from mountain_perf.schemas import (
     ELEVATION_RANGE_M,
@@ -24,6 +29,7 @@ from mountain_perf.schemas import (
     LATITUDE_RANGE_DEG,
     LONGITUDE_RANGE_DEG,
     TEMPERATURE_RANGE_C,
+    UTC_OFFSET_RANGE_S,
     ActivityRecording,
     DeviceProvenance,
     DiscardCount,
@@ -59,12 +65,54 @@ _ABSENT = object()
 Counts = Counter[tuple[RecordingPart, DiscardReason]]
 
 
+_ALERT = re.compile(
+    r"invalid field size [0-9]+ in definition message @ [0-9]+ for type \w+ "
+    r"\(expected a multiple of [0-9]+\)"
+)
+"""La seule alerte que la lecture tolérante admet : une définition de champ dont la
+taille n'est pas un multiple de son type (AN1-3)."""
+
+_GUARDED_MESSAGES = frozenset(
+    {"record", "session", "file_id", "device_info", "activity", "event"}
+)
+"""Les messages que le contrat lit : un champ malformé de l'un d'eux refuse le fichier,
+sauf ``_ADMITTED_FIELDS`` (AN1-3)."""
+
+_ADMITTED_FIELDS = frozenset({("event", 3)})
+"""Le champ ``data`` du message ``event`` : il ne porte que le sous-champ
+``timer_trigger``, d'où ``TimerEvent.trigger``, facultatif (AN1-3, C1)."""
+
+
 class FitRefusedError(Exception):
     """Le FIT est refusé : pas d'enregistrement ; ``reason`` dit pourquoi."""
 
     def __init__(self, reason: RefusalReason) -> None:
         super().__init__(reason.value)
         self.reason = reason
+
+
+@dataclass(frozen=True)
+class SkippedField:
+    """Un champ qu'une définition malformée a fait sauter (AN1-3)."""
+
+    message: str
+    """``frame.name`` : le nom que fitdecode donne au message (« event »,
+    « unknown_233 »)."""
+    field_number: int
+    """Numéro du champ dans sa définition."""
+
+
+@dataclass(frozen=True)
+class FitRead:
+    """Ce que la lecture d'un FIT rend en plus de l'enregistrement (AN1-3)."""
+
+    recording: ActivityRecording
+    local_offset_s: int | None
+    """Le décalage de l'heure locale du premier message ``activity``, en secondes
+    (``_local_offset``) ; ``None`` s'il ne se lit pas."""
+    skipped: tuple[SkippedField, ...]
+    """Les champs sautés par la lecture tolérante, triés par (message, numéro) ; vide
+    sur une lecture stricte."""
 
 
 @dataclass(frozen=True)
@@ -103,25 +151,139 @@ def _message(frame: Any) -> _Message:
     )
 
 
-def _decode(data: bytes) -> list[_Message]:
-    """Les messages de données du FIT, dans l'ordre du fichier ; lecture stricte (CRC
-    et erreurs de décodage en mode ``RAISE``) : toute exception que lève fitdecode en
-    décodant le fichier (``fitdecode.FitError``, mais aussi, sur un fichier malformé,
-    une ``ValueError`` ou une autre) le refuse ``UNREADABLE_FIT``. Les messages se
-    réduisent ensuite, hors de cette garde : une erreur de ce module n'est pas un
-    fichier illisible."""
+def _strict_frames(data: bytes) -> list[Any]:
+    """Les messages de données, lecture stricte (``CrcCheck.RAISE``,
+    ``ErrorHandling.RAISE``) ; toute exception se propage."""
+    with fitdecode.FitReader(
+        io.BytesIO(data),
+        check_crc=fitdecode.CrcCheck.RAISE,
+        error_handling=fitdecode.ErrorHandling.RAISE,
+    ) as reader:
+        return [
+            frame for frame in reader if isinstance(frame, fitdecode.FitDataMessage)
+        ]
+
+
+def _malformed_fields(frame: Any) -> list[Any]:
+    """Les champs malformés d'une définition : retypés en octets par fitdecode, connus
+    du profil, d'une taille qui n'est pas un multiple de leur type au profil. Un champ
+    inconnu du profil n'est jamais compté malformé (AN1-3)."""
+    return [
+        fd
+        for fd in frame.field_defs
+        if fd.base_type is fitdecode.types.BASE_TYPE_BYTE
+        and fd.field is not None
+        and fd.size % fd.field.base_type.size != 0
+    ]
+
+
+def _admissible(message: str, field_number: int) -> bool:
+    """Un champ malformé admis : d'un message que le contrat ne lit pas, ou le champ
+    ``data`` du message ``event`` (AN1-3, C1)."""
+    return (
+        message not in _GUARDED_MESSAGES or (message, field_number) in _ADMITTED_FIELDS
+    )
+
+
+def _tolerant_frames(data: bytes) -> tuple[list[Any], tuple[SkippedField, ...]]:
+    """La seconde lecture (``CrcCheck.RAISE``, ``ErrorHandling.WARN``) et ses champs
+    sautés ; ``FitRefusedError`` (``UNREADABLE_FIT``) si elle lève, ou si ses alertes ne
+    sont pas toutes celles, admissibles, de définitions malformées (``_decode``)."""
+    refused = FitRefusedError(RefusalReason.UNREADABLE_FIT)
+    frames: list[Any] = []
+    skipped: set[SkippedField] = set()
+    attached = True
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        try:
+            with fitdecode.FitReader(
+                io.BytesIO(data),
+                check_crc=fitdecode.CrcCheck.RAISE,
+                error_handling=fitdecode.ErrorHandling.WARN,
+            ) as reader:
+                seen = 0
+                for frame in reader:
+                    new = len(caught) - seen
+                    seen = len(caught)
+                    if isinstance(frame, fitdecode.FitDefinitionMessage):
+                        malformed = _malformed_fields(frame)
+                        if new != len(malformed):
+                            attached = False
+                        for fd in malformed:
+                            message, number = str(frame.name), int(fd.def_num)
+                            if not _admissible(message, number):
+                                attached = False
+                            skipped.add(SkippedField(message, number))
+                    elif new:
+                        attached = False
+                    if isinstance(frame, fitdecode.FitDataMessage):
+                        frames.append(frame)
+                if len(caught) != seen:
+                    attached = False
+        except Exception:
+            raise refused from None
+    alerts = [str(item.message) for item in caught]
+    if not alerts or not attached or not all(_ALERT.fullmatch(a) for a in alerts):
+        raise refused
+    return frames, tuple(
+        sorted(skipped, key=lambda item: (item.message, item.field_number))
+    )
+
+
+def _decode(
+    data: bytes, *, tolerant: bool
+) -> tuple[list[_Message], tuple[SkippedField, ...]]:
+    """Les messages de données du FIT, dans l'ordre du fichier, et les champs sautés.
+
+    ``tolerant`` faux : la lecture stricte seule (CRC et erreurs de décodage en mode
+    ``RAISE``) : toute exception que lève fitdecode en décodant le fichier
+    (``fitdecode.FitError``, mais aussi, sur un fichier malformé, une ``ValueError`` ou
+    une autre) le refuse ``UNREADABLE_FIT`` ; aucun champ sauté.
+
+    ``tolerant`` vrai (les seuls FIT d'une archive Strava, AN1-3, ``0013``, précision
+    30) : la lecture stricte d'abord ; si elle lève, une seconde lecture, le CRC
+    toujours strict et les erreurs en alerte. Le fichier est gardé si, et seulement si,
+    cette lecture ne lève pas, porte au moins une alerte, chaque alerte a la forme
+    ``_ALERT`` et se rattache à la définition rendue après elle (autant d'alertes neuves
+    que de champs malformés, ``_malformed_fields``), et chaque champ malformé est
+    admissible (``_admissible``) ; sinon ``UNREADABLE_FIT``. Les champs sautés,
+    ``SkippedField``, sans doublon, triés par (message, numéro).
+
+    Les messages se réduisent ensuite, hors de cette garde : une erreur de ce module
+    n'est pas un fichier illisible."""
+    skipped: tuple[SkippedField, ...] = ()
     try:
-        with fitdecode.FitReader(
-            io.BytesIO(data),
-            check_crc=fitdecode.CrcCheck.RAISE,
-            error_handling=fitdecode.ErrorHandling.RAISE,
-        ) as reader:
-            frames = [
-                frame for frame in reader if isinstance(frame, fitdecode.FitDataMessage)
-            ]
+        frames = _strict_frames(data)
     except Exception:
-        raise FitRefusedError(RefusalReason.UNREADABLE_FIT) from None
-    return [_message(frame) for frame in frames]
+        if not tolerant:
+            raise FitRefusedError(RefusalReason.UNREADABLE_FIT) from None
+        frames, skipped = _tolerant_frames(data)
+    return [_message(frame) for frame in frames], skipped
+
+
+def _local_offset(messages: Sequence[_Message]) -> int | None:
+    """Le décalage de l'heure locale, en secondes (AN1-3) : dans le premier message
+    ``activity``, les valeurs brutes des champs 5 (``local_timestamp``) et 253
+    (``timestamp``), leur différence si les deux sont des entiers, multiple de 60 et
+    dans ``UTC_OFFSET_RANGE_S`` (bornes comprises) ; sinon, ou sans message
+    ``activity``, ``None``. Jamais la valeur convertie par fitdecode."""
+    activity = next((m for m in messages if m.name == "activity"), None)
+    if activity is None:
+        return None
+    local = activity.raw_by_number.get(5)
+    utc = activity.raw_by_number.get(253)
+    if (
+        not isinstance(local, int)
+        or isinstance(local, bool)
+        or not isinstance(utc, int)
+        or isinstance(utc, bool)
+    ):
+        return None
+    offset = local - utc
+    low, high = UTC_OFFSET_RANGE_S
+    if offset % 60 != 0 or not low <= offset <= high:
+        return None
+    return offset
 
 
 def _number(value: object) -> float | None:
@@ -411,12 +573,26 @@ def _device(messages: Sequence[_Message]) -> DeviceProvenance:
 
 
 def read_fit(data: bytes, *, activity_ref: str, source: SourceRef) -> ActivityRecording:
-    """L'enregistrement tiré des octets d'un FIT d'activité.
+    """L'enregistrement tiré des octets d'un FIT d'activité, lu **strictement** :
+    ``read_fit_detailed(...).recording``, sans tolérance (l'ingestion Garmin, la
+    démo)."""
+    return read_fit_detailed(data, activity_ref=activity_ref, source=source).recording
+
+
+def read_fit_detailed(
+    data: bytes, *, activity_ref: str, source: SourceRef, tolerant: bool = False
+) -> FitRead:
+    """L'enregistrement tiré des octets d'un FIT d'activité, son décalage local
+    (``_local_offset``) et les champs sautés, sur un seul décodage (AN1-3).
 
     - **Décodage strict** (``CrcCheck.RAISE``, ``ErrorHandling.RAISE``), messages de
       données seulement : toute exception que lève fitdecode en décodant le fichier
       (``fitdecode.FitError`` ou autre, sur un fichier malformé) lève
-      ``FitRefusedError`` (``UNREADABLE_FIT``).
+      ``FitRefusedError`` (``UNREADABLE_FIT``). Seule exception, ``tolerant`` vrai (les
+      seuls FIT d'une archive Strava) : une seconde lecture, le CRC toujours strict,
+      garde un fichier dont seules des définitions de champ admissibles sont malformées
+      (``_decode``) ; un champ malformé ressort en octets, et un ``timer_trigger`` qui
+      n'est pas une valeur de ``TimerTrigger`` donne ``trigger = None``.
     - **Sessions** : chaque message ``session`` porte un ``start_time``, sinon (ou sans
       session) ``NO_SESSION`` ; le départ de l'enregistrement est le plus ancien, et
       tous les ``time_s`` en partent ; sessions triées par départ (tri stable).
@@ -458,7 +634,7 @@ def read_fit(data: bytes, *, activity_ref: str, source: SourceRef) -> ActivityRe
     - ``discarded`` : les comptes non nuls, triés par (valeur de la partie, valeur du
       motif).
     """
-    messages = _decode(data)
+    messages, skipped = _decode(data, tolerant=tolerant)
     origin, sessions = _sessions(messages)
     records = [message for message in messages if message.name == "record"]
     altitude = _choose(records, "enhanced_altitude", "altitude")
@@ -502,7 +678,7 @@ def read_fit(data: bytes, *, activity_ref: str, source: SourceRef) -> ActivityRe
     channels = (position, elevation, distance, heart_rate, speed, temperature)
     if not any(channel.time_s for channel in channels):
         raise FitRefusedError(RefusalReason.NO_SAMPLE)
-    return ActivityRecording(
+    recording = ActivityRecording(
         activity_ref=activity_ref,
         start_time=origin,
         sessions=tuple(sessions),
@@ -554,3 +730,4 @@ def read_fit(data: bytes, *, activity_ref: str, source: SourceRef) -> ActivityRe
         ),
         source=source,
     )
+    return FitRead(recording, _local_offset(messages), skipped)

@@ -152,7 +152,13 @@ def _encode(f: FieldDef, value: int | bytes | str | None) -> bytes:
             raise ValueError("texte ou octets trop longs")
         return raw.ljust(width, b"\x00")
     if value is None:
-        return struct.pack("<" + fmt, invalid)
-    if not isinstance(value, int):
+        packed = struct.pack("<" + fmt, invalid)
+    elif not isinstance(value, int):
         raise ValueError("valeur entière attendue")
-    return struct.pack("<" + fmt, value)
+    else:
+        packed = struct.pack("<" + fmt, value)
+    if 0 < f.size < len(packed):
+        # Une taille déclarée plus petite que le type (AN1-3, un FIT malformé) : les
+        # ``size`` octets de poids faible, petit-boutiste.
+        return packed[: f.size]
+    return packed
