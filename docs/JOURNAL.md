@@ -22,8 +22,9 @@ dernier résultat de `mperf q2` sans rien recalculer : l'en-tête (date, périod
 montées, avertissement si le résultat ne vient pas des tables actuelles), la lecture
 principale (la phrase de `P`, le message de la puissance, les régressions directe et
 inverse avec leurs intervalles, les bornes d'exclusion), les mises en garde lues dans
-la puissance que le résultat nomme, la figure écrite, le tableau des 23 autres essais,
-et, repliés, le flux et l'autocorrélation. Sans verdict ; les nombres sont mis en forme
+la puissance que le résultat nomme, dont la dépendance à la covariance estimée, lue
+dans l'essai principal, la figure écrite, le tableau des 23 autres essais, et,
+repliés, le flux et l'autocorrélation. Sans verdict ; les nombres sont mis en forme
 seulement (une décimale, signe explicite, virgule décimale). La relecture vit dans
 `analyse/q2/results.py` : `stored_estimations` et `latest_estimation` (la règle de Q1,
 seuls les dossiers au nom de `RESULT_NAME`, un dossier sans `essais.csv` illisible),
@@ -42,6 +43,9 @@ complet une fois, avant le commit 4, vert : N = 12 319 (12 314 réussis, 5
 sautés), 46 min. Rangé : `src/mountain_perf/analyse/q2/results.py`,
 `src/mountain_perf/ui/` (`q2.py`, `app.py`, `recuperation.py`), leurs tests, les textes
 de l'annexe D (README, `CLAUDE.md`, `ROADMAP`, `docs/commandes/`, `0016`, `0023`).
+Après la relecture (une C) et un balayage mutmut : `csv.Error` rendu `Q2ResultsError` ;
+la garde du nom de puissance testée et dite ; l'ordre de la page, le tableau des
+essais, les mises en garde et les messages de la relecture tenus par des tests de plus.
 
 ### 2026-11-20 · AN3-4, la borne haute infinie de la fraction par an
 Le défaut : `just q2 puissance` s'arrêtait sur `OverflowError` (`math.expm1` dans

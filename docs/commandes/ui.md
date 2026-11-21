@@ -73,9 +73,9 @@ puis `http://localhost:8501` dans le navigateur.
   période des montées, et un avertissement s'il ne vient pas des tables actuelles ; la
   lecture principale (la phrase de l'essai principal, « données insuffisantes pour
   juger un effet de 5 %/an » si sa puissance le dit, les régressions directe et inverse
-  avec leurs intervalles, les bornes d'exclusion) ; les mises en garde lues dans la
-  puissance qu'il nomme (la part de « établi » à effet nul simulé et le seuil nominal,
-  le biais sous l'erreur de mesure de la FC, la dépendance à la covariance estimée) ;
-  la figure, descriptive ; le tableau des autres essais (les sensibilités sont
-  rapportées, jamais promues) ; repliés, le flux et l'autocorrélation. Exploratoire,
-  sans verdict.
+  avec leurs intervalles, les bornes d'exclusion) ; les mises en garde (la part de
+  « établi » à effet nul simulé et le seuil nominal, et le biais sous l'erreur de
+  mesure de la FC, lus dans la puissance qu'il nomme ; la dépendance à la covariance
+  estimée, lue dans l'essai principal) ; la figure, descriptive ; le tableau des autres
+  essais (les sensibilités sont rapportées, jamais promues) ; repliés, le flux et
+  l'autocorrélation. Exploratoire, sans verdict.

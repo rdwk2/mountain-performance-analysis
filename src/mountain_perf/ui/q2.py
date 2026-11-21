@@ -1,7 +1,8 @@
 """La page « Q2 » (AN3-5, ``docs/decisions/0023``) : le dernier résultat écrit par
 ``just q2``, sans rien recalculer : la lecture principale et ses intervalles, les
-mises en garde lues dans la puissance que le résultat nomme, la figure telle
-qu'écrite, le tableau des autres essais, et, repliés, le flux et l'autocorrélation ;
+mises en garde (lues dans la puissance que le résultat nomme, sauf la dépendance à la
+covariance estimée, lue dans l'essai principal), la figure telle qu'écrite, le tableau
+des autres essais, et, repliés, le flux et l'autocorrélation ;
 elle dit si le résultat ne vient pas des tables actuelles. Exploratoire, sans verdict
 (charte § 8) : les nombres sont mis en forme seulement.
 
