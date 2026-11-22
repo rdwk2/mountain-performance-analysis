@@ -9,7 +9,7 @@ qu'elle lit et écrit, et sa sortie d'exemple quand elle en a une.
 - [`just backtest`](backtest.md) — le backtest enregistré des cinq modèles, et le backtest
   glissant (`just backtest-rolling`)
 - [`just curve`](curve.md) — la courbe personnelle
-- [`just ingest`](ingest.md) — l'ingestion des exports Garmin
+- [`just ingest`](ingest.md) — l'ingestion des exports Garmin et des archives Strava
 - [`just process`](process.md) — les tables des activités, des montées, des variantes et
   des jours
 - [`just project`](project.md) — les temps de passage d'un préparé, avec la courbe à
@@ -56,7 +56,7 @@ Le serveur n'écoute que la machine, sans télémétrie (`.streamlit/config.toml
 
 `MPA_DATA_DIR`, le dossier des données personnelles hors du dépôt, sert au backtest
 enregistré (`just backtest` : manifeste, courbe, registre, rapports), à l'ingestion
-(`just ingest` : `raw/garmin/` lu, `interim/activities/` et `interim/days/`
+(`just ingest` : `raw/garmin/` et `raw/strava/` lus, `interim/activities/` et `interim/days/`
 écrits), aux tables (`just process` :
 l'ingestion, puis `interim/activities/`, `interim/days/`, `athlete.toml` et `journal.csv`
 lus, `processed/` écrit), à la figure

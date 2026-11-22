@@ -46,7 +46,14 @@ Format : `- [ ] (jalon visé) idée — pourquoi`
 - [ ] (M6b) Reprise après coupure et gestion du 429 Garmin (déjà résolu dans l'ancien script, à ne pas réinventer)
 - [ ] Détecter et signaler les activités aberrantes (GPS perdu, pause oubliée, tapis)
 - [ ] Températures : croiser météo de l'activité et capteur de la montre, voir lequel prédit le mieux
-- [ ] Import de traces autres que Garmin (GPX/FIT génériques) pour ne pas être enfermé
+- [ ] Import de traces autres que Garmin (GPX/FIT génériques) pour ne pas être enfermé — les FIT d'une archive Strava : AN1-3 ; le GPX et le TCX restent à faire
+- [ ] (AN1-3) L'altitude d'une montre qui n'en mesure pas : celle que Strava affiche vient d'un modèle de terrain et l'archive ne la porte pas ; sans altitude, pas de montées, rien pour la courbe, Q1 ni Q2 (relais 52 de la piste).
+- [ ] (AN1-3) Un `trigger` perdu (FIT Strava lu par tolérance) compte comme « pas une pause automatique » (`auto_pause_count` à 0) : le rendre « inconnu » (relais 54).
+- [ ] (AN1-3) Avec Garmin et Strava, `acquired_at` (« Données au … ») ne voit que les exports du rapport des jours, pas un export Strava plus récent (relais 54).
+- [ ] (AN1-3) Q2 sur Strava seul : pas de données journalières, donc pas de normale de repos ; non estimable, son motif à vérifier (relais 54).
+- [ ] (AN1-3) Une ligne Strava sans FIT lisible (GPX, membre absent, pas gzip, FIT refusé), partie dans la période d'un export Garmin qui porte la même sortie, y fait une seconde entrée : l'appariement ne la voit pas.
+- [ ] (AN1-3) Un FIT Garmin refusé dont la copie Strava se lit par tolérance : l'activité reste sans enregistrement ; prendre alors l'enregistrement Strava.
+- [ ] (AN1-3) Le cas « manque » : une activité Garmin sans archive, ou dont le FIT refusé n'a pas les mêmes octets que sa copie Strava, ne s'apparie pas à cette copie ; d'un appareil Garmin, partie dans la période d'un export Garmin, la copie est retirée comme « absente de Garmin » alors que Garmin porte l'activité, et son enregistrement est perdu (relais 55 de la piste).
 - [ ] (M6b) Vérifier empiriquement si le `sumDistance` de Garmin est une distance 2D ou 3D : recalculer la distance depuis le flux de positions et comparer. Toute la convention de pente en dépend (cf. docs/decisions/0002-unites.md) — un écart passerait inaperçu et biaiserait le modèle d'autant plus que la pente est forte.
 - [ ] (quand un usage de la population sera défini) Séparer physiquement $MPA_DATA_DIR/reference/ (soi, évaluable) et population/ (446 coureurs, non évaluable)
 - [ ] Contrat pour les données de population, le jour où leur usage sera défini

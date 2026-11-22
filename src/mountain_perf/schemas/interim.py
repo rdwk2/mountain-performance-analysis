@@ -56,7 +56,11 @@ ne change pas à l'ajout d'un type de document : un type neuf se déclare avec s
 format (``INTERIM_DOCUMENT_FIRST_FORMAT``, ``mountain_perf.ingest.interim``), et les
 documents existants restent lisibles sans réingestion. Format 2 (AN2-0) : plusieurs
 exports, la provenance de chaque entrée, la charge selon Garmin dans l'index, le rapport
-par export ; les types des jours (AN2-1) y entrent, à leur premier format, 2."""
+par export ; les types des jours (AN2-1) y entrent, à leur premier format, 2.
+
+AN1-3 (``0013``, précision 24) : un type de document neuf (``SourcesReport``) et un
+membre ajouté à une énumération fermée (``RefusalReason``) ne changent pas le numéro :
+les documents écrits avant se relisent tels quels, avec le même sens."""
 
 _REF = re.compile(r"[0-9A-Za-z_.-]+")
 
@@ -73,9 +77,9 @@ def require_activity_ref(ref: str, name: str = "activity_ref") -> None:
 
 
 def require_export_name(name: str) -> None:
-    """Le nom d'un export, celui de son dossier sous ``raw/garmin/`` : lettres et
-    chiffres ASCII, ``_``, ``.``, ``-``, ni ``.`` ni ``..`` ; sinon
-    ``ContractError``."""
+    """Le nom d'un export, celui de son dossier sous ``raw/garmin/`` ou
+    ``raw/strava/`` (AN1-3) : lettres et chiffres ASCII, ``_``, ``.``, ``-``, ni ``.``
+    ni ``..`` ; sinon ``ContractError``."""
     if not _REF.fullmatch(name) or name in (".", ".."):
         raise ContractError(
             "le nom d'un export doit être fait de lettres et de chiffres ASCII, de "
@@ -446,16 +450,26 @@ class IndexField(StrEnum):
 
 INDEX_FIELD_DESCRIPTIONS: Mapping[IndexField, str] = MappingProxyType(
     {
-        IndexField.ELAPSED_DURATION: "Temps écoulé (elapsedDuration).",
-        IndexField.MOVING_DURATION: "Temps en mouvement (movingDuration).",
-        IndexField.DISTANCE: "Distance de la source (distance).",
-        IndexField.ASCENT: "D+ de la source (elevationGain).",
-        IndexField.DESCENT: "D− de la source (elevationLoss).",
+        IndexField.ELAPSED_DURATION: (
+            "Temps écoulé (elapsedDuration ; Strava : la seconde colonne Elapsed Time)."
+        ),
+        IndexField.MOVING_DURATION: (
+            "Temps en mouvement (movingDuration ; Strava : Moving Time)."
+        ),
+        IndexField.DISTANCE: (
+            "Distance de la source (distance ; Strava : la seconde colonne Distance)."
+        ),
+        IndexField.ASCENT: "D+ de la source (elevationGain ; Strava : Elevation Gain).",
+        IndexField.DESCENT: (
+            "D− de la source (elevationLoss ; Strava : Elevation Loss)."
+        ),
         IndexField.ELEVATION_CORRECTED: (
             "Altitude recalée par Garmin Connect (elevationCorrected)."
         ),
-        IndexField.AVERAGE_HR: "FC moyenne (averageHR).",
-        IndexField.MAX_HR: "FC maximale (maxHR).",
+        IndexField.AVERAGE_HR: "FC moyenne (averageHR ; Strava : Average Heart Rate).",
+        IndexField.MAX_HR: (
+            "FC maximale (maxHR ; Strava : la seconde colonne Max Heart Rate)."
+        ),
         IndexField.TRAINING_LOAD: (
             "Charge de l'activité selon Garmin (activityTrainingLoad)."
         ),
@@ -472,7 +486,8 @@ class RefusalReason(StrEnum):
 
     Invariants
     ----------
-    Énumération fermée.
+    Énumération fermée (AN1-3 : ``NOT_A_GZIP_FIT``, sans numéro de format neuf,
+    ``0013``, précision 24).
 
     Producteur
     ----------
@@ -495,6 +510,7 @@ class RefusalReason(StrEnum):
     NOT_IN_INDEX = "not_in_index"
     DUPLICATE_ENTRY = "duplicate_entry"
     UNUSABLE_ENTRY = "unusable_entry"
+    NOT_A_GZIP_FIT = "not_a_gzip_fit"
 
 
 REFUSAL_REASON_DESCRIPTIONS: Mapping[RefusalReason, str] = MappingProxyType(
@@ -527,6 +543,10 @@ REFUSAL_REASON_DESCRIPTIONS: Mapping[RefusalReason, str] = MappingProxyType(
         RefusalReason.UNUSABLE_ENTRY: (
             "Entrée de l'index sans identifiant, type ou départ utilisables."
         ),
+        RefusalReason.NOT_A_GZIP_FIT: (
+            "Fichier .fit.gz qu'une ligne de l'index Strava nomme, présent dans le zip "
+            "de l'export, qui ne se décompresse pas en gzip."
+        ),
     }
 )
 
@@ -542,11 +562,14 @@ class IndexedActivity:
 
     Champs
     ------
-    - ``activity_ref`` — sans unité — identifiant de l'activité dans la source.
+    - ``activity_ref`` — sans unité — identifiant de l'activité dans la source ; pour
+      une entrée Strava, ``strava-<id>`` (AN1-3).
     - ``source_activity_type`` — sans unité — type de la source, tel quel
-      (``activityType.typeKey``).
+      (``activityType.typeKey`` ; pour Strava, la colonne ``Activity Type``).
     - ``start_time`` — instant — départ, *aware*, dans son fuseau local à décalage
-      fixe (heure locale de la source moins son heure UTC).
+      fixe (heure locale de la source moins son heure UTC ; pour une entrée Strava sans
+      décalage lu d'un FIT, le décalage, à son départ, du fuseau ``timezone`` de
+      l'export, ou d'``Europe/Paris`` (AN1-3)).
     - ``elapsed_duration_s`` — secondes — temps écoulé, ``> 0``, si présent.
     - ``moving_duration_s`` — secondes — temps en mouvement, ``>= 0``, si présent.
     - ``distance_m`` — mètres — distance de la source, ``>= 0``, si présente.
@@ -578,7 +601,9 @@ class IndexedActivity:
 
     Producteur
     ----------
-    Le lecteur de l'index de l'ingestion (``mountain_perf.ingest.index``).
+    Le lecteur de l'index de l'ingestion (``mountain_perf.ingest.index``) ; pour une
+    entrée Strava, ``mountain_perf.ingest.strava`` (``strava_entry``) et
+    ``mountain_perf.ingest.export`` (AN1-3).
 
     Consommateurs
     -------------
@@ -593,9 +618,12 @@ class IndexedActivity:
     - ``distance_m`` est celle de la source, ni 2D ni 3D garantie ;
     - quand ``elevation_corrected`` est vrai, ``ascent_m`` et ``descent_m`` viennent du
       modèle de terrain de Garmin : ils ne se comparent pas au canal d'altitude de
-      l'enregistrement, que la correction ne change pas ;
-    - ``moving_duration_s`` est le temps en mouvement de Garmin (un algorithme non
-      publié, à seuil de vitesse) : la piste calcule le sien ;
+      l'enregistrement, que la correction ne change pas ; pour une entrée Strava
+      (``elevation_corrected`` absent), ils peuvent venir d'un modèle de terrain de
+      Strava (une montre sans altitude), sans que rien ne le dise (AN1-3) ;
+    - ``moving_duration_s`` est le temps en mouvement de la source (Garmin : un
+      algorithme non publié, à seuil de vitesse ; Strava : le sien) : la piste calcule
+      le sien ;
     - ``training_load`` est un algorithme de Garmin, non publié ; son absence n'est
       pas une charge nulle ;
     - les valeurs ne sont pas recalculées depuis l'enregistrement ;
@@ -1295,7 +1323,7 @@ class ReadFile:
     Champs
     ------
     - ``name`` — sans unité — chemin relatif à ``raw/``, séparé par ``/``
-      (``garmin/<export>/…``, AN2-0).
+      (``garmin/<export>/…`` ou ``strava/<export>/…``, AN2-0, AN1-3).
     - ``content_hash`` — sans unité — ``sha256`` du contenu, hexadécimal minuscule.
 
     Invariants
@@ -1604,14 +1632,17 @@ class ExportReport:
 
     Champs
     ------
-    - ``name`` — sans unité — le nom de son dossier sous ``raw/garmin/``.
+    - ``name`` — sans unité — le nom de son dossier sous ``raw/garmin/`` ou
+      ``raw/strava/`` (AN1-3).
     - ``index`` — sans unité — la provenance de son fichier d'index : nom, empreinte,
       instant d'acquisition de l'export.
     - ``period_start`` — instant — le premier départ de ses entrées gardées, stocké en
       UTC ; absent s'il n'en garde aucune.
     - ``entries`` — sans unité — ses entrées gardées, ``>= 0``.
     - ``refused_entries`` — sans unité — ses entrées refusées, triées par rang.
-    - ``archives`` — sans unité — les fichiers de son ``activity_fit/``, ``>= 0``.
+    - ``archives`` — sans unité — les fichiers de son ``activity_fit/`` ; pour un
+      export Strava, ses lignes gardées dont le ``Filename`` a la forme
+      ``activities/<nom>`` (AN1-3), ``>= 0``.
 
     Invariants
     ----------
@@ -1669,6 +1700,10 @@ class ExportReport:
 class RetiredActivity:
     """Une activité qu'un export ancien porte, mais que l'export décisif, le plus récent
     dont la période couvre son départ, ne porte pas : elle n'est pas ingérée (AN2-0).
+    Pour Strava (AN1-3, ``0013``, précision 27) : aussi un FIT Strava d'un appareil
+    Garmin que l'appariement ne relie à aucune activité Garmin, parti dans la période
+    d'un export Garmin ; ``export`` est alors l'export Garmin le plus récent dont la
+    période couvre son départ.
 
     Champs
     ------
@@ -1689,9 +1724,13 @@ class RetiredActivity:
 
     Non promis
     ----------
-    La cause n'est pas connue : une activité supprimée dans Garmin Connect, ou une
-    entrée que l'export décisif a refusée (ses entrées refusées sont dans son
-    ``ExportReport``).
+    La cause n'est pas connue : une activité supprimée dans Garmin Connect (ou dans
+    Strava, entre deux archives Strava), ou une entrée que l'export décisif a refusée
+    (ses entrées refusées sont dans son ``ExportReport``). Pour un FIT Strava d'un
+    appareil Garmin, aussi : une activité que Garmin porte sans enregistrement (sans
+    archive, ou dont le FIT refusé n'a pas les mêmes octets), que l'appariement ne
+    relie pas (``0013``, précision 27, le cas « manque »), ou un FIT ambigu
+    (``SourcesReport.ambiguous``).
     """
 
     activity_ref: str
@@ -1750,7 +1789,7 @@ class IngestionReport:
     - ``exports`` — sans unité — les exports lus, par instant d'acquisition croissant
       (AN2-0).
     - ``read`` — sans unité — les fichiers lus, triés par nom
-      (``garmin/<export>/…``).
+      (``garmin/<export>/…`` ou ``strava/<export>/…``).
     - ``refused_files`` — sans unité — les fichiers refusés, triés par nom.
     - ``retired`` — sans unité — les activités retirées de la source, triées par
       identifiant (AN2-0).
@@ -1854,3 +1893,177 @@ class IngestionReport:
                 raise ContractError(
                     "refused_files : un fichier refusé doit figurer dans read."
                 )
+
+
+# ---------------------------------------------------------------------------
+# Les sources (AN1-3)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class ToleratedFile:
+    """Un champ sauté d'un FIT Strava gardé par la lecture tolérante bornée (AN1-3,
+    ``0013``, précision 30).
+
+    Champs
+    ------
+    - ``name`` — sans unité — le FIT, chemin relatif à ``raw/``, séparé par ``/``
+      (``strava/<export>/<zip>/activities/<nom>``).
+    - ``manufacturer`` — sans unité — le fabricant de son premier ``file_id``, tel que
+      le lecteur FIT le lit, s'il est présent.
+    - ``message`` — sans unité — le message du champ sauté, du nom que le profil FIT
+      lui donne (« event », « unknown_233 »).
+    - ``field_number`` — sans unité — le numéro du champ dans sa définition.
+
+    Invariants
+    ----------
+    ``name`` comme dans ``ReadFile`` ; ``manufacturer`` non vide s'il est présent ;
+    ``message`` non vide ; ``0 <= field_number <= 255``.
+
+    Producteur
+    ----------
+    L'ingestion d'une archive Strava.
+
+    Consommateurs
+    -------------
+    ``SourcesReport`` ; ``mperf ingest``, qui en affiche une ligne par élément.
+
+    Non promis
+    ----------
+    La valeur du champ sauté n'est pas gardée ; un FIT dont plusieurs champs sautent a
+    un élément par champ.
+    """
+
+    name: str
+    manufacturer: str | None
+    message: str
+    field_number: int
+
+    def __post_init__(self) -> None:
+        _require_relative_name(self.name)
+        if self.manufacturer is not None:
+            require_non_empty(self.manufacturer, "manufacturer")
+        require_non_empty(self.message, "message")
+        if not 0 <= self.field_number <= 255:
+            raise ContractError(
+                f"field_number doit être dans [0, 255], reçu {self.field_number}."
+            )
+
+
+_SOURCES_COUNTS = (
+    "strava_exports",
+    "strava_entries",
+    "matched_by_hash",
+    "matched_by_identity",
+    "matched_by_fit_start",
+    "ambiguous",
+    "retired_garmin_device",
+    "possible_duplicates",
+    "shared_file_entries",
+    "default_timezone_entries",
+    "strava_recordings_without_elevation",
+)
+
+
+@dataclass(frozen=True)
+class SourcesReport:
+    """Le rapport des sources de la dernière ingestion (document
+    ``interim/activities/sources.json``, AN1-3, ``0013``, précision 28) : ce que les
+    archives Strava ont apporté, et comment elles se sont fusionnées à Garmin.
+
+    Champs
+    ------
+    - ``strava_exports`` — sans unité — les exports Strava lus.
+    - ``strava_entries`` — sans unité — les entrées de l'index venues de Strava.
+    - ``matched_by_hash`` — sans unité — les activités Strava appariées par
+      l'empreinte du FIT.
+    - ``matched_by_identity`` — sans unité — … par l'identité (fabricant, produit,
+      création) et le départ du FIT.
+    - ``matched_by_fit_start`` — sans unité — … par le départ du FIT seul, fabricant
+      ``garmin`` des deux côtés.
+    - ``ambiguous`` — sans unité — les FIT Strava non appariés dont une clé désignait
+      plusieurs activités Garmin, ou une activité Garmin que d'autres FIT Strava
+      désignaient aussi (à l'une des trois passes).
+    - ``retired_garmin_device`` — sans unité — les FIT Strava d'un appareil Garmin, non
+      appariés, partis dans la période d'un export Garmin : retirés de la source. Une
+      ambiguë d'un appareil Garmin partie dans cette période compte dans les deux.
+    - ``possible_duplicates`` — sans unité — les entrées Strava sans enregistrement
+      dont le départ de la ligne est dans la période d'au moins un export Garmin
+      (bornes comprises) : la limite de la règle 3 rendue visible, ces entrées peuvent
+      doubler une sortie que Garmin porte (``0013``, précision 28).
+    - ``shared_file_entries`` — sans unité — les entrées Strava laissées sans
+      enregistrement parce que leur fichier ``.fit.gz``, lu, est aussi celui d'une
+      entrée précédente du même export (par identifiant croissant (l'ordre des chaînes
+      ``strava-<id>``)) : seule la première reçoit l'enregistrement. Une même entrée
+      peut compter ici et dans ``possible_duplicates``.
+    - ``default_timezone_entries`` — sans unité — les entrées Strava datées par le
+      fuseau par défaut (``Europe/Paris``).
+    - ``strava_recordings_without_elevation`` — sans unité — les enregistrements Strava
+      écrits sans canal d'altitude.
+    - ``tolerated`` — sans unité — les FIT Strava gardés par la lecture tolérante, un
+      élément par champ sauté, triés par (nom, message, numéro).
+
+    Invariants
+    ----------
+    - comptes ``>= 0`` ;
+    - ``possible_duplicates`` et ``shared_file_entries`` ``<= strava_entries`` ;
+    - ``tolerated`` en tuple, trié par (nom, message, numéro), sans doublon ;
+    - sans export Strava (``strava_exports == 0``), tous les comptes sont nuls et
+      ``tolerated`` est vide (``empty()``).
+
+    Producteur
+    ----------
+    L'ingestion (``mountain_perf.ingest.export``), s'il y a au moins un export Strava.
+
+    Consommateurs
+    -------------
+    ``mperf ingest``, qui en affiche le bloc « Strava » ; la vérification de
+    l'ingestion.
+
+    Non promis
+    ----------
+    Absent d'``interim/activities/`` quand il n'y a pas d'export Strava : son lecteur
+    rend alors ``SourcesReport.empty()``. Aucun instant d'exécution.
+    """
+
+    strava_exports: int
+    strava_entries: int
+    matched_by_hash: int
+    matched_by_identity: int
+    matched_by_fit_start: int
+    ambiguous: int
+    retired_garmin_device: int
+    possible_duplicates: int
+    shared_file_entries: int
+    default_timezone_entries: int
+    strava_recordings_without_elevation: int
+    tolerated: tuple[ToleratedFile, ...]
+
+    def __post_init__(self) -> None:
+        for name in _SOURCES_COUNTS:
+            value = getattr(self, name)
+            if value < 0:
+                raise ContractError(f"{name} doit être >= 0, reçu {value}.")
+        for name in ("possible_duplicates", "shared_file_entries"):
+            value = getattr(self, name)
+            if value > self.strava_entries:
+                raise ContractError(
+                    f"{name} doit être <= strava_entries ({self.strava_entries}), "
+                    f"reçu {value}."
+                )
+        require_immutable_sequence(self.tolerated, "tolerated")
+        _require_strictly_sorted(
+            [(item.name, item.message, item.field_number) for item in self.tolerated],
+            "tolerated",
+        )
+        if self.strava_exports == 0 and (
+            any(getattr(self, name) for name in _SOURCES_COUNTS) or self.tolerated
+        ):
+            raise ContractError(
+                "sans export Strava, tous les comptes sont nuls et tolerated est vide."
+            )
+
+    @classmethod
+    def empty(cls) -> SourcesReport:
+        """Le rapport sans export Strava : tous les comptes à 0, ``tolerated`` vide."""
+        return cls(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, ())

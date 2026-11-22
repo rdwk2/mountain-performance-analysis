@@ -625,7 +625,11 @@ def recuperation_page() -> None:
     )
     st.caption(f"{view.data_at}. Exploratoire : aucune alerte, aucun verdict.")
     if view.first_day is None or view.last_day is None:
-        st.info("La table jours n'a aucune ligne : lancer just process.")
+        st.info(
+            "La table jours n'a aucune ligne : aucun export ne porte de données "
+            "journalières (une archive Strava n'en a pas), ou interim/ n'est pas à "
+            "jour : lancer just process."
+        )
         return
     st.caption(f"Du {view.first_day:%d/%m/%Y} au {view.last_day:%d/%m/%Y}.")
     if view.journal_absent:

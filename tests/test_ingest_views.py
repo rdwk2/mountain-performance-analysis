@@ -103,7 +103,61 @@ def test_type_table_is_exactly_the_reviewed_one() -> None:
         "mountaineering": Sport.FOOT,
         "backcountry_skiing": Sport.SKI_TOURING,
         "mountain_biking": Sport.MTB,
+        "Run": Sport.FOOT,
+        "Trail Run": Sport.FOOT,
+        "Walk": Sport.FOOT,
+        "Hike": Sport.FOOT,
+        "Backcountry Ski": Sport.SKI_TOURING,
+        "Mountain Bike Ride": Sport.MTB,
     }
+
+
+GARMIN_KEYS_BEFORE = {
+    "running": Sport.FOOT,
+    "street_running": Sport.FOOT,
+    "trail_running": Sport.FOOT,
+    "track_running": Sport.FOOT,
+    "treadmill_running": Sport.FOOT,
+    "walking": Sport.FOOT,
+    "casual_walking": Sport.FOOT,
+    "speed_walking": Sport.FOOT,
+    "hiking": Sport.FOOT,
+    "mountaineering": Sport.FOOT,
+    "backcountry_skiing": Sport.SKI_TOURING,
+    "mountain_biking": Sport.MTB,
+}
+"""Les clés de Garmin de la table avant AN1-3, et leurs familles."""
+
+STRAVA_KEYS = {
+    "Run": Sport.FOOT,
+    "Trail Run": Sport.FOOT,
+    "Walk": Sport.FOOT,
+    "Hike": Sport.FOOT,
+    "Backcountry Ski": Sport.SKI_TOURING,
+    "Mountain Bike Ride": Sport.MTB,
+}
+"""Les clés de Strava ajoutées par AN1-3 (D9), et leurs familles."""
+
+
+@pytest.mark.parametrize(("key", "sport"), sorted(STRAVA_KEYS.items()))
+def test_each_strava_key_has_its_family(key: str, sport: Sport) -> None:
+    assert SOURCE_TYPE_SPORTS[key] is sport
+    a = _view(source_activity_type=key).activity
+    assert a is not None
+    assert a.sport is sport
+
+
+def test_ride_of_strava_is_not_in_the_table() -> None:
+    assert "Ride" not in SOURCE_TYPE_SPORTS
+    assert _view(source_activity_type="Ride").refusal is ViewRefusal.NO_SPORT
+
+
+def test_the_garmin_and_strava_keys_are_disjoint() -> None:
+    assert not set(GARMIN_KEYS_BEFORE) & set(STRAVA_KEYS)
+
+
+def test_the_garmin_keys_of_before_are_unchanged() -> None:
+    assert GARMIN_KEYS_BEFORE.items() <= dict(SOURCE_TYPE_SPORTS).items()
 
 
 @pytest.mark.parametrize(

@@ -152,6 +152,13 @@ def activity_fit(
     developer_field: bool = False,
     undeclared_developer: bool = False,
     corrupt_crc: bool = False,
+    local_offset_s: int | None = None,
+    malformed_event_data: bool = False,
+    malformed_extra: tuple[tuple[int, int], ...] = (),
+    activity_message: bool = True,
+    activity_timestamp: bool = True,
+    second_activity_offset_s: int | None = None,
+    free_fields: tuple[tuple[int, FieldDef, int | bytes], ...] = (),
 ) -> bytes:
     """Un FIT d'activité : ``file_id``, ``device_info``, événements, ``record`` (avec
     ``record_fields``), sessions (décalage, sport, sous-sport ou ``None``, temps écoulé,
@@ -175,7 +182,29 @@ def activity_fit(
     ``developer_field`` : chaque record porte un champ de développeur déclaré ;
     ``undeclared_developer`` : il renvoie à un développeur jamais déclaré (erreur de
     décodage que seule la lecture stricte refuse). ``corrupt_crc`` : CRC faux.
+
+    AN1-3 : ``local_offset_s`` ajoute au message ``activity`` le champ 5
+    (``local_timestamp``), à ``fit_time(start + 60 s) + local_offset_s`` ;
+    ``malformed_event_data`` déclare dans chaque définition du message ``event`` le
+    champ 3 (``data``) en ``UINT32`` sur 1 octet, et chaque message ``event`` y écrit
+    l'octet 0 (exclusif de ``timer_triggers``) ; ``malformed_extra`` : pour chaque
+    couple (numéro global du message, numéro du champ), à la fin du fichier, une
+    définition de ce message à ce seul champ, ``UINT32`` sur 1 octet, et un message de
+    données (l'octet 0). Sans eux, les octets ne changent pas.
+
+    Correctifs de la PR #55 : ``activity_message`` faux n'écrit aucun message
+    ``activity`` (ni définition ni donnée) ; ``activity_timestamp`` faux l'écrit sans
+    son champ 253 (avec ``local_offset_s``, le champ 5 garde sa valeur) ;
+    ``second_activity_offset_s`` écrit, juste après le premier, un second message
+    ``activity`` de même définition, au champ 5 à ``fit_time(start + 60 s) +
+    second_activity_offset_s`` (demande ``local_offset_s``) ; ``free_fields`` : pour
+    chaque (numéro global du message, définition de champ, valeur brute), à la fin du
+    fichier, après ``malformed_extra``, une définition de ce message à ce seul champ
+    (type local 12) et un message de données à cette valeur. Sans eux, les octets ne
+    changent pas.
     """
+    if malformed_event_data and timer_triggers is not None:
+        raise ValueError("malformed_event_data exclut timer_triggers")
     w = FitWriter()
     if file_id:
         w.define(
@@ -214,17 +243,21 @@ def activity_fit(
         for index, source_type, device_type in sensors:
             w.data(10, (fit_time(start), index, source_type, device_type))
     data = () if timer_triggers is None else (FieldDef(3, UINT32),)
+    if malformed_event_data:
+        data = (FieldDef(3, UINT32, size=1),)
     w.define(
         2, EVENT, (FieldDef(253, UINT32), FieldDef(0, ENUM), FieldDef(1, ENUM), *data)
     )
     w.define(8, EVENT, (FieldDef(0, ENUM), FieldDef(1, ENUM), *data))
-    triggers = (
+    triggers: list[tuple[int | None, ...]] = (
         [()] * len(timer_events)
         if timer_triggers is None
         else [
             (None if name is None else TIMER_TRIGGERS[name],) for name in timer_triggers
         ]
     )
+    if malformed_event_data:
+        triggers = [(0,)] * len(timer_events)
     for (offset, kind), trigger in zip(timer_events, triggers, strict=True):
         if offset is None:
             w.data(8, (TIMER, TIMER_TYPES[kind], *trigger))
@@ -233,7 +266,8 @@ def activity_fit(
             w.data(2, (when, TIMER, TIMER_TYPES[kind], *trigger))
     for offset, event, event_type in other_events:
         when = fit_time(start + timedelta(seconds=offset))
-        w.data(2, (when, event, event_type, *((None,) if data else ())))
+        filler = (0,) if malformed_event_data else (None,)
+        w.data(2, (when, event, event_type, *(filler if data else ())))
     dev: tuple[DevFieldDef, ...] = ()
     if developer_field or undeclared_developer:
         if developer_field:
@@ -305,6 +339,28 @@ def activity_fit(
                 None if sub_sport is None else SUB_SPORTS[sub_sport],
             ),
         )
-    w.define(7, ACTIVITY, (FieldDef(253, UINT32), FieldDef(1, UINT16)))
-    w.data(7, (fit_time(start + timedelta(seconds=60)), len(sessions)))
+    activity_time = fit_time(start + timedelta(seconds=60))
+    if second_activity_offset_s is not None and local_offset_s is None:
+        raise ValueError("second_activity_offset_s demande local_offset_s")
+    stamp: tuple[FieldDef, ...] = (FieldDef(253, UINT32),) if activity_timestamp else ()
+    stamp_value: tuple[int, ...] = (activity_time,) if activity_timestamp else ()
+    if not activity_message:
+        pass
+    elif local_offset_s is None:
+        w.define(7, ACTIVITY, (*stamp, FieldDef(1, UINT16)))
+        w.data(7, (*stamp_value, len(sessions)))
+    else:
+        w.define(7, ACTIVITY, (*stamp, FieldDef(1, UINT16), FieldDef(5, UINT32)))
+        w.data(7, (*stamp_value, len(sessions), activity_time + local_offset_s))
+        if second_activity_offset_s is not None:
+            w.data(
+                7,
+                (*stamp_value, len(sessions), activity_time + second_activity_offset_s),
+            )
+    for global_number, field_number in malformed_extra:
+        w.define(11, global_number, (FieldDef(field_number, UINT32, size=1),))
+        w.data(11, (0,))
+    for global_number, definition, value in free_fields:
+        w.define(12, global_number, (definition,))
+        w.data(12, (value,))
     return w.to_bytes(corrupt_crc=corrupt_crc)

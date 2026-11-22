@@ -8,8 +8,10 @@ from typing import Any
 
 import pytest
 
+from mountain_perf.ingest.interim import decode_interim, encode_interim
 from mountain_perf.schemas import (
     INTERIM_FORMAT_VERSION,
+    REFUSAL_REASON_DESCRIPTIONS,
     TEMPERATURE_RANGE_C,
     ActivityIndex,
     ActivityRecording,
@@ -36,12 +38,14 @@ from mountain_perf.schemas import (
     RefusedFile,
     RetiredActivity,
     SourceRef,
+    SourcesReport,
     SpeedChannel,
     SpeedField,
     TemperatureChannel,
     TimerEvent,
     TimerEventType,
     TimerTrigger,
+    ToleratedFile,
     ViewRefusal,
     ViewRefusalCount,
     require_export_name,
@@ -744,3 +748,115 @@ def test_export_names() -> None:
     for bad in ("", ".", "..", "a/b", "a b", "é", "a:b"):
         with pytest.raises(ContractError, match="nom d'un export"):
             require_export_name(bad)
+
+
+# --- AN1-3 : les sources --------------------------------------------------------------
+
+TOLERATED = "strava/s1/export_1.zip/activities/9014.fit.gz"
+
+
+def tolerated(**changes: Any) -> ToleratedFile:
+    values: dict[str, Any] = {
+        "name": TOLERATED,
+        "manufacturer": "coros",
+        "message": "event",
+        "field_number": 3,
+    }
+    return ToleratedFile(**{**values, **changes})
+
+
+def sources(**changes: Any) -> SourcesReport:
+    values: dict[str, Any] = {
+        "strava_exports": 1,
+        "strava_entries": 7,
+        "matched_by_hash": 1,
+        "matched_by_identity": 1,
+        "matched_by_fit_start": 1,
+        "ambiguous": 0,
+        "retired_garmin_device": 1,
+        "possible_duplicates": 0,
+        "shared_file_entries": 0,
+        "default_timezone_entries": 0,
+        "strava_recordings_without_elevation": 1,
+        "tolerated": (tolerated(),),
+    }
+    return SourcesReport(**{**values, **changes})
+
+
+def test_the_new_refusal_reason_and_its_description() -> None:
+    assert RefusalReason.NOT_A_GZIP_FIT.value == "not_a_gzip_fit"
+    assert list(RefusalReason)[-2:] == [
+        RefusalReason.UNUSABLE_ENTRY,
+        RefusalReason.NOT_A_GZIP_FIT,
+    ]
+    assert REFUSAL_REASON_DESCRIPTIONS[RefusalReason.NOT_A_GZIP_FIT] == (
+        "Fichier .fit.gz qu'une ligne de l'index Strava nomme, présent dans le zip de "
+        "l'export, qui ne se décompresse pas en gzip."
+    )
+    assert set(REFUSAL_REASON_DESCRIPTIONS) == set(RefusalReason)
+
+
+def test_tolerated_file() -> None:
+    assert tolerated(manufacturer=None).manufacturer is None
+    assert tolerated(field_number=0).field_number == 0
+    assert tolerated(field_number=255).field_number == 255
+    for name in ("", "a/../b", "a\\b", "/a", "c:/x"):
+        with pytest.raises(ContractError, match="name"):
+            tolerated(name=name)
+    with pytest.raises(ContractError, match="manufacturer"):
+        tolerated(manufacturer="")
+    with pytest.raises(ContractError, match="message"):
+        tolerated(message="")
+    for number in (-1, 256):
+        with pytest.raises(ContractError, match="field_number"):
+            tolerated(field_number=number)
+
+
+def test_sources_report() -> None:
+    assert sources().tolerated == (tolerated(),)
+    for name in (
+        "strava_exports",
+        "strava_entries",
+        "matched_by_hash",
+        "matched_by_identity",
+        "matched_by_fit_start",
+        "ambiguous",
+        "retired_garmin_device",
+        "possible_duplicates",
+        "shared_file_entries",
+        "default_timezone_entries",
+        "strava_recordings_without_elevation",
+    ):
+        with pytest.raises(ContractError, match=name):
+            sources(**{name: -1})
+    for name in ("possible_duplicates", "shared_file_entries"):
+        with pytest.raises(ContractError, match=name):
+            sources(**{name: 8})
+    both = sources(possible_duplicates=7, shared_file_entries=7)
+    assert (both.possible_duplicates, both.shared_file_entries) == (7, 7)
+    with pytest.raises(ContractError, match="tolerated"):
+        sources(tolerated=[tolerated()])
+    second = tolerated(message="lap", field_number=7)
+    assert sources(tolerated=(tolerated(), second)).tolerated == (tolerated(), second)
+    for unsorted in ((second, tolerated()), (tolerated(), tolerated())):
+        with pytest.raises(ContractError, match="tolerated"):
+            sources(tolerated=unsorted)
+
+
+def test_without_a_strava_export_the_sources_report_is_empty() -> None:
+    empty = SourcesReport.empty()
+    assert empty == SourcesReport(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, ())
+    with pytest.raises(ContractError, match="sans export Strava"):
+        dataclasses.replace(empty, strava_entries=1)
+    with pytest.raises(ContractError, match="sans export Strava"):
+        dataclasses.replace(empty, tolerated=(tolerated(),))
+    assert dataclasses.replace(empty, strava_exports=1).strava_exports == 1
+
+
+@pytest.mark.parametrize(
+    "value", [sources(), SourcesReport.empty(), sources(tolerated=())]
+)
+def test_sources_report_round_trip_is_exact(value: SourcesReport) -> None:
+    data = encode_interim(value)
+    assert decode_interim(data, SourcesReport) == value
+    assert encode_interim(decode_interim(data, SourcesReport)) == data

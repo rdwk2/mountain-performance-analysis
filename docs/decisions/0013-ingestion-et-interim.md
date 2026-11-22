@@ -394,3 +394,96 @@ s'écrit à l'octet comme en AN2-0 pour les mêmes exports.*
     `interim/days/`, de la même façon. Une erreur avant l'écriture n'écrit rien. Si les
     jours ne prennent pas leur place après les activités, le message le dit, et
     relancer la commande remet tout en ordre (`0018`).
+
+## Précisions d'AN1-3
+
+*Ajoutées par la PR AN1-3 (l'ingestion d'une archive Strava), écrite par le moteur
+avec l'accord de la piste (relais 51, 52 et 54). Sur des exports Garmin seuls,
+`interim/` et `processed/` s'écrivent à l'octet comme avant. Mesurées sur une archive
+réelle, sans chiffre ici (règle 1).*
+
+24. **Le format.** `INTERIM_FORMAT_VERSION` reste 2. Un type de document neuf
+    (`SourcesReport`), un membre ajouté à une énumération fermée
+    (`RefusalReason.NOT_A_GZIP_FIT`), et des descriptions élargies à la source Strava,
+    sans changer leur sens pour Garmin (les noms sous `raw/strava/` :
+    `ExportReport.name`, `ReadFile.name`, `IngestionReport.read`,
+    `DaysExportReport.name` ; `ExportReport.archives` ; `RetiredActivity` et son
+    « Non promis » ; `IndexedActivity.activity_ref`, `start_time`,
+    `source_activity_type`, son producteur et son « Non promis » ; sept descriptions
+    d'`IndexField` ; au regard de la précision 22) ne changent pas le sens des documents
+    écrits avant : ils se relisent tels quels. Un champ ajouté, retiré, retypé ou
+    redéfini d'un contrat existant, ou la définition changée d'une valeur d'énumération,
+    demandent toujours un numéro neuf.
+25. **Les exports Strava.** `raw/strava/<export>/` : l'archive de Strava telle
+    qu'envoyée (un seul `.zip`, jamais décompressé ni retouché) et `acquisition.json`
+    (la forme de la précision 9, plus la clé facultative `timezone`, un nom IANA,
+    propre à Strava). Arrêtent l'ingestion, qui n'écrit rien et nomme le fichier : une
+    archive ou un `acquisition.json` posé à plat dans `raw/strava/` ; un nom de dossier
+    hors des caractères de la précision 14 ; un `acquisition.json` absent, illisible,
+    d'une autre forme, ou dont le fuseau est inconnu ; aucun zip, ou plusieurs ; une
+    archive illisible ; `activities.csv` absent, illisible ou pas en UTF-8 ; un en-tête
+    différent ; une ligne gardée partie après l'instant d'acquisition ; un même nom de
+    dossier sous `raw/garmin/` et `raw/strava/` ; deux exports au même instant
+    d'acquisition, toutes sources confondues ; ni export Garmin ni archive Strava.
+    Aucun export ne se retire. Seuls `activities.csv` et les fichiers que sa colonne
+    `Filename` nomme s'ouvrent : le reste de l'archive porte des données personnelles.
+26. **L'index Strava.** L'en-tête d'`activities.csv` se vérifie en entier (104 noms,
+    dans l'ordre, doublons compris). Se lisent, par rang, l'identifiant, la date, le
+    type, le fichier, et la seconde colonne de chaque nom en double qu'un contrat lit
+    (temps écoulé, distance en mètres, FC maximale), avec le temps en mouvement, le
+    D+, le D− et la FC moyenne ; rien d'autre (ni nom, ni description, ni note, ni
+    matériel, ni météo). La date est en UTC, lue sans la locale (mois anglais). Le
+    fuseau d'une entrée : celui de son FIT (`activity.local_timestamp − timestamp`),
+    sinon celui de `timezone`, sinon `Europe/Paris`, compté. `activity_ref` vaut
+    `strava-<id>` ; `elevation_corrected` et `training_load` sont absents (des
+    valeurs de Garmin). Les types de Strava sont dans la table des types, « Ride »
+    hors table.
+27. **Garmin d'abord.** L'existence se décide par source (la précision 15 entre
+    exports Garmin, la même entre exports Strava) ; puis une activité Strava appariée
+    à une activité Garmin gardée — par l'empreinte du FIT, sinon par l'identité
+    (fabricant, produit, création) et le départ, sinon par le départ seul pour le
+    fabricant `garmin`, toujours un pour un — n'a pas d'entrée : l'entrée et
+    l'enregistrement de Garmin font foi ; un FIT d'un appareil Garmin non apparié,
+    parti dans la période d'un export Garmin, est retiré de la source (l'export de
+    `RetiredActivity` est l'export Garmin le plus récent qui couvre son départ) ; le
+    reste devient une entrée Strava. **Une entrée Strava qu'un export Garmin plus
+    récent porte devient l'entrée Garmin : son `activity_ref` change, et tout ce qui
+    la cite (manifestes, registre, positions des parcours, `deja_vu.csv`) se relit à
+    l'identifiant Garmin.** **Deux limites dites** : une ligne Strava sans FIT lisible
+    (sans fichier, `Filename` d'une autre forme qu'`activities/<nom>`, GPX, membre
+    absent, pas gzip, FIT refusé) ne s'apparie à rien et devient une entrée Strava,
+    même si un export Garmin porte la même sortie (deux entrées) ; un FIT Garmin
+    refusé dont la copie Strava se lit par tolérance s'apparie, et l'activité reste
+    sans enregistrement (« Garmin d'abord »). **Le cas « manque »** : une activité
+    Garmin sans enregistrement — sans archive, ou dont le FIT est refusé et n'a pas
+    les mêmes octets que sa copie Strava — n'a que les empreintes de ses membres
+    pour l'appariement ; sa copie Strava ne s'y relie pas et, d'un appareil Garmin
+    et partie dans la période d'un export Garmin, elle est retirée comme « absente
+    de Garmin » alors que Garmin porte l'activité, qui reste sans enregistrement.
+28. **Le rapport.** `sources.json` (`SourcesReport`), écrit seulement s'il y a un
+    export Strava ; les noms des fichiers lus partent de `raw/`
+    (`strava/<export>/<zip>/…`) ; un `.fit.gz` absent du zip : une entrée sans
+    archive ; présent mais pas gzip : `NOT_A_GZIP_FIT`. Un `Filename` d'une autre
+    forme que `activities/<nom>` : la ligne est gardée, sans fichier ; un membre nommé
+    par plusieurs lignes se lit une fois ; si plusieurs de ces lignes deviennent des
+    entrées, seule la première, par identifiant croissant (l'ordre des chaînes
+    `strava-<id>`), reçoit l'enregistrement, les autres restent sans enregistrement
+    (`shared_file_entries`). `sources.json` compte aussi les entrées Strava sans
+    enregistrement parties dans la période d'un export Garmin (`possible_duplicates`) :
+    des doublons possibles, la première limite de la précision 27 rendue visible ; une
+    même entrée peut compter dans les deux. Entre exports Strava, ni les champs ni les
+    FIT ne se comparent.
+29. **Sans export Garmin.** Le rapport des jours nomme les exports Strava, sans jour ;
+    `jours` n'a pas de ligne, et l'instant d'acquisition des tables est celui du
+    dernier export Strava.
+30. **La lecture tolérante bornée**, pour les seuls FIT d'une archive Strava (un FIT
+    d'un export Garmin reste lu strictement) : la seule exception à la lecture stricte
+    (`0011`). Une seconde lecture, le CRC toujours strict et les erreurs en alerte,
+    garde un FIT dont la lecture stricte échoue si chaque alerte est celle d'une
+    définition de champ dont la taille n'est pas un multiple de son type, rattachée à
+    sa définition, et si chaque champ ainsi malformé est d'un message que le contrat
+    ne lit pas (ni `record`, `session`, `file_id`, `device_info`, `activity` ou
+    `event`) ou est le champ `data` du message `event`. Chaque champ sauté est compté
+    dans `sources.json`. Un `event.data` sauté donne `TimerEvent.trigger = None`, que
+    les tables comptent comme « pas une pause automatique » (`auto_pause_count`) : 0,
+    et non « inconnu ».

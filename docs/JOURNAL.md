@@ -16,6 +16,25 @@ Backtest (à partir de M4) : métrique avant → après.
 
 ---
 
+### 2026-11-21 · AN1-3, l'ingestion d'une archive Strava
+Une seconde source d'exports, écrite par le moteur avec l'accord de la piste : l'archive
+que Strava envoie, rangée telle quelle sous `raw/strava/<export>/` avec son
+`acquisition.json` (clé `timezone` facultative). `ingest/strava.py` lit le zip sans le
+décompresser, n'y ouvre qu'`activities.csv` et les fichiers qu'il nomme, vérifie
+l'en-tête en entier, lit les dates sans la locale. La fusion dans `ingest_export` :
+existence par source, appariement un pour un avec Garmin (empreinte du FIT, identité et
+départ, départ seul pour une montre Garmin), Garmin d'abord, retrait d'un FIT d'une
+montre Garmin absent de Garmin, sinon une entrée `strava-<id>`. Le lecteur FIT gagne
+une lecture tolérante bornée, pour les seuls FIT Strava (`0011`, `0013`, précision
+30). Pas de numéro de format neuf : `sources.json` (écrit seulement avec Strava) et
+`NOT_A_GZIP_FIT` (`0013`, précisions 24 à 30). Garmin seul s'écrit à l'octet comme sur
+`7bbeddb`, sur un monde synthétique (empreintes relevées dans un arbre détaché) ; Strava
+seul passe `ingest`, `tables`, `q1` et la page récupération. Les contre-épreuves du
+brief jouées, une à une.
+Conclusion : Strava entre sans rien changer pour Garmin seul. Rangé dans
+`src/mountain_perf/ingest/{strava,export,fit}.py`, `schemas/interim.py`,
+`docs/commandes/ingest.md`, branche `an1/strava`.
+
 ### 2026-11-20 · AN3-5 — La page de Q2
 La page « Q2 » de l'interface (`ui/q2.py`, une ligne de `PAGES` après « Q1 ») montre le
 dernier résultat de `mperf q2` sans rien recalculer : l'en-tête (date, période des

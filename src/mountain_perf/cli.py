@@ -3874,11 +3874,13 @@ INGEST_EXTRA_ERROR = (
 
 
 def _run_ingest() -> int:
-    """``mperf ingest`` (§ 5.8 du brief AN1-1 ; AN2-0 ; AN2-1) : ingère les exports
-    Garmin de ``MPA_DATA_DIR/raw/garmin`` dans ``MPA_DATA_DIR/interim``, puis affiche le
-    résumé : une ligne par export, puis les comptes des activités, puis ceux des jours
-    (une ligne par export de référence, par nom croissant ; une par état, dans l'ordre
-    de ``DayState``).
+    """``mperf ingest`` (§ 5.8 du brief AN1-1 ; AN2-0 ; AN2-1 ; AN1-3) : ingère les
+    exports Garmin de ``MPA_DATA_DIR/raw/garmin`` et les archives Strava de
+    ``MPA_DATA_DIR/raw/strava`` dans ``MPA_DATA_DIR/interim``, puis affiche le résumé :
+    une ligne par export (« (Strava) » pour une archive Strava), puis les comptes des
+    activités, puis, s'il y a un export Strava, le bloc « Strava » (et les FIT lus par
+    tolérance), puis ceux des jours (une ligne par export de référence, par nom
+    croissant ; une par état, dans l'ordre de ``DayState``).
 
     L'ingestion s'importe ici, pas en tête du module : ``mperf`` s'importe sans l'extra
     ``ingest``. Sous cette forme exacte, pour que l'absence de fitdecode se voie même
@@ -3900,6 +3902,14 @@ def _run_ingest() -> int:
     without_view = sum(count.count for count in summary.view_refusals)
     print(f"Exports : {len(summary.exports)}")
     for export in summary.exports:
+        if export.name in summary.strava_exports:
+            print(
+                f"  {export.name} (Strava) : acquis le "
+                f"{export.index.retrieved_at.isoformat()}, {export.entries} entrées "
+                f"gardées, {len(export.refused_entries)} refusées, "
+                f"{export.archives} fichiers nommés"
+            )
+            continue
         print(
             f"  {export.name} : acquis le {export.index.retrieved_at.isoformat()}, "
             f"{export.entries} entrées gardées, "
@@ -3929,6 +3939,43 @@ def _run_ingest() -> int:
         "Enregistrements tirés d'un autre export que leur entrée : "
         f"{summary.recordings_from_other_export}"
     )
+    sources = summary.sources
+    if sources is not None and sources.strava_exports > 0:
+        matched = (
+            sources.matched_by_hash
+            + sources.matched_by_identity
+            + sources.matched_by_fit_start
+        )
+        print(f"Strava : {sources.strava_exports} export(s)")
+        print(f"  Entrées venues de Strava : {sources.strava_entries}")
+        print(
+            f"  Appariées à Garmin : {matched} (empreinte {sources.matched_by_hash}, "
+            f"identité {sources.matched_by_identity}, départ du FIT "
+            f"{sources.matched_by_fit_start})"
+        )
+        print(f"  Ambiguës : {sources.ambiguous}")
+        print(
+            "  FIT d'un appareil Garmin absents de Garmin, retirés : "
+            f"{sources.retired_garmin_device}"
+        )
+        print(
+            "  Sans enregistrement, dans la période d'un export Garmin (doublons "
+            f"possibles) : {sources.possible_duplicates}"
+        )
+        print(
+            "  Fichier partagé avec une autre entrée, laissées sans enregistrement : "
+            f"{sources.shared_file_entries}"
+        )
+        print(f"  Datées par le fuseau par défaut : {sources.default_timezone_entries}")
+        print(
+            "  Enregistrements sans altitude : "
+            f"{sources.strava_recordings_without_elevation}"
+        )
+        if sources.tolerated:
+            files = len({item.name for item in sources.tolerated})
+            print(f"FIT Strava lus par tolérance : {files}")
+            for item in sources.tolerated:
+                print(f"  {item.name} : {item.message}, champ {item.field_number}")
     days = summary.days
     print(f"Jours : {days.days}")
     for reference in days.reference_days:
@@ -4917,8 +4964,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     commands.add_parser(
         "ingest",
         help=(
-            "Ingérer les exports Garmin de MPA_DATA_DIR/raw/garmin dans "
-            "MPA_DATA_DIR/interim (AN1-1, AN2-0)"
+            "Ingérer les exports Garmin et Strava de MPA_DATA_DIR/raw dans "
+            "MPA_DATA_DIR/interim (AN1-1, AN2-0, AN1-3)"
         ),
     )
     commands.add_parser(

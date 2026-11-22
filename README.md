@@ -16,7 +16,8 @@ Une seconde piste partage le dépôt et sa méthode : l'analyse des données
 d'entraînement, de récupération et de sommeil de l'athlète, des tableaux de bord
 jusqu'à l'apprentissage automatique (jalons `AN`, [`docs/analyse/`](docs/analyse/)).
 Elle ingère déjà les activités et les données journalières (sommeil, HRV, FC de
-repos, Body Battery, indicateurs de Garmin) des exports Garmin (`mperf ingest`), tire
+repos, Body Battery, indicateurs de Garmin) des exports Garmin, et les activités des
+archives Strava (`mperf ingest`), tire
 des activités les tables des activités et des montées, et des jours la table `jours`,
 avec les normales de six mesures (`mperf tables`), puis la figure descriptive de sa
 première question, la vitesse ascensionnelle à terrain comparable (`mperf q1`), et le
@@ -134,7 +135,7 @@ dans [les pages des commandes](docs/commandes/README.md).
 | [`mperf match`](docs/commandes/match.md) | une trace réalisée face à un tracé ; avec `--curve`, les scores de v0 brut | deux GPX ; avec `--curve`, une courbe |
 | [`just backtest`](docs/commandes/backtest.md) | le backtest enregistré des cinq modèles, et sa sensibilité ; `just backtest-rolling`, le backtest glissant | `MPA_DATA_DIR` |
 | [`just curve`](docs/commandes/curve.md) | la courbe allure↔pente personnelle, sur une plage ou à une origine | `MPA_DATA_DIR` |
-| [`just ingest`](docs/commandes/ingest.md) | l'ingestion des exports Garmin dans `interim/` | `MPA_DATA_DIR` |
+| [`just ingest`](docs/commandes/ingest.md) | l'ingestion des exports Garmin et des archives Strava dans `interim/` | `MPA_DATA_DIR` |
 | [`just process`](docs/commandes/process.md) | l'ingestion, puis les tables des activités, des montées, des variantes et des jours | `MPA_DATA_DIR` |
 | [`just project`](docs/commandes/project.md) | les temps de passage d'un préparé de `MPA_DATA_DIR/routes/` ; avec `--at`, la courbe à l'origine de la course | `MPA_DATA_DIR` |
 | [`just q1`](docs/commandes/q1.md) | la figure de Q1 | `MPA_DATA_DIR` |

@@ -3024,7 +3024,8 @@ class DaysExportReport:
 
     Champs
     ------
-    - ``name`` — sans unité — le nom de son dossier sous ``raw/garmin/``.
+    - ``name`` — sans unité — le nom de son dossier sous ``raw/garmin/`` ou
+      ``raw/strava/`` (AN1-3).
     - ``retrieved_at`` — instant — son instant d'acquisition, stocké en UTC.
     - ``first_day``, ``last_day`` — date — premier et dernier jour de ses fichiers
       journaliers ; absents s'il n'en a pas.

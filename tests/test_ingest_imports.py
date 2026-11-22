@@ -82,6 +82,7 @@ def test_ingest_imports_the_common_codec_never_backtest() -> None:
         "mountain_perf.ingest.types",
         "mountain_perf.ingest.families",
         "mountain_perf.ingest.days",
+        "mountain_perf.ingest.strava",
     }
     for path in sorted(INGEST.glob("*.py")):
         project = {m for m in _imports(path) if m.startswith("mountain")}
@@ -105,6 +106,7 @@ def test_ingest_package_does_not_import_the_fit_reader() -> None:
         "types.py",
         "families.py",
         "days.py",
+        "strava.py",
     ):
         assert "mountain_perf.ingest.fit" not in _imports(INGEST / name), name
         assert "mountain_perf.ingest.export" not in _imports(INGEST / name), name
@@ -125,6 +127,17 @@ def test_days_import_the_contracts_and_the_families_only() -> None:
     outside = {m.split(".")[0] for m in imports if not m.startswith("mountain")}
     assert outside <= STDLIB | {"__future__"}
     assert "mountain_perf.ingest.days" in _imports(INGEST / "export.py")
+
+
+def test_the_strava_reader_imports_only_the_contracts_and_validation() -> None:
+    """Le lecteur d'un export Strava (AN1-3) : la bibliothèque standard, ``schemas`` et
+    ``validation`` seulement ; ni ``fit``, ni ``export``, ni aucun autre module
+    d'``ingest/``."""
+    imports = _imports(INGEST / "strava.py")
+    project = {m for m in imports if m.startswith("mountain")}
+    assert project <= {"mountain_perf.schemas", "mountain_perf.validation"}
+    outside = {m.split(".")[0] for m in imports if not m.startswith("mountain")}
+    assert outside <= STDLIB | {"__future__"}
 
 
 def test_day_views_import_only_the_contracts() -> None:
@@ -199,14 +212,15 @@ def test_mperf_help_lists_the_ingest_subcommand_as_in_the_brief(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """La ligne d'aide de la sous-commande ``ingest``, dans ``mperf --help``, recopiée
-    telle quelle (§ 5.8 du brief AN1-1 ; AN2-0 : les exports de ``raw/garmin/``)."""
+    telle quelle (§ 5.8 du brief AN1-1 ; AN2-0 : les exports de ``raw/garmin/`` ;
+    AN1-3 : et les archives Strava)."""
     monkeypatch.setenv("COLUMNS", "200")
     with pytest.raises(SystemExit) as stop:
         main(["--help"])
     assert stop.value.code == 0
     assert (
-        "Ingérer les exports Garmin de MPA_DATA_DIR/raw/garmin dans "
-        "MPA_DATA_DIR/interim (AN1-1, AN2-0)" in capsys.readouterr().out
+        "Ingérer les exports Garmin et Strava de MPA_DATA_DIR/raw dans "
+        "MPA_DATA_DIR/interim (AN1-1, AN2-0, AN1-3)" in capsys.readouterr().out
     )
 
 
