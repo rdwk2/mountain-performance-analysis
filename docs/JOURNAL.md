@@ -18,9 +18,10 @@ Backtest (à partir de M4) : métrique avant → après.
 
 ### 2026-11-23 · docs — Règles 2 et 8 de `CLAUDE.md`, suites d'AN1-3
 `CLAUDE.md` : la règle 2 dit les vérifications tenues depuis OG-1b (ruff, mypy et la
-suite ciblée du brief avant chaque commit, un `just check` complet avant le dernier,
-la CI sur la tête) ; la règle 8 nomme les jalons `OG` (l'origine glissante, du moteur)
-et les PR `docs —` ; la phrase « si un diff dépasse ~300 lignes » cède la place à la
+suite ciblée du brief avant chaque commit, un `just check` complet avant la relecture
+et avant le dernier commit de chaque série de correctifs, une tête verte) ; la règle 8
+nomme les jalons `OG` (l'origine glissante, du moteur) et les PR et branches `docs` ;
+la phrase « si un diff dépasse ~300 lignes » cède la place à la
 taille du brief. `BACKLOG.md` : quatre lignes laissées par la #55. Vérifié depuis la
 fusion d'AN1-3, hors du dépôt : sur les exports Garmin réels, `ingest` puis `tables`
 écrivent `interim/` et `processed/` à l'octet comme avant la PR (`7bbeddb` ; la #54 ne
