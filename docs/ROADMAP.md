@@ -12,8 +12,8 @@ analyse les données d'entraînement, de récupération et de sommeil de l'athl�
 
 ## Où en est le projet
 
-- **Moteur de prédiction** : M0 à M4 livrés ; M5 (interface v0) livré, ses deux pages
-  (`just ui`) ; M5-3 livrée, les profils de démo (`0022`) ; le « Fini quand » de la ROADMAP se constate à l'usage. M6b livré :
+- **Moteur de prédiction** : M0 à M4 livrés ; M5 (l'interface, chantier ouvert) a livré ses deux pages
+  (`just ui`) ; M5-3 livrée, les profils de démo (`0022`) ; le « Fini quand » de la ROADMAP se constate à l'usage. M6b (la courbe, chantier ouvert) a livré
   l'estimation de la courbe personnelle (`just curve`), et sa mesure par le backtest
   contre la v0 (`docs/JOURNAL.md`). Livrés en M4 :
   l'appariement d'une trace à un tracé, les métriques d'erreur, la référence de
@@ -22,7 +22,7 @@ analyse les données d'entraînement, de récupération et de sommeil de l'athl�
   les fourchettes aussi au registre), et l'admission exploratoire d'un effet (`0010` D10,
   hors le figement pour confirmation de D10.7), calculée par la bibliothèque — sa commande
   viendra avec le premier effet, au M6a ; enfin la sensibilité (`0010` D13,
-  `just backtest courbe.csv --sensitivity`). L'origine glissante est livrée : OG-1, la
+  `just backtest courbe.csv --sensitivity`). L'origine glissante, rattachée à M6b, est livrée : OG-1, la
   règle à l'origine et `just curve --at` (`0020`) ; OG-2, le backtest glissant
   (`just backtest-rolling`, `0010`) ; OG-UI, les pages à l'origine et
   `mperf project --at` (`0016`, `0020`) ; OG-3, les trois exécutions réelles côte à
@@ -65,6 +65,14 @@ une justification écrite.
 ---
 
 ## Jalons
+
+M0 à M4 sont des étapes de construction, closes. M5 (interface), M6a (effets
+géométriques), M6b (la courbe), M7 (effets physiologiques), M8 (incertitude) et M9
+(vitrine) sont des **chantiers ouverts** : tant que le modèle s'améliore, ils ne se
+ferment pas. Chaque PR d'un chantier se titre `M<n>-<k>`, numérotée à la suite
+(`CLAUDE.md`, règle 8). Un chantier n'a pas de « Fini quand » à lui : celui écrit
+ci-dessous sous un chantier vaut pour sa première PR (`M<n>-1`), ou pour la prochaine
+dont la structure est connue. L'origine glissante (OG) est rattachée à M6b.
 
 ### M0 — Fondations
 Le socle technique. Aucune logique métier.
@@ -117,7 +125,8 @@ pas enfoui.
 Le modèle le plus simple qui marche de bout en bout.
 
 - courbe allure↔pente **figée** (reprise de l'ancien projet, cf. `MODELE_V1.md`)
-- `v = pace(pente) × effort`. **Zéro fatigue, zéro altitude, zéro chaleur.**
+- `durée_i = Δd_i × p(pente_i) / effort` : une allure `p` par pente, soit une vitesse
+  `effort / p(pente)`. **Zéro fatigue, zéro altitude, zéro chaleur.**
 - sortie : tableau de temps de passage (CSV/JSON)
 
 **Fini quand** : `mperf project route.gpx --curve courbe.csv --effort 0.92` sort un tableau de passages.
@@ -210,7 +219,8 @@ données brutes, et le backtest mesure l'effet du changement de courbe.
 **Test de non-régression offert** : la nouvelle implémentation doit retrouver
 approximativement les courbes de l'ancien projet sur les mêmes entrées.
 
-**Fini** avec M6b-1 (PR #37) et M6b-2 : `mperf curve` estime une courbe depuis `interim/`
+**Fait** avec M6b-1 (PR #37) et M6b-2 (le « Fini quand » ci-dessus ; M6b reste un chantier
+ouvert) : `mperf curve` estime une courbe depuis `interim/`
 (avec ou sans filtre de FC), à la grille, à la pente et à l'horloge du moteur
 (`docs/decisions/0017`), et deux exécutions du backtest, l'une avec la courbe v0, l'autre
 avec la neuve, estimée sans filtre, en ont mesuré l'effet (`docs/JOURNAL.md`, entrée
@@ -224,7 +234,8 @@ l'acquisition, reportée (ci-dessus), et les détecteurs de qualité (une ligne 
 ---
 
 ### OG — L'origine glissante, l'athlète comme dimension
-Nécessite M6b.
+Nécessite M6b, auquel elle est rattachée : OG-1 à OG-3 gardent leurs noms, la suite
+du travail sur la courbe se titre `M6b-…` (la prochaine : `M6b-3`).
 
 Le backtest projette aujourd'hui toutes les performances avec une seule courbe, déclarée
 une fois, et la courbe neuve de M6b est estimée sur des performances qui la mesurent.
