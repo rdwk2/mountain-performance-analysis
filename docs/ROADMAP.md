@@ -12,7 +12,7 @@ analyse les données d'entraînement, de récupération et de sommeil de l'athl�
 
 ## Où en est le projet
 
-- **Moteur de prédiction** : M0 à M4 livrés ; M5 (interface v0) livré, ses deux pages
+- **Moteur de prédiction** : M0 à M4 livrés ; M5 (l'interface, chantier ouvert) a livré ses deux pages
   (`just ui`) ; M5-3 livrée, les profils de démo (`0022`) ; le « Fini quand » de la ROADMAP se constate à l'usage. M6b (la courbe, chantier ouvert) a livré
   l'estimation de la courbe personnelle (`just curve`), et sa mesure par le backtest
   contre la v0 (`docs/JOURNAL.md`). Livrés en M4 :
@@ -70,9 +70,9 @@ M0 à M4 sont des étapes de construction, closes. M5 (interface), M6a (effets
 géométriques), M6b (la courbe), M7 (effets physiologiques), M8 (incertitude) et M9
 (vitrine) sont des **chantiers ouverts** : tant que le modèle s'améliore, ils ne se
 ferment pas. Chaque PR d'un chantier se titre `M<n>-<k>`, numérotée à la suite
-(`CLAUDE.md`, règle 8). Un chantier n'a pas de « Fini quand » à lui : ceux écrits
-ci-dessous valent pour ses premières PR, ou pour la prochaine dont la structure est
-connue. L'origine glissante (OG) est rattachée à M6b.
+(`CLAUDE.md`, règle 8). Un chantier n'a pas de « Fini quand » à lui : celui écrit
+ci-dessous sous un chantier vaut pour sa première PR (`M<n>-1`), ou pour la prochaine
+dont la structure est connue. L'origine glissante (OG) est rattachée à M6b.
 
 ### M0 — Fondations
 Le socle technique. Aucune logique métier.
@@ -219,7 +219,8 @@ données brutes, et le backtest mesure l'effet du changement de courbe.
 **Test de non-régression offert** : la nouvelle implémentation doit retrouver
 approximativement les courbes de l'ancien projet sur les mêmes entrées.
 
-**Fini** avec M6b-1 (PR #37) et M6b-2 : `mperf curve` estime une courbe depuis `interim/`
+**Fait** avec M6b-1 (PR #37) et M6b-2 (le « Fini quand » ci-dessus ; M6b reste un chantier
+ouvert) : `mperf curve` estime une courbe depuis `interim/`
 (avec ou sans filtre de FC), à la grille, à la pente et à l'horloge du moteur
 (`docs/decisions/0017`), et deux exécutions du backtest, l'une avec la courbe v0, l'autre
 avec la neuve, estimée sans filtre, en ont mesuré l'effet (`docs/JOURNAL.md`, entrée
@@ -234,7 +235,7 @@ l'acquisition, reportée (ci-dessus), et les détecteurs de qualité (une ligne 
 
 ### OG — L'origine glissante, l'athlète comme dimension
 Nécessite M6b, auquel elle est rattachée : OG-1 à OG-3 gardent leurs noms, la suite
-du travail sur la courbe se titre `M6b-…`.
+du travail sur la courbe se titre `M6b-…` (la prochaine : `M6b-3`).
 
 Le backtest projette aujourd'hui toutes les performances avec une seule courbe, déclarée
 une fois, et la courbe neuve de M6b est estimée sur des performances qui la mesurent.

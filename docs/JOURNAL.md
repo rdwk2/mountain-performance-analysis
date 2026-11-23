@@ -24,7 +24,12 @@ rattachée à M6b, `docs — …` hors chantier (`CLAUDE.md`, règle 8 ; `docs/R
 la règle 1 dit ce que le hook ne protège plus dans une copie sans dossier de données
 connu ; « Python 3.12 » dans `CLAUDE.md`, comme `README.md` et `CONTRIBUTING.md`. Au
 `BACKLOG`, quatre lignes barrées (deux déjà faites, relevées) et une réécrite : le test
-qui rougit sous Python 3.13 reste ouvert.
+qui rougit sous Python 3.13 reste ouvert. Après une relecture bornée : la règle 1 dit ce
+que le hook refuse encore sans dossier connu (les commandes de l'humain, et celles qui
+nomment `MPA_DATA_DIR`) ; M5 et M6b dits chantiers ouverts dans la ROADMAP et le
+`README.md` ; le « Fini quand » d'un chantier borné à sa première PR ; les notations de
+`MODELE_V1.md` ; deux lignes neuves au `BACKLOG` (la docstring du hook, le « Fini quand »
+de M6a).
 Vérifié : ruff, mypy et les tests des documents ; pas de `just check` complet
 (documents seuls, allègement de la consigne).
 Rangé dans `CLAUDE.md`, `docs/ROADMAP.md`, `docs/MODELE_V1.md`, `BACKLOG.md`, branche

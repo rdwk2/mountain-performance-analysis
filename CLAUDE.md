@@ -41,9 +41,10 @@ Python. Usage personnel d'abord, projet portfolio ensuite. Le repo est public.
    aussi, que le hook refuse. Le hook trouve le dossier des données dans
    l'environnement, sinon dans le `.env` à la racine du projet : dans une copie de
    travail qui n'a ni l'un ni l'autre (un worktree git, par exemple), il ne le connaît
-   pas, ne refuse plus que les commandes qui écrivent dans les données ou nomment
-   `MPA_DATA_DIR`, et ne protège plus les outils de fichiers ; la règle tient quand
-   même.
+   pas : il refuse encore les commandes nommées ci-dessus et celles qui nomment
+   `MPA_DATA_DIR`, mais plus celles qui nomment le dossier par son chemin, ni les
+   outils de fichiers et de recherche (`Read`, `Write`, `Edit`, `Glob`, `Grep`…) ; la
+   règle tient quand même.
 
 2. **`just check` doit être vert sur la tête d'une PR.**
    Avant chaque commit : `uv run ruff check .`, `uv run ruff format --check .`,
@@ -85,7 +86,7 @@ Python. Usage personnel d'abord, projet portfolio ensuite. Le repo est public.
 
 8. **Jamais de commit direct sur `main`.**
    Une tâche = une branche (`<jalon>/<sujet>`, ex. `m2/gpx-profil`, `an1/ingestion` ;
-   `docs/<sujet>` hors jalon)
+   `docs/<sujet>` hors chantier)
    = une pull request. La PR est le moment de revue : c'est là que le diff se relit,
    avec la CI verte à côté. Messages de commit préfixés : `feat:` `fix:` `docs:`
    `test:` `refactor:` `build:` `ci:`.

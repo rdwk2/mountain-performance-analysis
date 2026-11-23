@@ -19,7 +19,7 @@ appliquée le long du tracé.
 
 ```
 GPX → grille à pas fixe (50 m, altitude lissée) → pente par pas
-    → pace(pente) interpolée → cumul des temps
+    → p(pente) interpolée (l'allure, en s/m) → cumul des temps
 ```
 
 En M3, un seul modificateur : un facteur d'effort global.
@@ -28,6 +28,8 @@ En M3, un seul modificateur : un facteur d'effort global.
 durée_i = Δd_i × p(pente_i) / effort      (vitesse : effort / p(pente))
 ```
 
+`Δd_i` est la longueur du pas `i`, `p` l'allure (s/m) de la courbe, `1/v`.
+
 `effort` représente la forme et l'allure choisie, entre ~0,88 (prudent) et ~0,96
 (optimiste). C'est un réglage, pas une mesure.
 
@@ -35,7 +37,9 @@ durée_i = Δd_i × p(pente_i) / effort      (vitesse : effort / p(pente))
 
 ## 2. Les modificateurs — M6a et M7, un par un
 
-Forme complète du modèle précédent, **pour référence** :
+Forme complète du modèle précédent, **pour référence**, écrite comme l'ancien projet
+l'écrivait : `pace(pente)` y est une vitesse, que chaque facteur multiplie (dans le
+moteur, cette vitesse est `effort / p(pente)`) :
 
 ```
 descente (pente < −3 %) :
