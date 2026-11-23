@@ -111,3 +111,15 @@ La puissance : la conception a mesuré, sur six jeux inventés, l'écart entre l
 bootstrap à `V` fixée et à `V` réestimée (`0023`) : sans sens constant. La puissance
 rapportée se dit donc « approchée », et non « un peu optimiste » (Conventions,
 « Puissance »).
+
+## Note du 2026-11-23 (AN4-2a) — les degrés de Bell-McCaffrey
+
+Les degrés de liberté de Bell-McCaffrey viennent avec AN4-2a, la première question qui
+les demande (le modèle de la montée, `0024`) : `bell_mccaffrey_df(X, clusters, j)`, sous
+une covariance de travail identité (la forme d'Imbens et Kolesár), avec le même
+ajustement `A_g` que `cr2_cov` ; et `cr2_interval(X, y, clusters, j, level)`, l'intervalle
+de Student du coefficient `j` à ces degrés (réels, non entiers), refusé sous dix grappes
+comme le bootstrap sauvage. Les deux dans `clusters.py` ; rien d'autre ne change. Leurs
+tests : des cas calculés (une moyenne sur des grappes égales : `G − 1` degrés), des
+valeurs d'une seconde implémentation tenue hors du dépôt, et une couverture simulée,
+comme le bootstrap sauvage.

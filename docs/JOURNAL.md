@@ -16,6 +16,32 @@ Backtest (à partir de M4) : métrique avant → après.
 
 ---
 
+### 2026-11-23 · AN4-2a, la bibliothèque du modèle de la montée
+Le paquet `analyse/ascent/`, Python pur, sans numpy, sans page : la sélection des
+montées (six motifs dans leur ordre, l'appareil et le journal marqués), les références
+de l'année écoulée, l'étage 1 en deux temps (MCO centrés par sortie, covariance CR2 et
+degrés de Bell-McCaffrey, puis le REML à trois composantes des résumés de sortie), la
+vitesse habituelle `τ`, l'étage 3 (le niveau du jour, gelé à la dernière sortie),
+l'étage 2 (la Fenêtre, sa tendance, son échelle, β et `g` mêlés à l'histoire, la courbe
+de G2) et les états. Dans `inference/clusters.py`, deux fonctions ajoutées
+(`bell_mccaffrey_df`, `cr2_interval`), rien de changé. La décision `0024` et les textes
+(annexe D du brief, refaite contre `main` après la fusion de la #58, qui s'est faite sans
+conflit). Précisions de la conception au plan : β ou `g` non estimé rend « données
+insuffisantes » (T7 ter, F45) ; `Band` défini dans `daily.py`, réexporté par
+`window_fit.py`. Les valeurs du monde E et les cas à la main du brief, toutes dans leurs
+tolérances. Vérifié : ruff, mypy et les tests du commit avant chaque commit ; avant le
+dernier, `just check` en une passe (`just lint`, `just types`, puis pytest avec tous les
+extras, en douze lots parallèles de fichiers ; cinq tests de temps rouges sous la charge,
+verts rejoués seuls), sous Windows : vert, N = 12 640 (réussis et sautés). Les 45
+contre-épreuves, en worktrees détachés : toutes tuées ; F33 a demandé un test de plus
+(W15 bis, une histoire de plus d'un an). Trois passes complètes perdues : une coupée par
+Claude Code, deux ratées (un défaut du script de lots, puis le disque C: plein). Deux
+lignes au `BACKLOG`.
+Conclusion : la bibliothèque du modèle de la montée est prête pour la page d'AN4-2b.
+Rangé dans `src/mountain_perf/analyse/ascent/`,
+`src/mountain_perf/analyse/inference/clusters.py`,
+`docs/decisions/0024-modele-de-la-montee.md`, branche `an4/montee`.
+
 ### 2026-11-23 · docs — Les noms des jalons, et quatre lignes du BACKLOG
 Les titres des PR : `M<n>-<k>` dans des chantiers ouverts (M5 à M9), l'origine glissante
 rattachée à M6b, `docs — …` hors chantier (`CLAUDE.md`, règle 8 ; `docs/ROADMAP.md`,
