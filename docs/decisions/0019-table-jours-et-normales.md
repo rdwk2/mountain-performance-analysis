@@ -497,7 +497,8 @@ et rien n'est écrit.
   la charge selon Garmin) ; puis, à part, la HRV selon Garmin (la moyenne de la semaine
   et ses bornes), sans la normale ni les couleurs de la piste. La période : par défaut
   les 8 dernières semaines (les 56 dernières lignes de la table, son dernier jour
-  compris), au choix toute la table. « Données au … » est l'instant d'acquisition à
+  compris), au choix toute la table ; depuis AN4-1, la Fenêtre (section AN4-1).
+  « Données au … » est l'instant d'acquisition à
   l'heure de Paris, dit comme tel.
 - **Les marques suivent l'admission** : un point plein, une valeur admise
   (`<p>_admitted`) ; un point creux, une valeur refusée, le motif au survol ; un trait
@@ -575,3 +576,26 @@ et rien n'est écrit.
 - **La relecture** : un `jours.parquet` écrit avant AN3-3a n'a pas cette colonne : dès
   qu'il a une ligne, il ne se relit pas (`UNREADABLE_TABLE`, « relancer just
   process »).
+
+## AN4-1 — la Fenêtre (2026-11-23)
+
+- **Ce qui change** : le choix « 8 dernières semaines » ou « toute la table » de la
+  page « récupération » cède la place à la Fenêtre, commune aux pages de la piste,
+  dans la barre latérale : 28, 56 ou 90 jours, tout l'historique, ou une plage de
+  dates ; 56 jours par défaut.
+- **Ses bornes** (`analyse/window.py`, Python pur) : l'étendue des données va du plus
+  ancien au plus récent des jours de `jours` et des jours locaux du départ des
+  montées ; l'ancre est son dernier jour. « N jours » : les N jours qui finissent à
+  l'ancre, l'ancre comprise, sans remonter avant le premier jour des données ; « tout
+  l'historique » : toute l'étendue ; une plage : ses deux jours, compris, ramenés à
+  l'étendue, vide si le premier vient après le second ou si elle tombe hors de
+  l'étendue.
+- **Une seule** : gardée d'une page de la piste à l'autre, même après une page du
+  moteur, par une clé de session à part (Streamlit efface l'état d'un contrôle absent
+  de la page affichée).
+- **La page** : ses graphiques couvrent les jours de la Fenêtre ; les normales et
+  leurs plages restent celles de la table (sur les `normal.window_days` jours, 28
+  par défaut, qui précèdent chaque jour, dans la Fenêtre ou non) ; les rubans du
+  journal, rognés à la Fenêtre. À 56 jours, quand aucune montée ne suit le dernier
+  jour de `jours` (et, si la table a moins de 56 lignes, qu'aucune ne précède le
+  premier), elle montre ce qu'elle montrait.

@@ -350,7 +350,11 @@ src/mountain_perf/     le code de la bibliothèque
                        normales ; seuils days.*, DayDefinition (AN2-2) ; la demi-heure
                        de FC la plus basse du jour (AN3-3a)
     recovery.py        la vue de la page récupération : marques, suites de la normale,
-                       étendue, rubans, activité, légende ; Python pur (AN2-3)
+                       étendue, rubans, activité, légende ; Python pur (AN2-3) ; sur
+                       les bornes de la Fenêtre (AN4-1)
+    window.py          la Fenêtre des pages de la piste : l'étendue des données, les
+                       bornes de 28, 56 ou 90 jours, de tout l'historique ou d'une
+                       plage, le filtre ; Python pur (AN4-1)
     heart_rate.py      la FC d'une montée : support en mouvement, seconde moitié,
                        fenêtres décalées, par l'intégrale de la FC du moteur ; Python
                        pur (AN3-1a)
@@ -395,7 +399,10 @@ src/mountain_perf/     le code de la bibliothèque
     projection.py      la page projection, M5-1 ; la courbe à l'origine, OG-UI
     sortie.py          la page sortie, M5-2 ; la courbe à l'origine, OG-UI
     fenetre.py         la page « La fenêtre », OG-UI
-    recuperation.py    la page récupération et le cache des tables, AN2-3 ; importe
+    piste.py           le cache des tables et le contrôle de la Fenêtre, communs aux
+                       pages de la piste, AN4-1 ; importe analyse dans ses fonctions
+                       seulement
+    recuperation.py    la page récupération, AN2-3 ; sur la Fenêtre, AN4-1 ; importe
                        analyse dans ses fonctions seulement
     q1.py              la page Q1 : la dernière figure de just q1, AN2-3
     q2.py              la page Q2 : le dernier résultat de just q2, AN3-5

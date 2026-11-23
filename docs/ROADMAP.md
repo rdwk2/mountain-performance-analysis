@@ -37,10 +37,11 @@ analyse les données d'entraînement, de récupération et de sommeil de l'athl�
   journalières, avec leurs vues (AN2-1) ; `mperf tables` en tire la table `jours`, avec
   les normales de six mesures, et lit le journal de l'athlète (AN2-2) ; l'interface la
   montre (la page « récupération »), avec la dernière figure de Q1 (AN2-3). AN2 est
-  livrée. AN3 (Q2, l'efficience en montée) est commencée : la FC décalée de chaque
+  livrée. AN3 (Q2, l'efficience en montée) est livrée : la FC décalée de chaque
   montée (AN3-1a), les outils d'inférence (AN3-1), les positions des bornes de
   chaque montée et la demi-heure de FC la plus basse du jour (AN3-3a), le code de
-  Q2, sa puissance et ses essais (AN3-3b), sa page (AN3-5).
+  Q2, sa puissance et ses essais (AN3-3b), sa page (AN3-5). AN4 (les tableaux de
+  bord) est commencée : la Fenêtre commune des pages de la piste (AN4-1).
 
 ---
 
@@ -304,7 +305,7 @@ L'estimation de la courbe (M6b) attend l'ingestion des activités, écrite par l
 analyse en AN1.
 
 ```
-AN0 → AN1 → AN2 → AN3 …
+AN0 → AN1 → AN2 → AN3 → AN4 …
        └── interim/ ──→ M6b (courbe)
 ```
 
@@ -407,9 +408,10 @@ Garmin ; `docs/decisions/0019`, section AN2-3) et la dernière figure de Q1 (la 
 
 ---
 
-### AN3 et suivants — Une question par jalon
+### AN3 — Une question par jalon (Q2)
 Une question, ou deux très proches, par jalon, numéroté à son ouverture. Ordre prévu :
-Q2, Q3, Q4 ; les suivantes se choisissent à l'ouverture de chaque jalon. Chaque
+Q2, Q3, Q4 (Q3 et Q4 après AN4, note du 2026-11-21) ; les suivantes se choisissent à
+l'ouverture de chaque jalon. Chaque
 question a son plan d'analyse, relu avant le code (charte).
 
 **AN3 — Q2** (l'efficience en montée). Premier sous-jalon, AN3-1a : la FC de chaque
@@ -421,3 +423,16 @@ le code de Q2, `mperf q2 puissance` puis `mperf q2`, les vingt-quatre essais et 
 journal (`0023`). Le contrôle réel, le plan v2 et l'estimation se font hors du dépôt.
 AN3-5 : la page de Q2 (`ui/q2.py`, `0016`, `0023`) ; sur la page récupération, les
 nuits sans SpO2 rendues visibles.
+
+**Fini** avec la PR AN3-5 : Q2 a son code, sa puissance et ses vingt-quatre essais
+(`0023`), son estimation faite hors du dépôt telle que pré-enregistrée, et sa page,
+qui montre le dernier résultat de `just q2` sans rien recalculer.
+
+### AN4 — Les tableaux de bord
+Après Q2, la piste se tourne vers les tableaux de bord (décision de rdw, 2026-11-21) :
+des pages qui se recalculent à l'affichage depuis `processed/`, sans verdict (charte
+§ 8), sur une même fenêtre de temps. AN4-1 : la Fenêtre (28, 56 ou 90 jours, tout
+l'historique, ou une plage de dates ; 56 jours par défaut), ancrée au dernier jour
+des données et gardée d'une page de la piste à l'autre ; la page « récupération » y
+passe (`0019`, section AN4-1). Suivront des pages sur la montée, sur le déclin au fil
+d'une sortie et sur une sortie seule. Q3 et Q4 viennent ensuite.

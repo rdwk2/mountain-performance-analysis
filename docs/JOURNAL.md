@@ -16,6 +16,28 @@ Backtest (à partir de M4) : métrique avant → après.
 
 ---
 
+### 2026-11-23 · AN4-1, la Fenêtre commune et la clôture d'AN3
+La Fenêtre des pages de la piste : 28, 56 ou 90 jours, tout l'historique ou une plage
+de dates, 56 jours par défaut, ancrée au dernier jour des données (jours de `jours` et
+jours locaux du départ des montées). Ses bornes dans `analyse/window.py` (Python pur) ;
+le contrôle, dans la barre latérale, et la lecture des tables, déplacée sans changer,
+dans `ui/piste.py`, qui entre dans `PISTE_PAGES` ; le choix gardé d'une page à l'autre
+par des clés de session à part. La page « récupération » y passe (`recovery_view(…,
+window=…)`), le bouton « Période » disparaît ; `recovery_view.json` perd ses deux clés
+`everything`. Les textes de la clôture d'AN3 (annexe D, refaite contre `3573f38` après
+la fusion de la #56, qui s'est faite sans conflit). Vérifié : ruff, mypy et les tests
+ciblés avant chaque commit ; avant le dernier, `just check` en une passe (`just lint`,
+`just types`, puis pytest avec tous les extras), sous Windows : vert, N = 12 544
+(réussis et sautés). Les 23 contre-épreuves du brief, en worktrees détachés : toutes
+tuées, aucun test ajouté. Le hook a refusé une commande Bash qui portait un script avec
+le texte du code (faux positif : « just process », dans un message recopié de la page,
+la commande n'écrivant que sous `src/`) ; arrêt, puis, avec l'accord de rdw, le code et
+les tests écrits par les outils d'écriture et d'édition de fichiers ; une ligne au
+`BACKLOG`.
+Conclusion : la Fenêtre est en place, sur la page « récupération » seule. Rangé dans
+`src/mountain_perf/analyse/window.py`, `src/mountain_perf/ui/piste.py`,
+`docs/decisions/0019` (section AN4-1), branche `an4/fenetre`.
+
 ### 2026-11-23 · docs — Règles 2 et 8 de `CLAUDE.md`, suites d'AN1-3
 `CLAUDE.md` : la règle 2 dit les vérifications tenues depuis OG-1b (ruff, mypy et la
 suite ciblée du brief avant chaque commit, un `just check` complet avant la relecture
