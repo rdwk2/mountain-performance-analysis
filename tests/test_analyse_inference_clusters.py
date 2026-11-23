@@ -27,8 +27,10 @@ from hypothesis.extra.numpy import arrays
 from mountain_perf.analyse.inference.base import FloatArray, InferenceError, child_rng
 from mountain_perf.analyse.inference.clusters import (
     WEBB,
+    bell_mccaffrey_df,
     cluster_weights,
     cr2_cov,
+    cr2_interval,
     wild_cluster_interval,
 )
 from mountain_perf.analyse.inference.linear import ols
@@ -292,3 +294,103 @@ def test_t23_acceptances_next_to_the_bounds() -> None:
     assert cluster_weights("webb", 3, 1, SpyGenerator(1).as_generator()).shape == (1, 3)
     X, y, labels = _ten_clusters()  # noqa: N806
     wild_cluster_interval(X, y, labels, 0, 0.95, 9, child_rng(1))
+
+
+# Les degrés de Bell-McCaffrey et l'intervalle CR2 (AN4-2a, § 7.5 du brief) : K1 à
+# K6, valeurs de la seconde implémentation de la conception.
+
+
+def _k3() -> tuple[FloatArray, FloatArray, numpy.typing.NDArray[numpy.int_]]:
+    """K3 : 21 lignes, ``X_i = (1, i mod 7, i² mod 5)``, ``y_i = sin(i)``, deux
+    lignes par grappe, trois pour la dernière."""
+    i = numpy.arange(21)
+    X = numpy.column_stack([numpy.ones(21), i % 7, (i * i) % 5]).astype(float)  # noqa: N806
+    labels = numpy.minimum(i // 2, 9)
+    return X, numpy.sin(i.astype(float)), labels
+
+
+def test_k1_a_mean_over_equal_clusters() -> None:
+    """K1 : une constante seule, 10 grappes de 3 lignes : ``G − 1 = 9`` degrés."""
+    labels = numpy.repeat(numpy.arange(10), 3)
+    assert bell_mccaffrey_df(numpy.ones((30, 1)), labels, 0) == pytest.approx(
+        9.0, rel=1e-9
+    )
+
+
+def test_k2_a_mean_over_unequal_clusters() -> None:
+    """K2 : une constante seule, grappes de 2, 2, 3, 3, 4, 4, 5, 5, 6, 6 lignes."""
+    labels = numpy.repeat(numpy.arange(10), [2, 2, 3, 3, 4, 4, 5, 5, 6, 6])
+    df = bell_mccaffrey_df(numpy.ones((labels.shape[0], 1)), labels, 0)
+    assert df == pytest.approx(7.899655499441329, rel=1e-9)
+
+
+def test_k3_a_slope_and_its_interval() -> None:
+    """K3 : ``df`` de la colonne 1, et l'intervalle à 90 % (coefficient et erreur
+    type CR2 de la seconde implémentation)."""
+    X, y, labels = _k3()  # noqa: N806
+    assert bell_mccaffrey_df(X, labels, 1) == pytest.approx(5.143946261922288, rel=1e-9)
+    fit = ols(X, y)
+    assert float(fit.coef[1]) == pytest.approx(-0.15448164462363873, rel=1e-9)
+    se = math.sqrt(float(cr2_cov(X, fit.resid, labels)[1, 1]))
+    assert se == pytest.approx(0.08253602224578607, rel=1e-9)
+    interval, df = cr2_interval(X, y, labels, 1, 0.90)
+    assert df == pytest.approx(5.143946261922288, rel=1e-9)
+    assert interval.low == pytest.approx(-0.3197731413681643, rel=1e-9)
+    assert interval.high == pytest.approx(0.010809852120886865, rel=1e-9)
+
+
+def test_k4_invariances() -> None:
+    """K4 : des étiquettes renommées (une permutation des entiers) ne changent pas
+    ``df`` ; la colonne ``j`` multipliée par 3 non plus."""
+    X, _, labels = _k3()  # noqa: N806
+    reference = bell_mccaffrey_df(X, labels, 1)
+    permutation = numpy.array([7, 3, 9, 0, 5, 1, 8, 2, 6, 4])
+    assert bell_mccaffrey_df(X, permutation[labels], 1) == pytest.approx(
+        reference, rel=1e-9
+    )
+    scaled = X.copy()
+    scaled[:, 1] *= 3.0
+    assert bell_mccaffrey_df(scaled, labels, 1) == pytest.approx(reference, rel=1e-9)
+
+
+def test_k5_refusals() -> None:
+    """K5 : une grappe ; neuf grappes (``cr2_interval``, le message de la charte) ;
+    ``j`` hors des colonnes ; des étiquettes non entières ; un levier de 1."""
+    X, y, labels = _k3()  # noqa: N806
+    with pytest.raises(InferenceError, match="au moins 2 grappes"):
+        bell_mccaffrey_df(X, numpy.zeros(21, dtype=int), 1)
+    nine = numpy.minimum(numpy.arange(21) // 2, 8)
+    with pytest.raises(InferenceError, match="sous 10 grappes, on agrège"):
+        cr2_interval(X, y, nine, 1, 0.95)
+    for j in (3, -1):
+        with pytest.raises(InferenceError, match=r"^j :"):
+            bell_mccaffrey_df(X, labels, j)
+        with pytest.raises(InferenceError, match=r"^j :"):
+            cr2_interval(X, y, labels, j, 0.95)
+    with pytest.raises(InferenceError, match="entières"):
+        bell_mccaffrey_df(X, labels.astype(float), 1)
+    with pytest.raises(InferenceError, match="entières"):
+        cr2_interval(X, y, labels.astype(float), 1, 0.95)
+    lever = numpy.column_stack([X, (labels == 0).astype(float)])
+    with pytest.raises(InferenceError, match="levier de 1"):
+        bell_mccaffrey_df(lever, labels, 1)
+    with pytest.raises(InferenceError, match="levier de 1"):
+        cr2_interval(lever, y, labels, 1, 0.95)
+
+
+def test_k6_cr2_interval_coverage() -> None:
+    """K6 : couverture simulée (graine 20261125, 200 jeux, 12 grappes de 5 lignes) :
+    entre 187 et 189 intervalles contiennent la pente vraie 0 (oracle : 188 ; à
+    ``G − 1`` ddl : 185)."""
+    g = numpy.random.default_rng(20261125)
+    labels = numpy.repeat(numpy.arange(12), 5)
+    covered = 0
+    for _ in range(200):
+        x = numpy.repeat(g.normal(size=12), 5) + 0.5 * g.normal(size=60)
+        u = g.normal(size=12)
+        e = g.normal(size=60)
+        X = numpy.column_stack([numpy.ones(60), x])  # noqa: N806
+        y = 1.0 + numpy.repeat(u, 5) + e
+        interval, _ = cr2_interval(X, y, labels, 1, 0.95)
+        covered += interval.low <= 0.0 <= interval.high
+    assert 187 <= covered <= 189
