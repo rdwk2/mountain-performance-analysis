@@ -351,3 +351,25 @@ def test_w15_the_scale_speed_reads_the_whole_history(
     assert tuple(points) == structure.points
     assert length == LAST_56.days == 56
     assert end == structure.references.last_day == WORLD_E_LAST_DAY
+
+
+def test_w15_bis_the_scale_speed_reads_beyond_the_past_year(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """W15 bis (contre-épreuve F33) : sur une histoire de plus d'un an,
+    ``habitual_speed`` reçoit aussi les points d'avant l'année écoulée."""
+    calls: list[Sequence[Point]] = []
+    original = habitual_speed
+
+    def recording(points: Sequence[Point], length_days: int, end: date) -> Any:
+        calls.append(points)
+        return original(points, length_days, end)
+
+    monkeypatch.setattr(window_fit, "habitual_speed", recording)
+    structure, climbs = fitted(exact_world(spread_offsets(60), noise=0.02))
+    assert any(p.day < structure.references.first_day for p in structure.points)
+    last = structure.references.last_day
+    fit = fit_window(structure, climbs, Window(last - timedelta(days=55), last))
+    assert isinstance(fit, WindowFit)
+    assert len(calls) == 1
+    assert tuple(calls[0]) == structure.points
