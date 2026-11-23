@@ -1225,3 +1225,16 @@ def test_v6_no_row_no_bounds_whatever_the_window(base: Tables) -> None:
     )
     assert (view.first_day, view.last_day, view.x_domain) == (None, None, None)
     assert all(not panel.points for panel in view.panels)
+
+
+@pytest.mark.parametrize("n", [1, 2, 10, 55, 56, 57])
+def test_v7_the_default_view_of_a_short_table(base: Tables, n: int) -> None:
+    """V7 : sans Fenêtre, la vue des ``n`` premières lignes du monde montre ses
+    ``min(n, 56)`` derniers jours : du jour de rang ``n − min(n, 56)`` à celui de rang
+    ``n − 1`` (à 57 lignes, la première ne se montre plus)."""
+    shown = min(n, DEFAULT_DAYS)
+    tables = world_tables(base, rows=world_rows()[:n])
+    view = recovery_view(tables.days, tables.provenance)
+    assert view.first_day == day_of(n - shown)
+    assert view.last_day == day_of(n - 1)
+    assert all(len(panel.points) == shown for panel in view.panels)

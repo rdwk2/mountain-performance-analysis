@@ -342,6 +342,10 @@ def test_an_empty_table_is_said(base: Tables) -> None:
         "journalières (une archive Strava n'en a pas), ou interim/ n'est pas à jour : "
         "lancer just process."
     ]
+    assert [caption.value for caption in at.caption] == [
+        "Données au 21/05/2000 à 21 h 15 (heure de Paris). Exploratoire : aucune "
+        "alerte, aucun verdict."
+    ]
     assert not at.get("vega_lite_chart")
 
 
