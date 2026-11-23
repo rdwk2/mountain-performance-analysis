@@ -40,8 +40,16 @@ Python. Usage personnel d'abord, projet portfolio ensuite. Le repo est public.
    et `streamlit run`, que le hook refuse aussi) sont lancées par l'humain. `just demo`
    aussi, que le hook refuse.
 
-2. **`just check` doit être vert avant tout commit.**
-   Si tu n'arrives pas à le rendre vert, tu t'arrêtes et tu le dis. Tu ne
+2. **`just check` doit être vert sur la tête d'une PR.**
+   Avant chaque commit : `uv run ruff check .`, `uv run ruff format --check .`,
+   `uv run mypy` et la suite ciblée que donne le brief (sans brief, les tests des
+   fichiers touchés), tout vert. Avant le dernier commit livré à la relecture, puis
+   avant le dernier de chaque série de correctifs : le `just check` complet, une fois,
+   sous Windows si tu y travailles (la CI, sous Linux, ne voit pas les écarts propres
+   à Windows) ; s'il rougit, un commit `fix:` de plus, puis `just check` à nouveau,
+   jusqu'à une tête verte. La CI le rejoue sur la tête, et la PR est fusionnée en
+   « Squash and merge ». Un brief qui allège ces vérifications le dit.
+   Si tu n'arrives pas à les rendre vertes, tu t'arrêtes et tu le dis. Tu ne
    contournes pas (pas de `# type: ignore` posé pour faire taire, pas de test
    désactivé) sans le signaler explicitement et en donner la raison.
 
@@ -71,14 +79,16 @@ Python. Usage personnel d'abord, projet portfolio ensuite. Le repo est public.
    `processed/` et la configuration, jamais `raw/` (`docs/decisions/0012`).
 
 8. **Jamais de commit direct sur `main`.**
-   Une tâche = une branche (`<jalon>/<sujet>`, ex. `m2/gpx-profil`, `an1/ingestion`)
+   Une tâche = une branche (`<jalon>/<sujet>`, ex. `m2/gpx-profil`, `an1/ingestion` ;
+   `docs/<sujet>` hors jalon)
    = une pull request. La PR est le moment de revue : c'est là que le diff se relit,
    avec la CI verte à côté. Messages de commit préfixés : `feat:` `fix:` `docs:`
    `test:` `refactor:` `build:` `ci:`.
-   Titre de PR : `M<n>` ou `AN<n>`, avec sous-jalon éventuel, puis le nom du jalon
-   (ex. `M1 — Contrats de données`, `M4b-5 — …`, `AN1 — …`). Les jalons `M` sont ceux
-   du moteur de prédiction, les jalons `AN` ceux de la piste analyse
-   (`docs/ROADMAP.md`). Avec
+   Titre de PR : `M<n>`, `AN<n>` ou `OG-…`, avec sous-jalon éventuel, puis le nom
+   du jalon (ex. `M1 — Contrats de données`, `M4b-5 — …`, `AN1 — …`, `OG-1b — …`,
+   `OG-UI — …`) ; une PR de documents hors jalon : `docs — …`. Les jalons `M` et `OG`
+   (l'origine glissante) sont ceux du moteur de prédiction, les jalons `AN` ceux de
+   la piste analyse (`docs/ROADMAP.md`). Avec
    « Squash and merge », ce titre devient le message du commit sur `main` : la
    liste des PR est donc la table des matières du projet.
 
@@ -108,8 +118,8 @@ mélanger les deux, tu t'arrêtes et tu le signales.
   et seulement ensuite tu écris du code.
 - **Une tâche = un périmètre borné + un critère d'acceptation vérifiable.**
   Si le critère d'acceptation n'est pas clair, tu le demandes avant de commencer.
-- **Petits commits, un concept chacun.** Si un diff dépasse ~300 lignes, c'est
-  probablement que la tâche était mal découpée : signale-le.
+- **Petits commits, un concept chacun.** La taille d'une PR, c'est son brief qui la
+  fixe, pas un nombre de lignes de diff.
 - **Jamais de fin de session sur du cassé non commité.**
 - **Une entrée dans `docs/JOURNAL.md`** à la fin de chaque session de travail :
   date, ce qui a été fait, la conclusion, où c'est rangé.
