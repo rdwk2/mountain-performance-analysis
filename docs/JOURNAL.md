@@ -16,6 +16,19 @@ Backtest (à partir de M4) : métrique avant → après.
 
 ---
 
+### 2026-11-23 · docs — Règles 2 et 8 de `CLAUDE.md`, suites d'AN1-3
+`CLAUDE.md` : la règle 2 dit les vérifications tenues depuis OG-1b (ruff, mypy et la
+suite ciblée du brief avant chaque commit, un `just check` complet avant le dernier,
+la CI sur la tête) ; la règle 8 nomme les jalons `OG` (l'origine glissante, du moteur)
+et les PR `docs —` ; la phrase « si un diff dépasse ~300 lignes » cède la place à la
+taille du brief. `BACKLOG.md` : quatre lignes laissées par la #55. Vérifié depuis la
+fusion d'AN1-3, hors du dépôt : sur les exports Garmin réels, `ingest` puis `tables`
+écrivent `interim/` et `processed/` à l'octet comme avant la PR (`7bbeddb` ; la #54 ne
+touche ni l'ingestion ni les tables), sans `sources.json` ; le paragraphe d'AN1-3 ne
+disait que le monde synthétique.
+Conclusion : les règles disent ce qui se fait. Rangé dans `CLAUDE.md`, `BACKLOG.md`,
+branche `docs/regles-an1-3`.
+
 ### 2026-11-21 · AN1-3, l'ingestion d'une archive Strava
 Une seconde source d'exports, écrite par le moteur avec l'accord de la piste : l'archive
 que Strava envoie, rangée telle quelle sous `raw/strava/<export>/` avec son
