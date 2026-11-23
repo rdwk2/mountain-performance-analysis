@@ -16,6 +16,24 @@ Backtest (à partir de M4) : métrique avant → après.
 
 ---
 
+### 2026-11-23 · AN4-1, les correctifs de la relecture
+Après la relecture de la PR (une C) et le balayage de mutation : aucun défaut de code,
+aucun changement sous `src/`. Des tests : P13, la Fenêtre gardée par un vrai changement
+de page (une appli jetable par `st.navigation`, sans l'avertissement « default value »
+de Streamlit) ; P13 bis, six clés distinctes ; P5, le format des dates ; P7, P8 bis et
+`test_an_empty_table_is_said`, la seule légende des données ; P14, des tables sans jour
+et une montée, la radio lue par une assertion (un commit à part, après que la
+contre-épreuve F27 l'a tuée par une exception) ; V7, la vue par défaut d'une table
+courte. Les textes : `QUESTIONS.md` en version 2 (Q14) ; deux lignes au `BACKLOG`.
+Vérifié : ruff, mypy et les tests du commit avant chaque commit ; avant le dernier,
+`just check` en une passe (`just lint`, `just types`, puis pytest avec tous les extras),
+sous Windows : vert, N = 12 553 (réussis et sautés). Contre-épreuves F24 à F30, en
+worktrees détachés : toutes tuées par une assertion (F27 rejouée contre le commit de
+P14).
+Conclusion : la Fenêtre est tenue par ses tests jusqu'au changement de page. Rangé dans
+`tests/test_ui_piste.py`, `tests/test_analyse_recovery.py`,
+`tests/test_ui_recuperation.py`, `docs/analyse/QUESTIONS.md`, branche `an4/fenetre`.
+
 ### 2026-11-23 · AN4-1, la Fenêtre commune et la clôture d'AN3
 La Fenêtre des pages de la piste : 28, 56 ou 90 jours, tout l'historique ou une plage
 de dates, 56 jours par défaut, ancrée au dernier jour des données (jours de `jours` et
