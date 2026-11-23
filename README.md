@@ -147,9 +147,10 @@ dans [les pages des commandes](docs/commandes/README.md).
 
 ## État
 
-- **Moteur de prédiction** : M0 à M5 livrés — le profil, le moteur v0, le backtest à
-  cinq modèles et sa sensibilité, l'interface ; M6b livré, la courbe personnelle
-  (`just curve`) ; l'origine glissante livrée : la règle à l'origine
+- **Moteur de prédiction** : M0 à M4 livrés — le profil, le moteur v0, le backtest à
+  cinq modèles et sa sensibilité ; puis des chantiers ouverts (`docs/ROADMAP.md`,
+  « Jalons ») : M5 a livré l'interface, M6b la courbe personnelle (`just curve`) et,
+  rattachée à M6b, l'origine glissante : la règle à l'origine
   (`just curve --at`), le backtest glissant (`just backtest-rolling`), les pages à
   l'origine (`just ui`, `just project --at`) et ses trois exécutions réelles
   (`docs/JOURNAL.md`).

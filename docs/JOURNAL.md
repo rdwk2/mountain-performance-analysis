@@ -16,6 +16,25 @@ Backtest (à partir de M4) : métrique avant → après.
 
 ---
 
+### 2026-11-23 · docs — Les noms des jalons, et quatre lignes du BACKLOG
+Les titres des PR : `M<n>-<k>` dans des chantiers ouverts (M5 à M9), l'origine glissante
+rattachée à M6b, `docs — …` hors chantier (`CLAUDE.md`, règle 8 ; `docs/ROADMAP.md`,
+« Jalons », l'état et OG). La formule du moteur v0 écrite comme il la calcule
+(`durée_i = Δd_i × p(pente_i) / effort`) dans la ROADMAP (M3) et `docs/MODELE_V1.md` ;
+la règle 1 dit ce que le hook ne protège plus dans une copie sans dossier de données
+connu ; « Python 3.12 » dans `CLAUDE.md`, comme `README.md` et `CONTRIBUTING.md`. Au
+`BACKLOG`, quatre lignes barrées (deux déjà faites, relevées) et une réécrite : le test
+qui rougit sous Python 3.13 reste ouvert. Après une relecture bornée : la règle 1 dit ce
+que le hook refuse encore sans dossier connu (les commandes de l'humain, et celles qui
+nomment `MPA_DATA_DIR`) ; M5 et M6b dits chantiers ouverts dans la ROADMAP et le
+`README.md` ; le « Fini quand » d'un chantier borné à sa première PR ; les notations de
+`MODELE_V1.md` ; deux lignes neuves au `BACKLOG` (la docstring du hook, le « Fini quand »
+de M6a).
+Vérifié : ruff, mypy et les tests des documents ; pas de `just check` complet
+(documents seuls, allègement de la consigne).
+Rangé dans `CLAUDE.md`, `docs/ROADMAP.md`, `docs/MODELE_V1.md`, `BACKLOG.md`, branche
+`docs/noms-des-jalons`.
+
 ### 2026-11-23 · AN4-1, les correctifs de la relecture
 Après la relecture de la PR (une C) et le balayage de mutation : aucun défaut de code,
 aucun changement sous `src/`. Des tests : P13, la Fenêtre gardée par un vrai changement
