@@ -16,12 +16,12 @@ dates sur la première couche datée seulement, et aucune couche sans donnée.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from pathlib import Path
 from typing import Any
 
 import streamlit as st
 
 from mountain_perf.ui.components import data_folder
+from mountain_perf.ui.piste import cached_tables
 
 COLORS: dict[str, str] = {
     "valeur": "#4a8bd6",
@@ -569,35 +569,6 @@ def page_specs(view: Any) -> list[dict[str, Any]]:
     specs.append(durations_spec(view))
     specs.append(loads_spec(view))
     return specs
-
-
-def _read(data: Path, key: bytes) -> Any:
-    """La lecture des tables, sous la clé de leur provenance ; ``read_tables`` résolu
-    à l'appel."""
-    from mountain_perf.analyse import parquet
-
-    del key  # la clé ne sert qu'au cache
-    return parquet.read_tables(data)
-
-
-_cached_read = st.cache_resource(max_entries=1, show_spinner="Lecture des tables…")(
-    _read
-)
-"""La lecture gardée en mémoire tant que le dossier et la clé ne changent pas ;
-``st.cache_resource`` appliqué par un appel, sans décorateur (``mypy`` sans l'extra
-``tableau``)."""
-
-
-def cached_tables(data: Path) -> Any:
-    """Les tables de ``data/processed/``, gardées en mémoire tant que leur provenance
-    ne change pas ; sans clé (``tables_key`` rend ``None``), la lecture directe, qui
-    lève comme ``read_tables``."""
-    from mountain_perf.analyse import parquet
-
-    key = parquet.tables_key(data)
-    if key is None:
-        return parquet.read_tables(data)
-    return _cached_read(data, key)
 
 
 def recuperation_page() -> None:

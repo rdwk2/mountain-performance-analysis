@@ -821,7 +821,7 @@ def test_the_cache_keeps_one_entry(
 ) -> None:
     """U14 : le cache garde une seule entrée (``max_entries`` vaut 1) : les tables
     d'un dossier, puis d'un autre, puis du premier, se lisent trois fois."""
-    from mountain_perf.ui.recuperation import cached_tables
+    from mountain_perf.ui.piste import cached_tables
 
     first, second = data_dir() / "premieres", data_dir() / "secondes"
     tables = _written(base, first)
