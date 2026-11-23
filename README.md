@@ -64,7 +64,9 @@ montre vient des fonctions mêmes de `mperf` et de la bibliothèque. Six pages :
   la courbe peut ne pas être comptée ; texte seul ;
 - **récupération** (piste analyse) : la table `jours`, six mesures de la nuit et du
   repos, chacune contre sa normale et sa plage, puis le journal de l'athlète et
-  l'activité du jour ; exploratoire : aucune alerte, aucun verdict ;
+  l'activité du jour, sur la Fenêtre choisie dans la barre latérale (28, 56 ou 90
+  jours, tout l'historique ou une plage de dates ; 56 jours par défaut) ;
+  exploratoire : aucune alerte, aucun verdict ;
 - **Q1** : la dernière figure écrite par `just q1`, telle quelle, avec sa date ;
 - **Q2** : le dernier résultat écrit par `just q2` : la lecture principale et ses
   intervalles, les mises en garde de sa puissance, la figure, le tableau des
@@ -151,12 +153,13 @@ dans [les pages des commandes](docs/commandes/README.md).
   (`just curve --at`), le backtest glissant (`just backtest-rolling`), les pages à
   l'origine (`just ui`, `just project --at`) et ses trois exécutions réelles
   (`docs/JOURNAL.md`).
-- **Piste analyse** : AN0 à AN2 livrés — l'ingestion des activités et des données
+- **Piste analyse** : AN0 à AN3 livrés — l'ingestion des activités et des données
   journalières, les tables de `processed/`, la figure de Q1, les pages
-  « récupération » et « Q1 » ; AN3 commencée : la FC décalée de chaque montée
+  « récupération » et « Q1 » ; Q2 (AN3) : la FC décalée de chaque montée
   (AN3-1a), les outils d'inférence (AN3-1), les positions des bornes de chaque
   montée et la demi-heure de FC la plus basse du jour (AN3-3a), le code de Q2, sa
-  puissance et ses essais (AN3-3b), sa page (AN3-5).
+  puissance et ses essais (AN3-3b), sa page (AN3-5). AN4 (les tableaux de bord)
+  commencée : la Fenêtre commune des pages de la piste (AN4-1).
 
 Le détail, jalon par jalon : [`docs/ROADMAP.md`](docs/ROADMAP.md).
 

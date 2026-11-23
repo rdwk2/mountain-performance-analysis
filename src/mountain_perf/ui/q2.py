@@ -22,7 +22,7 @@ import streamlit as st
 import streamlit.components.v1 as components
 
 from mountain_perf.ui.components import data_folder
-from mountain_perf.ui.recuperation import cached_tables
+from mountain_perf.ui.piste import cached_tables
 
 FIGURE_HEIGHT = 1100
 """La hauteur du cadre de la figure, en pixels."""

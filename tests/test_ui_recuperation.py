@@ -40,12 +40,13 @@ from mountain_perf.analyse.recovery import (
 )
 from mountain_perf.analyse.results import FIGURE_FILE, PROVENANCE_FILE, RESULTS_DIR
 from mountain_perf.analyse.tables import Tables
+from mountain_perf.analyse.window import data_span
 from mountain_perf.config import data_dir
 from mountain_perf.schemas.processed import DayRow
+from mountain_perf.ui.piste import CHOICE_WIDGET
 from mountain_perf.ui.recuperation import (
     COLORS,
     MEASURES_CAPTION,
-    PERIOD_ALL,
     garmin_spec,
     measure_spec,
     page_specs,
@@ -89,8 +90,15 @@ def _other(tables: Tables) -> Tables:
     return dataclasses.replace(tables, provenance=provenance)
 
 
-def _written(base: Tables, folder: Path | None = None, **changes: Any) -> Tables:
+def _written(
+    base: Tables, folder: Path | None = None, *, climbs: bool = True, **changes: Any
+) -> Tables:
+    """Les tables du monde, écrites sous ``folder`` (``data_dir()`` par défaut) et
+    rendues ; sans ``climbs``, sans montée ni variante (§ 7.3 du brief AN4-1 : les
+    montées de base, en 2024, porteraient l'ancre de la Fenêtre)."""
     tables = world_tables(base, **changes)
+    if not climbs:
+        tables = dataclasses.replace(tables, climbs=(), variants=())
     write_world(data_dir() if folder is None else folder, tables)
     return tables
 
@@ -98,12 +106,15 @@ def _written(base: Tables, folder: Path | None = None, **changes: Any) -> Tables
 def _view(
     base: Tables,
     *,
-    everything: bool = False,
+    whole: bool = False,
     rows: Sequence[DayRow] | None = None,
     journal: bool = True,
 ) -> RecoveryView:
+    """La vue du monde (ou de ``rows``) ; ``whole`` : sur l'étendue des lignes,
+    ``data_span(tables.days, ())``, sinon sans Fenêtre (les 56 derniers jours)."""
     tables = world_tables(base, rows=rows, journal=journal)
-    return recovery_view(tables.days, tables.provenance, everything=everything)
+    window = data_span(tables.days, ()) if whole else None
+    return recovery_view(tables.days, tables.provenance, window=window)
 
 
 def _charts(view: RecoveryView) -> list[dict[str, Any]]:
@@ -179,9 +190,9 @@ def _specs(at: AppTest) -> list[dict[str, Any]]:
     return [json.loads(element.proto.spec) for element in at.get("vega_lite_chart")]
 
 
-@pytest.mark.parametrize("everything", [False, True])
-def test_every_mark_rule_and_text_has_a_color(base: Tables, everything: bool) -> None:
-    charts = _charts(_view(base, everything=everything))
+@pytest.mark.parametrize("whole", [False, True])
+def test_every_mark_rule_and_text_has_a_color(base: Tables, whole: bool) -> None:
+    charts = _charts(_view(base, whole=whole))
     assert len(charts) == 10
     for layer in _layers(charts):
         mark = layer["mark"]
@@ -191,8 +202,8 @@ def test_every_mark_rule_and_text_has_a_color(base: Tables, everything: bool) ->
 
 def test_no_line_in_the_value_layers(base: Tables) -> None:
     count = 0
-    for everything in (False, True):
-        for layer in _layers(_charts(_view(base, everything=everything))):
+    for whole in (False, True):
+        for layer in _layers(_charts(_view(base, whole=whole))):
             if layer["name"].endswith(VALUE_SUFFIXES):
                 count += 1
                 assert layer["mark"]["type"] != "line", layer["name"]
@@ -201,8 +212,8 @@ def test_no_line_in_the_value_layers(base: Tables) -> None:
 
 
 def test_no_invalid_setting_and_no_zero_in_the_scales(base: Tables) -> None:
-    for everything in (False, True):
-        view = _view(base, everything=everything)
+    for whole in (False, True):
+        view = _view(base, whole=whole)
         charts = _charts(view)
         for item in _walk(charts):
             assert "invalid" not in item
@@ -216,7 +227,7 @@ def test_no_invalid_setting_and_no_zero_in_the_scales(base: Tables) -> None:
 
 
 def test_the_normal_is_drawn_per_run_and_dashed_by_the_view(base: Tables) -> None:
-    charts = _charts(_view(base, everything=True))
+    charts = _charts(_view(base, whole=True))
     normals = [layer for c in charts for layer in _named(c, "-normale")]
     ranges = [
         layer
@@ -234,8 +245,8 @@ def test_the_normal_is_drawn_per_run_and_dashed_by_the_view(base: Tables) -> Non
 
 
 def test_the_charts_share_the_dates_and_the_axis_margin(base: Tables) -> None:
-    for everything in (False, True):
-        view = _view(base, everything=everything)
+    for whole in (False, True):
+        view = _view(base, whole=whole)
         assert view.x_domain is not None
         for chart in _charts(view):
             assert chart["autosize"] == {"type": "fit-x", "contains": "padding"}
@@ -249,11 +260,8 @@ def test_the_charts_share_the_dates_and_the_axis_margin(base: Tables) -> None:
 
 
 def test_the_layer_names_are_unique_on_the_page(base: Tables) -> None:
-    for everything in (False, True):
-        names = [
-            layer["name"]
-            for layer in _layers(_charts(_view(base, everything=everything)))
-        ]
+    for whole in (False, True):
+        names = [layer["name"] for layer in _layers(_charts(_view(base, whole=whole)))]
         assert len(names) == len(set(names))
 
 
@@ -300,7 +308,7 @@ def test_without_tables_the_error_of_read_tables_is_shown() -> None:
 
 
 def test_the_page_shows_the_ten_charts(base: Tables) -> None:
-    _written(base)
+    _written(base, climbs=False)
     at = _app(_recovery)
     assert not at.exception
     assert len(_specs(at)) == 10
@@ -309,14 +317,14 @@ def test_the_page_shows_the_ten_charts(base: Tables) -> None:
     assert at.caption[0].value.startswith(
         "Données au 21/05/2000 à 21 h 15 (heure de Paris)."
     )
-    at.radio(key="recuperation.periode").set_value("Toute la table").run()
+    at.sidebar.radio(key=CHOICE_WIDGET).set_value("tout").run()
     assert not at.exception
     assert len(_specs(at)) == 10
     assert "Du 03/01/2000 au 21/05/2000." in [caption.value for caption in at.caption]
 
 
 def test_without_journal_the_page_says_so(base: Tables) -> None:
-    _written(base, journal=False)
+    _written(base, journal=False, climbs=False)
     at = _app(_recovery)
     assert [info.value for info in at.info] == [
         "Pas de journal.csv : aucun événement n'est marqué. Un jour sans événement "
@@ -326,7 +334,7 @@ def test_without_journal_the_page_says_so(base: Tables) -> None:
 
 
 def test_an_empty_table_is_said(base: Tables) -> None:
-    _written(base, rows=())
+    _written(base, rows=(), climbs=False)
     at = _app(_recovery)
     assert not at.exception
     assert [info.value for info in at.info] == [
@@ -334,13 +342,17 @@ def test_an_empty_table_is_said(base: Tables) -> None:
         "journalières (une archive Strava n'en a pas), ou interim/ n'est pas à jour : "
         "lancer just process."
     ]
+    assert [caption.value for caption in at.caption] == [
+        "Données au 21/05/2000 à 21 h 15 (heure de Paris). Exploratoire : aucune "
+        "alerte, aucun verdict."
+    ]
     assert not at.get("vega_lite_chart")
 
 
 def test_the_tables_are_read_once_while_their_provenance_holds(
     base: Tables, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    tables = _written(base)
+    tables = _written(base, climbs=False)
     reads: list[Path] = []
     read = parquet.read_tables
 
@@ -351,7 +363,7 @@ def test_the_tables_are_read_once_while_their_provenance_holds(
     monkeypatch.setattr(parquet, "read_tables", counted)
     at = _app(_recovery)
     at.run()
-    at.radio(key="recuperation.periode").set_value(PERIOD_ALL).run()
+    at.sidebar.radio(key=CHOICE_WIDGET).set_value("tout").run()
     assert not at.exception
     assert len(reads) == 1
     write_world(data_dir(), _other(tables))
@@ -395,8 +407,8 @@ def test_the_key_changes_when_any_table_is_rewritten(base: Tables) -> None:
 
 
 def test_every_layer_of_a_chart_has_the_same_date_labels(base: Tables) -> None:
-    for everything in (False, True):
-        for chart in _charts(_view(base, everything=everything)):
+    for whole in (False, True):
+        for chart in _charts(_view(base, whole=whole)):
             settings = {
                 (x["axis"]["labels"], x["axis"]["ticks"]) for x in _temporal(chart)
             }
@@ -404,7 +416,7 @@ def test_every_layer_of_a_chart_has_the_same_date_labels(base: Tables) -> None:
 
 
 def test_the_normal_layer_data_never_crosses_a_gap(base: Tables) -> None:
-    view = _view(base, everything=True)
+    view = _view(base, whole=True)
     rows = world_rows()
     for panel, chart in zip(view.panels, page_specs(view)[1:7], strict=True):
         p = panel.measure.value
@@ -427,8 +439,8 @@ def test_the_normal_layer_data_never_crosses_a_gap(base: Tables) -> None:
 def test_each_day_is_in_one_value_layer_and_the_foot_at_the_bottom(
     base: Tables,
 ) -> None:
-    for everything in (False, True):
-        view = _view(base, everything=everything)
+    for whole in (False, True):
+        view = _view(base, whole=whole)
         for panel, chart in zip(view.panels, page_specs(view)[1:7], strict=True):
             days = sorted(
                 record["midi"]
@@ -442,7 +454,7 @@ def test_each_day_is_in_one_value_layer_and_the_foot_at_the_bottom(
 
 
 def test_the_garmin_layers_are_drawn_per_run(base: Tables) -> None:
-    chart = garmin_spec(_view(base, everything=True))
+    chart = garmin_spec(_view(base, whole=True))
     for name, field in (
         ("garmin-bornes", "suite_bornes"),
         ("garmin-moyenne", "suite_moyenne"),
@@ -506,9 +518,9 @@ def test_a_chart_with_nothing_to_draw_is_empty(base: Tables) -> None:
 
 
 def test_no_layer_without_data(base: Tables) -> None:
-    for everything in (False, True):
+    for whole in (False, True):
         for journal in (False, True):
-            view = _view(base, everything=everything, journal=journal)
+            view = _view(base, whole=whole, journal=journal)
             for layer in _layers(_charts(view)):
                 assert layer["data"]["values"], layer["name"]
 
@@ -543,7 +555,7 @@ def test_the_dates_are_written_on_the_first_chart_the_load_and_garmin(
 def test_the_dash_of_the_normal_is_written(base: Tables) -> None:
     dashes = [
         layer["encoding"]["strokeDash"]
-        for layer in _layers(_charts(_view(base, everything=True)))
+        for layer in _layers(_charts(_view(base, whole=True)))
         if "strokeDash" in layer["encoding"]
     ]
     assert dashes
@@ -732,7 +744,7 @@ def test_q1_counts_the_unreadable_beside_a_readable_result(base: Tables) -> None
 
 
 def test_mixed_tables_show_the_error_of_read_tables(base: Tables) -> None:
-    tables = _written(base)
+    tables = _written(base, climbs=False)
     other = data_dir() / "autres"
     write_world(other, _other(tables))
     target = data_dir() / parquet.PROCESSED_DIR / parquet.DAYS_FILE
@@ -758,11 +770,11 @@ def _files(root: Path) -> dict[str, tuple[int, int]]:
 
 
 def test_the_page_writes_nothing_under_the_data_dir(base: Tables) -> None:
-    tables = _written(base)
+    tables = _written(base, climbs=False)
     _result("2000-01-05_ffffffffffff", _as_json(tables))
     before = _files(data_dir())
     at = _app(_recovery)
-    at.radio(key="recuperation.periode").set_value(PERIOD_ALL).run()
+    at.sidebar.radio(key=CHOICE_WIDGET).set_value("tout").run()
     assert not at.exception
     q1 = _app(_q1)
     assert not q1.exception
@@ -787,8 +799,8 @@ def test_the_whole_charts_are_their_written_form(base: Tables) -> None:
     avant d'être figé. Un écart futur se relit contre l'annexe A avant de toucher au
     fichier : le fichier ne se retire pas pour faire passer le test."""
     written = json.loads(CHARTS_FILE.read_text(encoding="utf-8"))
-    whole = _view(base, everything=True)
-    nothing = _view(base, everything=True, rows=())
+    whole = _view(base, whole=True)
+    nothing = _view(base, whole=True, rows=())
     for key, view in (("toute", whole), ("vide", nothing)):
         charts = json.loads(json.dumps(_charts(view), ensure_ascii=False))
         assert len(charts) == len(written[key]), key
@@ -821,7 +833,7 @@ def test_the_cache_keeps_one_entry(
 ) -> None:
     """U14 : le cache garde une seule entrée (``max_entries`` vaut 1) : les tables
     d'un dossier, puis d'un autre, puis du premier, se lisent trois fois."""
-    from mountain_perf.ui.recuperation import cached_tables
+    from mountain_perf.ui.piste import cached_tables
 
     first, second = data_dir() / "premieres", data_dir() / "secondes"
     tables = _written(base, first)
@@ -856,14 +868,20 @@ def test_the_pages_write_nothing_in_an_empty_data_dir() -> None:
 
 
 def test_the_recovery_page_says_what_the_annex_says(base: Tables) -> None:
-    """U15 : le titre, le choix de la période, les légendes, en toutes lettres."""
-    _written(base)
+    """U15 : le titre, la Fenêtre, les légendes, en toutes lettres."""
+    _written(base, climbs=False)
     at = _app(_recovery)
     assert not at.exception
     assert [title.value for title in at.title] == ["Récupération"]
-    radio = at.radio(key="recuperation.periode")
-    assert radio.label == "Période"
-    assert radio.options == ["8 dernières semaines", "Toute la table"]
+    radio = at.sidebar.radio(key=CHOICE_WIDGET)
+    assert radio.label == "Fenêtre"
+    assert radio.options == [
+        "28 jours",
+        "56 jours",
+        "90 jours",
+        "tout l'historique",
+        "plage",
+    ]
     assert radio.proto.horizontal is True
     captions = [caption.value for caption in at.caption]
     assert captions == [
@@ -1036,8 +1054,8 @@ def test_s3_the_other_panels_are_unchanged(base: Tables) -> None:
         chart = measure_spec(_fake_view(), _panel(MARKS_3, measure=measure))
         assert not _named(chart, MISSING_SUFFIX), measure
         assert chart["title"]["text"] == SPO2_TITLE, measure
-    for everything in (False, True):
-        view = _view(base, everything=everything)
+    for whole in (False, True):
+        view = _view(base, whole=whole)
         for panel, chart in zip(view.panels, page_specs(view)[1:7], strict=True):
             missing = _named(chart, MISSING_SUFFIX)
             if panel.measure is NormalMeasure.NIGHT_SPO2:

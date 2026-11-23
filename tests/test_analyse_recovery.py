@@ -33,7 +33,6 @@ from mountain_perf.analyse.recovery import (
     MEASURE_LABELS,
     NIGHT_LABELS,
     NO_TREND,
-    RECENT_DAYS,
     REFUSAL_LABELS,
     RESTING_HR_LABELS,
     MeasureLabel,
@@ -45,6 +44,7 @@ from mountain_perf.analyse.recovery import (
     recovery_view,
 )
 from mountain_perf.analyse.tables import Tables
+from mountain_perf.analyse.window import DEFAULT_DAYS, Window, data_span
 from mountain_perf.schemas.processed import (
     AdmissionRefusal,
     DayRow,
@@ -68,10 +68,13 @@ def _view(
     rows: Sequence[DayRow] | None = None,
     journal: bool = True,
     parameters: dict[str, float] | None = None,
-    everything: bool = False,
+    whole: bool = False,
 ) -> RecoveryView:
+    """La vue du monde (ou de ``rows``) ; ``whole`` : sur l'étendue des lignes,
+    ``data_span(tables.days, ())``, sinon sans Fenêtre (les 56 derniers jours)."""
     tables = world_tables(base, rows=rows, journal=journal, parameters=parameters)
-    return recovery_view(tables.days, tables.provenance, everything=everything)
+    window = data_span(tables.days, ()) if whole else None
+    return recovery_view(tables.days, tables.provenance, window=window)
 
 
 def _panel(view: RecoveryView, measure: NormalMeasure) -> MeasurePanel:
@@ -119,14 +122,13 @@ def _all_ill() -> tuple[DayRow, ...]:
 
 
 def test_the_default_period_is_the_last_56_rows(base: Tables) -> None:
-    assert RECENT_DAYS == 56
+    assert DEFAULT_DAYS == 56
     view = _view(base)
     assert view.first_day == day_of(84)
     assert view.last_day == day_of(139)
     assert view.x_domain == ("2000-03-27T00:00:00Z", "2000-05-22T00:00:00Z")
     assert all(len(panel.points) == 56 for panel in view.panels)
-    whole = _view(base, everything=True)
-    assert whole.everything
+    whole = _view(base, whole=True)
     assert whole.first_day == day_of(0)
     assert all(len(panel.points) == 140 for panel in whole.panels)
 
@@ -148,9 +150,9 @@ def test_the_marks_follow_the_admission_of_the_table(base: Tables) -> None:
     view = _view(base)
     marks = Counter(point["marque"] for point in _panel(view, HRV).points)
     assert marks == {"plein": 37, "creux": 15, "pied": 4}
-    for everything in (False, True):
-        shown = _view(base, everything=everything)
-        rows = world_rows()[-RECENT_DAYS:] if not everything else world_rows()
+    for whole in (False, True):
+        shown = _view(base, whole=whole)
+        rows = world_rows()[-DEFAULT_DAYS:] if not whole else world_rows()
         for panel in shown.panels:
             for row, point in zip(rows, panel.points, strict=True):
                 admitted = getattr(row, f"{panel.measure.value}_admitted")
@@ -188,11 +190,11 @@ def test_a_panel_without_value_nor_normal_is_empty(base: Tables) -> None:
     assert {point["marque"] for point in spo2.points} == {"pied"}
     assert spo2.normal_lines == ()
     assert spo2.isolated == ()
-    assert not _panel(_view(base, everything=True), SPO2).empty
+    assert not _panel(_view(base, whole=True), SPO2).empty
 
 
 def test_no_normal_line_crosses_an_absent_normal(base: Tables) -> None:
-    view = _view(base, everything=True)
+    view = _view(base, whole=True)
     rows = world_rows()
     for panel in view.panels:
         column = f"{panel.measure.value}_normal_absence"
@@ -227,7 +229,7 @@ def test_a_dashed_run_shares_its_ends_with_the_solid_runs(base: Tables) -> None:
 
 
 def test_a_one_day_segment_is_an_isolated_normal(base: Tables) -> None:
-    spo2 = _panel(_view(base, everything=True), SPO2)
+    spo2 = _panel(_view(base, whole=True), SPO2)
     assert [line["midi"] for line in spo2.isolated] == [_noon(70)]
     assert _noon(70) not in {line["midi"] for line in spo2.normal_lines}
 
@@ -237,7 +239,7 @@ def test_the_ruptures_and_the_uncertain_days(base: Tables) -> None:
     assert [r["debut"] for r in _panel(view, HRV).ruptures] == [_edge(90)]
     assert [u["debut"] for u in view.uncertain] == [_edge(i) for i in (87, 88, 89)]
     assert [u["fin"] for u in view.uncertain] == [_edge(i) for i in (88, 89, 90)]
-    sleep = _panel(_view(base, everything=True), SLEEP)
+    sleep = _panel(_view(base, whole=True), SLEEP)
     assert [r["debut"] for r in sleep.ruptures] == [_edge(i) for i in (30, 60, 90)]
 
 
@@ -346,7 +348,7 @@ def test_an_empty_table_gives_empty_panels(base: Tables) -> None:
 
 
 def test_the_tooltip_says_the_refusal_and_the_normal(base: Tables) -> None:
-    view = _view(base, everything=True)
+    view = _view(base, whole=True)
     admissions = {point["Admission"] for point in _panel(view, HRV).points}
     assert {
         "admise",
@@ -366,7 +368,7 @@ def test_the_tooltip_says_the_refusal_and_the_normal(base: Tables) -> None:
 
 
 def test_each_refusal_says_its_own_label(base: Tables) -> None:
-    view = _view(base, everything=True)
+    view = _view(base, whole=True)
     admissions = {point["Admission"] for point in _panel(view, HRV).points}
     assert admissions == {"admise"} | {
         f"refusée : {label}" for label in REFUSAL_LABELS.values()
@@ -383,7 +385,7 @@ def test_each_refusal_says_its_own_label(base: Tables) -> None:
 
 
 def test_the_admitted_days_of_the_tooltip(base: Tables) -> None:
-    view = _view(base, everything=True)
+    view = _view(base, whole=True)
     for panel in view.panels:
         column = f"{panel.measure.value}_admitted_days"
         for row, point in zip(world_rows(), panel.points, strict=True):
@@ -391,8 +393,8 @@ def test_the_admitted_days_of_the_tooltip(base: Tables) -> None:
 
 
 def test_the_extent_holds_the_range(base: Tables) -> None:
-    for everything in (False, True):
-        for panel in _view(base, everything=everything).panels:
+    for whole in (False, True):
+        for panel in _view(base, whole=whole).panels:
             for line in (*panel.normal_lines, *panel.isolated):
                 assert panel.domain is not None
                 assert panel.domain[0] <= line["bas"] <= line["haut"] <= panel.domain[1]
@@ -428,7 +430,7 @@ def test_a_journal_without_event_in_the_period(base: Tables) -> None:
     view = _view(base, rows=rows)
     assert view.ribbons == ()
     assert not view.journal_absent
-    assert _view(base, rows=rows, everything=True).ribbons
+    assert _view(base, rows=rows, whole=True).ribbons
 
 
 def test_a_journal_without_any_event_is_not_absent(base: Tables) -> None:
@@ -437,15 +439,15 @@ def test_a_journal_without_any_event_is_not_absent(base: Tables) -> None:
     absent (contre-épreuve M04, sous sa forme « toute la table »)."""
     rows = world_rows(journal=False)
     assert not any(row.journal_types for row in rows)
-    for everything in (False, True):
-        view = _view(base, rows=rows, everything=everything)
+    for whole in (False, True):
+        view = _view(base, rows=rows, whole=whole)
         assert view.ribbons == ()
         assert not view.journal_absent
 
 
 def test_an_isolated_normal_that_straddles_is_dashed(base: Tables) -> None:
     rows = _replaced({70: {"night_spo2_normal_straddles": True}})
-    isolated = _panel(_view(base, rows=rows, everything=True), SPO2).isolated
+    isolated = _panel(_view(base, rows=rows, whole=True), SPO2).isolated
     assert len(isolated) == 1
     assert isolated[0]["trait"] == "pointillé"
     assert isolated[0]["pointille"] is True
@@ -467,7 +469,7 @@ def test_an_invalid_value_does_not_stretch_an_axis_without_extent(
 
 
 def test_the_garmin_hrv_runs_stop_at_a_missing_day(base: Tables) -> None:
-    days = _view(base, everything=True).garmin_hrv
+    days = _view(base, whole=True).garmin_hrv
     runs: dict[str, list[int]] = {}
     for day in days:
         if day["suite_moyenne"] is not None:
@@ -514,7 +516,7 @@ def test_data_at_writes_the_minutes_on_two_digits(base: Tables) -> None:
 
 
 def test_the_extent_is_widened_by_five_percent_of_its_width(base: Tables) -> None:
-    rows = world_rows()[-RECENT_DAYS:]
+    rows = world_rows()[-DEFAULT_DAYS:]
     values = [
         row.hrv_last_night_avg_ms
         for row in rows
@@ -583,7 +585,7 @@ def test_the_tooltip_writes_the_value_the_normal_and_the_range_in_the_unit(
 
 
 def test_the_families_are_stacked_in_their_order(base: Tables) -> None:
-    durations = _view(base, everything=True).durations
+    durations = _view(base, whole=True).durations
     names = [name for _, name in FAMILIES]
     assert all(d["ordre"] == names.index(d["famille"]) for d in durations)
     assert {d["famille"] for d in durations} == set(names)
@@ -695,10 +697,11 @@ def _as_written(value: object) -> object:
 
 
 def test_the_whole_view_is_its_written_form(base: Tables) -> None:
-    """La vue entière du monde inventé, sous deux appels : sans l'argument
-    ``everything`` (la période récente, par la valeur par défaut), puis ``everything``
-    vrai ; chacune, convertie par :func:`_jsonable`, est comparée entière à sa forme
-    écrite dans ``fixtures/recovery_view.json``.
+    """La vue entière du monde inventé, sous deux appels : sans Fenêtre (les 56
+    derniers jours, par la valeur par défaut), puis sur l'étendue des lignes
+    (``window=data_span(tables.days, ())``, AN4-1) ; chacune, convertie par
+    :func:`_jsonable`, est comparée entière à sa forme écrite dans
+    ``fixtures/recovery_view.json``.
 
     Le fichier a été tiré une fois du code de la PR AN2-3 (tête ``7cebef4``), par un
     script hors du dépôt qui applique la même conversion, puis relu contre l'annexe A
@@ -708,7 +711,9 @@ def test_the_whole_view_is_its_written_form(base: Tables) -> None:
     written = json.loads(VIEW_FILE.read_text(encoding="utf-8"))
     tables = world_tables(base)
     recent = recovery_view(tables.days, tables.provenance)
-    whole = recovery_view(tables.days, tables.provenance, everything=True)
+    whole = recovery_view(
+        tables.days, tables.provenance, window=data_span(tables.days, ())
+    )
     assert _as_written(recent) == written["recente"]
     assert _as_written(whole) == written["toute"]
 
@@ -716,7 +721,7 @@ def test_the_whole_view_is_its_written_form(base: Tables) -> None:
 def test_the_sleep_extent_is_in_hours(base: Tables) -> None:
     """V5 : l'étendue du sommeil est au facteur d'affichage (des heures), plage
     comprise."""
-    rows = world_rows()[-RECENT_DAYS:]
+    rows = world_rows()[-DEFAULT_DAYS:]
     hours = [
         row.measured_sleep_s / 3600
         for row in rows
@@ -902,7 +907,7 @@ def test_the_view_is_pure_and_the_same_twice(base: Tables) -> None:
 
 def test_the_records_have_no_other_key(base: Tables) -> None:
     """A.1 : pour chaque sorte d'enregistrement, ses clés et aucune autre."""
-    view = _view(base, everything=True)
+    view = _view(base, whole=True)
     normal = {"midi", "normale", "bas", "haut", "suite", "pointille", "trait"}
     expected: list[tuple[str, Sequence[Mapping[str, Any]], set[str]]] = [
         (
@@ -973,7 +978,7 @@ def test_the_records_have_no_other_key(base: Tables) -> None:
 def test_the_view_texts_are_those_of_the_annex(base: Tables) -> None:
     """A.7 : les textes que rend la vue, recopiés de l'annexe, comparés à la vue,
     jamais aux constantes du module."""
-    whole = _view(base, everything=True)
+    whole = _view(base, whole=True)
     assert whole.legend == (
         "Plage habituelle : médiane ± 1 écart robuste des jours valides parmi les 28 "
         "précédents (n jours : au survol). Environ un jour ordinaire sur trois en "
@@ -1066,7 +1071,7 @@ def test_the_two_fallbacks_of_the_extent_are_in_hours(base: Tables) -> None:
         width = highest - lowest
         assert width > 0
         expected = (lowest - EDGE_PADDING * width, highest + EDGE_PADDING * width)
-        sleep = _panel(_view(base, rows=rows, everything=True), SLEEP)
+        sleep = _panel(_view(base, rows=rows, whole=True), SLEEP)
         assert sleep.normal_lines == ()
         assert sleep.domain == pytest.approx(expected, rel=1e-12)
         assert all(point["marque"] != "plein" for point in sleep.points)
@@ -1107,7 +1112,7 @@ def test_an_isolated_normal_does_not_end_the_runs_after_it(base: Tables) -> None
     world = world_rows()
     kept = {100: 50, **{i: 51 for i in range(104, 110)}}
     changes: dict[int, dict[str, Any]] = {}
-    for i in range(len(world) - RECENT_DAYS, len(world)):
+    for i in range(len(world) - DEFAULT_DAYS, len(world)):
         if i in kept:
             assert world[i].hrv_normal_ms is not None
             changes[i] = {"hrv_segment": kept[i], "hrv_normal_straddles": False}
@@ -1128,3 +1133,108 @@ def test_an_isolated_normal_does_not_end_the_runs_after_it(base: Tables) -> None
         _noon(i) for i in range(104, 110)
     ]
     assert len({line["suite"] for line in hrv.normal_lines}) == 1
+
+
+# AN4-1 : la vue sur la Fenêtre (§ 7.1 du brief), V1 à V6 : le tableau à la main ;
+# V1 sans Fenêtre, V2 l'étendue des lignes, V3 trois jours, V4 au-delà des lignes, V5
+# hors des lignes.
+
+WINDOW_CASES = [
+    ("v1", None, day_of(84), day_of(139), "2000-03-27", "2000-05-22", 56),
+    (
+        "v2",
+        "lignes",
+        day_of(0),
+        day_of(139),
+        "2000-01-03",
+        "2000-05-22",
+        140,
+    ),
+    (
+        "v3",
+        Window(date(2000, 5, 10), date(2000, 5, 12)),
+        date(2000, 5, 10),
+        date(2000, 5, 12),
+        "2000-05-10",
+        "2000-05-13",
+        3,
+    ),
+    (
+        "v4",
+        Window(date(2000, 5, 1), date(2000, 6, 2)),
+        date(2000, 5, 1),
+        date(2000, 6, 2),
+        "2000-05-01",
+        "2000-06-03",
+        21,
+    ),
+    (
+        "v5",
+        Window(date(2000, 6, 1), date(2000, 6, 30)),
+        date(2000, 6, 1),
+        date(2000, 6, 30),
+        "2000-06-01",
+        "2000-07-01",
+        0,
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    ("window", "first", "last", "start", "end", "count"),
+    [case[1:] for case in WINDOW_CASES],
+    ids=[case[0] for case in WINDOW_CASES],
+)
+def test_v1_to_v5_the_view_on_a_window(
+    base: Tables,
+    window: Window | str | None,
+    first: date,
+    last: date,
+    start: str,
+    end: str,
+    count: int,
+) -> None:
+    tables = world_tables(base)
+    if window == "lignes":
+        window = data_span(tables.days, ())
+    assert window is None or isinstance(window, Window)
+    view = recovery_view(tables.days, tables.provenance, window=window)
+    assert (view.first_day, view.last_day) == (first, last)
+    assert view.x_domain == (f"{start}T00:00:00Z", f"{end}T00:00:00Z")
+    expected = [row.day for row in world_rows() if first <= row.day <= last]
+    assert len(expected) == count
+    for panel in view.panels:
+        assert [_index(point["midi"]) for point in panel.points] == [
+            (day - FIRST_DAY).days for day in expected
+        ]
+        if count == 0:
+            assert panel.empty
+    assert all(first <= day <= last for day in map(_ribbon_day, view.ribbons))
+
+
+def _ribbon_day(ribbon: Mapping[str, Any]) -> date:
+    return date.fromisoformat(ribbon["debut"][:10])
+
+
+def test_v6_no_row_no_bounds_whatever_the_window(base: Tables) -> None:
+    tables = world_tables(base, rows=())
+    view = recovery_view(
+        tables.days,
+        tables.provenance,
+        window=Window(date(2000, 5, 10), date(2000, 5, 12)),
+    )
+    assert (view.first_day, view.last_day, view.x_domain) == (None, None, None)
+    assert all(not panel.points for panel in view.panels)
+
+
+@pytest.mark.parametrize("n", [1, 2, 10, 55, 56, 57])
+def test_v7_the_default_view_of_a_short_table(base: Tables, n: int) -> None:
+    """V7 : sans Fenêtre, la vue des ``n`` premières lignes du monde montre ses
+    ``min(n, 56)`` derniers jours : du jour de rang ``n − min(n, 56)`` à celui de rang
+    ``n − 1`` (à 57 lignes, la première ne se montre plus)."""
+    shown = min(n, DEFAULT_DAYS)
+    tables = world_tables(base, rows=world_rows()[:n])
+    view = recovery_view(tables.days, tables.provenance)
+    assert view.first_day == day_of(n - shown)
+    assert view.last_day == day_of(n - 1)
+    assert all(len(panel.points) == shown for panel in view.panels)

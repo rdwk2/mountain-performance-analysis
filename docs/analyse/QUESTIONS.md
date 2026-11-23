@@ -1,11 +1,14 @@
 # Questions de la piste analyse
 
 *Version 1, validée le 2026-10-07 ; Q1 précisée le 2026-10-17 par la définition de la
-montée (`docs/decisions/0014`). Ne contient aucun chiffre tiré des données.*
+montée (`docs/decisions/0014`). Version 2, datée du 2026-11-23 (AN4-1) : Q14 ajoutée.
+Ne contient aucun chiffre tiré des données.*
 
-*Écrite avant toute analyse des relations entre variables : l'examen des données n'a
-décrit les variables qu'une à une. Une version suivante s'écrira quand de nouvelles
-questions viendront ; elle sera datée.*
+*La version 1 a été écrite avant toute analyse des relations entre variables : l'examen
+des données n'a décrit les variables qu'une à une. Q14 vient après l'analyse de Q2, qui
+a regardé la FC et la VAM ensemble (la dérive cardiaque n'y était qu'une covariable).
+Une version suivante s'écrira quand de nouvelles questions viendront ; elle sera
+datée.*
 
 ## Principes
 
@@ -52,6 +55,11 @@ chaleur, FC optique, FC de repos du jour.
 fil de la saison ?** Unité : la montée, dans les sorties longues. Confusions :
 l'altitude monte au fil de la sortie, le terrain change, les arrêts, la chaleur de la
 journée. Lien : BACKLOG (M6a), « Fatigue cumulée en D+ encaissé ».
+
+**Q14 — La dérive cardiaque (la FC qui monte à vitesse égale au fil d'une longue
+sortie) diminue-t-elle avec l'entraînement ?** Unité : la sortie longue. Q2 ne la
+traite qu'en covariable. Confusions : chaleur, altitude, terrain, arrêts, FC
+optique. *(Version 2, 2026-11-23, AN4-1.)*
 
 **Q4 — La descente progresse-t-elle, en raide et en roulant ?** Lien : BACKLOG (M8),
 deux courbes de descente.
@@ -121,3 +129,6 @@ le définit.
 - **Ensuite, une question (ou deux très proches) par jalon**, numéroté à son
   ouverture. Ordre choisi : Q2, Q3, Q4 ; les suivantes se choisissent à l'ouverture de
   chaque jalon.
+- **Note du 2026-11-21** : après AN3 (Q2), AN4 se consacre aux tableaux de bord (une
+  Fenêtre commune, des pages qui se recalculent à l'affichage) ; Q3 et Q4 viennent
+  ensuite.

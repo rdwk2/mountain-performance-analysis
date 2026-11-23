@@ -153,9 +153,10 @@ ouvre l'extra `tableau`.
 - **`just ui`** lance l'appli avec les extras `tableau` et `analyse` : les pages de la
   piste lisent `processed/` par `analyse.parquet`, qui demande pyarrow.
 - **Les clôtures** : `ui/` n'importe toujours aucun module de `backtest/`, ni `analyse/`
-  au premier niveau d'un module ; seules les pages de la piste, listées dans
-  `tests/test_ui_imports.py` (`PISTE_PAGES`), importent `analyse`, dans leurs fonctions
-  seulement, si bien qu'elles restent chargeables sans l'extra ; les deux tests de
+  au premier niveau d'un module ; seuls les modules de la piste, listés dans
+  `tests/test_ui_imports.py` (`PISTE_PAGES` : ses pages et, depuis AN4-1,
+  `ui/piste.py`), importent `analyse`, dans leurs fonctions
+  seulement, si bien qu'ils restent chargeables sans l'extra ; les deux tests de
   clôture le vérifient. Aucune page n'importe plotly ni pyarrow.
 - **Le cache** (« À revisiter » ci-dessus) : la page « récupération » garde les tables en
   mémoire (`st.cache_resource`, une entrée) tant que leur provenance ne change pas, la

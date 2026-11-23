@@ -62,8 +62,10 @@ puis `http://localhost:8501` dans le navigateur.
   valeur dans le titre) ; la normale en
   pointillé quand sa fenêtre mêle l'avant et l'après d'une rupture ou d'un jour
   incertain. Puis le journal (`journal.csv`) en rubans, l'activité du jour (durées par
-  famille, charge selon Garmin), et, à part, la HRV selon Garmin. Par défaut les 8
-  dernières semaines, au choix toute la table. Exploratoire : aucune alerte, aucun
+  famille, charge selon Garmin), et, à part, la HRV selon Garmin. Sur la Fenêtre
+  choisie dans la barre latérale : 28, 56 ou 90 jours, tout l'historique, ou une
+  plage de dates ; 56 jours par défaut, ancrée au dernier jour des données et gardée
+  quand on change de page. Exploratoire : aucune alerte, aucun
   verdict. Les tables restent en mémoire tant que leur provenance ne change pas.
 - **La page « Q1 »** : la dernière figure écrite par `just q1`, telle quelle, avec sa
   date, et un avertissement si elle ne vient pas des tables actuelles

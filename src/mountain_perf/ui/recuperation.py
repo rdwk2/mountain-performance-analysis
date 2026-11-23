@@ -1,6 +1,7 @@
 """La page « récupération » (AN2-3, ``docs/decisions/0019``) : la table ``jours`` de
 ``processed/``, sans rien calculer (règle 7 de ``CLAUDE.md``) — les six mesures contre
-leur normale, le journal, l'activité du jour, puis la HRV selon Garmin à part.
+leur normale, le journal, l'activité du jour, puis la HRV selon Garmin à part, sur la
+Fenêtre choisie dans la barre latérale (``mountain_perf.ui.piste``, AN4-1).
 
 La vue vient de ``mountain_perf.analyse.recovery`` ; ce module n'écrit que les
 descriptions Vega-Lite et la mise en page. ``mountain_perf.analyse`` ne s'importe que
@@ -16,12 +17,12 @@ dates sur la première couche datée seulement, et aucune couche sans donnée.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from pathlib import Path
 from typing import Any
 
 import streamlit as st
 
 from mountain_perf.ui.components import data_folder
+from mountain_perf.ui.piste import EMPTY_RANGE, cached_tables, window_control
 
 COLORS: dict[str, str] = {
     "valeur": "#4a8bd6",
@@ -88,8 +89,6 @@ LOAD_CAPTION = (
     "minorée (des activités du jour sont sans charge) ; trait gris en pied, aucune "
     "activité du jour n'en a."
 )
-PERIOD_RECENT = "8 dernières semaines"
-PERIOD_ALL = "Toute la table"
 POINT_TOOLTIP: tuple[str, ...] = (
     "Jour",
     "Valeur",
@@ -571,39 +570,11 @@ def page_specs(view: Any) -> list[dict[str, Any]]:
     return specs
 
 
-def _read(data: Path, key: bytes) -> Any:
-    """La lecture des tables, sous la clé de leur provenance ; ``read_tables`` résolu
-    à l'appel."""
-    from mountain_perf.analyse import parquet
-
-    del key  # la clé ne sert qu'au cache
-    return parquet.read_tables(data)
-
-
-_cached_read = st.cache_resource(max_entries=1, show_spinner="Lecture des tables…")(
-    _read
-)
-"""La lecture gardée en mémoire tant que le dossier et la clé ne changent pas ;
-``st.cache_resource`` appliqué par un appel, sans décorateur (``mypy`` sans l'extra
-``tableau``)."""
-
-
-def cached_tables(data: Path) -> Any:
-    """Les tables de ``data/processed/``, gardées en mémoire tant que leur provenance
-    ne change pas ; sans clé (``tables_key`` rend ``None``), la lecture directe, qui
-    lève comme ``read_tables``."""
-    from mountain_perf.analyse import parquet
-
-    key = parquet.tables_key(data)
-    if key is None:
-        return parquet.read_tables(data)
-    return _cached_read(data, key)
-
-
 def recuperation_page() -> None:
     """La page « récupération » (U15)."""
     from mountain_perf.analyse.parquet import ProcessedError
-    from mountain_perf.analyse.recovery import recovery_view
+    from mountain_perf.analyse.recovery import data_at, recovery_view
+    from mountain_perf.analyse.window import data_span
 
     st.title("Récupération")
     data = data_folder()
@@ -614,23 +585,24 @@ def recuperation_page() -> None:
     except (ProcessedError, FileNotFoundError) as error:
         st.error(str(error))
         return
-    choice = st.radio(
-        "Période",
-        (PERIOD_RECENT, PERIOD_ALL),
-        horizontal=True,
-        key="recuperation.periode",
+    window: Any = None
+    span = data_span(tables.days, tables.climbs)
+    if span is not None:
+        window = window_control(span)
+    st.caption(
+        f"{data_at(tables.provenance)}. Exploratoire : aucune alerte, aucun verdict."
     )
-    view = recovery_view(
-        tables.days, tables.provenance, everything=choice == PERIOD_ALL
-    )
-    st.caption(f"{view.data_at}. Exploratoire : aucune alerte, aucun verdict.")
-    if view.first_day is None or view.last_day is None:
+    if not tables.days:
         st.info(
             "La table jours n'a aucune ligne : aucun export ne porte de données "
             "journalières (une archive Strava n'en a pas), ou interim/ n'est pas à "
             "jour : lancer just process."
         )
         return
+    if window is None:
+        st.info(EMPTY_RANGE)
+        return
+    view = recovery_view(tables.days, tables.provenance, window=window)
     st.caption(f"Du {view.first_day:%d/%m/%Y} au {view.last_day:%d/%m/%Y}.")
     if view.journal_absent:
         st.info(
