@@ -27,6 +27,7 @@ from zoneinfo import ZoneInfo
 
 from mountain_perf.analyse.days import VALUE_COLUMNS
 from mountain_perf.analyse.normals import NormalMeasure
+from mountain_perf.analyse.window import DEFAULT_DAYS, Window, last_days, within
 from mountain_perf.schemas.processed import (
     JOURNAL_ABSENT,
     AdmissionRefusal,
@@ -35,10 +36,6 @@ from mountain_perf.schemas.processed import (
     NormalAbsence,
     ProcessedProvenance,
 )
-
-RECENT_DAYS: Final = 56
-"""La période par défaut : les 56 dernières lignes de la table (8 semaines), son
-dernier jour compris."""
 
 PARIS: Final = ZoneInfo("Europe/Paris")
 """Le fuseau de « Données au … »."""
@@ -189,7 +186,6 @@ class RecoveryView:
 
     data_at: str
     journal_absent: bool
-    everything: bool
     first_day: date | None
     last_day: date | None
     x_domain: tuple[str, str] | None
@@ -271,11 +267,6 @@ def legend(provenance: ProcessedProvenance) -> tuple[str, ...]:
     )
     second = f"{_TRACKING} {NO_TREND}" if window == _TRACKING_WINDOW else NO_TREND
     return (first, second)
-
-
-def period(rows: Sequence[DayRow], *, everything: bool) -> tuple[DayRow, ...]:
-    """Toutes les lignes, ou les ``RECENT_DAYS`` dernières."""
-    return tuple(rows) if everything else tuple(rows[-RECENT_DAYS:])
 
 
 def _check_consecutive(rows: Sequence[DayRow]) -> None:
@@ -625,22 +616,28 @@ def recovery_view(
     rows: Sequence[DayRow],
     provenance: ProcessedProvenance,
     *,
-    everything: bool = False,
+    window: Window | None = None,
 ) -> RecoveryView:
-    """La vue de ``rows``, les lignes de ``jours`` dans l'ordre, sur la période
-    (:func:`period`). ``ValueError`` si deux lignes voisines ne sont pas deux jours
-    consécutifs."""
+    """La vue de ``rows``, les lignes de ``jours`` dans l'ordre, sur la Fenêtre
+    ``window`` (``analyse/window.py``) : ses lignes, et ses bornes pour ``first_day``,
+    ``last_day`` et l'étendue des dates, même quand les lignes s'arrêtent avant ; sans
+    Fenêtre, les ``DEFAULT_DAYS`` derniers jours des lignes. Sans ligne, aucune borne,
+    quelle que soit la Fenêtre. ``ValueError`` si deux lignes voisines ne sont pas
+    deux jours consécutifs."""
     _check_consecutive(rows)
-    shown = period(rows, everything=everything)
-    first = shown[0].day if shown else None
-    last = shown[-1].day if shown else None
-    x_domain = (
-        None if first is None or last is None else (_edge(first), _edge(_next(last)))
-    )
+    first: date | None = None
+    last: date | None = None
+    x_domain: tuple[str, str] | None = None
+    shown: tuple[DayRow, ...] = ()
+    if rows:
+        if window is None:
+            window = last_days(Window(rows[0].day, rows[-1].day), DEFAULT_DAYS)
+        shown = within(rows, window, lambda row: row.day)
+        first, last = window.first, window.last
+        x_domain = (_edge(first), _edge(_next(last)))
     return RecoveryView(
         data_at=data_at(provenance),
         journal_absent=provenance.journal_sha256 == JOURNAL_ABSENT,
-        everything=everything,
         first_day=first,
         last_day=last,
         x_domain=x_domain,
