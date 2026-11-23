@@ -25,7 +25,7 @@ GPX → grille à pas fixe (50 m, altitude lissée) → pente par pas
 En M3, un seul modificateur : un facteur d'effort global.
 
 ```
-v = pace(pente) × effort
+durée_i = Δd_i × p(pente_i) / effort      (vitesse : effort / p(pente))
 ```
 
 `effort` représente la forme et l'allure choisie, entre ~0,88 (prudent) et ~0,96

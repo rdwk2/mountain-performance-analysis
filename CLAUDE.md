@@ -38,7 +38,12 @@ Python. Usage personnel d'abord, projet portfolio ensuite. Le repo est public.
    commandes sur les données réelles (`just ingest`, `just process`, `just q1`,
    `just q2`, `just backtest`, `just curve`, `just project`, `mperf project … --at`, `just ui`,
    et `streamlit run`, que le hook refuse aussi) sont lancées par l'humain. `just demo`
-   aussi, que le hook refuse.
+   aussi, que le hook refuse. Le hook trouve le dossier des données dans
+   l'environnement, sinon dans le `.env` à la racine du projet : dans une copie de
+   travail qui n'a ni l'un ni l'autre (un worktree git, par exemple), il ne le connaît
+   pas, ne refuse plus que les commandes qui écrivent dans les données ou nomment
+   `MPA_DATA_DIR`, et ne protège plus les outils de fichiers ; la règle tient quand
+   même.
 
 2. **`just check` doit être vert sur la tête d'une PR.**
    Avant chaque commit : `uv run ruff check .`, `uv run ruff format --check .`,
@@ -84,11 +89,16 @@ Python. Usage personnel d'abord, projet portfolio ensuite. Le repo est public.
    = une pull request. La PR est le moment de revue : c'est là que le diff se relit,
    avec la CI verte à côté. Messages de commit préfixés : `feat:` `fix:` `docs:`
    `test:` `refactor:` `build:` `ci:`.
-   Titre de PR : `M<n>`, `AN<n>` ou `OG-…`, avec sous-jalon éventuel, puis le nom
-   du jalon (ex. `M1 — Contrats de données`, `M4b-5 — …`, `AN1 — …`, `OG-1b — …`,
-   `OG-UI — …`) ; une PR de documents hors jalon : `docs — …`. Les jalons `M` et `OG`
-   (l'origine glissante) sont ceux du moteur de prédiction, les jalons `AN` ceux de
-   la piste analyse (`docs/ROADMAP.md`). Avec
+   Titre de PR : `M<n>-<k>` ou `AN<n>-<k>`, puis son objet (ex. `M6a-1 — …`,
+   `M8-1 — …`, `AN4-1 — …`). M0 à M4 sont des étapes closes ; M5 à M9 sont des
+   chantiers ouverts, qui ne se ferment pas tant que le modèle s'améliore : chaque PR
+   d'un chantier y prend le numéro suivant. La piste analyse titre de même ses PR
+   `AN<n>-<k>` (une lettre suit `<k>` quand une PR se coupe en deux : `AN4-2a`) ;
+   ses jalons `AN<n>`, eux, se ferment. L'origine glissante est rattachée à M6b :
+   OG-1 à OG-3 gardent leurs noms, la suite se titre `M6b-…` ; les titres d'avant
+   (`M4b-5`, `OG-UI`…) restent tels quels dans l'historique. Une PR de documents
+   hors chantier : `docs — …`. Les jalons `M` sont ceux du moteur de prédiction, les
+   jalons `AN` ceux de la piste analyse (`docs/ROADMAP.md`). Avec
    « Squash and merge », ce titre devient le message du commit sur `main` : la
    liste des PR est donc la table des matières du projet.
 
@@ -462,7 +472,7 @@ $MPA_DATA_DIR/
 
 ## Conventions
 
-- Python 3.12+, annotations de type partout, `mypy` en mode strict sur `src/`
+- Python 3.12, annotations de type partout, `mypy` en mode strict sur `src/`
 - `ruff` pour le lint et le formatage
 - Noms de domaine en anglais dans le code (`grade`, `pace`, `ascent`), commentaires
   et documentation en français
