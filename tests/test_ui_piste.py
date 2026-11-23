@@ -403,7 +403,8 @@ def test_p14_tables_without_days_still_show_the_window(base: Tables) -> None:
     _write(base, (_late_climb(base),), rows=())
     at = _app(_recovery)
     assert not at.exception
-    assert _radio(at).value == "56"
+    radios = [radio for radio in at.sidebar.radio if radio.label == "Fenêtre"]
+    assert [radio.value for radio in radios] == ["56"]
     assert [info.value for info in at.info] == [EMPTY_DAYS]
     assert _captions(at) == [DATA_CAPTION]
     assert not at.get("vega_lite_chart")
