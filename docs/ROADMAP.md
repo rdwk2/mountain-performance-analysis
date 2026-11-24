@@ -41,7 +41,8 @@ analyse les données d'entraînement, de récupération et de sommeil de l'athl�
   montée (AN3-1a), les outils d'inférence (AN3-1), les positions des bornes de
   chaque montée et la demi-heure de FC la plus basse du jour (AN3-3a), le code de
   Q2, sa puissance et ses essais (AN3-3b), sa page (AN3-5). AN4 (les tableaux de
-  bord) est commencée : la Fenêtre commune des pages de la piste (AN4-1).
+  bord) est commencée : la Fenêtre commune des pages de la piste (AN4-1), la
+  bibliothèque du modèle de la montée (AN4-2a).
 
 ---
 
@@ -445,5 +446,10 @@ des pages qui se recalculent à l'affichage depuis `processed/`, sans verdict (c
 § 8), sur une même fenêtre de temps. AN4-1 : la Fenêtre (28, 56 ou 90 jours, tout
 l'historique, ou une plage de dates ; 56 jours par défaut), ancrée au dernier jour
 des données et gardée d'une page de la piste à l'autre ; la page « récupération » y
-passe (`0019`, section AN4-1). Suivront des pages sur la montée, sur le déclin au fil
-d'une sortie et sur une sortie seule. Q3 et Q4 viennent ensuite.
+passe (`0019`, section AN4-1). AN4-2a : la bibliothèque du modèle de la montée
+(`analyse/ascent/`, `0024`), sans page : la sélection des montées, la structure lue
+dans la sortie sur toute l'histoire (l'effet de la FC, le déclin selon le D+,
+l'altitude, le régime) et un niveau qui suit le temps, la Fenêtre mêlée à l'histoire
+par un poids, le niveau de chaque jour, la tendance et son échelle, les états.
+Suivront la page sur la montée (AN4-2b), le déclin au fil d'une sortie (AN4-3) et
+une sortie seule (AN4-4). Q3 et Q4 viennent ensuite.

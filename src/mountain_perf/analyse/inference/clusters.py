@@ -12,6 +12,7 @@ import math
 import numpy
 import numpy.typing
 import scipy.linalg
+import scipy.stats
 
 from mountain_perf.analyse.inference.base import (
     FloatArray,
@@ -155,3 +156,80 @@ def wild_cluster_interval(
     critical = order_quantile(numpy.abs(statistics), level)
     estimate = float(fit.coef[j])
     return Interval(estimate - critical * se, estimate + critical * se)
+
+
+def _bm_bread(design: FloatArray) -> FloatArray:
+    """``M = (XᵀX)⁻¹``, par la QR de ``design``, comme dans ``_cr2``."""
+    _, r = numpy.linalg.qr(design)
+    r_inv = scipy.linalg.solve_triangular(r, numpy.eye(r.shape[0]))
+    return numpy.asarray(r_inv @ r_inv.T, dtype=numpy.float64)
+
+
+def _bm_adjustment(x_g: FloatArray, bread: FloatArray) -> FloatArray:
+    """``A_g = (I − H_gg)^(−1/2)``, symétrique, exactement comme dans ``_cr2`` ;
+    ``InferenceError`` si une valeur propre de ``I − H_gg`` est sous
+    ``LEVERAGE_TOLERANCE``."""
+    leverage = x_g @ bread @ x_g.T
+    eigenvalues, eigenvectors = numpy.linalg.eigh(numpy.eye(x_g.shape[0]) - leverage)
+    if float(eigenvalues.min()) <= LEVERAGE_TOLERANCE:
+        raise InferenceError("une grappe a un levier de 1")
+    return numpy.asarray(
+        (eigenvectors / numpy.sqrt(eigenvalues)) @ eigenvectors.T, dtype=numpy.float64
+    )
+
+
+def bell_mccaffrey_df(X: object, clusters: object, j: int) -> float:  # noqa: N803
+    """Les degrés de liberté de Bell et McCaffrey (2002) du coefficient ``j`` des MCO,
+    sous une covariance de travail identité (la forme d'Imbens et Kolesár, 2016) :
+    ``M = (XᵀX)⁻¹``, ``H = X·M·Xᵀ`` ; pour chaque grappe ``g`` (ses lignes ``I_g``),
+    ``A_g = (I − H_gg)^(−1/2)`` comme dans :func:`cr2_cov`, et
+    ``G_g = (I − H)[:, I_g] · A_g · X_g · M · e_j`` ; ``B = GᵀG``,
+    ``G = [G_1 … G_G]`` ; ``df = (tr B)² / Σ B²`` (la somme des carrés des éléments de
+    ``B``). Au moins 2 grappes, étiquettes entières ; ``j`` hors des colonnes :
+    ``InferenceError``."""
+    design = as_matrix(X, "X")
+    check_design(design)
+    if not 0 <= j < design.shape[1]:
+        raise InferenceError(f"j : hors des coefficients ({j})")
+    groups = _labels(clusters, design.shape[0])
+    count = int(groups.max()) + 1
+    if count < 2:
+        raise InferenceError("clusters : au moins 2 grappes sont attendues")
+    bread = _bm_bread(design)
+    residual_maker = numpy.eye(design.shape[0]) - design @ bread @ design.T
+    columns = numpy.empty((design.shape[0], count))
+    for g in range(count):
+        rows = groups == g
+        x_g = design[rows]
+        adjust = _bm_adjustment(x_g, bread)
+        columns[:, g] = residual_maker[:, rows] @ (adjust @ (x_g @ bread[:, j]))
+    gram = columns.T @ columns
+    return float(numpy.trace(gram) ** 2 / numpy.sum(gram * gram))
+
+
+def cr2_interval(
+    X: object,  # noqa: N803
+    y: object,
+    clusters: object,
+    j: int,
+    level: float,
+) -> tuple[Interval, float]:
+    """L'intervalle de Student du coefficient ``j`` des MCO, à erreur type CR2
+    (:func:`cr2_cov`) et aux degrés de liberté de Bell-McCaffrey
+    (:func:`bell_mccaffrey_df`, réels, non entiers ; covariance de travail
+    identité) : ``coef_j ± t(1 − (1 − level)/2 ; df)·se`` ; rend ``(intervalle,
+    df)``. Une erreur type nulle donne un intervalle réduit à un point. Sous 10
+    grappes, ``InferenceError`` (charte § 4 bis.2)."""
+    design, response = design_and_response(X, y)
+    check_level(level)
+    if not 0 <= j < design.shape[1]:
+        raise InferenceError(f"j : hors des coefficients ({j})")
+    groups = _labels(clusters, design.shape[0])
+    if int(groups.max()) + 1 < MIN_CLUSTERS:
+        raise InferenceError("sous 10 grappes, on agrège : charte § 4 bis.2")
+    fit = ols(design, response)
+    se = math.sqrt(max(float(_cr2(design, fit.resid, groups)[j, j]), 0.0))
+    df = bell_mccaffrey_df(design, groups, j)
+    quantile = float(scipy.stats.t.ppf(1.0 - (1.0 - level) / 2.0, df))
+    estimate = float(fit.coef[j])
+    return Interval(estimate - quantile * se, estimate + quantile * se), df
