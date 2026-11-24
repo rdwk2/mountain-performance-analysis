@@ -412,7 +412,7 @@ def test_a_naive_midnight_is_not_an_origin() -> None:
         check_origin(datetime(2024, 4, 1))
 
 
-@pytest.mark.parametrize("window", [1, 28, 56, "all"])
+@pytest.mark.parametrize("window", [1, 28, 56, "all", "layered"])
 def test_valid_windows(window: object) -> None:
     check_window(window)
 

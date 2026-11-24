@@ -18,8 +18,22 @@ PARIS: Final = ZoneInfo("Europe/Paris")
 ALL_PAST: Final = "all"
 """La fenêtre « tout le passé », sans date fictive."""
 
-type OriginWindow = int | Literal["all"]
-"""Une fenêtre : un nombre entier de jours civils, au moins 1, ou :data:`ALL_PAST`."""
+LAYERED: Final = "layered"
+"""La règle en couches (M6b-3, ``0025``) : la forme sur LAYERED_SHAPE_DAYS jours, le
+niveau tiré à mi-chemin vers les LAYERED_LEVEL_DAYS derniers jours."""
+
+LAYERED_SHAPE_DAYS: Final = 365
+"""La fenêtre de la forme de la règle en couches, en jours (M6b-3)."""
+
+LAYERED_LEVEL_DAYS: Final = 56
+"""La fenêtre du niveau de la règle en couches, en jours (M6b-3)."""
+
+LAYERED_KAPPA: Final = 0.5
+"""La part de l'écart récent que la règle en couches prend (M6b-3)."""
+
+type OriginWindow = int | Literal["all", "layered"]
+"""Une fenêtre : un nombre entier de jours civils, au moins 1, :data:`ALL_PAST`, ou la
+règle en couches, :data:`LAYERED`."""
 
 
 def check_origin(origin: datetime) -> datetime:
@@ -35,31 +49,34 @@ def check_origin(origin: datetime) -> datetime:
 
 
 def check_window(window: object) -> None:
-    """``window`` : un ``int`` d'au moins 1, non booléen, ou la chaîne ``"all"``
-    (``ContractError`` sinon)."""
-    if window == ALL_PAST:
+    """``window`` : un ``int`` d'au moins 1, non booléen, la chaîne ``"all"`` ou la
+    chaîne ``"layered"`` (``ContractError`` sinon)."""
+    if window in (ALL_PAST, LAYERED):
         return
     if not isinstance(window, int) or isinstance(window, bool) or window < 1:
         raise ContractError(
-            "window : un nombre entier de jours, au moins 1, ou 'all' ; reçu "
-            f"{window!r}."
+            "window : un nombre entier de jours, au moins 1, 'all' ou 'layered' ; "
+            f"reçu {window!r}."
         )
 
 
 def window_lower_bound(origin: datetime, window: OriginWindow) -> datetime | None:
     """La borne basse de la fenêtre, en UTC : 00:00 à Paris du jour civil de l'origine
     moins ``window`` jours (pas ``window`` × 24 h : la fenêtre traverse les changements
-    d'heure) ; ``None`` pour :data:`ALL_PAST`, sans contrôler l'origine."""
+    d'heure) ; ``None`` pour :data:`ALL_PAST`, sans contrôler l'origine ; pour
+    :data:`LAYERED`, celle de :data:`LAYERED_SHAPE_DAYS` jours (M6b-3)."""
     check_window(window)
-    if isinstance(window, str):
+    if window == ALL_PAST:
         return None
+    # Une chaîne qui n'est pas ALL_PAST est LAYERED (check_window).
+    days = window if isinstance(window, int) else LAYERED_SHAPE_DAYS
     moment = check_origin(origin)
     try:
-        day = moment.astimezone(PARIS).date() - timedelta(days=window)
+        day = moment.astimezone(PARIS).date() - timedelta(days=days)
         return datetime(day.year, day.month, day.day, tzinfo=PARIS).astimezone(UTC)
     except OverflowError as error:
         raise ContractError(
-            f"window : {window} jours sortent du calendrier depuis l'origine."
+            f"window : {days} jours sortent du calendrier depuis l'origine."
         ) from error
 
 

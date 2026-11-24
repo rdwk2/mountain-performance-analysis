@@ -73,6 +73,9 @@ from mountain_perf.validation import (
 METHOD = "mperf curve, M6b-1 (docs/decisions/0017)"
 """La méthode, nommée dans le compagnon (``0017``, P5.4)."""
 
+LAYERED_METHOD = "mperf curve --at, M6b-3 (docs/decisions/0025)"
+"""La méthode d'une courbe en couches, nommée dans le compagnon (M6b-3)."""
+
 CURVE_BIN_EDGES_PERMILLE: tuple[int, ...] = (
     *range(-1000, -400, 100),
     *range(-400, -150, 50),
@@ -979,6 +982,7 @@ def estimation_document(
     exports_retrieved_at: Sequence[datetime],
     support_error: str | None,
     origin: Mapping[str, object] | None = None,
+    method: str = METHOD,
 ) -> dict[str, object]:
     """Le document que ``write_curve`` range sous la clé ``estimation`` du compagnon,
     et que ``read_curve`` ignore : la méthode, ses paramètres, le niveau, les écarts,
@@ -989,10 +993,11 @@ def estimation_document(
 
     Le schéma est fixe (OG-1) : ``mode`` dit « plage » ou « origine », ``origin`` porte
     une copie de la section ``origin`` d'une courbe à l'origine, ``null`` pour une
-    plage."""
+    plage. ``method`` : :data:`METHOD`, ou :data:`LAYERED_METHOD` pour une courbe en
+    couches (M6b-3)."""
     counts = estimate.counts
     return {
-        "method": METHOD,
+        "method": method,
         "mode": (CurveMode.RANGE if origin is None else CurveMode.ORIGIN).value,
         "origin": None if origin is None else dict(origin),
         "commit": commit,
