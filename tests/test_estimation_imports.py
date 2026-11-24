@@ -41,12 +41,13 @@ def _modules(path: Path) -> set[str]:
     }
 
 
-def test_the_package_has_five_modules() -> None:
+def test_the_package_has_six_modules() -> None:
     assert sorted(p.name for p in ESTIMATION.glob("*.py")) == [
         "__init__.py",
         "curve.py",
         "decision.py",
         "intervals.py",
+        "levels.py",
         "origin.py",
     ]
 
