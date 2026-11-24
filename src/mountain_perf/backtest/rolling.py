@@ -59,6 +59,12 @@ from mountain_perf.estimation.curve import (
     BinValue,
     CurveSelection,
 )
+from mountain_perf.estimation.decision import (
+    LAYERED,
+    LAYERED_KAPPA,
+    LAYERED_LEVEL_DAYS,
+    LAYERED_SHAPE_DAYS,
+)
 from mountain_perf.estimation.intervals import (
     ActivityIntervals,
     TraceRefusal,
@@ -99,6 +105,7 @@ from mountain_perf.schemas import (
     Failure,
     FailureKind,
     FrozenCurve,
+    LayeredRollingRule,
     ModelKind,
     OutingBands,
     OutingObservation,
@@ -153,8 +160,27 @@ class RollingSettings:
 
 
 def window_label(window: OriginWindow) -> str:
-    """``w<n>`` pour ``n`` jours, ``all`` pour tout le passé (le nom d'une courbe)."""
-    return ALL_PAST if isinstance(window, str) else f"w{window}"
+    """``w<n>`` pour ``n`` jours, ``all`` pour tout le passé, ``layered`` pour la règle
+    en couches (le nom d'une courbe)."""
+    if window == ALL_PAST:
+        return ALL_PAST
+    if window == LAYERED:
+        return LAYERED
+    return f"w{window}"
+
+
+def _shape_days(window: OriginWindow) -> int | None:
+    """La fenêtre de forme d'une règle, en jours : ``None`` pour tout le passé,
+    :data:`LAYERED_SHAPE_DAYS` pour la règle en couches."""
+    if window == ALL_PAST:
+        return None
+    return window if isinstance(window, int) else LAYERED_SHAPE_DAYS
+
+
+def _level_days(window: OriginWindow) -> int | None:
+    """La fenêtre de niveau d'une règle, en jours : ``None`` pour une fenêtre
+    (M6b-3)."""
+    return LAYERED_LEVEL_DAYS if window == LAYERED else None
 
 
 def rolling_selection() -> CurveSelection:
@@ -226,20 +252,27 @@ def _rule(
     profile: ParameterSet,
     threshold: float,
 ) -> RollingRule:
-    return RollingRule(
-        athlete_ref=athlete_ref,
-        commit=commit,
-        window_days=None if isinstance(window, str) else window,
-        source_activity_types=tuple(sorted(selection.source_activity_types)),
-        min_duration_s=selection.min_duration_s,
-        max_duration_s=selection.max_duration_s,
-        max_elapsed_s=selection.max_elapsed_s,
-        hr_center_bpm=selection.hr_center_bpm,
-        value=selection.value.value,
-        parameters=dict(parameters.values),
-        profile_parameters=dict(profile.values),
-        diagnostic_support_threshold_min=threshold,
-    )
+    """Le document de règle de ``window`` : un ``RollingRule`` pour une fenêtre, un
+    ``LayeredRollingRule`` pour la règle en couches (M6b-3)."""
+    fields: dict[str, Any] = {
+        "athlete_ref": athlete_ref,
+        "commit": commit,
+        "window_days": _shape_days(window),
+        "source_activity_types": tuple(sorted(selection.source_activity_types)),
+        "min_duration_s": selection.min_duration_s,
+        "max_duration_s": selection.max_duration_s,
+        "max_elapsed_s": selection.max_elapsed_s,
+        "hr_center_bpm": selection.hr_center_bpm,
+        "value": selection.value.value,
+        "parameters": dict(parameters.values),
+        "profile_parameters": dict(profile.values),
+        "diagnostic_support_threshold_min": threshold,
+    }
+    if window == LAYERED:
+        return LayeredRollingRule(
+            **fields, level_window_days=LAYERED_LEVEL_DAYS, level_kappa=LAYERED_KAPPA
+        )
+    return RollingRule(**fields)
 
 
 def _check_correspondences(
@@ -474,13 +507,16 @@ def prepare_rolling(
         rolling = RollingDeclaration(
             rule=content_hash(encode_document(rule)),
             window_days=rule.window_days,
-            command_windows=tuple(None if isinstance(w, str) else w for w in windows),
+            command_windows=tuple(_shape_days(w) for w in windows),
             covered_threshold=settings.covered_threshold,
             beyond_marker=settings.beyond_marker,
             coverage_tolerance_s=settings.coverage_tolerance_s,
             index_sha256=corpus.index_sha256,
             platform=platform_label(),
             performances=tuple(curve.entry for curve in curves),
+            level_window_days=_level_days(window),
+            level_kappa=LAYERED_KAPPA if window == LAYERED else None,
+            command_level_windows=tuple(_level_days(w) for w in windows),
         )
         declaration = Declaration(
             commit=commit,

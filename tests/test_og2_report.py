@@ -343,6 +343,8 @@ def test_every_field_is_read(tmp_path: Path) -> None:
         )
         assert roll.window_days == window
         assert roll.command_windows == (4, 28)
+        assert (roll.level_window_days, roll.level_kappa) == (None, None)
+        assert roll.command_level_windows == (None, None)
         assert (roll.covered_threshold, roll.beyond_marker) == (0.1, 0.5)
         assert roll.coverage_tolerance_s == 60.0
         assert roll.index_sha256 == hashlib.sha256(index).hexdigest()

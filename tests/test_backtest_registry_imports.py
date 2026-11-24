@@ -113,7 +113,8 @@ def test_codec_imports_schemas_and_the_common_codec_only() -> None:
 def test_registry_imports_the_named_modules_only() -> None:
     """Depuis OG-2, l'accord du format 6 redérive la décision de la règle et la borne
     basse (``estimation/decision.py``), relit le verdict de support sur les octets du
-    CSV figé (``curve_csv_support``) et recalcule ``β`` (``math``)."""
+    CSV figé (``curve_csv_support``) et recalcule ``β`` (``math``) ; depuis M6b-3, il
+    vérifie les constantes de la règle en couches (``LAYERED…``, condition R)."""
     imported = _imports(REGISTRY_MODULE)
     assert _project(REGISTRY_MODULE) <= {
         "mountain_perf.schemas",
@@ -126,6 +127,10 @@ def test_registry_imports_the_named_modules_only() -> None:
     }
     assert imported["mountain_perf.estimation.decision"] == {
         "ALL_PAST",
+        "LAYERED",
+        "LAYERED_KAPPA",
+        "LAYERED_LEVEL_DAYS",
+        "LAYERED_SHAPE_DAYS",
         "OriginWindow",
         "TemporalDecision",
         "decide_on_index",

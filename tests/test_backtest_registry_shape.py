@@ -64,7 +64,7 @@ def _shape() -> tuple[int, str]:
 
 
 def test_shape_of_the_stored_contracts() -> None:
-    """D14 : 83 contrats stockés, et leur empreinte de forme d'aujourd'hui — le format
+    """D14 : 84 contrats stockés, et leur empreinte de forme d'aujourd'hui — le format
     2 ajoute ``CalibratedScenarioScores``, ``CalibratedClockScores``,
     ``ModelCalibration`` et ``CalibrationWithdrawal`` (M4c-2) ; le format 3, le
     document d'admission, ``Admission``, et ses huit contrats
@@ -87,9 +87,11 @@ def test_shape_of_the_stored_contracts() -> None:
     ``ShareUnavailability``, les champs ``Outing.activity_refs``,
     ``Declaration.rolling`` et ``Result.rolling``, la valeur
     ``Unavailability.NO_CURVE``, et les trois champs de courbe de la DÉCLARATION
-    devenus facultatifs ; les 44 du format 1 gardent leur forme, ces champs, cette
+    devenus facultatifs ; le format 7 (M6b-3), ``LayeredRollingRule`` et les trois
+    champs ``level_window_days``, ``level_kappa`` et ``command_level_windows`` de
+    ``RollingDeclaration`` ; les 44 du format 1 gardent leur forme, ces champs, cette
     valeur et ces annotations mis à part (``test_backtest_registry_format2.py``)."""
     assert _shape() == (
-        83,
-        "eb0dfc56e6d403d6c7a010e21c591707191ef87fe457824441eec33029e88acb",
+        84,
+        "0690d19b66ee50c086e54b05ba115488cd6c0383b0b52d5f425ea766b6014417",
     )

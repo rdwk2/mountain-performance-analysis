@@ -134,8 +134,12 @@ def rule() -> RollingRule:
     )
 
 
-def _sha(value: object) -> str:
-    return content_hash(encode_document(value, 6))
+def _sha(value: object, format_version: int | None = None) -> str:
+    """L'empreinte du document au format ``format_version`` ; par défaut, le format
+    courant (M6b-3 : 7), celui des ajouts."""
+    if format_version is None:
+        return content_hash(encode_document(value))
+    return content_hash(encode_document(value, format_version))
 
 
 @dataclasses.dataclass
@@ -145,10 +149,13 @@ class World:
     refs: list[str | None]
 
 
-def world(mutate: Mutation | None = None) -> World:
+def world(
+    mutate: Mutation | None = None, *, format_version: int | None = None
+) -> World:
     """Les documents de courbe des trois performances, chacun relu de ses octets ;
     ``mutate(k, compagnon)`` réécrit le compagnon figé (ou le document d'absence) de la
-    performance ``k`` avant son figement."""
+    performance ``k`` avant son figement ; ``format_version`` : celui des empreintes
+    (:func:`_sha`)."""
     found = World([], [], [])
     corpus_ = season()
     for k, outing in enumerate(OUTINGS):
@@ -171,7 +178,7 @@ def world(mutate: Mutation | None = None) -> World:
             found.entries.append(
                 RollingPerformance(
                     CurveStatus.ABSENT,
-                    _sha(absent),
+                    _sha(absent, format_version),
                     None,
                     None,
                     None,
@@ -212,7 +219,7 @@ def world(mutate: Mutation | None = None) -> World:
         found.entries.append(
             RollingPerformance(
                 status,
-                _sha(frozen),
+                _sha(frozen, format_version),
                 frozen.csv_sha256,
                 read.curve_ref,
                 0.2 if status is CurveStatus.CURVE else None,
@@ -224,14 +231,21 @@ def world(mutate: Mutation | None = None) -> World:
     return found
 
 
-def rolling_declaration(built: World) -> Any:
+def rolling_declaration(
+    built: World,
+    command_level_windows: tuple[int | None, ...] | None = (None,),
+    format_version: int | None = None,
+) -> Any:
+    """La DÉCLARATION glissante de ``built`` ; ``command_level_windows`` : ``(None,)``
+    pour un ajout au format 7, ``None`` pour une DÉCLARATION à la forme du format 6
+    (M6b-3) ; ``format_version`` : celui de l'empreinte du document de règle."""
     return declaration(
         models=(V0_RAW, COMPARATOR),
         curve_ref=None,
         curve=None,
         curve_metadata=None,
         rolling=RollingDeclaration(
-            rule=_sha(rule()),
+            rule=_sha(rule(), format_version),
             window_days=WINDOW,
             command_windows=(WINDOW,),
             covered_threshold=0.1,
@@ -240,6 +254,7 @@ def rolling_declaration(built: World) -> Any:
             index_sha256="b" * 64,
             platform="plateforme de test",
             performances=tuple(built.entries),
+            command_level_windows=command_level_windows,
         ),
     )
 
@@ -409,7 +424,7 @@ def test_the_exact_registry_is_accepted(tmp_path: Path) -> None:
     built = world()
     root = append_all(tmp_path, built)
     log = verify_registry(root)
-    assert [event.format_version for event in log.events] == [6, 6]
+    assert [event.format_version for event in log.events] == [7, 7]
     result = log.events[1].result
     assert result is not None
     assert result.rolling is not None

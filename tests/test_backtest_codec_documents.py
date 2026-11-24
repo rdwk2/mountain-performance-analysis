@@ -26,6 +26,7 @@ from mountain_perf.schemas import (
     CalibratedScenarioScores,
     CalibrationTerms,
     FrozenCurve,
+    LayeredRollingRule,
     OutingBands,
     OutingObservation,
     RepeatabilityReference,
@@ -56,7 +57,8 @@ def test_document_types_are_exact() -> None:
     format 2, scores calés (M4c-2) ; depuis le format 3, document d'admission
     (M4c-3) ; depuis le format 4, fourchettes (M4d-2) ; depuis le format 5,
     document de sensibilité (M4d-3) ; depuis le format 6, document de règle, courbe
-    figée, courbe absente, termes du calage (OG-2)."""
+    figée, courbe absente, termes du calage (OG-2) ; depuis le format 7, document de
+    règle en couches (M6b-3)."""
     assert (
         OutingObservation,
         ScenarioScores,
@@ -69,6 +71,7 @@ def test_document_types_are_exact() -> None:
         FrozenCurve,
         AbsentCurve,
         CalibrationTerms,
+        LayeredRollingRule,
     ) == DOCUMENT_TYPES
 
 

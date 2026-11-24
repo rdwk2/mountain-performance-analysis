@@ -49,6 +49,10 @@ from mountain_perf.backtest.sensitivity import (
 )
 from mountain_perf.estimation.decision import (
     ALL_PAST,
+    LAYERED,
+    LAYERED_KAPPA,
+    LAYERED_LEVEL_DAYS,
+    LAYERED_SHAPE_DAYS,
     OriginWindow,
     TemporalDecision,
     decide_on_index,
@@ -62,6 +66,7 @@ from mountain_perf.schemas import (
     BANDS_FIRST_FORMAT,
     CALIBRATED_KINDS,
     CLOCKS,
+    LAYERED_FIRST_FORMAT,
     METRIC_RELATIVE_TOLERANCE,
     REGISTRY_FORMAT_VERSION,
     ROLLING_FIRST_FORMAT,
@@ -85,6 +90,7 @@ from mountain_perf.schemas import (
     ExperimentTrials,
     Failure,
     FrozenCurve,
+    LayeredRollingRule,
     ModelCalibration,
     ModelKind,
     ModelResult,
@@ -169,8 +175,16 @@ def _line(event: RegistryEvent) -> bytes:
     ``sensitivity`` de la DÉCLARATION, ``pairs`` et ``sensitivity`` du RÉSULTAT, qui y
     valent ``null`` et ``[]`` (précision de D14, M4d-3) : chaque ligne ancienne se
     réécrit à l'octet. Avant le format 6, sans la clé ``activity_refs`` des sorties de
-    la DÉCLARATION ni la clé ``rolling`` de la DÉCLARATION et du RÉSULTAT (OG-2)."""
+    la DÉCLARATION ni la clé ``rolling`` de la DÉCLARATION et du RÉSULTAT (OG-2).
+    Avant le format 7, sans les clés ``level_window_days``, ``level_kappa`` et
+    ``command_level_windows`` de la DÉCLARATION glissante (M6b-3)."""
     data = encode_contract(event)
+    if event.format_version < LAYERED_FIRST_FORMAT and isinstance(data, dict):
+        declaration = data.get("declaration")
+        rolling = declaration.get("rolling") if isinstance(declaration, dict) else None
+        if isinstance(rolling, dict):
+            for key in _LAYERED_KEYS:
+                rolling.pop(key, None)
     if event.format_version < ROLLING_FIRST_FORMAT and isinstance(data, dict):
         for outing in _declared_outing_items(data.get("declaration")):
             outing.pop("activity_refs", None)
@@ -349,8 +363,31 @@ def _upgraded_rolling(raw: dict[str, object], version: int) -> dict[str, object]
     return raw
 
 
+_LAYERED_KEYS = ("level_window_days", "level_kappa", "command_level_windows")
+"""Les clés de la DÉCLARATION glissante neuves au format 7 (M6b-3), dans leur ordre."""
+
+
+def _upgraded_layered(raw: dict[str, object], version: int) -> dict[str, object]:
+    """Avant le format 7 (M6b-3) : une DÉCLARATION glissante reçoit les trois clés de
+    la règle en couches à ``null``. Une ligne qui en porte déjà une est refusée : champ
+    inconnu à son format."""
+    declaration = raw.get("declaration")
+    rolling = declaration.get("rolling") if isinstance(declaration, dict) else None
+    if not isinstance(declaration, dict) or not isinstance(rolling, dict):
+        return raw
+    for key in _LAYERED_KEYS:
+        if key in rolling:
+            raise CodecError(
+                f"declaration : champ inconnu au format {version} : {key!r}"
+            )
+    upgraded = {**rolling, **dict.fromkeys(_LAYERED_KEYS)}
+    return {**raw, "declaration": {**declaration, "rolling": upgraded}}
+
+
 def _upgraded(raw: object) -> object:
-    """Une ligne JSON d'un format antérieur, avant son décodage : avant le format 6, les
+    """Une ligne JSON d'un format antérieur, avant son décodage : avant le format 7, la
+    DÉCLARATION glissante reçoit les clés de la règle en couches (M6b-3,
+    :func:`_upgraded_layered`) ; avant le format 6, les
     clés du mode glissant (OG-2, :func:`_upgraded_rolling`) ; avant le format 5, sa
     DÉCLARATION reçoit ``"sensitivity": null``, son RÉSULTAT ``"pairs": []`` et
     ``"sensitivity": null`` (précision de D14, M4d-3) ; avant le format 4,
@@ -363,7 +400,10 @@ def _upgraded(raw: object) -> object:
     if not isinstance(raw, dict):
         return raw
     version = raw.get("format_version")
-    if type(version) is not int or version >= ROLLING_FIRST_FORMAT:
+    if type(version) is not int or version >= LAYERED_FIRST_FORMAT:
+        return raw
+    raw = _upgraded_layered(raw, version)
+    if version >= ROLLING_FIRST_FORMAT:
         return raw
     raw = _upgraded_rolling(raw, version)
     if version >= SENSITIVITY_FIRST_FORMAT:
@@ -1141,19 +1181,50 @@ def _agree_rolling_documents(
     recalculée (2 bis), chaque ligne d'activité, sa méthode et sa décision redérivée
     par la règle F (3 bis), les candidates, les retenues, les contributrices et les
     dates (3, 3 quater), les comptes (3 ter), l'empreinte de l'index et celle de chaque
-    enregistrement (4), le verdict relu sur le CSV figé (5 bis)."""
-    rule = _decoded(read, rolling.rule, RollingRule, document_prefix, format_version)
-    if (rule.athlete_ref, rule.commit, rule.window_days) != (
+    enregistrement (4), le verdict relu sur le CSV figé (5 bis). Pour une règle en
+    couches (M6b-3) : le document de règle ``LayeredRollingRule``, ses champs de niveau
+    et ses constantes (R), la section de niveau de chaque compagnon (2 ter) ; ni
+    ``Δ``, ni le facteur, ni les comptes de la couche, descriptifs."""
+    layered = rolling.level_window_days is not None
+    expected_type = LayeredRollingRule if layered else RollingRule
+    rule = _decoded(read, rolling.rule, expected_type, document_prefix, format_version)
+    levels = (
+        (rule.level_window_days, rule.level_kappa)
+        if isinstance(rule, LayeredRollingRule)
+        else (None, None)
+    )
+    if (rule.athlete_ref, rule.commit, rule.window_days, *levels) != (
         declaration.athlete_ref,
         declaration.commit,
         rolling.window_days,
+        rolling.level_window_days,
+        rolling.level_kappa,
+    ):
+        carried = (
+            "l'athlète, le commit, la fenêtre et les champs de niveau"
+            if layered
+            else "l'athlète, le commit et la fenêtre"
+        )
+        raise RegistryError(
+            f"{prefix}le document de règle ne porte pas {carried} de la DÉCLARATION "
+            f"{_CONDITION.format('R')}"
+        )
+    if layered and (rule.window_days, *levels) != (
+        LAYERED_SHAPE_DAYS,
+        LAYERED_LEVEL_DAYS,
+        LAYERED_KAPPA,
     ):
         raise RegistryError(
-            f"{prefix}le document de règle ne porte pas l'athlète, le commit et la "
-            f"fenêtre de la DÉCLARATION {_CONDITION.format('R')}"
+            f"{prefix}la règle en couches n'a pas ses constantes ({LAYERED_SHAPE_DAYS} "
+            f"jours, {LAYERED_LEVEL_DAYS} jours, κ = {LAYERED_KAPPA:g}) "
+            f"{_CONDITION.format('R')}"
         )
     window: OriginWindow = (
-        ALL_PAST if rolling.window_days is None else rolling.window_days
+        LAYERED
+        if layered
+        else ALL_PAST
+        if rolling.window_days is None
+        else rolling.window_days
     )
     v0 = next((m for m in declaration.models if m.kind is ModelKind.V0_RAW), None)
     if v0 is None:
@@ -1191,6 +1262,43 @@ def _agree_rolling_documents(
                 f"{where}document de courbe mal formé ({error!r}) "
                 f"{_CONDITION.format(1)}"
             ) from error
+
+
+def _agree_level_section(
+    rule: RollingRule,
+    section: Mapping[str, Any],
+    origin_at: datetime,
+    frozen: bool,
+    where: str,
+) -> None:
+    """La condition 2 ter (M6b-3) : sous une règle en couches, la section ``origin``
+    porte ``level_layer`` — un objet pour une courbe figée, dont la fenêtre de niveau et
+    ``kappa`` sont ceux de la règle et la borne basse celle recalculée ; ``null`` pour
+    une courbe absente ; sous une fenêtre, la clé est absente."""
+    refused = RegistryError(
+        f"{where}la section de niveau du document de courbe n'est pas celle de la "
+        f"règle {_CONDITION.format('2 ter')}"
+    )
+    if not isinstance(rule, LayeredRollingRule):
+        if "level_layer" in section:
+            raise refused
+        return
+    if "level_layer" not in section:
+        raise refused
+    layer = section["level_layer"]
+    if not frozen:
+        if layer is not None:
+            raise refused
+        return
+    if not isinstance(layer, dict):
+        raise refused
+    bound = window_lower_bound(origin_at, rule.level_window_days)
+    if (
+        layer["level_window_days"] != rule.level_window_days
+        or layer["kappa"] != rule.level_kappa
+        or _moment(layer["level_lower_bound"], where) != bound
+    ):
+        raise refused
 
 
 def _agree_curve_document(
@@ -1278,6 +1386,7 @@ def _agree_curve_document(
             f"{where}la borne basse écrite n'est pas la borne basse recalculée "
             f"{_CONDITION.format('2 bis')}"
         )
+    _agree_level_section(rule, section, origin_at, frozen is not None, where)
     lines: list[dict[str, Any]] = section["activities"]
     candidates: list[datetime] = []
     retained: list[datetime] = []

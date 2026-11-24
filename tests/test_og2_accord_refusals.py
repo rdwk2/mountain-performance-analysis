@@ -150,7 +150,7 @@ def test_no_read_support_with_a_readable_csv_is_refused() -> None:
     """Condition 5 bis, la lecture : le statut ``no_read_support`` sur une courbe que
     le seuil de lecture (10 min) relit. Appelé sur l'accord des documents de la
     DÉCLARATION seuls (le RÉSULTAT n'y entre pas)."""
-    built = t.world()
+    built = t.world(format_version=6)
     lying = dataclasses.replace(
         built.entries[0],
         status=CurveStatus.NO_READ_SUPPORT,
@@ -159,13 +159,13 @@ def test_no_read_support_with_a_readable_csv_is_refused() -> None:
         share_unavailability=ShareUnavailability.NO_CURVE,
     )
     declaration = t.rolling_declaration(
-        dataclasses.replace(built, entries=[lying, *built.entries[1:]])
+        dataclasses.replace(built, entries=[lying, *built.entries[1:]]), None, 6
     )
     rolling = declaration.rolling
     assert rolling is not None
-    stored = {t._sha(t.rule()): encode_document(t.rule(), 6)}
+    stored = {t._sha(t.rule(), 6): encode_document(t.rule(), 6)}
     for curve in built.curves:
-        stored[t._sha(curve)] = encode_document(curve, 6)
+        stored[t._sha(curve, 6)] = encode_document(curve, 6)
     with pytest.raises(RegistryError, match="seuil de lecture"):
         registry_module._agree_rolling_documents(
             declaration, rolling, stored.__getitem__, "", "", 6

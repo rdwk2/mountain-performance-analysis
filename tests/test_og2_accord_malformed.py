@@ -17,7 +17,7 @@ import pytest
 
 import test_og2_accord as t
 from fixtures.registry import COMMIT
-from mountain_perf.backtest import encode_document
+from mountain_perf.backtest import content_hash, encode_document
 from mountain_perf.backtest import registry as registry_module
 from mountain_perf.backtest.registry import RegistryError, verify_registry
 from mountain_perf.model.curve_io import CurveError
@@ -95,10 +95,15 @@ def test_a_named_refusal_is_not_called_malformed(tmp_path: Path) -> None:
     assert "mal formé" not in str(error.value)
 
 
+def _sha6(value: object) -> str:
+    """L'empreinte d'un document au format 6, celui de cet accord (M6b-3)."""
+    return content_hash(encode_document(value, 6))
+
+
 def _stored(built: Any) -> dict[str, bytes]:
-    stored = {t._sha(t.rule()): encode_document(t.rule(), 6)}
+    stored = {_sha6(t.rule()): encode_document(t.rule(), 6)}
     for curve in built.curves:
-        stored[t._sha(curve)] = encode_document(curve, 6)
+        stored[_sha6(curve)] = encode_document(curve, 6)
     return stored
 
 
@@ -111,25 +116,25 @@ def _agree(built: Any, declaration: Any) -> None:
 
 
 def test_an_absence_document_that_is_not_json_is_refused() -> None:
-    built = t.world()
+    built = t.world(format_version=6)
     absent = AbsentCurve("pas du JSON")
-    entry = dataclasses.replace(built.entries[2], document=t._sha(absent))
+    entry = dataclasses.replace(built.entries[2], document=_sha6(absent))
     built = dataclasses.replace(
         built, curves=[*built.curves[:2], absent], entries=[*built.entries[:2], entry]
     )
     with pytest.raises(RegistryError, match=r"mal formé.*condition 1") as error:
-        _agree(built, t.rolling_declaration(built))
+        _agree(built, t.rolling_declaration(built, None, 6))
     assert isinstance(error.value.__cause__, json.JSONDecodeError)
 
 
 def test_a_frozen_csv_that_is_not_a_curve_is_refused() -> None:
-    built = t.world()
+    built = t.world(format_version=6)
     frozen = built.curves[0]
     assert isinstance(frozen, FrozenCurve)
     broken = FrozenCurve("ceci n'est pas une courbe\n", frozen.companion)
     entry = dataclasses.replace(
         built.entries[0],
-        document=t._sha(broken),
+        document=_sha6(broken),
         curve_sha256=broken.csv_sha256,
         curve_ref=f"og2.csv#{broken.csv_sha256[:12]}",
     )
@@ -137,7 +142,7 @@ def test_a_frozen_csv_that_is_not_a_curve_is_refused() -> None:
         built, curves=[broken, *built.curves[1:]], entries=[entry, *built.entries[1:]]
     )
     with pytest.raises(RegistryError, match=r"mal formé.*condition 1") as error:
-        _agree(built, t.rolling_declaration(built))
+        _agree(built, t.rolling_declaration(built, None, 6))
     assert isinstance(error.value.__cause__, CurveError)
 
 
@@ -145,9 +150,9 @@ def test_a_rolling_declaration_without_v0_raw_is_refused() -> None:
     """Le contrat admet une DÉCLARATION glissante sans v0 brut (des modèles non vides,
     distincts) ; l'accord la refuse en le disant : le seuil de lecture relit le support
     sous v0 brut."""
-    built = t.world()
+    built = t.world(format_version=6)
     declaration = dataclasses.replace(
-        t.rolling_declaration(built), models=(t.COMPARATOR,)
+        t.rolling_declaration(built, None, 6), models=(t.COMPARATOR,)
     )
     with pytest.raises(RegistryError, match="ne déclare pas v0 brut"):
         _agree(built, declaration)

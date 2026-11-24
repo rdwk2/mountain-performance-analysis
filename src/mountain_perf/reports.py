@@ -8,6 +8,12 @@ from datetime import date, datetime
 from typing import Final
 
 from mountain_perf.estimation.curve import CurveEstimate
+from mountain_perf.estimation.decision import (
+    LAYERED,
+    LAYERED_KAPPA,
+    LAYERED_LEVEL_DAYS,
+    LAYERED_SHAPE_DAYS,
+)
 from mountain_perf.estimation.origin import (
     PARIS,
     OriginEstimate,
@@ -106,16 +112,34 @@ def origin_summary_lines(result: OriginEstimate, day: date) -> tuple[str, ...]:
     """Les lignes de l'origine de ``mperf curve --at`` (OG-UI : communes avec
     ``mperf project --at`` et les pages) : l'origine et sa fenêtre, les décisions
     (zéros compris), les dernières fins s'il y a une candidate, l'historique selon
-    l'index ; sans l'avertissement du démarrage à froid."""
-    window = (
-        "fenêtre tout le passé"
-        if result.lower_bound is None
-        else (
+    l'index ; sans l'avertissement du démarrage à froid. Sous la règle en couches
+    (M6b-3), la règle et, sauf absence, la ligne du niveau à mi-chemin."""
+    layer = result.level_layer
+    if result.window == LAYERED and result.lower_bound is not None:
+        kappa = f"{LAYERED_KAPPA:g}".replace(".", ",")
+        window = (
+            f"règle en couches (forme {LAYERED_SHAPE_DAYS} jours, niveau "
+            f"{LAYERED_LEVEL_DAYS} jours, κ = {kappa}), fins depuis le "
+            f"{paris_minute(result.lower_bound)} à Paris"
+        )
+    elif result.lower_bound is None:
+        window = "fenêtre tout le passé"
+    else:
+        window = (
             f"fenêtre {result.window} jours, fins depuis le "
             f"{paris_minute(result.lower_bound)} à Paris"
         )
-    )
     lines = [f"jour {day} : origine {paris_minute(result.origin)} à Paris ; {window}"]
+    if layer is not None:
+        if layer.delta is None:
+            lines.append(f"niveau à mi-chemin : {layer.no_correction_reason}")
+        else:
+            lines.append(
+                f"niveau à mi-chemin : Δ = {layer.delta:+.4f}, {layer.recent_count} "
+                f"activités récentes sur {layer.fit_count} (fins depuis le "
+                f"{paris_minute(layer.level_lower_bound)} à Paris) ; vitesses de la "
+                f"courbe d'un an × {layer.speed_factor:.4f}"
+            )
     decisions = Counter(inspection.decision for inspection in result.inspections)
     details = ", ".join(f"{d.value} {decisions[d]}" for d in TemporalDecision)
     lines.append(f"activités inspectées : {len(result.inspections)} ({details})")

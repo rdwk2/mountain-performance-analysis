@@ -84,11 +84,14 @@ def test_an_unavailable_share_has_no_scope() -> None:
         dataclasses.replace(absent_performance(), share_scope=ShareScope.USAGE)
 
 
-@pytest.mark.parametrize("field", ["command_windows", "performances"])
+@pytest.mark.parametrize(
+    "field", ["command_windows", "performances", "command_level_windows"]
+)
 def test_rolling_declaration_sequences_are_tuples(field: str) -> None:
-    value = list(getattr(rolling(), field))
+    fields: dict[str, Any] = {"command_level_windows": (None, None, None)}
+    value = list(getattr(rolling(**fields), field))
     with pytest.raises(ContractError, match="séquence immuable"):
-        rolling(**{field: value})
+        rolling(**{**fields, field: value})
 
 
 @pytest.mark.parametrize("tolerance", [math.inf, math.nan])

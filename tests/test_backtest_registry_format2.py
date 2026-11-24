@@ -81,6 +81,7 @@ from mountain_perf.schemas import (
     DeclaredPerformance,
     Exclusion,
     FrozenCurve,
+    LayeredRollingRule,
     ModelBand,
     ModelKind,
     ModelResult,
@@ -407,8 +408,8 @@ def _shape(
 def test_versions() -> None:
     """§ 6.1 : le format écrit, les formats relus, le premier format de chaque type de
     document."""
-    assert REGISTRY_FORMAT_VERSION == 6
-    assert REGISTRY_READABLE_FORMATS == (1, 2, 3, 4, 5, 6)
+    assert REGISTRY_FORMAT_VERSION == 7
+    assert REGISTRY_READABLE_FORMATS == (1, 2, 3, 4, 5, 6, 7)
     assert dict(DOCUMENT_FIRST_FORMAT) == {
         OutingObservation: 1,
         ScenarioScores: 1,
@@ -421,6 +422,7 @@ def test_versions() -> None:
         FrozenCurve: 6,
         AbsentCurve: 6,
         CalibrationTerms: 6,
+        LayeredRollingRule: 7,
     }
     assert tuple(DOCUMENT_FIRST_FORMAT) == DOCUMENT_TYPES
 

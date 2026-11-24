@@ -52,7 +52,7 @@ from mountain_perf.validation import (
     require_non_empty,
 )
 
-REGISTRY_FORMAT_VERSION = 6
+REGISTRY_FORMAT_VERSION = 7
 """Version du format que l'ajout d'un événement ou d'un document écrit (``0010`` D14).
 
 Chaque document la porte, chaque événement aussi (``format_version``). Le registre
@@ -77,12 +77,17 @@ les champs ``Outing.activity_refs``, ``Declaration.rolling`` et ``Result.rolling
 documents ``RollingRule``, ``FrozenCurve``, ``AbsentCurve`` et ``CalibrationTerms``, et
 rend facultatifs selon le mode ``curve_ref``, ``curve`` et ``curve_metadata`` (par
 exception à Q4.7, ``0010`` précision OG-2, point 12) ; une ligne d'un format antérieur
-se relit et se réécrit de même, sans les champs neufs, sa courbe toujours présente."""
+se relit et se réécrit de même, sans les champs neufs, sa courbe toujours présente. Le
+format 7 (M6b-3) ajoute la règle en couches : le document ``LayeredRollingRule`` (la
+règle d'une exécution en couches) et les champs ``level_window_days``, ``level_kappa``
+et ``command_level_windows`` de ``Declaration.rolling`` ; une ligne d'un format
+antérieur se relit et se réécrit de même, sans eux ; ``RollingRule`` ne change pas
+(``0010``, précision OG-2, point 14)."""
 
-REGISTRY_READABLE_FORMATS: tuple[int, ...] = (1, 2, 3, 4, 5, 6)
+REGISTRY_READABLE_FORMATS: tuple[int, ...] = (1, 2, 3, 4, 5, 6, 7)
 """Les formats que le registre relit, dans l'ordre (précisions de D14, M4c-2, M4c-3,
-M4d-2, M4d-3 et OG-2) : chaque ligne au sien, chaque document au format de l'événement
-qui le cite."""
+M4d-2, M4d-3, OG-2 et M6b-3) : chaque ligne au sien, chaque document au format de
+l'événement qui le cite."""
 
 ADMISSION_FIRST_FORMAT = 3
 """Le premier format dont le RÉSULTAT d'une expérience cite un document d'admission et
@@ -102,6 +107,12 @@ ROLLING_FIRST_FORMAT = 6
 correspondance déclarée d'une sortie (``Outing.activity_refs``), puis la DÉCLARATION
 et le RÉSULTAT glissants. Une ligne d'un format antérieur s'écrit sans ces clés, et se
 relit sans elles."""
+
+LAYERED_FIRST_FORMAT = 7
+"""Le premier format qui connaît la règle en couches (M6b-3, ``0010`` précision OG-2,
+point 14) : le document ``LayeredRollingRule`` et les champs ``level_window_days``,
+``level_kappa`` et ``command_level_windows`` de la DÉCLARATION glissante. Une ligne
+d'un format antérieur s'écrit sans ces clés, et se relit sans elles."""
 
 CURVE_REF_HASH_LENGTH = 12
 """Nombre de caractères de l'empreinte ``sha256`` du CSV recopiés dans ``curve_ref``
@@ -1098,6 +1109,58 @@ class RollingRule:
         )
 
 
+def _check_level(
+    window_days: int | None, level_window_days: int, level_kappa: float
+) -> None:
+    """Les bornes de la règle en couches : la fenêtre de forme posée,
+    ``1 <= level_window_days < window_days``, ``0 < level_kappa <= 1``, fini."""
+    if window_days is None:
+        raise ContractError("la règle en couches porte sa fenêtre de forme.")
+    if not 1 <= level_window_days < window_days:
+        raise ContractError(
+            f"level_window_days doit être dans [1 ; {window_days}[, reçu "
+            f"{level_window_days}."
+        )
+    require_finite(level_kappa, "level_kappa")
+    if not 0 < level_kappa <= 1:
+        raise ContractError(f"level_kappa doit être dans ]0 ; 1], reçu {level_kappa}.")
+
+
+@dataclass(frozen=True)
+class LayeredRollingRule(RollingRule):
+    """Le document de règle d'une exécution glissante en couches (M6b-3, ``0025`` ;
+    ``0010`` précision OG-2, point 14) : les champs de :class:`RollingRule`, dans leur
+    ordre, puis ceux de la couche de niveau.
+
+    Champs
+    ------
+    - ceux de :class:`RollingRule` ; ``window_days`` — jours — la fenêtre de la forme ;
+    - ``level_window_days`` — jours — la fenêtre du niveau ;
+    - ``level_kappa`` — sans unité — la part de l'écart récent prise.
+
+    Invariants
+    ----------
+    Ceux de :class:`RollingRule` ; ``window_days`` posé ;
+    ``1 <= level_window_days < window_days`` ; ``0 < level_kappa <= 1``, fini.
+
+    Producteur
+    ----------
+    ``prepare_rolling`` (``mountain_perf.backtest.rolling``), sous ``layered``.
+
+    Consommateurs
+    -------------
+    La DÉCLARATION glissante (son empreinte) ; l'accord du registre (conditions R, 2
+    et 2 ter).
+    """
+
+    level_window_days: int
+    level_kappa: float
+
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        _check_level(self.window_days, self.level_window_days, self.level_kappa)
+
+
 @dataclass(frozen=True)
 class FrozenCurve:
     """La courbe figée d'une performance (OG-2, ``0010`` précision OG-2, point 3) : les
@@ -1361,13 +1424,25 @@ class RollingDeclaration:
     - ``index_sha256`` — sans unité — l'empreinte de l'index d'``interim/`` lu.
     - ``platform`` — sans unité — la plateforme de l'exécution.
     - ``performances`` — sans unité — une entrée par performance, dans l'ordre.
+    - ``level_window_days`` — jours — la fenêtre du niveau d'une règle en couches ;
+      ``None`` pour une fenêtre (M6b-3).
+    - ``level_kappa`` — sans unité — le ``κ`` d'une règle en couches ; ``None`` pour une
+      fenêtre (M6b-3).
+    - ``command_level_windows`` — jours — parallèle à ``command_windows`` : la fenêtre
+      du niveau de chaque règle de la commande, ``None`` pour une fenêtre ; ``None``
+      tout entier pour une ligne d'un format antérieur au format 7 (M6b-3).
 
     Invariants
     ----------
     - ``rule`` et ``index_sha256`` sont des ``sha256`` ;
     - ``window_days >= 1`` ou ``None`` ;
-    - ``command_windows`` non vide, distinctes, chacune ``>= 1`` ou ``None``, et
-      contient ``window_days`` ;
+    - ``command_windows`` non vide, chacune ``>= 1`` ou ``None`` ;
+    - ``level_window_days`` et ``level_kappa`` posés ensemble, avec
+      ``1 <= level_window_days < window_days`` et ``0 < level_kappa <= 1`` ;
+    - sans ``command_level_windows`` : ``command_windows`` distinctes et contient
+      ``window_days`` ; avec : un tuple de même longueur, chacune ``>= 1`` ou ``None``,
+      les paires ``(command_windows[i], command_level_windows[i])`` distinctes, et la
+      paire ``(window_days, level_window_days)`` parmi elles ;
     - ``covered_threshold`` et ``beyond_marker`` finis, dans ``[0 ; 1]`` ;
     - la tolérance finie, ``>= 0`` ; ``platform`` non vide.
 
@@ -1394,27 +1469,54 @@ class RollingDeclaration:
     index_sha256: str
     platform: str
     performances: tuple[RollingPerformance, ...]
+    level_window_days: int | None = None
+    level_kappa: float | None = None
+    command_level_windows: tuple[int | None, ...] | None = None
 
     def __post_init__(self) -> None:
         _require_sha256(self.rule, "rule")
         _require_sha256(self.index_sha256, "index_sha256")
         require_immutable_sequence(self.command_windows, "command_windows")
         require_immutable_sequence(self.performances, "performances")
+        levels = self.command_level_windows
+        if levels is not None:
+            require_immutable_sequence(levels, "command_level_windows")
         for name, window in (
             ("window_days", self.window_days),
             *(("command_windows", w) for w in self.command_windows),
+            *(("command_level_windows", w) for w in levels or ()),
         ):
             if window is not None and window < 1:
                 raise ContractError(f"{name} : au moins 1 jour, reçu {window}.")
         if not self.command_windows:
             raise ContractError("command_windows ne doit pas être vide.")
-        _require_distinct(
-            self.command_windows, "command_windows : {!r} donnée deux fois."
-        )
-        if self.window_days not in self.command_windows:
+        if (self.level_window_days is None) != (self.level_kappa is None):
             raise ContractError(
-                f"command_windows doit contenir window_days ({self.window_days})."
+                "level_window_days et level_kappa vont ensemble (la règle en couches)."
             )
+        if self.level_window_days is not None and self.level_kappa is not None:
+            _check_level(self.window_days, self.level_window_days, self.level_kappa)
+        if levels is None:
+            _require_distinct(
+                self.command_windows, "command_windows : {!r} donnée deux fois."
+            )
+            if self.window_days not in self.command_windows:
+                raise ContractError(
+                    f"command_windows doit contenir window_days ({self.window_days})."
+                )
+        else:
+            if len(levels) != len(self.command_windows):
+                raise ContractError(
+                    "command_level_windows : une fenêtre de niveau par règle de la "
+                    f"commande ({len(self.command_windows)}), reçu {len(levels)}."
+                )
+            pairs = tuple(zip(self.command_windows, levels, strict=True))
+            _require_distinct(pairs, "règles de la commande : {!r} donnée deux fois.")
+            if (self.window_days, self.level_window_days) not in pairs:
+                raise ContractError(
+                    "les règles de la commande doivent contenir celle de la "
+                    f"DÉCLARATION ({self.window_days}, {self.level_window_days})."
+                )
         for name in ("covered_threshold", "beyond_marker"):
             value: float = getattr(self, name)
             require_finite(value, name)
@@ -2321,6 +2423,33 @@ class RegistryEvent:
         self._check_before_format_3()
         self._check_before_format_4()
         self._check_before_format_5()
+        self._check_before_format_7()
+
+    def _check_before_format_7(self) -> None:
+        """Invariant 2, la règle en couches (M6b-3, ``0010`` précision OG-2, point 14) :
+        avant le format 7, une DÉCLARATION glissante ne porte ni ``level_window_days``,
+        ni ``level_kappa``, ni ``command_level_windows`` ; à partir du format 7, elle
+        porte ``command_level_windows`` (des ``None`` pour une commande sans règle en
+        couches)."""
+        rolling = None if self.declaration is None else self.declaration.rolling
+        if rolling is None:
+            return
+        version = self.format_version
+        if version < LAYERED_FIRST_FORMAT:
+            if (
+                rolling.level_window_days is not None
+                or rolling.level_kappa is not None
+                or rolling.command_level_windows is not None
+            ):
+                raise ContractError(
+                    f"une DÉCLARATION du format {version} ne porte pas la règle en "
+                    "couches (format 7)."
+                )
+        elif rolling.command_level_windows is None:
+            raise ContractError(
+                f"une DÉCLARATION glissante du format {version} porte "
+                "command_level_windows (format 7)."
+            )
 
     def _check_before_format_3(self) -> None:
         """Invariant 2, avant le format 3 : ni document d'admission, ni documents D8
