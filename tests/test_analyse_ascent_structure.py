@@ -6,9 +6,11 @@ sans numpy ou scipy (extra ``analyse``)."""
 
 from __future__ import annotations
 
+import dataclasses
 import math
+import random
 import statistics
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from datetime import date, datetime, timedelta
 from typing import Any
 
@@ -28,10 +30,14 @@ from fixtures.ascent_world import (
     world_e_tables,
 )
 from fixtures.q2_world import at, q2_activity, q2_tables
+from mountain_perf.analyse.ascent import structure
 from mountain_perf.analyse.ascent.references import References, references, round_to
 from mountain_perf.analyse.ascent.selection import AscentClimb, select_climbs
 from mountain_perf.analyse.ascent.states import AscentState, Unavailable
 from mountain_perf.analyse.ascent.structure import Structure, fit_structure
+from mountain_perf.analyse.inference.base import InferenceError
+from mountain_perf.analyse.inference.clusters import cr2_interval
+from mountain_perf.analyse.inference.linear import ols
 from mountain_perf.analyse.tables import Tables
 from mountain_perf.schemas.processed import ClimbRegime
 
@@ -299,10 +305,17 @@ def test_t7_a_column_carried_by_fewer_than_two_sorties(
     intermediate: Callable[[int, int], bool],
 ) -> None:
     """T7 : aucune sortie ne mêle les régimes, puis une seule : ``rho`` sort du plan,
-    sans exception."""
-    s = structure_of(
-        exact_world(spread_offsets(14), noise=0.02, intermediate=intermediate)
+    sans exception ; ``s2_e`` compte alors ``q = 3`` colonnes dans ses degrés."""
+    tables = exact_world(spread_offsets(14), noise=0.02, intermediate=intermediate)
+    s = structure_of(tables)
+    climbs = select_climbs(tables).climbs
+    design, response, labels = centered_by_sortie(
+        climbs, s.references, lambda x, d, a, i: [x, d, a]
     )
+    resid = ols(design, response).resid.tolist()
+    rss = sum(float(e) ** 2 for e in resid)
+    groups = len(set(labels))
+    assert s.s2_e * (len(design) - groups - 3) == pytest.approx(rss, rel=1e-12)
     assert s.estimated[3] is False
     assert s.coef[3] == 0.0
     assert all(s.cov[3][k] == 0.0 and s.cov[k][3] == 0.0 for k in range(4))
@@ -434,6 +447,215 @@ def test_t12_two_sorties_on_the_same_day() -> None:
     first, second = s.summaries[0], s.summaries[1]
     assert (first.activity_ref, second.activity_ref) == ("a", "b")
     assert first.day == second.day == same
+
+
+def centered_by_sortie(
+    climbs: Sequence[AscentClimb],
+    refs: References,
+    columns: Callable[[float, float, float, float], list[float]],
+) -> tuple[list[list[float]], list[float], list[int]]:
+    """Les colonnes ``columns(x, D, A, I)`` et la réponse centrées par sortie, sur
+    les sorties à deux montées ou plus (triées par ``(day, activity_ref)``), et le
+    rang de la sortie de chaque ligne : le plan du premier temps, recalculé ici."""
+    groups: dict[str, list[AscentClimb]] = {}
+    for climb in climbs:
+        groups.setdefault(climb.activity_ref, []).append(climb)
+    multi = sorted(
+        (g for g in groups.values() if len(g) >= 2),
+        key=lambda g: (g[0].day, g[0].activity_ref),
+    )
+    design: list[list[float]] = []
+    response: list[float] = []
+    labels: list[int] = []
+    for rank, group in enumerate(multi):
+        rows = [
+            columns(
+                math.log(c.hr_bpm / refs.hr_bpm),
+                c.d_plus_km,
+                c.altitude_km,
+                1.0 if c.intermediate else 0.0,
+            )
+            for c in group
+        ]
+        means = [statistics.fmean(r[k] for r in rows) for k in range(len(rows[0]))]
+        y_bar = statistics.fmean(c.log_speed for c in group)
+        for climb, row in zip(group, rows, strict=True):
+            design.append([v - m for v, m in zip(row, means, strict=True)])
+            response.append(climb.log_speed - y_bar)
+            labels.append(rank)
+    return design, response, labels
+
+
+def world_e_climbs() -> tuple[AscentClimb, ...]:
+    return select_climbs(world_e_tables()).climbs
+
+
+def with_first_of_sortie(
+    climbs: Sequence[AscentClimb], field: str
+) -> list[AscentClimb]:
+    """Les montées dont ``field`` est remplacé par celui de la première montée de
+    leur sortie : la grandeur ne varie plus dans aucune sortie."""
+    first: dict[str, AscentClimb] = {}
+    for climb in climbs:
+        first.setdefault(climb.activity_ref, climb)
+    return [
+        dataclasses.replace(c, **{field: getattr(first[c.activity_ref], field)})
+        for c in climbs
+    ]
+
+
+def fit_e_like(climbs: Sequence[AscentClimb]) -> Structure | Unavailable:
+    refs = references(climbs, WORLD_E_LAST_DAY)
+    assert isinstance(refs, References)
+    return fit_structure(climbs, refs)
+
+
+def test_t13_a_middle_column_leaves_the_plan() -> None:
+    """T13 : l'altitude ne varie plus dans aucune sortie du monde E : λ sort du plan,
+    et l'intervalle de ``rho`` est celui du plan réduit ``[x, D, I]``, au rang 2."""
+    climbs = with_first_of_sortie(world_e_climbs(), "altitude_km")
+    s = fit_e_like(climbs)
+    assert isinstance(s, Structure)
+    assert s.estimated == (True, True, False, True)
+    assert s.coef[2] == 0.0
+    assert all(s.cov[2][k] == 0.0 and s.cov[k][2] == 0.0 for k in range(4))
+    assert s.dfs[2] is None
+    assert s.intervals[2] is None
+    assert s.altitude is AscentState.INSUFFICIENT
+    design, response, labels = centered_by_sortie(
+        climbs, s.references, lambda x, d, a, i: [x, d, i]
+    )
+    interval, df = cr2_interval(design, response, labels, 2, 0.95)
+    rho = s.intervals[3]
+    assert rho is not None
+    assert (rho.low, rho.high) == pytest.approx(
+        (interval.low, interval.high), rel=1e-12
+    )
+    assert s.dfs[3] == pytest.approx(df, rel=1e-12)
+
+
+def test_t14_g_not_estimated() -> None:
+    """T14 : le D+ ne varie plus dans aucune sortie du monde E : ``g`` n'est pas
+    estimé, l'étage 1 se dit « données insuffisantes », la raison nomme ``g``."""
+    result = fit_e_like(with_first_of_sortie(world_e_climbs(), "d_plus_km"))
+    assert isinstance(result, Unavailable)
+    assert result.state is AscentState.INSUFFICIENT
+    assert result.reason.startswith("g ")
+
+
+def test_t15_exactly_ten_multi_climb_sorties() -> None:
+    """T15 : dix sorties à deux montées ou plus suffisent (la borne de
+    ``MIN_STRUCTURE_MULTI`` prise à la borne)."""
+    s = structure_of(exact_world(spread_offsets(10), noise=0.02))
+    assert s.n_multi == 10
+
+
+def test_t16_a_column_carried_by_exactly_two_sorties() -> None:
+    """T16 : deux sorties seulement mêlent les régimes : ``rho`` est estimé."""
+    s = structure_of(
+        exact_world(
+            spread_offsets(14),
+            noise=0.02,
+            intermediate=lambda j, i: j in (0, 1) and i == 0,
+        )
+    )
+    assert s.estimated[3] is True
+    assert s.intervals[3] is not None
+
+
+def tied_world(kind: str, seed: int = 18) -> Tables:
+    """14 sorties à trois montées : ``"altitude"``, l'altitude suit le D+ à 5 m près
+    (``A = 1000 + 800·D`` m) ; ``"heart"``, la FC suit l'altitude de près et le D+
+    varie librement."""
+    draw = random.Random(seed)
+    activities = []
+    climbs = []
+    for j in range(14):
+        day = EXACT_FIRST + timedelta(days=7 * j)
+        ref = f"t{j:02d}"
+        activities.append(q2_activity(ref, at(day, 9)))
+        offset = math.log(0.17) + draw.gauss(0.0, 0.05)
+        for i in range(3):
+            preceding = draw.uniform(0.0, 1500.0)
+            profile = draw.uniform(150.0, 700.0)
+            d_km = (preceding + profile / 2) / 1000
+            if kind == "altitude":
+                altitude = 1000.0 + 800.0 * d_km + draw.uniform(-5.0, 5.0)
+                hr = draw.uniform(130.0, 160.0)
+            else:
+                altitude = draw.uniform(1000.0, 2500.0)
+                hr = 145.0 * math.exp(
+                    0.3 * (altitude / 1000 - 1.5) + draw.gauss(0, 0.002)
+                )
+            intermediate = (i + j) % 3 == 0
+            y = (
+                offset
+                + 1.5 * math.log(hr / 145.0)
+                - 0.05 * d_km
+                - 0.03 * altitude / 1000
+                - 0.1 * (1.0 if intermediate else 0.0)
+                + draw.gauss(0.0, 0.02)
+            )
+            climbs.append(
+                ascent_climb(
+                    ref,
+                    day,
+                    i,
+                    regime=ClimbRegime.INTERMEDIATE
+                    if intermediate
+                    else ClimbRegime.LONG_CLIMB,
+                    vertical_speed_ms=math.exp(y),
+                    hr_bpm=hr,
+                    preceding_ascent_m=preceding,
+                    profile_ascent_m=profile,
+                    altitude_m=altitude,
+                )
+            )
+    return q2_tables(activities, climbs)
+
+
+def test_t18_not_separable_on_beta_or_g_alone() -> None:
+    """T18 : « non séparable » par le seul VIF de ``g`` (l'altitude suit le D+), puis
+    par le seul VIF de β (la FC suit l'altitude)."""
+    on_g = structure_of(tied_world("altitude"))
+    assert on_g.vif_g is not None
+    assert on_g.vif_beta is not None
+    assert on_g.vif_g > 10.0
+    assert on_g.vif_beta < 10.0
+    assert AscentState.NOT_SEPARABLE in on_g.states
+    on_beta = structure_of(tied_world("heart"))
+    assert on_beta.vif_g is not None
+    assert on_beta.vif_beta is not None
+    assert on_beta.vif_beta > 10.0
+    assert on_beta.vif_g < 10.0
+    assert AscentState.NOT_SEPARABLE in on_beta.states
+
+
+def _raising(error: Exception) -> Callable[..., Any]:
+    def raise_it(*args: Any, **kwargs: Any) -> Any:
+        raise error
+
+    return raise_it
+
+
+@pytest.mark.parametrize("name", ["reml_fit", "cr2_cov"])
+def test_t19_only_inference_errors_are_caught(
+    monkeypatch: pytest.MonkeyPatch, name: str
+) -> None:
+    """T19 : une ``InferenceError`` de ``reml_fit`` ou de ``cr2_cov`` devient
+    « données insuffisantes » ; une autre ``ValueError`` sort de
+    ``fit_structure``."""
+    climbs = world_e_climbs()
+    refs = references(climbs, WORLD_E_LAST_DAY)
+    assert isinstance(refs, References)
+    monkeypatch.setattr(structure, name, _raising(InferenceError("refus")))
+    result = fit_structure(climbs, refs)
+    assert isinstance(result, Unavailable)
+    assert result.state is AscentState.INSUFFICIENT
+    assert result.reason
+    monkeypatch.setattr(structure, name, _raising(ValueError("autre")))
+    with pytest.raises(ValueError, match="autre"):
+        fit_structure(climbs, refs)
 
 
 def noisy_world(**changes: Any) -> Tables:

@@ -5,7 +5,7 @@ inventées (règle 1). Sautés sans numpy ou scipy (extra ``analyse``)."""
 from __future__ import annotations
 
 import math
-from datetime import date
+from datetime import date, timedelta, timezone
 from typing import Any
 
 import pytest
@@ -187,6 +187,49 @@ def test_s8_the_sort_and_the_day_after_midnight() -> None:
         ("b", date(2001, 2, 4)),
     ]
     assert selection.climbs[1].start.date() == date(2001, 2, 4)
+
+
+def test_s10_a_motif_counted_twice() -> None:
+    """S10 : deux montées écartées par le même motif comptent deux fois ; les autres
+    motifs restent à 0."""
+    a = q2_activity("a", at(DAY, 9))
+    climbs = [
+        q2_climb("a", at(DAY, 9), vertical_speed_ms=None),
+        q2_climb("a", at(DAY, 9), offset_s=3600.0, vertical_speed_ms=None),
+    ]
+    selection = select_climbs(q2_tables([a], climbs))
+    assert dict(selection.excluded) == _counts(NO_SPEED=2)
+
+
+def test_s11_an_absent_session_count_is_one_session() -> None:
+    """S11 : une activité sans ``session_count`` compte pour une session : sa
+    montée est gardée."""
+    a = q2_activity("a", at(DAY, 9), sessions=None)
+    selection = select_climbs(q2_tables([a], [ascent_climb("a", DAY, 0)]))
+    assert len(selection.climbs) == 1
+    assert dict(selection.excluded) == _counts()
+
+
+def test_s12_the_local_day_of_the_sortie() -> None:
+    """S12 : le jour d'une sortie est le jour local de son départ, jamais le jour UTC
+    ni celui de la machine (trois départs près de minuit, à +02:00, +14:00 et
+    −12:00)."""
+    plus2 = timezone(timedelta(hours=2))
+    plus14 = timezone(timedelta(hours=14))
+    minus12 = timezone(timedelta(hours=-12))
+    starts = [
+        ("a", at(date(2001, 1, 15), 0, 30, tz=plus2)),
+        ("b", at(date(2001, 1, 16), 0, 30, tz=plus14)),
+        ("c", at(date(2001, 1, 17), 23, 30, tz=minus12)),
+    ]
+    activities = [q2_activity(ref, when) for ref, when in starts]
+    climbs = [q2_climb(ref, when) for ref, when in starts]
+    selection = select_climbs(q2_tables(activities, climbs))
+    assert [(c.activity_ref, c.day) for c in selection.climbs] == [
+        ("a", date(2001, 1, 15)),
+        ("b", date(2001, 1, 16)),
+        ("c", date(2001, 1, 17)),
+    ]
 
 
 def test_s9_world_e() -> None:
