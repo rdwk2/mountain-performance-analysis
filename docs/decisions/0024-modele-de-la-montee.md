@@ -59,9 +59,13 @@ référence, la moyenne ; le régime de référence, la montée longue.
 régime intermédiaire. (i) Dans la sortie : les moindres carrés sur les colonnes et la
 réponse centrées par sortie, sur les sorties à deux montées ou plus (dix au moins) ;
 `s²_e = rᵀr / (N − G − q)` ; une colonne portée par moins de deux sorties sort du plan ;
+si c'est celle de β ou de `g`, l'étage 1 se dit « données insuffisantes » (sans β, G1 et
+G2 n'ont rien à montrer ; sans `g`, G3) ;
 covariance CR2 par sortie, intervalles de Student aux degrés de liberté de Bell-McCaffrey
 (voir « Les intervalles ») ; « non séparable » quand le facteur d'inflation de la
-variance de β ou de `g` dépasse 10. (ii) Entre sorties : les résumés
+variance de β ou de `g` dépasse 10. λ se dit « données insuffisantes » quand son erreur
+type CR2 dépasse 0,05 par 1 000 m, ou quand sa colonne sort du plan. (ii) Entre sorties :
+les résumés
 `r̄_j = moyenne(y − β·x − g·D − λ·A − ρ·I)` en moindres carrés généralisés sur
 `[1, D̄_j − D_ref, Ā_j − A_ref]` sous `V = diag(s²_e / n_j) + σu²·I + s²_a·exp(−Δt/φ)`
 (`reml.py`, `φ` entre 7 et 365 jours) : la composante corrélée est le niveau `a(t)`.
