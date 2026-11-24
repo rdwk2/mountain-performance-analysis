@@ -378,6 +378,14 @@ def test_k5_refusals() -> None:
         cr2_interval(lever, y, labels, 1, 0.95)
 
 
+@pytest.mark.parametrize("level", [0.0, 1.0])
+def test_k7_the_level_of_cr2_interval(level: float) -> None:
+    """K7 : un niveau hors de ``]0 ; 1[`` est refusé par ``cr2_interval``."""
+    X, y, labels = _k3()  # noqa: N806
+    with pytest.raises(InferenceError, match="level"):
+        cr2_interval(X, y, labels, 1, level)
+
+
 def test_k6_cr2_interval_coverage() -> None:
     """K6 : couverture simulée (graine 20261125, 200 jeux, 12 grappes de 5 lignes) :
     entre 187 et 189 intervalles contiennent la pente vraie 0 (oracle : 188 ; à

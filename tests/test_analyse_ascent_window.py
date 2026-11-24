@@ -6,6 +6,7 @@ inventées (règle 1). Sautés sans numpy ou scipy (extra ``analyse``)."""
 from __future__ import annotations
 
 import dataclasses
+import math
 from collections.abc import Sequence
 from datetime import date, timedelta
 from typing import Any
@@ -23,6 +24,7 @@ from fixtures.ascent_world import (
     world_e_tables,
 )
 from mountain_perf.analyse.ascent import window_fit
+from mountain_perf.analyse.ascent.daily import Z
 from mountain_perf.analyse.ascent.parameters import MONTH_DAYS
 from mountain_perf.analyse.ascent.references import References, references
 from mountain_perf.analyse.ascent.selection import AscentClimb, select_climbs
@@ -294,6 +296,9 @@ def test_w10_the_direction_reads_the_borrowed_variance() -> None:
     assert up.se_own == pytest.approx(0.073, abs=5e-4)
     assert up.slope - 1.96 * up.se_own < 0
     assert up.direction == 1
+    assert (up.interval.high - up.slope) / math.sqrt(up.variance) == pytest.approx(
+        Z, rel=1e-12
+    )
     down = window_trend(trend_points(-0.05), date(2001, 1, 1), DEFAULT_SPEED)
     assert isinstance(down, Trend)
     assert down.direction == -1
@@ -351,6 +356,81 @@ def test_w15_the_scale_speed_reads_the_whole_history(
     assert tuple(points) == structure.points
     assert length == LAST_56.days == 56
     assert end == structure.references.last_day == WORLD_E_LAST_DAY
+
+
+def test_w16_a_window_from_before_the_history_to_before_its_end() -> None:
+    """W16 : une Fenêtre qui part avant l'histoire et finit avant sa fin n'est pas
+    « tout l'historique »."""
+    fit = window_of(Window(date(2001, 1, 1), date(2001, 3, 1)))
+    assert AscentState.NOT_APPLICABLE not in fit.states
+    assert fit.beta.window is not None
+    assert fit.colour is None
+
+
+def test_w17_the_scale_speed_at_the_window_length_from_the_last_day() -> None:
+    """W17 : ``τ(w)`` à la longueur de la Fenêtre (42 jours), ancré au dernier jour
+    des données (une semaine après la dernière sortie)."""
+    last_day = date(2001, 5, 13)
+    structure, climbs = fitted(world_e_tables(), last_day)
+    fit = fit_window(structure, climbs, Window(date(2001, 3, 9), date(2001, 4, 19)))
+    assert isinstance(fit, WindowFit)
+    assert isinstance(fit.trend, Trend)
+    assert fit.trend.speed == habitual_speed(structure.points, 42, last_day)
+    assert fit.trend.speed.periods == 3
+
+
+def test_w18_g_not_borrowed() -> None:
+    """W18 : le poids de ``g`` atteint 0,2 (celui de β non) : ``g`` n'est pas
+    « emprunté à l'histoire »."""
+    fit = window_of(Window(date(2001, 1, 5), date(2001, 5, 5)))
+    assert fit.g.weight is not None
+    assert fit.beta.weight is not None
+    assert fit.g.weight >= 0.2
+    assert fit.beta.weight < 0.2
+    assert fit.g_borrowed is False
+    assert AscentState.BORROWED not in fit.states
+
+
+def test_w19_the_order_of_the_states() -> None:
+    """W19 : les états dans l'ordre du § 8.4 : rupture d'appareil, données
+    insuffisantes, emprunté."""
+    tables = world_e_tables()
+    tables = dataclasses.replace(
+        tables,
+        climbs=tuple(
+            dataclasses.replace(c, device_product=None)
+            if c.activity_ref == "e14"
+            else c
+            for c in tables.climbs
+        ),
+    )
+    structure, climbs = fitted(tables, WORLD_E_LAST_DAY)
+    fit = fit_window(structure, climbs, Window(date(2001, 4, 5), date(2001, 4, 20)))
+    assert isinstance(fit, WindowFit)
+    assert fit.states == (
+        AscentState.DEVICE_RUPTURE,
+        AscentState.INSUFFICIENT,
+        AscentState.BORROWED,
+    )
+
+
+def test_w20_the_first_window_estimate_of_beta_and_g() -> None:
+    """W20 : deux sorties à deux montées ou plus (e10, trois ; e11, deux),
+    ``N_w − G_w − 2 = 1`` : β et ``g`` de la Fenêtre sont estimés."""
+    fit = window_of(Window(date(2001, 3, 10), date(2001, 3, 30)))
+    assert fit.n_multi == 2
+    assert fit.beta.window is not None
+    assert fit.g.window is not None
+    assert AscentState.INSUFFICIENT not in fit.states
+
+
+def test_w21_a_zero_scale_speed() -> None:
+    """W21 : ``τ(w) = 0`` : le poids et la pente rétrécie sont nuls."""
+    speed = HabitualSpeed(0.0, True, 12, AscentState.ESTIMATED)
+    trend = window_trend(trend_points(0.05), date(2001, 1, 1), speed)
+    assert isinstance(trend, Trend)
+    assert trend.weight == 0.0
+    assert trend.shrunk == 0.0
 
 
 def test_w15_bis_the_scale_speed_reads_beyond_the_past_year(

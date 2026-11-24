@@ -6,6 +6,7 @@ seconde implémentation. Valeurs inventées (règle 1). Sautés sans numpy ou sc
 
 from __future__ import annotations
 
+import dataclasses
 import inspect
 import itertools
 import math
@@ -270,6 +271,37 @@ def test_j9_the_heart_rate_read() -> None:
         assert other.band.centre - at_ref.band.centre == pytest.approx(
             s.coef[0] * math.log(hr / 145.0), rel=1e-12
         )
+
+
+def test_j14_the_means_read_the_smoothing_window() -> None:
+    """J14 : les moyennes de ``daily_level`` prennent le résumé du jour
+    ``last_day − N + 1``, pas celui de ``last_day − N`` (e09 déplacé sur chaque
+    borne, son ``mean_x`` changé)."""
+    s = world_e_structure()
+    day, n = WORLD_E_LAST_DAY, 56
+
+    def moved(on: date, shift: float) -> Structure:
+        return dataclasses.replace(
+            s,
+            summaries=tuple(
+                dataclasses.replace(x, day=on, mean_x=x.mean_x + shift)
+                if x.activity_ref == "e09"
+                else x
+                for x in s.summaries
+            ),
+        )
+
+    def band_variance(structure: Structure) -> float:
+        found = daily_level(structure, day, n, 0.03, 140.0)
+        assert found is not None
+        return found.band.variance
+
+    outside = day - timedelta(days=n)
+    inside = day - timedelta(days=n - 1)
+    assert band_variance(moved(outside, 0.5)) == band_variance(moved(outside, 0.0))
+    assert band_variance(moved(inside, 0.5)) != pytest.approx(
+        band_variance(moved(inside, 0.0)), rel=1e-9
+    )
 
 
 def test_j10_the_third_stage_has_no_window() -> None:
