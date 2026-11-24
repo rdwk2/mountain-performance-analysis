@@ -49,6 +49,9 @@ l'interface demain. Elle rend la courbe en mémoire et n'écrit rien.
   « tout le passé », sans date fictive ; 56 par défaut, un choix d'usage, pas un résultat du
   backtest. La borne basse est `o` reculée de `W` jours **civils** à Paris : la fenêtre
   traverse les changements d'heure, et dure 23 ou 25 h un jour de changement.
+  *Précision M6b-3* : La règle en couches (`layered`, `0025`) est un choix de plus, à
+  côté des fenêtres : la forme sur 365 jours, le niveau tiré à mi-chemin vers les 56
+  derniers jours. Le défaut reste 56 jours.
 - **O3 — La fin sûre et la sélection.** La fin sûre d'une activité est la plus tardive de la
   fin de l'index (départ + écoulé de l'index) et de la fin de l'enregistrement (le dernier
   instant de tous ses canaux, le départ de chaque session et, si elle a un écoulé, sa fin,

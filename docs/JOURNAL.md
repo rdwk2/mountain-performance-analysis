@@ -16,6 +16,14 @@ Backtest (à partir de M4) : métrique avant → après.
 
 ---
 
+### 2026-11-24 · M6b-3 — La courbe en couches : la couche 1
+Une règle de plus à l'origine, `layered` : la courbe de 365 jours dont les vitesses sont
+multipliées par `exp(−½ Δ)`, `Δ` l'écart des 56 derniers jours tiré d'un ajustement joint
+des niveaux par activité (`estimation/levels.py`, `docs/decisions/0025`), dans
+`mperf curve --at`, `mperf project --at`, le backtest glissant (registre au format 7) et
+les pages. Le défaut reste 56 jours. La suite : une exécution comparée des courses
+passées sous 56 jours et sous `layered`, puis la décision du défaut par rdw.
+
 ### 2026-11-23 · docs — Les noms des jalons, et quatre lignes du BACKLOG
 Les titres des PR : `M<n>-<k>` dans des chantiers ouverts (M5 à M9), l'origine glissante
 rattachée à M6b, `docs — …` hors chantier (`CLAUDE.md`, règle 8 ; `docs/ROADMAP.md`,

@@ -231,11 +231,16 @@ définition du mouvement), et aucune n'est un défaut. Restent à la piste analy
 l'acquisition, reportée (ci-dessus), et les détecteurs de qualité (une ligne « (M6b) » du
 `BACKLOG.md`) ; et, au `BACKLOG.md`, les autres lignes « (M6b) » encore ouvertes.
 
+**Fait** avec M6b-3 : la courbe en couches, couche 1 — une règle de plus à l'origine,
+`layered`, la forme sur 365 jours et le niveau tiré à mi-chemin vers les 56 derniers jours
+(`docs/decisions/0025`) ; le défaut reste 56 jours. La prochaine : M6a-1 (la couche 2).
+
 ---
 
 ### OG — L'origine glissante, l'athlète comme dimension
 Nécessite M6b, auquel elle est rattachée : OG-1 à OG-3 gardent leurs noms, la suite
-du travail sur la courbe se titre `M6b-…` (la prochaine : `M6b-3`).
+du travail sur la courbe se titre `M6b-…` (`M6b-3`, la courbe en couches, est faite ; la
+prochaine : M6a-1, la couche 2).
 
 Le backtest projette aujourd'hui toutes les performances avec une seule courbe, déclarée
 une fois, et la courbe neuve de M6b est estimée sur des performances qui la mesurent.

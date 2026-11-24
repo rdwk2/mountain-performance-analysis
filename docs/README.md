@@ -38,6 +38,7 @@ sont au statut « acceptée » :
 - [0021 — L'inférence de la piste analyse](decisions/0021-inference-de-la-piste.md)
 - [0022 — Profils de démo](decisions/0022-profils-de-demo.md)
 - [0023 — Le code de Q2](decisions/0023-code-de-q2.md)
+- [0025 — La courbe en couches](decisions/0025-courbe-en-couches.md)
 
 Autres documents :
 

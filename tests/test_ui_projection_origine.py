@@ -223,15 +223,76 @@ def test_a_near_day_is_not_bounded() -> None:
         ("tout le passé", "fenêtre tout le passé"),
         ("28 jours", "fenêtre 28 jours, fins depuis le 2024-02-26 00:00 à Paris"),
         ("56 jours", "fenêtre 56 jours, fins depuis le 2024-01-29 00:00 à Paris"),
+        (
+            "en couches",
+            "règle en couches (forme 365 jours, niveau 56 jours, κ = 0,5), fins "
+            "depuis le 2023-03-26 00:00 à Paris",
+        ),
     ],
 )
 def test_the_windows(choice: str, text: str) -> None:
     _with()
-    at = _app().radio(key="fenetre").set_value(choice).run()
+    at = _app()
+    assert list(at.radio(key="fenetre").options) == [
+        "28 jours",
+        "56 jours",
+        "tout le passé",
+        "en couches",
+        "autre",
+    ]
+    at = at.radio(key="fenetre").set_value(choice).run()
     assert not at.exception
     assert _block(at)[0] == (
         f"jour 2024-04-01 : origine 2024-03-25 00:00 à Paris ; {text}"
     )
+
+
+def test_layered_is_the_command_curve(monkeypatch: pytest.MonkeyPatch) -> None:
+    """M6b-3, U1 : le CSV de la courbe de la page en couches est, à l'octet, celui de
+    ``mperf curve --at 2024-04-01 --window layered`` sur la même fixture. Une seule
+    activité y entre dans l'ajustement (``a1`` ; ``a3`` est « sans trace », ``a2``
+    d'un autre type, ``a4`` sans enregistrement) : pas de correction, ce test tient le
+    chemin de la page."""
+    found: list[OriginCurve] = []
+
+    def spy(*args: Any, **kwargs: Any) -> OriginCurve:
+        curve = origin_curve(*args, **kwargs)
+        found.append(curve)
+        return curve
+
+    monkeypatch.setattr("mountain_perf.ui.components.origin_curve", spy)
+    monkeypatch.setattr(
+        gitstate, "git_state", lambda directory: GitState(COMMIT, False)
+    )
+    monkeypatch.setattr(cli, "_now", lambda: NOW)
+    _with()
+    at = _app().radio(key="fenetre").set_value("en couches").run()
+    assert not at.exception
+    assert _block(at)[1] == (
+        "niveau à mi-chemin : moins de deux activités dans l'ajustement : pas de "
+        "correction du niveau."
+    )
+    curve = found[-1]
+    assert curve.window == "layered"
+    assert curve.curve is not None
+    assert curve.curve.name == "origine-2024-04-01-layered.csv"
+    assert curve.result.level_layer is not None
+    assert curve.result.level_layer.fit_count == 1
+    code = main(
+        [
+            "curve",
+            "couches",
+            "--athlete",
+            "x",
+            "--at",
+            "2024-04-01",
+            "--window",
+            "layered",
+        ]
+    )
+    assert code == 0
+    written = (data_dir() / "reference" / "couches.csv").read_bytes()
+    assert curve.curve.csv == written
 
 
 # --- Sur une plage --------------------------------------------------------------------
