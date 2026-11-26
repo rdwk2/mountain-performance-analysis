@@ -21,6 +21,8 @@ import pytest
 from mountain_perf.estimation.curve import (
     LAYERED_METHOD,
     METHOD,
+    BinValue,
+    CurveSelection,
     _pace_model,
     _predicted_s,
     curve_file_rows,
@@ -42,13 +44,16 @@ from mountain_perf.estimation.origin import (
     FEW_ACTIVITIES,
     NO_RECENT,
     CurveCorpus,
+    LevelLayer,
     OriginEstimate,
+    OriginOutcome,
     OriginWindow,
     estimate_at_origin,
     origin_absence_document,
     origin_companion,
     window_lower_bound,
 )
+from mountain_perf.validation import ContractError
 from test_estimation_curve import DEFAULTS, activity, interval
 from test_og1_origin import PROFILE, activity_pair, corpus, origin_selection
 
@@ -99,15 +104,25 @@ def ended(ref: str, end: datetime, *, recording_end: datetime | None = None) -> 
     )
 
 
-def provider(table: Mapping[str, Spec], refused: frozenset[str] = frozenset()) -> Any:
-    """Le fournisseur des intervalles du corpus : ceux de ``table``, par référence ;
-    « sans trace » pour ``refused``."""
+def provider(
+    table: Mapping[str, Spec],
+    refused: frozenset[str] = frozenset(),
+    *,
+    raw: Mapping[str, ActivityIntervals] | None = None,
+    elapsed: Mapping[str, float] | None = None,
+) -> Any:
+    """Le fournisseur des intervalles du corpus : ceux de ``table``, par référence,
+    une heure d'écoulé sauf dans ``elapsed`` ; ceux de ``raw`` tels quels ; « sans
+    trace » pour ``refused``."""
 
     def intervals_of(recording: Any, *_: Any, **__: Any) -> Any:
         ref = recording.activity_ref
         if ref in refused:
             return TraceRefusal.NO_TRACE
-        result: ActivityIntervals = activity(ref, cells(table[ref]))
+        if raw is not None and ref in raw:
+            return raw[ref]
+        seconds = 3600.0 if elapsed is None else elapsed.get(ref, 3600.0)
+        result: ActivityIntervals = activity(ref, cells(table[ref]), seconds)
         return result
 
     return intervals_of
@@ -120,6 +135,9 @@ def run(
     origin: datetime = ORIGIN,
     table: Mapping[str, Spec] = R,
     refused: frozenset[str] = frozenset(),
+    selection: CurveSelection | None = None,
+    raw: Mapping[str, ActivityIntervals] | None = None,
+    elapsed: Mapping[str, float] | None = None,
 ) -> tuple[OriginEstimate, CurveCorpus]:
     season = corpus(list(ends.values()))
     result = estimate_at_origin(
@@ -127,10 +145,10 @@ def run(
         "x",
         origin,
         window,
-        origin_selection(),
+        origin_selection() if selection is None else selection,
         DEFAULTS,
         PROFILE,
-        intervals_of=provider(table, refused),
+        intervals_of=provider(table, refused, raw=raw, elapsed=elapsed),
     )
     return result, season
 
@@ -230,6 +248,60 @@ def test_every_moving_bin_enters_the_fit() -> None:
     assert layer.iterations == 12
 
 
+MEDIAN = origin_selection(value=BinValue.MEDIAN)
+
+
+def test_layered_under_the_median() -> None:
+    """R1 sous « médiane », sur R bis : la courbe en couches est celle de 365 jours
+    × s ; l'ajustement ne lit pas la valeur de la sélection, le ``Δ`` est celui de
+    « somme », à l'octet."""
+    year, _ = run(season_r(), 365, table=R_BIS, selection=MEDIAN)
+    layered, _ = run(season_r(), LAYERED, table=R_BIS, selection=MEDIAN)
+    pooled, _ = run(season_r(), LAYERED, table=R_BIS)
+    assert year.estimate is not None
+    assert layered.estimate is not None
+    assert layered.candidates == year.candidates
+    assert layered.estimate.counts == year.estimate.counts
+    assert layered.estimate.support_grade_range == year.estimate.support_grade_range
+    assert layered.estimate.activity_bins == year.estimate.activity_bins
+    assert _shift(layered) == _shift(pooled)
+    assert _shift(layered) == pytest.approx(-0.0705553607, abs=1e-9)
+    factor = math.exp(-LAYERED_KAPPA * _shift(layered))
+    assert len(layered.estimate.bins) == len(year.estimate.bins)
+    for mine, base in zip(layered.estimate.bins, year.estimate.bins, strict=True):
+        assert mine.speed_ms == pytest.approx(base.speed_ms * factor, rel=1e-12)
+        assert dataclasses.replace(mine, speed_ms=base.speed_ms) == base
+
+
+def test_layered_level_quantiles_under_the_median() -> None:
+    """R7 sous « médiane », sur R bis : les quantiles en couches sont ceux de 365 jours
+    − κΔ."""
+    year, _ = run(season_r(), 365, table=R_BIS, selection=MEDIAN)
+    layered, _ = run(season_r(), LAYERED, table=R_BIS, selection=MEDIAN)
+    assert year.estimate is not None
+    assert layered.estimate is not None
+    base, mine = year.estimate.level, layered.estimate.level
+    assert base is not None
+    assert mine is not None
+    shift = LAYERED_KAPPA * _shift(layered)
+    assert [mine.p10, mine.p50, mine.p90] == pytest.approx(
+        [base.p10 - shift, base.p50 - shift, base.p90 - shift], abs=1e-12
+    )
+    assert mine.count == base.count
+
+
+def test_the_median_threshold_is_crossed_in_r_bis() -> None:
+    """Sous « médiane », la cellule raide de C (50 s) est sous le seuil de la médiane
+    (60 s) ; elle entre pourtant dans l'ajustement."""
+    assert DEFAULTS["median_min_moving_s"] == 60.0
+    layered, _ = run(season_r(), LAYERED, table=R_BIS, selection=MEDIAN)
+    assert layered.estimate is not None
+    c = layered.estimate.activity_bins[2]
+    assert c.activity_ref == "C"
+    assert min(t for _, _, t in c.bins) == pytest.approx(50.0)
+    assert _shift(layered) == pytest.approx(-0.0705553607, abs=1e-9)
+
+
 # --- R4 : récente, la règle de 56 jours ---------------------------------------------
 
 
@@ -297,9 +369,17 @@ def _same_as_the_year(layered: OriginEstimate, year: OriginEstimate) -> None:
     assert layered.rows == year.rows == curve_file_rows(year.estimate)
 
 
+def _kept_constants(layer: LevelLayer) -> None:
+    """Sans correction, la couche garde sa fenêtre, son κ et sa borne basse."""
+    assert layer.level_window_days == 56
+    assert layer.kappa == 0.5
+    assert layer.level_lower_bound == window_lower_bound(ORIGIN, 56)
+
+
 def test_no_correction() -> None:
     """R5 : une activité seule ; aucune récente ; une candidate récente hors de
-    l'ajustement (sans trace) : pas de correction, la courbe de 365 jours."""
+    l'ajustement (sans trace) : pas de correction, la courbe de 365 jours ; la couche
+    garde sa fenêtre, son κ et sa borne."""
     one = {"A": season_r()["A"]}
     layered, _ = run(one, LAYERED)
     year, _ = run(one, 365)
@@ -308,6 +388,7 @@ def test_no_correction() -> None:
     assert (layer.no_correction_reason, layer.speed_factor) == (FEW_ACTIVITIES, 1.0)
     assert (layer.delta, layer.iterations, layer.converged) == (None, None, None)
     assert (layer.fit_count, layer.recent_count) == (1, 0)
+    _kept_constants(layer)
     _same_as_the_year(layered, year)
     old = season_r(c_days=80)
     layered, _ = run(old, LAYERED)
@@ -316,6 +397,7 @@ def test_no_correction() -> None:
     assert layer is not None
     assert (layer.no_correction_reason, layer.speed_factor) == (NO_RECENT, 1.0)
     assert (layer.fit_count, layer.recent_count) == (3, 0)
+    _kept_constants(layer)
     _same_as_the_year(layered, year)
     refused = frozenset({"C"})
     layered, _ = run(season_r(), LAYERED, refused=refused)
@@ -326,6 +408,72 @@ def test_no_correction() -> None:
     assert (layer.fit_count, layer.recent_count) == (2, 0)
     assert any(i.end.activity_ref == "C" for i in layered.candidates)
     _same_as_the_year(layered, year)
+
+
+def _with_d() -> dict[str, Any]:
+    """Le corpus R et D, finie 5 jours avant l'origine."""
+    return {**season_r(), "D": ended("D", ORIGIN - timedelta(days=5))}
+
+
+def _out_of_the_fit(result: OriginEstimate) -> None:
+    """D hors de l'ajustement : les trois de R, une récente (C), le ``Δ`` de R2."""
+    assert result.estimate is not None
+    assert "D" not in result.estimate.activity_refs
+    assert [r.activity_ref for r in result.estimate.activity_bins] == ["A", "B", "C"]
+    layer = result.level_layer
+    assert layer is not None
+    assert (layer.fit_count, layer.recent_count) == (3, 1)
+    assert layer.delta == pytest.approx(-0.0635401199, abs=1e-9)
+
+
+def test_an_activity_without_retained_interval_is_out_of_the_fit() -> None:
+    """D, récente, n'a que des intervalles aberrants (10 m/s au plat et à la montée) :
+    écartée « aucun intervalle retenu », hors de l'ajustement."""
+    aberrant = activity(
+        "D",
+        [interval(FLAT, 50.0, 5.0) for _ in range(40)]
+        + [interval(CLIMB, 50.0, 5.0) for _ in range(20)],
+    )
+    result, _ = run(_with_d(), LAYERED, raw={"D": aberrant})
+    assert any(i.end.activity_ref == "D" for i in result.candidates)
+    _out_of_the_fit(result)
+
+
+def test_an_activity_too_short_is_out_of_the_fit() -> None:
+    """D, récente, de 10 minutes sous une durée minimale de 30 minutes : écartée
+    « courte » ; ses intervalles (le plat à 4 m/s) n'entrent pas dans l'ajustement."""
+    table = {**R, "D": {FLAT: (2000.0, 500.0), CLIMB: (500.0, 100.0)}}
+    result, _ = run(
+        _with_d(),
+        LAYERED,
+        table=table,
+        selection=origin_selection(min_duration_s=1800.0),
+        elapsed={"D": 600.0},
+    )
+    _out_of_the_fit(result)
+
+
+def test_a_correction_without_level_quantiles() -> None:
+    """Le corpus R sans les descentes : sans tranche négative, une courbe non
+    projetable, sans quantiles de niveau ; la correction s'applique (le ``s`` de R2)."""
+    table = {
+        ref: {g: v for g, v in spec.items() if g != DESCENT} for ref, spec in R.items()
+    }
+    year, _ = run(season_r(), 365, table=table)
+    layered, _ = run(season_r(), LAYERED, table=table)
+    assert layered.outcome is OriginOutcome.NOT_PROJECTABLE
+    assert year.estimate is not None
+    assert layered.estimate is not None
+    assert year.estimate.level is None
+    assert layered.estimate.level is None
+    layer = layered.level_layer
+    assert layer is not None
+    assert layer.speed_factor == pytest.approx(1.0322801155, rel=1e-9)
+    assert len(layered.estimate.bins) == len(year.estimate.bins)
+    for mine, base in zip(layered.estimate.bins, year.estimate.bins, strict=True):
+        assert mine.speed_ms == pytest.approx(
+            base.speed_ms * layer.speed_factor, rel=1e-12
+        )
 
 
 def test_all_recent() -> None:
@@ -450,3 +598,51 @@ def test_windows_are_unchanged(window: OriginWindow, label: str) -> None:
         f"mperf curve --at (OG-1) : règle à l'origine, fenêtre {label} ; intervalles "
         "de la grille du profil, temps M θc, tranches variables, valeur somme"
     )
+
+
+# --- Les invariants de LevelLayer -----------------------------------------------------
+
+
+def _layer(**changes: Any) -> LevelLayer:
+    fields: dict[str, Any] = {
+        "level_window_days": 56,
+        "kappa": 0.5,
+        "level_lower_bound": window_lower_bound(ORIGIN, 56),
+        "fit_count": 3,
+        "recent_count": 1,
+        "delta": -0.0635401199,
+        "speed_factor": 1.0322801155,
+        "iterations": 12,
+        "converged": True,
+        "no_correction_reason": None,
+    }
+    fields.update(changes)
+    return LevelLayer(**fields)
+
+
+WITHOUT: dict[str, Any] = {"delta": None, "iterations": None, "converged": None}
+
+
+@pytest.mark.parametrize(
+    ("changes", "fragment"),
+    [
+        ({"delta": None}, "absents si et seulement si"),
+        (
+            {**WITHOUT, "no_correction_reason": NO_RECENT, "speed_factor": 1.03},
+            "sans correction, le facteur vaut 1",
+        ),
+        ({"recent_count": 4}, "recent_count <= fit_count"),
+    ],
+    ids=["delta-sans-raison", "facteur-sans-delta", "recentes-au-dela"],
+)
+def test_level_layer_invariants(changes: dict[str, Any], fragment: str) -> None:
+    _layer()
+    _layer(**WITHOUT, no_correction_reason=NO_RECENT, speed_factor=1.0)
+    with pytest.raises(ContractError, match=fragment):
+        _layer(**changes)
+
+
+def test_level_layer_is_frozen() -> None:
+    layer = _layer()
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        layer.kappa = 1.0  # type: ignore[misc]

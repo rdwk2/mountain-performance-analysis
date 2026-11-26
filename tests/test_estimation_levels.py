@@ -197,6 +197,14 @@ def test_the_contracts(
         ActivityBins(ref, bins)
 
 
+def test_the_first_and_last_bins_are_accepted() -> None:
+    """Les tranches ``0`` et ``37``, les bornes de ``[0 ; 37]``."""
+    both = ActivityBins("A", ((0, 1.0, 1.0), (37, 2.0, 3.0)))
+    assert [k for k, _, _ in both.bins] == [0, 37]
+    first = ActivityBins("A", ((0, 1.0, 1.0),))
+    assert first.bins == ((0, 1.0, 1.0),)
+
+
 def test_the_contracts_of_the_functions() -> None:
     with pytest.raises(ContractError, match="au moins une activité"):
         fit_joint_levels(())

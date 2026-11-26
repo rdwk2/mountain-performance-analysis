@@ -190,7 +190,7 @@ USAGE_EXPERIMENT = replace(
 # ---------------------------------------------------------------------------
 
 
-def test_registry_format_version_is_5() -> None:
+def test_registry_format_version_is_7() -> None:
     """``0010`` D14 et ses précisions de M4c-2, M4c-3, M4d-2, M4d-3, OG-2 et M6b-3 : le
     format écrit, et les formats relus."""
     assert REGISTRY_FORMAT_VERSION == 7
@@ -1048,7 +1048,7 @@ def test_event_recorded_at_is_normalized_to_utc() -> None:
         ),
     ],
     ids=[
-        "format-6",
+        "format-8",
         "number-0",
         "hash-absent-at-2",
         "hash-present-at-1",

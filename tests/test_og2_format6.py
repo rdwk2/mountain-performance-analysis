@@ -355,7 +355,7 @@ def _lines(root: Path) -> list[bytes]:
     return (root / EVENTS_FILE).read_bytes().split(b"\n")[:-1]
 
 
-def test_a_declared_mode_declaration_at_format_6(tmp_path: Path) -> None:
+def test_a_declared_mode_declaration_at_format_7(tmp_path: Path) -> None:
     """Les trois clés neuves à vide, à leurs places ; le reste celui d'aujourd'hui."""
     root = registry_root(tmp_path)
     append_declaration(root, declaration(), recorded_at=at(0))

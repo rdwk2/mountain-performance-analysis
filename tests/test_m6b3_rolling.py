@@ -8,6 +8,7 @@ registre du format 6 est celui que ``main`` (``4b7e5fe``) a écrit pour une exé
 
 from __future__ import annotations
 
+import copy
 import dataclasses
 import hashlib
 import json
@@ -309,12 +310,14 @@ def _layered_season() -> Any:
     return corpus(pairs, athlete=ATHLETE)
 
 
-def _layered_rule(level_window_days: int = 56) -> LayeredRollingRule:
+def _layered_rule(
+    level_window_days: int = 56, *, window_days: int = 365
+) -> LayeredRollingRule:
     fields = {
         f.name: getattr(t.rule(), f.name) for f in dataclasses.fields(RollingRule)
     }
     return LayeredRollingRule(
-        **{**fields, "window_days": 365},
+        **{**fields, "window_days": window_days},
         level_window_days=level_window_days,
         level_kappa=0.5,
     )
@@ -329,33 +332,40 @@ def _layered_world(
         return t.world(mutate)
 
 
-def _agree_layered(built: t.World, rule: LayeredRollingRule) -> None:
+def _agree_layered(
+    built: t.World,
+    rule: LayeredRollingRule,
+    declared: LayeredRollingRule | None = None,
+) -> None:
+    """L'accord de ``built`` sous le document de règle ``rule``, la DÉCLARATION portant
+    les champs de ``declared`` (la règle exacte par défaut)."""
+    carried = _layered_rule() if declared is None else declared
     rolling = RollingDeclaration(
-        rule=t._sha(_layered_rule()),
-        window_days=365,
-        command_windows=(365,),
+        rule=t._sha(carried),
+        window_days=carried.window_days,
+        command_windows=(carried.window_days,),
         covered_threshold=0.1,
         beyond_marker=0.5,
         coverage_tolerance_s=60.0,
         index_sha256="b" * 64,
         platform="plateforme de test",
         performances=tuple(built.entries),
-        level_window_days=56,
-        level_kappa=0.5,
-        command_level_windows=(56,),
+        level_window_days=carried.level_window_days,
+        level_kappa=carried.level_kappa,
+        command_level_windows=(carried.level_window_days,),
     )
-    declared = declaration(
+    declared_event = declaration(
         models=(V0_RAW, t.COMPARATOR),
         curve_ref=None,
         curve=None,
         curve_metadata=None,
         rolling=rolling,
     )
-    stored = {t._sha(_layered_rule()): encode_document(rule)}
+    stored = {t._sha(carried): encode_document(rule)}
     for curve in built.curves:
         stored[t._sha(curve)] = encode_document(curve)
     registry_module._agree_rolling_documents(
-        declared, rolling, stored.__getitem__, "", "", 7
+        declared_event, rolling, stored.__getitem__, "", "", 7
     )
 
 
@@ -407,6 +417,51 @@ def test_the_accord_on_layered(monkeypatch: pytest.MonkeyPatch) -> None:
         registry_module._agree_rolling_documents(
             window_declaration, window_rolling, stored.__getitem__, "", "", 7
         )
+
+
+def test_the_accord_wants_the_constants(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Condition R : une DÉCLARATION et un document de règle d'accord entre eux sur une
+    forme de 300 jours sont refusés ; les constantes exactes, acceptées."""
+    built = _layered_world(monkeypatch)
+    other = _layered_rule(window_days=300)
+    with pytest.raises(RegistryError, match=r"n'a pas ses constantes.*condition R\)"):
+        _agree_layered(built, other, other)
+    _agree_layered(built, _layered_rule(), _layered_rule())
+
+
+def test_the_accord_on_a_malformed_level_section(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Condition 2 ter : une courbe figée dont la fenêtre de niveau vaut 28 ; une courbe
+    absente dont ``level_layer`` est un objet ; une courbe figée, puis une absente, sans
+    la clé ``level_layer`` : refusées."""
+    frozen_layer: dict[str, Any] = {}
+
+    def grab(k: int, document: dict[str, Any]) -> None:
+        if k == 1:
+            frozen_layer.update(copy.deepcopy(_section(k, document)["level_layer"]))
+
+    _layered_world(monkeypatch, grab)
+    assert frozen_layer["level_window_days"] == 56
+
+    def level_28(k: int, document: dict[str, Any]) -> None:
+        if k == 1:
+            _section(k, document)["level_layer"]["level_window_days"] = 28
+
+    def absent_object(k: int, document: dict[str, Any]) -> None:
+        if k == 0:
+            _section(k, document)["level_layer"] = copy.deepcopy(frozen_layer)
+
+    def without(target: int) -> t.Mutation:
+        def mutate(k: int, document: dict[str, Any]) -> None:
+            if k == target:
+                del _section(k, document)["level_layer"]
+
+        return mutate
+
+    for mutate in (level_28, absent_object, without(1), without(0)):
+        with pytest.raises(RegistryError, match="condition 2 ter"):
+            _agree_layered(_layered_world(monkeypatch, mutate), _layered_rule())
 
 
 # --- Les textes sous layered --------------------------------------------------------
