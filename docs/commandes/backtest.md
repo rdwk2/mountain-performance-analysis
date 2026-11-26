@@ -131,7 +131,7 @@ just backtest courbe.csv --sensitivity
 | Option de `mperf backtest` | Rôle | Défaut |
 |---|---|---|
 | `--curve courbe.csv` | courbe allure↔pente : une entrée déclarée de l'exécution ; `--curve` ou `--rolling`, l'un des deux | — |
-| `--rolling W[,W…]` | le backtest glissant (`0010`, précision OG-2) : les fenêtres, en jours ou `all`, distinctes ; une DÉCLARATION par fenêtre, en un processus, et un rapport `comparaison-<n>.txt` dès deux fenêtres | — |
+| `--rolling W[,W…]` | le backtest glissant (`0010`, précision OG-2) : les fenêtres, en jours, `all` ou `layered` (la règle en couches, [`0025`](../decisions/0025-courbe-en-couches.md)), distinctes ; une DÉCLARATION par fenêtre, en un processus, et un rapport `comparaison-<n>.txt` dès deux fenêtres | — |
 | `--covered-threshold S` | avec `--rolling`, obligatoire : une performance est couverte si sa part hors support est au plus `S` | — |
 | `--coverage-tolerance SECONDES` | avec `--rolling`, obligatoire : la tolérance de la correspondance des `activity_refs` | — |
 | `--beyond-marker PART` | avec `--rolling` : au-delà du repère, une part hors support plus grande que `PART` | 0.5 |

@@ -19,7 +19,8 @@ puis `http://localhost:8501` dans le navigateur.
   seulement ; un fichier de même nom n'est jamais écrasé, et rien n'est supprimé.
 - **La page « projection »** : un préparé (un GPX de `MPA_DATA_DIR/routes/`) et une
   courbe, choisis dans la barre latérale : à l'origine (par défaut ; le jour de la
-  course et la fenêtre, 56 jours par défaut, `0020`), sur une plage de dates (une
+  course et la fenêtre, 56 jours par défaut, `0020`, ou « en couches », `0025`, choix
+  que propose aussi la page « sortie »), sur une plage de dates (une
   description, pas une prévision), ou un fichier de `MPA_DATA_DIR/reference/` (un CSV
   et son compagnon `.meta.json`). Les deux premières se calculent en mémoire depuis
   `MPA_DATA_DIR/interim/activities/`, et aucune courbe n'est écrite ; la page dit les

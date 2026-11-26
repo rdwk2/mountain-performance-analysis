@@ -24,7 +24,7 @@ décalée de 60 s, est dans une bande de 10 bpm, aux pentes de −5 % ou plus se
 |---|---|---|
 | `--from`, `--to` | — (avec `--to` / `--from`, ou `--at`) | Premier et dernier jour de la plage, compris (`AAAA-MM-JJ`) |
 | `--at` | — | Jour D de la règle à l'origine (`AAAA-MM-JJ`) ; exclut `--from` et `--to` |
-| `--window` | 56 | Fenêtre de la règle, en jours, ou `all` ; avec `--at` |
+| `--window` | 56 | Fenêtre de la règle, en jours, `all` ou `layered` (la règle en couches) ; avec `--at` |
 | `--athlete` | — (obligatoire) | Pseudonyme de l'athlète (celui du manifeste) |
 | `--types` | `trail_running` | Types de la source retenus, séparés par des virgules, sans espace |
 | `--min-duration-min` | — | Durée minimale d'une sortie, en minutes |
@@ -45,7 +45,10 @@ just curve <nom> --at AAAA-MM-JJ --athlete <pseudonyme>
 de D − 7 jours ([`0020`](../decisions/0020-origine-glissante.md)) : sur les activités
 finies avant l'origine (l'activité entière, la plus tardive des fins de l'index et de la
 montre) et, pour une fenêtre de W jours, dont la fin d'index est dans les W jours civils
-avant l'origine. C'est une courbe **reconstituée depuis le corpus figé identifié**. Le résumé
+avant l'origine. `--window layered` (« en couches ») donne la forme sur 365 jours et le
+niveau tiré à mi-chemin vers les 56 derniers jours ; le compagnon dit l'écart et le facteur
+([`0025`](../decisions/0025-courbe-en-couches.md)). C'est une courbe **reconstituée depuis
+le corpus figé identifié**. Le résumé
 dit l'origine, les décisions, l'historique et l'avertissement des moins de 20 sorties à
 pied ; une absence n'écrit rien.
 

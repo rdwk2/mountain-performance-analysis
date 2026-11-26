@@ -269,6 +269,8 @@ src/mountain_perf/     le code de la bibliothèque
     origin.py          la règle à l'origine : fins, corpus, sélection, issue, compagnon
                        (OG-1) ; le cache des intervalles (OG-UI)
     decision.py        la décision de F et la borne basse, écrites une fois (OG-2)
+    levels.py          l'ajustement joint des niveaux et l'écart récent de la règle en
+                       couches (M6b-3, `0025`)
   backtest/            évaluation contre des performances réelles (M4)
     calendar.py        jour civil à Paris, origine o_j, disponibilité (M4a)
     manifest.py        load_manifest, ManifestReadResult, ManifestError (M4a)

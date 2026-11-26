@@ -74,7 +74,11 @@ def test_absent_under_one_window_curve_under_another_is_accepted(
         (1, declaration7, scored7, documents7),
         (3, declaration28, scored28, documents28),
     ):
-        rolling = dataclasses.replace(declaration.rolling, command_windows=(7, 28))
+        rolling = dataclasses.replace(
+            declaration.rolling,
+            command_windows=(7, 28),
+            command_level_windows=(None, None),
+        )
         append_declaration(
             root,
             dataclasses.replace(declaration, rolling=rolling),

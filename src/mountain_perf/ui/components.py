@@ -20,6 +20,7 @@ from mountain_perf.data_files import (
     FileKind,
     add_file,
 )
+from mountain_perf.estimation.decision import LAYERED
 from mountain_perf.estimation.origin import (
     ALL_PAST,
     DEFAULT_WINDOW_DAYS,
@@ -141,9 +142,11 @@ WINDOW_CHOICES: dict[str, OriginWindow | None] = {
     "28 jours": 28,
     "56 jours": DEFAULT_WINDOW_DAYS,
     "tout le passé": ALL_PAST,
+    "en couches": LAYERED,
     "autre": None,
 }
-"""Les fenêtres proposées ; « autre » demande un nombre de jours (OG-UI)."""
+"""Les fenêtres proposées ; « en couches », la règle en couches (M6b-3, ``0025``) ;
+« autre » demande un nombre de jours (OG-UI)."""
 
 WINDOW_LINK: Final = (
     "Une activité qui finit tout près d'une borne de la fenêtre peut ne pas être "

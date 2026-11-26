@@ -36,7 +36,7 @@ puis le lieu nommé de `mini_11.gpx` (docstring de `project` dans
 |---|---|---|
 | `--curve fichier.csv` | courbe allure↔pente, avec son compagnon `<nom>.meta.json` à côté ; `--curve` ou `--at`, obligatoire | — |
 | `--at AAAA-MM-JJ` | le jour de la course : la courbe à l'origine (`0020`), calculée en mémoire depuis `MPA_DATA_DIR/interim/activities/`, rien n'est écrit ; au-delà d'aujourd'hui + 7 jours, l'origine est bornée à aujourd'hui ; la sortie commence par les lignes de l'origine et dit ses avertissements ; exclut `--curve` | — |
-| `--window W` | avec `--at` : la fenêtre de la courbe, en jours ou `all` | 56 |
+| `--window W` | avec `--at` : la fenêtre de la courbe, en jours, `all` ou `layered` (« en couches », [`0025`](../decisions/0025-courbe-en-couches.md)) | 56 |
 | `--effort F` | facteur multiplicatif sur la vitesse ; 1 = la référence des activités qui ont construit la courbe | 1.0 |
 | `--min-support-min F` | données minimales par tranche de pente pour la retenir (min) ; 0 = aucun filtre | 10 |
 | `--step-m`, `--smoothing-m`, `--max-offset-m`, `--min-separation-m` | comme pour [`profile`](profile.md) | |

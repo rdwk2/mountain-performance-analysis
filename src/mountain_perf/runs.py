@@ -36,7 +36,7 @@ from mountain_perf.estimation.curve import (
     estimation_document,
     select_candidates,
 )
-from mountain_perf.estimation.decision import decide_on_index
+from mountain_perf.estimation.decision import ALL_PAST, LAYERED, decide_on_index
 from mountain_perf.estimation.origin import (
     CurveCorpus,
     IntervalsOf,
@@ -475,9 +475,9 @@ def origin_curve(
     """La courbe à l'origine de ``course`` sur ``corpus`` (OG-UI), aux défauts de
     ``mperf curve --at`` (sélection, paramètres, seuil des diagnostics) : la règle,
     puis, sauf absence, le compagnon, les octets canoniques et le compagnon figé, sous
-    le nom ``origine-<jour effectif>-<w<W>|all>.csv``. Une courbe non projetable au
-    seuil des diagnostics a ses octets : la lecture, au seuil de l'appelant, en
-    décide. Rien n'est écrit."""
+    le nom ``origine-<jour effectif>-<w<W>|all|layered>.csv``. Une courbe non
+    projetable au seuil des diagnostics a ses octets : la lecture, au seuil de
+    l'appelant, en décide. Rien n'est écrit."""
     selection = curve_selection()
     parameters = ParameterSet(CURVE_ESTIMATION_PARAMETER_SPECS)
     profile = ParameterSet(PROFILE_PARAMETER_SPECS)
@@ -503,7 +503,7 @@ def origin_curve(
         generated_at=generated_at,
     )
     documents = curve_documents(result.rows, Sport.FOOT, provenance, document)
-    label = "all" if isinstance(window, str) else f"w{window}"
+    label = window if window in (ALL_PAST, LAYERED) else f"w{window}"
     name = f"origine-{course.effective_day.isoformat()}-{label}.csv"
     curve = CurveBytes(
         documents.csv, freeze_companion(documents.companion), name, generated_at

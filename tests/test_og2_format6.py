@@ -144,7 +144,8 @@ def terms() -> CalibrationTerms:
 
 
 def test_the_format_6() -> None:
-    assert REGISTRY_FORMAT_VERSION == ROLLING_FIRST_FORMAT == 6
+    assert ROLLING_FIRST_FORMAT == 6
+    assert REGISTRY_FORMAT_VERSION == 7  # la règle en couches (M6b-3)
 
 
 def test_the_enumerations_and_their_descriptions() -> None:
@@ -354,13 +355,13 @@ def _lines(root: Path) -> list[bytes]:
     return (root / EVENTS_FILE).read_bytes().split(b"\n")[:-1]
 
 
-def test_a_declared_mode_declaration_at_format_6(tmp_path: Path) -> None:
+def test_a_declared_mode_declaration_at_format_7(tmp_path: Path) -> None:
     """Les trois clés neuves à vide, à leurs places ; le reste celui d'aujourd'hui."""
     root = registry_root(tmp_path)
     append_declaration(root, declaration(), recorded_at=at(0))
     (line,) = _lines(root)
     data = json.loads(line)
-    assert data["format_version"] == 6
+    assert data["format_version"] == 7  # une ligne neuve (M6b-3)
     assert data["declaration"]["rolling"] is None
     assert list(data["declaration"])[-1] == "rolling"
     for declared in data["declaration"]["performances"]:
@@ -370,12 +371,19 @@ def test_a_declared_mode_declaration_at_format_6(tmp_path: Path) -> None:
 
 
 def test_a_rolling_declaration_line_reads_back_at_bit(tmp_path: Path) -> None:
+    """Au format 7 (M6b-3), une DÉCLARATION glissante porte command_level_windows."""
     root = registry_root(tmp_path)
-    written = append_declaration(root, rolling_declaration(), recorded_at=at(0))
+    declared = declaration(
+        curve_ref=None,
+        curve=None,
+        curve_metadata=None,
+        rolling=rolling(command_level_windows=(None, None, None)),
+    )
+    written = append_declaration(root, declared, recorded_at=at(0))
     (line,) = _lines(root)
     log = read_registry(root)
     assert log.events[0] == written
-    assert log.events[0].declaration == rolling_declaration()
+    assert log.events[0].declaration == declared
     assert line_hash(log.events[0]) == hashlib.sha256(line).hexdigest()
 
 

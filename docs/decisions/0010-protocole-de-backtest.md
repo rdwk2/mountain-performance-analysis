@@ -1591,6 +1591,15 @@ Le mode « courbe déclarée » ne change pas.*
     −0,010 ; +0,015, qui contient 0).
     *Hypothèse, non mesurée* : à support bon, le calage (a) ajouterait de l'erreur aux longues
     fenêtres, par des membres plus anciens que la fenêtre (E15 de la passe experte 2).
+14. **D14, le format 7 (M6b-3).** Une exécution en couches (`0025`) écrit son document de
+    règle dans un type neuf, qui porte en plus la fenêtre de niveau et κ ; une exécution de
+    fenêtre écrit le même type de document de règle qu'avant, au contenu inchangé. La
+    DÉCLARATION glissante porte la fenêtre de niveau et κ de sa règle (`null` pour une
+    fenêtre) et la fenêtre de niveau de chaque règle de la commande. Les lignes des formats
+    1 à 6 se relisent et se réécrivent à l'octet. L'accord vérifie aussi, pour une règle en
+    couches, la section de niveau de chaque compagnon : sa fenêtre de niveau, κ, sa borne
+    basse recalculée ; il ne vérifie pas l'écart Δ, le facteur, ni les comptes de la
+    couche.
 
 ## Pourquoi
 

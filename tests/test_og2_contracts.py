@@ -1,16 +1,18 @@
 """Les invariants des contrats du format 6 (OG-2, § 6.5) que la suite ne tenait pas
-(relecture C du bloc 1, mutation 7) ; les aides sont celles de
-``test_og2_format6.py``."""
+(relecture C du bloc 1, mutation 7), et ceux de la règle en couches (M6b-3, § 6.3 (e)) ;
+les aides sont celles de ``test_og2_format6.py``."""
 
 from __future__ import annotations
 
 import dataclasses
 import math
-from datetime import date
+from collections.abc import Callable
+from datetime import UTC, date, datetime
 from typing import Any
 
 import pytest
 
+from fixtures.registry import declaration
 from mountain_perf.backtest import SENSITIVITY_CONFIGURATIONS
 from mountain_perf.schemas import (
     CLOCKS,
@@ -18,9 +20,14 @@ from mountain_perf.schemas import (
     CalibrationTerm,
     CalibrationTerms,
     CurveStatus,
+    EventKind,
+    LayeredRollingRule,
     ModelKind,
+    RegistryEvent,
+    RollingDeclaration,
     RollingPerformance,
     RollingResult,
+    RollingRule,
     Scenario,
     ScenarioClockTerms,
     SensitivityDeclaration,
@@ -84,11 +91,14 @@ def test_an_unavailable_share_has_no_scope() -> None:
         dataclasses.replace(absent_performance(), share_scope=ShareScope.USAGE)
 
 
-@pytest.mark.parametrize("field", ["command_windows", "performances"])
+@pytest.mark.parametrize(
+    "field", ["command_windows", "performances", "command_level_windows"]
+)
 def test_rolling_declaration_sequences_are_tuples(field: str) -> None:
-    value = list(getattr(rolling(), field))
+    fields: dict[str, Any] = {"command_level_windows": (None, None, None)}
+    value = list(getattr(rolling(**fields), field))
     with pytest.raises(ContractError, match="séquence immuable"):
-        rolling(**{field: value})
+        rolling(**{**fields, field: value})
 
 
 @pytest.mark.parametrize("tolerance", [math.inf, math.nan])
@@ -162,3 +172,126 @@ def test_share_unavailability_without_curve() -> None:
         share_unavailability=ShareUnavailability.NO_CURVE,
     )
     assert performance.status is CurveStatus.CURVE
+
+
+# --- La règle en couches (M6b-3) ------------------------------------------------------
+
+
+def _layered_rule(**changes: Any) -> LayeredRollingRule:
+    fields: dict[str, Any] = {
+        f.name: getattr(rolling_rule(), f.name) for f in dataclasses.fields(RollingRule)
+    }
+    fields.update(level_window_days=28, level_kappa=0.5)
+    fields.update(changes)
+    return LayeredRollingRule(**fields)
+
+
+def _layered_rolling(**changes: Any) -> RollingDeclaration:
+    fields: dict[str, Any] = {"level_window_days": 28, "level_kappa": 0.5}
+    fields.update(changes)
+    return rolling(**fields)
+
+
+LAYERED_BUILDERS: list[Callable[..., Any]] = [_layered_rule, _layered_rolling]
+
+
+@pytest.mark.parametrize(
+    ("changes", "fragment"),
+    [
+        ({"window_days": None}, "porte sa fenêtre de forme"),
+        ({"level_window_days": 0}, r"level_window_days doit être dans \[1 ; 56\["),
+        ({"level_window_days": 56}, r"level_window_days doit être dans \[1 ; 56\["),
+        ({"level_kappa": 0.0}, r"level_kappa doit être dans \]0 ; 1\]"),
+        ({"level_kappa": 1.5}, r"level_kappa doit être dans \]0 ; 1\]"),
+        ({"level_kappa": math.nan}, "level_kappa"),
+    ],
+    ids=["sans-forme", "niveau-0", "niveau-56", "kappa-0", "kappa-1.5", "kappa-nan"],
+)
+@pytest.mark.parametrize("build", LAYERED_BUILDERS, ids=["regle", "declaration"])
+def test_the_level_bounds(
+    build: Callable[..., Any], changes: dict[str, Any], fragment: str
+) -> None:
+    """``_check_level`` : la fenêtre de forme posée, ``1 <= level_window_days <
+    window_days``, ``0 < level_kappa <= 1``, fini."""
+    with pytest.raises(ContractError, match=fragment):
+        build(**changes)
+
+
+@pytest.mark.parametrize("build", LAYERED_BUILDERS, ids=["regle", "declaration"])
+def test_the_level_bounds_accepted(build: Callable[..., Any]) -> None:
+    assert build(level_window_days=1).level_window_days == 1
+    assert build(level_kappa=1.0).level_kappa == 1.0
+
+
+@pytest.mark.parametrize(
+    ("changes", "fragment"),
+    [
+        ({"level_window_days": 28}, "vont ensemble"),
+        ({"level_kappa": 0.5}, "vont ensemble"),
+        (
+            {
+                "level_window_days": 28,
+                "level_kappa": 0.5,
+                "command_level_windows": (28, None),
+            },
+            "une fenêtre de niveau par règle de la commande",
+        ),
+        (
+            {
+                "level_window_days": 28,
+                "level_kappa": 0.5,
+                "command_level_windows": (None, None, None),
+            },
+            "doivent contenir celle de la DÉCLARATION",
+        ),
+        (
+            {
+                "level_window_days": 28,
+                "level_kappa": 0.5,
+                "command_level_windows": (0, 28, None),
+            },
+            "command_level_windows : au moins 1 jour",
+        ),
+    ],
+    ids=["niveau-seul", "kappa-seul", "longueur", "paire-absente", "niveau-0-commande"],
+)
+def test_the_layered_rolling_declaration(
+    changes: dict[str, Any], fragment: str
+) -> None:
+    """Les champs de niveau ensemble ; ``command_level_windows`` parallèle à
+    ``command_windows``, la paire de la DÉCLARATION parmi les siennes, ``>= 1``."""
+    _layered_rolling()
+    rolling(
+        level_window_days=28, level_kappa=0.5, command_level_windows=(None, 28, None)
+    )
+    with pytest.raises(ContractError, match=fragment):
+        rolling(**changes)
+
+
+def _declaration_event(version: int, declared: RollingDeclaration) -> RegistryEvent:
+    return RegistryEvent(
+        format_version=version,
+        number=1,
+        kind=EventKind.DECLARATION,
+        recorded_at=datetime(2026, 10, 3, 13, tzinfo=UTC),
+        previous_hash=None,
+        answers=None,
+        corrects=None,
+        correction_reason=None,
+        declaration=declaration(
+            curve_ref=None, curve=None, curve_metadata=None, rolling=declared
+        ),
+        result=None,
+        failure=None,
+    )
+
+
+def test_the_layered_fields_and_the_format() -> None:
+    """Invariant 2 : avant le format 7, une DÉCLARATION glissante ne porte pas la règle
+    en couches ; à partir du format 7, elle porte ``command_level_windows``."""
+    _declaration_event(6, rolling())
+    _declaration_event(7, rolling(command_level_windows=(None, None, None)))
+    with pytest.raises(ContractError, match="ne porte pas la règle en couches"):
+        _declaration_event(6, _layered_rolling())
+    with pytest.raises(ContractError, match="porte command_level_windows"):
+        _declaration_event(7, rolling())

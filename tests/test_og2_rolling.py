@@ -334,7 +334,7 @@ def test_a_malformed_window_list_is_refused(tmp_path: Path, text: str) -> None:
     outcome = run(str(tmp_path / "m.json"), f"--rolling={text}")
     assert outcome.code == 2
     assert (
-        "--rolling : une liste de fenêtres attendue (des jours ≥ 1 ou all, "
+        "--rolling : une liste de fenêtres attendue (des jours ≥ 1, all ou layered, "
         f"distincts), reçu {text!r}."
     ) in outcome.err
 

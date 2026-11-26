@@ -43,6 +43,7 @@ from mountain_perf.estimation.intervals import (
     CurveInterval,
     TraceRefusal,
 )
+from mountain_perf.estimation.levels import ActivityBins
 from mountain_perf.model.curve_io import (
     DEFAULT_SUPPORT_THRESHOLD_MIN,
     CurveBin,
@@ -71,6 +72,9 @@ from mountain_perf.validation import (
 
 METHOD = "mperf curve, M6b-1 (docs/decisions/0017)"
 """La méthode, nommée dans le compagnon (``0017``, P5.4)."""
+
+LAYERED_METHOD = "mperf curve --at, M6b-3 (docs/decisions/0025)"
+"""La méthode d'une courbe en couches, nommée dans le compagnon (M6b-3)."""
 
 CURVE_BIN_EDGES_PERMILLE: tuple[int, ...] = (
     *range(-1000, -400, 100),
@@ -423,7 +427,10 @@ class CurveEstimate:
     - ``activity_fates`` — une par candidate, dans l'ordre reçu (OG-1) ;
     - ``support_grade_range`` — fractions — les centres de la première et de la dernière
       tranche du support au seuil des diagnostics, ``None`` si le support est impossible
-      (OG-1).
+      (OG-1) ;
+    - ``activity_bins`` — les cellules de temps M positif de chaque retenue qui en a
+      une, par tranche croissante, dans l'ordre des retenues (M6b-3 : ce que lit
+      l'ajustement joint) ; pas dans le document.
     """
 
     bins: tuple[EstimatedBin, ...]
@@ -435,6 +442,7 @@ class CurveEstimate:
     counts: CurveCounts
     activity_fates: tuple[ActivityFate, ...] = ()
     support_grade_range: tuple[float, float] | None = None
+    activity_bins: tuple[ActivityBins, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -887,6 +895,18 @@ def estimate_curve_outcome(
         counts=counts,
         activity_fates=activity_fates,
         support_grade_range=None if model is None else model.grade_range,
+        activity_bins=tuple(
+            ActivityBins(
+                ref,
+                tuple(
+                    (k, activity[k].length_moving_m, activity[k].moving_s)
+                    for k in sorted(activity)
+                    if activity[k].moving_s > 0
+                ),
+            )
+            for ref, activity in cells
+            if any(cell.moving_s > 0 for cell in activity.values())
+        ),
     )
 
 
@@ -962,6 +982,7 @@ def estimation_document(
     exports_retrieved_at: Sequence[datetime],
     support_error: str | None,
     origin: Mapping[str, object] | None = None,
+    method: str = METHOD,
 ) -> dict[str, object]:
     """Le document que ``write_curve`` range sous la clé ``estimation`` du compagnon,
     et que ``read_curve`` ignore : la méthode, ses paramètres, le niveau, les écarts,
@@ -972,10 +993,11 @@ def estimation_document(
 
     Le schéma est fixe (OG-1) : ``mode`` dit « plage » ou « origine », ``origin`` porte
     une copie de la section ``origin`` d'une courbe à l'origine, ``null`` pour une
-    plage."""
+    plage. ``method`` : :data:`METHOD`, ou :data:`LAYERED_METHOD` pour une courbe en
+    couches (M6b-3)."""
     counts = estimate.counts
     return {
-        "method": METHOD,
+        "method": method,
         "mode": (CurveMode.RANGE if origin is None else CurveMode.ORIGIN).value,
         "origin": None if origin is None else dict(origin),
         "commit": commit,

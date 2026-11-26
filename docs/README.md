@@ -39,6 +39,7 @@ sont au statut « acceptée » :
 - [0022 — Profils de démo](decisions/0022-profils-de-demo.md)
 - [0023 — Le code de Q2](decisions/0023-code-de-q2.md)
 - [0024 — Le modèle de la montée des tableaux de bord](decisions/0024-modele-de-la-montee.md)
+- [0025 — La courbe en couches](decisions/0025-courbe-en-couches.md)
 
 Autres documents :
 

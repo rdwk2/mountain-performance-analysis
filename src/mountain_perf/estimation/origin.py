@@ -18,7 +18,9 @@ Python pur : ni ``analyse/`` ni ``backtest/``.
 
 from __future__ import annotations
 
+import dataclasses
 import json
+import math
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
@@ -27,10 +29,13 @@ from types import MappingProxyType
 from typing import Final, Protocol
 
 from mountain_perf.estimation.curve import (
+    LAYERED_METHOD,
+    METHOD,
     SUPPORT_THRESHOLD_MIN,
     ActivityFate,
     CurveEstimate,
     CurveSelection,
+    LevelQuantiles,
     NoCurve,
     curve_file_rows,
     curve_provenance,
@@ -38,15 +43,19 @@ from mountain_perf.estimation.curve import (
     estimation_document,
 )
 from mountain_perf.estimation.decision import ALL_PAST as ALL_PAST
+from mountain_perf.estimation.decision import (
+    LAYERED,
+    LAYERED_KAPPA,
+    LAYERED_LEVEL_DAYS,
+    LAYERED_SHAPE_DAYS,
+    decide_on_index,
+    decide_on_safe_end,
+)
 from mountain_perf.estimation.decision import PARIS as PARIS
 from mountain_perf.estimation.decision import OriginWindow as OriginWindow
 from mountain_perf.estimation.decision import TemporalDecision as TemporalDecision
 from mountain_perf.estimation.decision import check_origin as check_origin
 from mountain_perf.estimation.decision import check_window as check_window
-from mountain_perf.estimation.decision import (
-    decide_on_index,
-    decide_on_safe_end,
-)
 from mountain_perf.estimation.decision import (
     window_lower_bound as window_lower_bound,
 )
@@ -55,6 +64,7 @@ from mountain_perf.estimation.intervals import (
     TraceRefusal,
     activity_intervals,
 )
+from mountain_perf.estimation.levels import fit_joint_levels, level_shift
 from mountain_perf.ingest.types import SOURCE_TYPE_SPORTS
 from mountain_perf.model.curve_io import CurveFileRow, check_curve_rows
 from mountain_perf.schemas import (
@@ -386,6 +396,72 @@ class OriginOutcome(StrEnum):
     PROJECTABLE = "courbe projetable"
 
 
+FEW_ACTIVITIES: Final = (
+    "moins de deux activités dans l'ajustement : pas de correction du niveau."
+)
+"""La raison d'une règle en couches sans correction : moins de deux activités."""
+
+NO_RECENT: Final = (
+    "aucune activité de l'ajustement dans les 56 jours : pas de correction du niveau."
+)
+"""La raison d'une règle en couches sans correction : aucune activité récente."""
+
+
+@dataclass(frozen=True)
+class LevelLayer:
+    """La couche de niveau d'une courbe en couches (M6b-3, ``0025``).
+
+    - ``level_window_days`` — jours — la fenêtre du niveau, :data:`LAYERED_LEVEL_DAYS` ;
+    - ``kappa`` — sans unité — la part de l'écart prise, :data:`LAYERED_KAPPA` ;
+    - ``level_lower_bound`` — instant, UTC — la borne basse de la fenêtre du niveau ;
+    - ``fit_count`` — sans unité — les activités de l'ajustement ;
+    - ``recent_count`` — sans unité — dont les récentes ;
+    - ``delta`` — sans unité — l'écart récent ``Δ`` ; ``None`` sans correction ;
+    - ``speed_factor`` — sans unité — ``exp(−κ·Δ)`` ; ``1.0`` sans correction ;
+    - ``iterations``, ``converged`` — ceux de l'ajustement ; ``None`` sans ajustement ;
+    - ``no_correction_reason`` — la raison d'une absence de correction, ``None`` quand
+      ``Δ`` existe.
+
+    Contrôlé à la construction (``ContractError``) : ``delta``, ``iterations`` et
+    ``converged`` absents si et seulement si une raison est donnée ; sans ``delta``, un
+    facteur de 1 ; ``0 <= recent_count <= fit_count``.
+    """
+
+    level_window_days: int
+    kappa: float
+    level_lower_bound: datetime
+    fit_count: int
+    recent_count: int
+    delta: float | None
+    speed_factor: float
+    iterations: int | None
+    converged: bool | None
+    no_correction_reason: str | None
+
+    def __post_init__(self) -> None:
+        absent = (
+            self.delta is None,
+            self.no_correction_reason is not None,
+            self.iterations is None,
+            self.converged is None,
+        )
+        if len(set(absent)) != 1:
+            raise ContractError(
+                "level_layer : delta, iterations et converged absents si et seulement "
+                "si une raison sans correction est donnée."
+            )
+        if self.delta is None and self.speed_factor != 1.0:
+            raise ContractError(
+                f"level_layer : sans correction, le facteur vaut 1, reçu "
+                f"{self.speed_factor}."
+            )
+        if not 0 <= self.recent_count <= self.fit_count:
+            raise ContractError(
+                "level_layer : 0 <= recent_count <= fit_count attendu, reçu "
+                f"{self.recent_count} et {self.fit_count}."
+            )
+
+
 @dataclass(frozen=True)
 class OriginEstimate:
     """Ce que la règle rend pour une origine.
@@ -404,7 +480,9 @@ class OriginEstimate:
     - ``history`` — l'historique, selon l'index ;
     - ``support_threshold_min`` — minutes — le seuil des diagnostics ;
     - ``index_sha256`` — sans unité — l'empreinte de l'index du corpus de la règle
-      (OG-UI).
+      (OG-UI) ;
+    - ``level_layer`` — la couche de niveau de la règle en couches (M6b-3) : ``None``
+      sous une fenêtre, et sous ``layered`` en cas d'absence.
     """
 
     athlete_ref: str
@@ -424,6 +502,7 @@ class OriginEstimate:
     history: OriginHistory
     support_threshold_min: float
     index_sha256: str
+    level_layer: LevelLayer | None = None
 
     @property
     def candidates(self) -> tuple[Inspection, ...]:
@@ -638,6 +717,9 @@ def estimate_at_origin(
     )
     if isinstance(estimated, NoCurve):
         return absence(estimated.reason, estimated.activity_fates, last_retained)
+    layer: LevelLayer | None = None
+    if window == LAYERED:
+        estimated, layer = _level_layer(estimated, candidates, moment)
     rows = curve_file_rows(estimated)
     support_error = check_curve_rows(rows, support_threshold_min)
     return OriginEstimate(
@@ -662,7 +744,89 @@ def estimate_at_origin(
         history,
         support_threshold_min,
         corpus.index_sha256,
+        layer,
     )
+
+
+def _is_recent(inspection: Inspection, origin: datetime, bound: datetime) -> bool:
+    """La décision de la fenêtre de :data:`LAYERED_LEVEL_DAYS` jours sur les fins déjà
+    lues d'une candidate (M6b-3, ``0025``) : la fin de l'index d'abord, puis la fin
+    sûre."""
+    end = inspection.end
+    return (
+        decide_on_index(end.index_end, origin, bound) is None
+        and decide_on_safe_end(end.safe_end, origin, bound)
+        is TemporalDecision.CANDIDATE
+    )
+
+
+def _level_layer(
+    estimated: CurveEstimate, candidates: Sequence[Inspection], origin: datetime
+) -> tuple[CurveEstimate, LevelLayer]:
+    """La couche de niveau de la règle en couches (M6b-3, ``0025``) sur l'estimation de
+    :data:`LAYERED_SHAPE_DAYS` jours : l'ajustement joint des activités de
+    ``activity_bins``, l'écart récent ``Δ`` et ``s = exp(−κ·Δ)`` ; chaque vitesse de
+    tranche multipliée par ``s``, les quantiles du niveau décalés de ``−κ·Δ``, tout le
+    reste inchangé. Sans correction (moins de deux activités, aucune récente) ou avec
+    ``Δ = 0``, l'estimation telle quelle."""
+    bound = window_lower_bound(origin, LAYERED_LEVEL_DAYS)
+    assert bound is not None  # une fenêtre en jours
+    by_ref = {inspection.end.activity_ref: inspection for inspection in candidates}
+    rows = estimated.activity_bins
+    recent = [_is_recent(by_ref[row.activity_ref], origin, bound) for row in rows]
+
+    def without(reason: str) -> LevelLayer:
+        return LevelLayer(
+            LAYERED_LEVEL_DAYS,
+            LAYERED_KAPPA,
+            bound,
+            len(rows),
+            sum(recent),
+            None,
+            1.0,
+            None,
+            None,
+            reason,
+        )
+
+    if len(rows) < 2:
+        return estimated, without(FEW_ACTIVITIES)
+    if not any(recent):
+        return estimated, without(NO_RECENT)
+    fit = fit_joint_levels(rows)
+    delta = level_shift(fit.levels, [row.moving_s for row in rows], recent)
+    assert delta is not None  # au moins deux activités, dont une récente
+    factor = math.exp(-LAYERED_KAPPA * delta)
+    layer = LevelLayer(
+        LAYERED_LEVEL_DAYS,
+        LAYERED_KAPPA,
+        bound,
+        len(rows),
+        sum(recent),
+        delta,
+        factor,
+        fit.iterations,
+        fit.converged,
+        None,
+    )
+    if delta == 0.0:
+        return estimated, layer
+    shift = LAYERED_KAPPA * delta
+    level = estimated.level
+    corrected = dataclasses.replace(
+        estimated,
+        bins=tuple(
+            dataclasses.replace(b, speed_ms=b.speed_ms * factor) for b in estimated.bins
+        ),
+        level=(
+            None
+            if level is None
+            else LevelQuantiles(
+                level.p10 - shift, level.p50 - shift, level.p90 - shift, level.count
+            )
+        ),
+    )
+    return corrected, layer
 
 
 def retained_start_days(
@@ -717,13 +881,20 @@ def _activity_line(
 def origin_document(result: OriginEstimate, corpus: CurveCorpus) -> dict[str, object]:
     """La section ``origin`` du document d'estimation d'une courbe à l'origine :
     l'origine, sa fenêtre, l'issue, l'empreinte de l'index, les dates, l'historique et
-    une ligne par activité inspectée, dans l'ordre de l'index."""
+    une ligne par activité inspectée, dans l'ordre de l'index. Sous la règle en
+    couches seulement (M6b-3), la clé ``level_layer`` suit ``lower_bound`` : la couche
+    de niveau, ``null`` en cas d'absence."""
     fates = {fate.activity_ref: fate for fate in result.activity_fates}
     history = result.history
-    return {
+    head: dict[str, object] = {
         "origin": _instant(result.origin),
         "window": result.window,
         "lower_bound": _instant(result.lower_bound),
+    }
+    if result.window == LAYERED:
+        head["level_layer"] = _layer_document(result.level_layer)
+    return {
+        **head,
         "outcome": result.outcome.value,
         "index_sha256": corpus.index_sha256,
         "data_available_at": _instant(result.data_available_at),
@@ -737,6 +908,24 @@ def origin_document(result: OriginEstimate, corpus: CurveCorpus) -> dict[str, ob
         "activities": [
             _activity_line(inspection, fates) for inspection in result.inspections
         ],
+    }
+
+
+def _layer_document(layer: LevelLayer | None) -> dict[str, object] | None:
+    """La section ``level_layer`` du compagnon d'une courbe en couches (M6b-3)."""
+    if layer is None:
+        return None
+    return {
+        "level_window_days": layer.level_window_days,
+        "level_lower_bound": _instant(layer.level_lower_bound),
+        "kappa": layer.kappa,
+        "fit_count": layer.fit_count,
+        "recent_count": layer.recent_count,
+        "delta": layer.delta,
+        "speed_factor": layer.speed_factor,
+        "iterations": layer.iterations,
+        "converged": layer.converged,
+        "no_correction_reason": layer.no_correction_reason,
     }
 
 
@@ -816,9 +1005,17 @@ def origin_companion(
             corpus.recordings[entry.activity_ref].source.retrieved_at,
         )
     ]
-    label = f"{result.window} jours" if isinstance(result.window, int) else "all"
+    layered = result.window == LAYERED
+    if layered:
+        rule = (
+            f"en couches (forme {LAYERED_SHAPE_DAYS} jours, niveau "
+            f"{LAYERED_LEVEL_DAYS} jours, κ = {_comma(LAYERED_KAPPA)})"
+        )
+    else:
+        label = "all" if result.window == ALL_PAST else f"{result.window} jours"
+        rule = f"fenêtre {label}"
     estimator = (
-        f"mperf curve --at (OG-1) : règle à l'origine, fenêtre {label} ; "
+        f"mperf curve --at (OG-1) : règle à l'origine, {rule} ; "
         "intervalles de la grille du profil, temps M θc, tranches variables, "
         f"valeur {selection.value.value}"
     )
@@ -842,5 +1039,11 @@ def origin_companion(
         exports_retrieved_at=exports,
         support_error=result.support_error,
         origin=origin_document(result, corpus),
+        method=LAYERED_METHOD if layered else METHOD,
     )
     return provenance, document
+
+
+def _comma(value: float) -> str:
+    """``value`` au format ``g``, la virgule décimale : ``0,5``."""
+    return f"{value:g}".replace(".", ",")

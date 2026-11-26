@@ -153,7 +153,8 @@ dans [les pages des commandes](docs/commandes/README.md).
   rattachée à M6b, l'origine glissante : la règle à l'origine
   (`just curve --at`), le backtest glissant (`just backtest-rolling`), les pages à
   l'origine (`just ui`, `just project --at`) et ses trois exécutions réelles
-  (`docs/JOURNAL.md`).
+  (`docs/JOURNAL.md`) ; puis la règle en couches, la forme sur un an et le niveau à
+  mi-chemin des 56 derniers jours (`--window layered`, `0025`).
 - **Piste analyse** : AN0 à AN3 livrés — l'ingestion des activités et des données
   journalières, les tables de `processed/`, la figure de Q1, les pages
   « récupération » et « Q1 » ; Q2 (AN3) : la FC décalée de chaque montée

@@ -9,6 +9,7 @@ lit la courbe comme le moteur, prolongement compris."""
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import math
 from collections.abc import Sequence
@@ -42,6 +43,7 @@ from mountain_perf.estimation.intervals import (
     CurveInterval,
     TraceRefusal,
 )
+from mountain_perf.estimation.levels import ActivityBins
 from mountain_perf.gpx.profile import PROFILE_PARAMETER_SPECS
 from mountain_perf.model.curve_io import CurveError, check_curve_rows
 from mountain_perf.schemas import ActivityIndex, ParameterSet
@@ -935,3 +937,45 @@ def test_the_export_instants_are_sorted_as_instants() -> None:
         "2024-04-01T10:00:00+00:00",
         "2024-04-01T11:00:00+00:00",
     ]
+
+
+def test_activity_bins_are_the_moving_cells() -> None:
+    """M6b-3, § 6.1 (b) : les cellules de temps M positif, par tranche croissante, dans
+    l'ordre des retenues ; la longueur d'un intervalle de temps M nul n'y est pas ; une
+    retenue sans temps M en est absente ; une cellule de 0,5 s de temps M, seule dans
+    sa tranche, y entre ; rien de neuf au document."""
+    flat, climb, descent, gentle = 0.0125, 0.2125, -0.0875, 0.0375
+    assert (bin_index(descent), bin_index(flat), bin_index(climb)) == (13, 17, 25)
+    assert bin_index(gentle) == 18
+    with_stop = activity(
+        "a",
+        [
+            interval(flat, 50.0, 25.0),
+            interval(flat, 10.0, 0.0, stopped_s=20.0),
+            interval(flat, 50.0, 25.0),
+            interval(climb, 50.0, 50.0),
+        ],
+    )
+    stopped = activity("b", [interval(flat, 10.0, 0.0, stopped_s=30.0)])
+    three = activity(
+        "c",
+        [
+            interval(climb, 40.0, 40.0),
+            interval(descent, 60.0, 30.0),
+            interval(flat, 75.0, 25.0),
+            interval(gentle, 2.0, 0.5),
+        ],
+    )
+    result = estimate([with_stop, stopped, three])
+    assert result.activity_refs == ("a", "b", "c")
+    assert result.activity_bins == (
+        ActivityBins("a", ((17, 100.0, 50.0), (25, 50.0, 50.0))),
+        ActivityBins(
+            "c",
+            ((13, 60.0, 30.0), (17, 75.0, 25.0), (18, 2.0, 0.5), (25, 40.0, 40.0)),
+        ),
+    )
+    exports = [datetime(2024, 4, 1, 10, tzinfo=UTC)]
+    bare = dataclasses.replace(result, activity_bins=())
+    assert document(result, exports) == document(bare, exports)
+    assert "activity_bins" not in json.dumps(document(result, exports))

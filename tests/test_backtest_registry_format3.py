@@ -83,6 +83,7 @@ from mountain_perf.schemas import (
     ExperimentDeclaration,
     ExperimentMetric,
     FrozenCurve,
+    LayeredRollingRule,
     ModelKind,
     ModelResult,
     OutingBands,
@@ -244,8 +245,8 @@ def test_versions() -> None:
     document d'admission, premier format 3, cinquième type de document (puis les
     fourchettes du format 4, M4d-2, la sensibilité du format 5, M4d-3, et les types
     du format 6, OG-2)."""
-    assert REGISTRY_FORMAT_VERSION == 6
-    assert REGISTRY_READABLE_FORMATS == (1, 2, 3, 4, 5, 6)
+    assert REGISTRY_FORMAT_VERSION == 7
+    assert REGISTRY_READABLE_FORMATS == (1, 2, 3, 4, 5, 6, 7)
     assert ADMISSION_FIRST_FORMAT == 3
     assert dict(DOCUMENT_FIRST_FORMAT) == {
         OutingObservation: 1,
@@ -259,6 +260,7 @@ def test_versions() -> None:
         FrozenCurve: 6,
         AbsentCurve: 6,
         CalibrationTerms: 6,
+        LayeredRollingRule: 7,
     }
     assert DOCUMENT_TYPES[4] is Admission
     assert DOCUMENT_FIRST_FORMAT[Admission] == ADMISSION_FIRST_FORMAT
@@ -370,7 +372,7 @@ def test_append_follows_format_2(tmp_path: Path, experiment: bool) -> None:
         recorded_at=at(3),
     )
     log = verify_registry(root)
-    assert [event.format_version for event in log.events] == [2, 2, 6, 6]
+    assert [event.format_version for event in log.events] == [2, 2, 7, 7]
     assert count_trials(log).declarations == 2
     assert load_outcomes(root, log, 2) == _outcomes(ModelKind.V0_RECALIBRATED)
     assert load_outcomes(root, log, 4) == written
@@ -559,7 +561,7 @@ def test_append_declaration_requires_reference_documents(tmp_path: Path) -> None
     [
         (
             "null",
-            "evenements.jsonl, ligne 1 : une expérience du format 6 fige les "
+            "evenements.jsonl, ligne 1 : une expérience du format 7 fige les "
             "documents D8 de ses références (E6)",
         ),
         (
@@ -602,7 +604,7 @@ def test_format_3_experiment_with_reference_documents_is_read(tmp_path: Path) ->
         {"route_id": "r1", "reference": D8_SHA}
     ]
     log = verify_registry(root)
-    assert log.events[0].format_version == 6
+    assert log.events[0].format_version == 7
     assert log.events[0].declaration == written
 
 
@@ -664,7 +666,7 @@ def test_experiment_result_is_read_back_at_bit(tmp_path: Path) -> None:
     compris."""
     root = _experiment_registry(tmp_path)
     log = verify_registry(root)
-    assert [event.format_version for event in log.events] == [6, 6]
+    assert [event.format_version for event in log.events] == [7, 7]
     result = log.events[1].result
     assert result is not None
     sha = content_hash(encode_document(_admission()))
@@ -675,7 +677,7 @@ def test_experiment_result_is_read_back_at_bit(tmp_path: Path) -> None:
     assert load_references(root, log, 2) == references()
     data = (root / DOCUMENTS_DIR / f"{sha}{DOCUMENT_SUFFIX}").read_bytes()
     assert decode_document(data, Admission) == _admission()
-    assert decode_document(data, Admission, 6) == _admission()
+    assert decode_document(data, Admission, 7) == _admission()
 
 
 def test_admission_document_must_be_stored(tmp_path: Path) -> None:

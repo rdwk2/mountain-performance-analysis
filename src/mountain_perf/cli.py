@@ -104,6 +104,7 @@ from mountain_perf.backtest.rolling import (
 )
 from mountain_perf.config import ConfigError, data_dir
 from mountain_perf.demo.constantes import CHARACTER_NAMES
+from mountain_perf.estimation.decision import LAYERED
 from mountain_perf.estimation.origin import (
     ALL_PAST,
     DEFAULT_WINDOW_DAYS,
@@ -213,6 +214,7 @@ from mountain_perf.schemas import (
     RegimeClass,
     RegistryEvent,
     RepeatabilityReference,
+    RollingDeclaration,
     RouteProfile,
     Scenario,
     ScenarioScores,
@@ -2974,7 +2976,17 @@ cible, D6)."""
 SHARE_SCOPE_LABELS = {ShareScope.USAGE: "usage", ShareScope.CONTROL: "contrôle"}
 
 
-def _window_label(window: int | None) -> str:
+def _rule_label(rolling: RollingDeclaration) -> str:
+    """Le libellé d'une règle de la commande glissante, lu sur sa DÉCLARATION : « tout
+    le passé », « {n} jours », ou, pour la règle en couches (M6b-3), « en couches
+    (forme {n} jours, niveau {m} jours, κ = {κ}) »."""
+    level, kappa = rolling.level_window_days, rolling.level_kappa
+    if level is not None and kappa is not None:
+        return (
+            f"en couches (forme {rolling.window_days} jours, niveau {level} jours, "
+            f"κ = {f'{kappa:g}'.replace('.', ',')})"
+        )
+    window = rolling.window_days
     return "tout le passé" if window is None else f"{window} jours"
 
 
@@ -2996,7 +3008,7 @@ def _rolling_provenance(
     rolling = declaration.rolling
     assert rolling is not None  # appelant
     return [
-        f"{'courbe':<13}mode glissant, fenêtre {_window_label(rolling.window_days)} ; "
+        f"{'courbe':<13}mode glissant, fenêtre {_rule_label(rolling)} ; "
         f"document de règle sha256 {rule_sha[:8]}… ; s {rolling.covered_threshold:g}, "
         f"repère {rolling.beyond_marker:g} ; seuils de support {threshold:g} min "
         f"(règle), {reading:g} min (lecture, paramètre de v0) ; tolérance de "
@@ -3404,7 +3416,7 @@ def _comparison_report(
     rule_threshold = (
         windows[0].evaluation.window.curves[0].estimate.support_threshold_min
     )
-    labels = [_window_label(r.window_days) for r in rollings]
+    labels = [_rule_label(r) for r in rollings]
     lines = [f"{'comparaison':<13}les fenêtres de la commande, lues sur v0 brut"]
     for label, window in zip(labels, windows, strict=True):
         declared = window.evaluation.declaration_event
@@ -3471,7 +3483,14 @@ def _comparison_report(
             else MDE_TEXT.format(mde=mde, n=n)
         )
     )
-    all_index = next((k for k, r in enumerate(rollings) if r.window_days is None), None)
+    all_index = next(
+        (
+            k
+            for k, r in enumerate(rollings)
+            if r.window_days is None and r.level_window_days is None
+        ),
+        None,
+    )
     metrics: list[tuple[str, tuple[ReportMetric, RegimeClass | None]]] = [
         ("|L|", (ReportMetric.ABS_LEVEL, None)),
         *(
@@ -3613,8 +3632,8 @@ def _rolling_report_name(number: int) -> str:
 
 
 ROLLING_WINDOWS_ERROR = (
-    "--rolling : une liste de fenêtres attendue (des jours ≥ 1 ou all, distincts), "
-    "reçu {text!r}."
+    "--rolling : une liste de fenêtres attendue (des jours ≥ 1, all ou layered, "
+    "distincts), reçu {text!r}."
 )
 """Le refus d'une liste de fenêtres mal formée (OG-2, D-OG2-3)."""
 
@@ -3643,12 +3662,15 @@ class _ReportNotWrittenError(Exception):
 
 
 def _rolling_windows(text: str) -> tuple[OriginWindow, ...]:
-    """La liste de ``--rolling`` : des entiers ``>= 1`` ou ``all``, séparés par des
-    virgules, distincts, dans l'ordre donné (D-OG2-3)."""
+    """La liste de ``--rolling`` : des entiers ``>= 1``, ``all`` ou ``layered`` (la
+    règle en couches, M6b-3), séparés par des virgules, distincts, dans l'ordre donné
+    (D-OG2-3)."""
     windows: list[OriginWindow] = []
     for item in text.split(","):
         if item == ALL_PAST:
             window: OriginWindow = ALL_PAST
+        elif item == LAYERED:
+            window = LAYERED
         elif re.fullmatch(CURVE_WINDOW_PATTERN, item):
             window = int(item)
         else:
@@ -4427,13 +4449,17 @@ def _now() -> datetime:
 
 
 def _window_argument(text: str) -> OriginWindow:
-    """La valeur de ``--window`` : ``all``, ou un entier qui correspond en entier à
-    :data:`CURVE_WINDOW_PATTERN` ; argparse sort sinon en code 2."""
+    """La valeur de ``--window`` : ``all``, ``layered`` (la règle en couches, M6b-3),
+    ou un entier qui correspond en entier à :data:`CURVE_WINDOW_PATTERN` ; argparse
+    sort sinon en code 2."""
     if text == ALL_PAST:
         return ALL_PAST
+    if text == LAYERED:
+        return LAYERED
     if re.fullmatch(CURVE_WINDOW_PATTERN, text) is None:
         raise argparse.ArgumentTypeError(
-            f"fenêtre invalide {text!r} : un nombre entier de jours, au moins 1, ou all"
+            f"fenêtre invalide {text!r} : un nombre entier de jours, au moins 1, all "
+            "ou layered"
         )
     return int(text)
 
@@ -4870,9 +4896,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     project_parser.add_argument(
         "--window",
         type=_window_argument,
-        metavar="JOURS|all",
+        metavar="JOURS|all|layered",
         help=(
-            "Fenêtre de la courbe à l'origine, en jours ou all (défaut 56 ; avec --at)"
+            "Fenêtre de la courbe à l'origine, en jours, all ou layered (la règle en "
+            "couches) (défaut 56 ; avec --at)"
         ),
     )
     for option, parameter in _PROJECTION_OPTIONS.items():
@@ -4917,7 +4944,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         type=_rolling_windows,
         metavar="W[,W…]",
         help=(
-            "Le backtest glissant (OG-2) : les fenêtres, en jours ou all, une "
+            "Le backtest glissant (OG-2) : les fenêtres, en jours, all ou layered, une "
             "DÉCLARATION par fenêtre"
         ),
     )
@@ -5024,9 +5051,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     curve_parser.add_argument(
         "--window",
         type=_window_argument,
-        metavar="JOURS|all",
+        metavar="JOURS|all|layered",
         help=(
-            "Fenêtre de la règle à l'origine, en jours ou all (défaut 56 ; avec --at)"
+            "Fenêtre de la règle à l'origine, en jours, all ou layered (la règle en "
+            "couches) (défaut 56 ; avec --at)"
         ),
     )
     curve_parser.add_argument(
