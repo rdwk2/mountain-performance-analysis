@@ -161,7 +161,8 @@ dans [les pages des commandes](docs/commandes/README.md).
   (AN3-1a), les outils d'inférence (AN3-1), les positions des bornes de chaque
   montée et la demi-heure de FC la plus basse du jour (AN3-3a), le code de Q2, sa
   puissance et ses essais (AN3-3b), sa page (AN3-5). AN4 (les tableaux de bord)
-  commencée : la Fenêtre commune des pages de la piste (AN4-1).
+  commencée : la Fenêtre commune des pages de la piste (AN4-1), la bibliothèque du
+  modèle de la montée, sans page encore (AN4-2a).
 
 Le détail, jalon par jalon : [`docs/ROADMAP.md`](docs/ROADMAP.md).
 

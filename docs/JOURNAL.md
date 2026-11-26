@@ -24,6 +24,58 @@ des niveaux par activité (`estimation/levels.py`, `docs/decisions/0025`), dans
 les pages. Le défaut reste 56 jours. La suite : une exécution comparée des courses
 passées sous 56 jours et sous `layered`, puis la décision du défaut par rdw.
 
+### 2026-11-24 · AN4-2a, les correctifs de la relecture
+Après la vérification de la PR par la conception, le balayage mutmut et la relecture
+d'une C : aucun défaut de calcul, aucun changement sous `src/`. Des tests : S10 (un motif
+compté deux fois), S11 (`session_count` absent), S12 (le jour local de la sortie, à
++02:00, +14:00 et −12:00) ; T7 (les degrés de `s²_e` à `q = 3`), T13 (λ sort du plan,
+l'intervalle de `rho` au rang du plan réduit), T14 (`g` non estimé), T15 (`G = 10`),
+T16 (une colonne de deux sorties), T18 (« non séparable » sur β ou sur `g` seul), T19
+(seule `InferenceError` est rattrapée) ; W16 à W21 (une Fenêtre qui finit avant
+l'histoire, `τ(w)` à la longueur de la Fenêtre et depuis le dernier jour des données, `g`
+non emprunté, l'ordre des états, le premier oui de β et `g` de la Fenêtre, `τ(w)` nul),
+W10 (l'intervalle à `Z`) ; J14 (les moyennes de `daily_level` sur la fenêtre du
+lissage) ; K7 (le niveau de `cr2_interval`). Deux règles de l'étage 1 écrites dans
+`0024` ; trois lignes au `BACKLOG`. Vérifié : ruff, mypy et les tests du commit avant
+chaque commit ; avant le dernier, `just check` en une passe (`just lint`, `just types`,
+puis pytest avec tous les extras, en douze lots parallèles de fichiers ; six tests de
+temps ou de sous-processus rouges dans les lots, verts rejoués seuls), sous Windows :
+vert, N = 12 659 (réussis et sautés). Les 28 contre-épreuves F46 à F72 et F57 bis, en
+worktrees détachés : toutes tuées, par une assertion ; F57, F57 bis et F72 par l'échec de
+`pytest.raises` (DID NOT RAISE) ; F51 par T14, par l'exception du code (`ValueError` de
+`kept.index`), contraire au § 4.1 du brief. Le lanceur des lots coupé par Claude Code
+(« mémoire basse », à tort), quatre lots emportés avec lui et relancés.
+Conclusion : la bibliothèque est tenue par ses tests jusqu'aux bornes que la relecture a
+nommées. Rangé dans `tests/test_analyse_ascent_*.py`,
+`tests/test_analyse_inference_clusters.py`, `docs/decisions/0024-modele-de-la-montee.md`,
+branche `an4/montee`.
+
+### 2026-11-23 · AN4-2a, la bibliothèque du modèle de la montée
+Le paquet `analyse/ascent/`, Python pur, sans numpy, sans page : la sélection des
+montées (six motifs dans leur ordre, l'appareil et le journal marqués), les références
+de l'année écoulée, l'étage 1 en deux temps (MCO centrés par sortie, covariance CR2 et
+degrés de Bell-McCaffrey, puis le REML à trois composantes des résumés de sortie), la
+vitesse habituelle `τ`, l'étage 3 (le niveau du jour, gelé à la dernière sortie),
+l'étage 2 (la Fenêtre, sa tendance, son échelle, β et `g` mêlés à l'histoire, la courbe
+de G2) et les états. Dans `inference/clusters.py`, deux fonctions ajoutées
+(`bell_mccaffrey_df`, `cr2_interval`), rien de changé. La décision `0024` et les textes
+(annexe D du brief, refaite contre `main` après la fusion de la #58, qui s'est faite sans
+conflit). Précisions de la conception au plan : β ou `g` non estimé rend « données
+insuffisantes » (T7 ter, F45) ; `Band` défini dans `daily.py`, réexporté par
+`window_fit.py`. Les valeurs du monde E et les cas à la main du brief, toutes dans leurs
+tolérances. Vérifié : ruff, mypy et les tests du commit avant chaque commit ; avant le
+dernier, `just check` en une passe (`just lint`, `just types`, puis pytest avec tous les
+extras, en douze lots parallèles de fichiers ; cinq tests de temps rouges sous la charge,
+verts rejoués seuls), sous Windows : vert, N = 12 640 (réussis et sautés). Les 45
+contre-épreuves, en worktrees détachés : toutes tuées ; F33 a demandé un test de plus
+(W15 bis, une histoire de plus d'un an). Trois passes complètes perdues : une coupée par
+Claude Code, deux ratées (un défaut du script de lots, puis le disque C: plein). Deux
+lignes au `BACKLOG`.
+Conclusion : la bibliothèque du modèle de la montée est prête pour la page d'AN4-2b.
+Rangé dans `src/mountain_perf/analyse/ascent/`,
+`src/mountain_perf/analyse/inference/clusters.py`,
+`docs/decisions/0024-modele-de-la-montee.md`, branche `an4/montee`.
+
 ### 2026-11-23 · docs — Les noms des jalons, et quatre lignes du BACKLOG
 Les titres des PR : `M<n>-<k>` dans des chantiers ouverts (M5 à M9), l'origine glissante
 rattachée à M6b, `docs — …` hors chantier (`CLAUDE.md`, règle 8 ; `docs/ROADMAP.md`,

@@ -394,7 +394,8 @@ src/mountain_perf/     le code de la bibliothèque
                        AN3-3b) ; reml.py (covariance à trois
                        composantes) ; readings.py (Holm, Bonferroni, lectures) ;
                        autocorrelation.py ; clusters.py (CR2, bootstrap sauvage par
-                       grappes) ; bootstrap.py (paramétrique, résidus, max-t) ;
+                       grappes ; ddl de Bell-McCaffrey, intervalle CR2, AN4-2a) ;
+                       bootstrap.py (paramétrique, résidus, max-t) ;
                        robust.py (Huber) ; spline.py ; power.py (puissance, seuil
                        calibré)
     q2/                le code de Q2, Python pur, sans numpy (AN3-3b, `0023`) :
@@ -404,6 +405,13 @@ src/mountain_perf/     le code de la bibliothèque
                        power.py (simulation de puissance) ; trials.py (les 24
                        essais) ; figure.py ; results.py (flux, dossiers, essais.jsonl,
                        relecture)
+    ascent/            le modèle de la montée des tableaux de bord, Python pur, sans
+                       numpy (AN4-2a, `0024`) : parameters.py ; states.py (états,
+                       Unavailable) ; selection.py (montées gardées, motifs) ;
+                       references.py (FC, altitude, D+ de référence) ; structure.py
+                       (étage 1, en deux temps) ; speed.py (vitesse habituelle τ) ;
+                       daily.py (étage 3, le jour) ; window_fit.py (étage 2, la
+                       Fenêtre, la tendance, l'échelle, la courbe de G2)
   ui/                  interface — appelle la bibliothèque, ne calcule rien (M5) ;
                        extra tableau, seul importeur de streamlit (0016)
     app.py             point d'entrée ; PAGES, une ligne par page
