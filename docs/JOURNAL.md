@@ -16,6 +16,32 @@ Backtest (à partir de M4) : métrique avant → après.
 
 ---
 
+### 2026-11-26 · M6b-3, les correctifs de la relecture
+`main` fusionné dans la branche (la #59, AN4-2a) : deux conflits, `docs/README.md` (`0024`
+puis `0025`) et `docs/JOURNAL.md` (toutes les entrées gardées). Aucun changement sous
+`src/`. Des tests : T1 (une activité écartée par la sélection, sans intervalle retenu ou
+trop courte, hors de l'ajustement) ; T2 (l'accord : la condition R sur une forme de 300
+jours, trois branches de 2 ter) ; T3 (la couche sans correction garde sa fenêtre, son κ et
+sa borne) ; T4 (les tranches 0 et 37) ; T5 (une correction sans quantiles de niveau) ; T6
+(R1 et R7 sous « médiane », le seuil de la médiane franchi) ; T7 (les invariants de
+`LevelLayer`, `_check_level`, `RollingDeclaration` et du format 7) ; T8 (une cellule de
+0,5 s de temps M dans `activity_bins`) ; trois noms de tests corrigés. `0025` dit la
+confirmation E7 ; cinq lignes au `BACKLOG`. Vérifié : ruff, mypy et les tests touchés à
+chaque commit ; les 20 contre-épreuves de la consigne, une à une dans un worktree détaché :
+toutes rouges (par une assertion, un `pytest.raises` qui ne lève pas, ou l'exception
+attendue : `ContractError` sous `b1_k0` et `b1_k37`, `AttributeError` sous
+`b3_level_none`, `ValueError` de `zip` sous `a_length`), l'arbre propre après chacune ;
+avant le dernier commit, `just check` en une passe sous Windows (`just lint`, `just
+types`, puis pytest avec tous les extras en dix lots parallèles de fichiers ; six tests
+de temps ou de pool de processus rouges sous la charge, verts rejoués seuls) : vert,
+N = 12 741 (réussis et sautés). Une première passe coupée par Claude Code (« mémoire
+basse », à tort), relancée hors de lui.
+Conclusion : la règle en couches est tenue par ses tests aux points que la relecture a
+nommés. Rangé dans `tests/test_m6b3_rule.py`, `tests/test_m6b3_rolling.py`,
+`tests/test_og2_contracts.py`, `tests/test_estimation_levels.py`,
+`tests/test_estimation_curve.py`, `docs/decisions/0025-courbe-en-couches.md`, branche
+`m6b-3/courbe-en-couches`.
+
 ### 2026-11-24 · M6b-3 — La courbe en couches : la couche 1
 Une règle de plus à l'origine, `layered` : la courbe de 365 jours dont les vitesses sont
 multipliées par `exp(−½ Δ)`, `Δ` l'écart des 56 derniers jours tiré d'un ajustement joint

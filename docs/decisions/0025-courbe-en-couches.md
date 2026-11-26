@@ -110,8 +110,15 @@ de tout le passé chez 143 coureurs neufs **sous la forme de tout le passé** (�
 [−0,0075 ; −0,0014] sur `|L|`). Sous la forme d'un an (`DF(365 ; ½)`), il est mesuré sur
 des coureurs déjà vus (−0,0029 et −0,0047 contre la courbe d'un an), et lu après coup,
 sans déclaration, sur 133 coureurs neufs (−0,0027 [−0,0050 ; −0,0004]) : une description,
-pas une confirmation. Une session de confirmation sur des coureurs neufs est proposée à
-rdw, hors de cette décision.
+pas une confirmation. Une session de confirmation (« E7 »), déclarée d'avance, a jugé
+depuis `DF(365 ; ½)` sur 290 coureurs neufs, avec la définition que ce logiciel code :
+contre la courbe d'un an, −0,0040 [−0,0060 ; −0,0023] sur `|L|`, **confirmé** ; contre le
+niveau à mi-chemin sous la forme de tout le passé, +0,0023 [−0,0006 ; +0,0057] : « pas
+pire » (à +0,003 près) **non établi** (après lecture : la même erreur en médiane, l'écart
+moyen porté par quelques coureurs ; moins bon que lui à 4 à 7 sorties dans les 56 jours et
+au premier passage, des descriptions). À 16 sorties et plus dans les 56 jours, toutes les
+prévisions du banc sont de 1,6 à 3,1 % trop lentes, celles du niveau à mi-chemin comprises
+(une description).
 
 ## Conséquences
 
